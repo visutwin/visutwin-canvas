@@ -30,8 +30,12 @@ namespace visutwin::canvas
 
         VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
         bufferInfo.size = bufferSize;
+        // Also INDIRECT (a compute kernel writes draw arguments into one, as the GPU
+        // instance culler does) and TRANSFER_SRC (read() copies out of it).
         bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
             VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
         VmaAllocationCreateInfo allocInfo{};
@@ -88,82 +92,61 @@ namespace visutwin::canvas
     {
         if (_storage.empty() || !_allocator || !_buffer || size == 0 || offset + size > _storage.size()) return;
 
-        auto* vkDev = static_cast<VulkanGraphicsDevice*>(_device);
-        const size_t dataSize = size;
+        // Read as vertex attributes, and as storage by compute and storage draws.
+        vulkanEnqueueBufferUpload(*static_cast<VulkanGraphicsDevice*>(_device), _allocator, _buffer, offset,
+            _storage.data() + offset, size,
+            VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+            "VulkanVertexBuffer");
+    }
 
-        // Create staging buffer
-        VkBuffer stagingBuffer;
-        VmaAllocation stagingAlloc;
-
-        VkBufferCreateInfo stagingInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-        stagingInfo.size = dataSize;
-        stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-
-        VmaAllocationCreateInfo stagingAllocInfo{};
-        stagingAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-
-        if (vmaCreateBuffer(_allocator, &stagingInfo, &stagingAllocInfo,
-                &stagingBuffer, &stagingAlloc, nullptr) != VK_SUCCESS) {
-            spdlog::error("VulkanVertexBuffer: staging allocation failed");
-            return;
+    bool VulkanVertexBuffer::read(const size_t offset, const size_t size, void* out)
+    {
+        auto* device = static_cast<VulkanGraphicsDevice*>(_device);
+        if (_buffer == VK_NULL_HANDLE || !out || size == 0 || offset + size > static_cast<size_t>(numBytes())) {
+            return false;
         }
-
-        void* mapped;
-        if (vmaMapMemory(_allocator, stagingAlloc, &mapped) != VK_SUCCESS) {
-            spdlog::error("VulkanVertexBuffer: staging map failed");
-            vmaDestroyBuffer(_allocator, stagingBuffer, stagingAlloc);
-            return;
+        if (device->recording()) {
+            // As VulkanTexture::read: the work that wrote the buffer may sit in a command
+            // buffer not yet submitted, which a one-shot copy would run ahead of.
+            spdlog::error("VulkanVertexBuffer::read: cannot read back while a frame or an "
+                "offline scope is recording — close it first");
+            return false;
         }
-        memcpy(mapped, _storage.data() + offset, dataSize);
-        vmaUnmapMemory(_allocator, stagingAlloc);
+        // Queued uploads and compute dispatches go first, so the copy is ordered behind them.
+        device->flushUploads();
 
-        const VkBuffer destinationBuffer = _buffer;
-        vkDev->enqueueUpload([destinationBuffer, stagingBuffer, dataSize, offset](VkCommandBuffer cmd) {
-            // Pipeline barriers order queue-wide in submission order: the
-            // pre-barrier makes already-submitted frames finish reading the
-            // buffer before the copy overwrites it; the post-barrier orders
-            // the copy against subsequent vertex reads.
-            VkBufferMemoryBarrier2 pre{
-                VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-            pre.srcStageMask =
-                VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT |
-                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            pre.srcAccessMask =
-                VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT |
-                VK_ACCESS_2_SHADER_READ_BIT |
-                VK_ACCESS_2_SHADER_WRITE_BIT;
-            pre.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-            pre.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-            pre.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            pre.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            pre.buffer = destinationBuffer;
-            pre.size = VK_WHOLE_SIZE;
-            VkDependencyInfo dependency{
-                VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-            dependency.bufferMemoryBarrierCount = 1;
-            dependency.pBufferMemoryBarriers = &pre;
+        VkBuffer staging = VK_NULL_HANDLE;
+        VmaAllocation allocation = nullptr;
+        VmaAllocationInfo mapped{};
+        if (!vulkanCreateReadbackBuffer(_allocator, size, staging, allocation, &mapped)) {
+            spdlog::error("VulkanVertexBuffer::read: failed to allocate a {}-byte staging buffer", size);
+            return false;
+        }
+        const VkBuffer source = _buffer;
+        const bool submitted = device->runOneShotCommands([&](VkCommandBuffer cmd) {
+            VkMemoryBarrier2 before{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+            before.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            before.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+            before.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+            before.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+            VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+            dependency.memoryBarrierCount = 1;
+            dependency.pMemoryBarriers = &before;
             vkCmdPipelineBarrier2(cmd, &dependency);
 
             VkBufferCopy copy{};
-            copy.dstOffset = offset;
-            copy.size = dataSize;
-            vkCmdCopyBuffer(cmd, stagingBuffer, destinationBuffer, 1, &copy);
-
-            VkBufferMemoryBarrier2 post = pre;
-            post.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-            post.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-            post.dstStageMask =
-                VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT |
-                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            post.dstAccessMask =
-                VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT |
-                VK_ACCESS_2_SHADER_READ_BIT |
-                VK_ACCESS_2_SHADER_WRITE_BIT;
-            dependency.pBufferMemoryBarriers = &post;
-            vkCmdPipelineBarrier2(cmd, &dependency);
-        }, [allocator = _allocator, stagingBuffer, stagingAlloc] {
-            vmaDestroyBuffer(allocator, stagingBuffer, stagingAlloc);
+            copy.srcOffset = offset;
+            copy.size = size;
+            vkCmdCopyBuffer(cmd, source, staging, 1, &copy);
+            vulkanRecordCopyToHostBarrier(cmd);
         });
+        if (submitted) {
+            vmaInvalidateAllocation(_allocator, allocation, 0, size);
+            std::memcpy(out, mapped.pMappedData, size);
+        }
+        vmaDestroyBuffer(_allocator, staging, allocation);
+        return submitted;
     }
 }
 

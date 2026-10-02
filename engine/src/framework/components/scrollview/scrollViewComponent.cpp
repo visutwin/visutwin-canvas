@@ -49,9 +49,6 @@ namespace visutwin::canvas
         // Everything the view refers to may outlive it.
         for (Binding* binding : {&_self, &_viewport, &_content, &_scrollbars[0], &_scrollbars[1]}) {
             unbind(*binding);
-            if (binding->destroyed) {
-                binding->destroyed->off();
-            }
         }
     }
 
@@ -145,13 +142,10 @@ namespace visutwin::canvas
             return;
         }
         unbind(binding);
-        if (binding.destroyed) {
-            binding.destroyed->off();
-            binding.destroyed.reset();
-        }
+        binding.destroyed.reset();
         binding.entity = entity;
         if (entity && &binding != &_self) {
-            binding.destroyed = entity->on("destroy", [this, &binding]() {
+            binding.destroyed.watch(entity, [this, &binding] {
                 unbind(binding);
                 binding.entity = nullptr;
             });

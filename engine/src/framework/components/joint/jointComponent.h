@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "framework/destroyWatch.h"
 #include "core/eventHandler.h"
 #include "core/math/vector3.h"
 #include "framework/components/component.h"
@@ -98,7 +99,7 @@ namespace visutwin::canvas
     private:
         void markStale() { _stale = true; }
         void dropJoint();
-        void watchEnd(Entity* entity, EventHandlePtr& handle, bool isA);
+        void watchEnd(Entity* entity, DestroyWatch& watch, bool isA);
 
         inline static ComponentInstanceList<JointComponent> _instanceList;
 
@@ -128,8 +129,8 @@ namespace visutwin::canvas
         // An end's entity was destroyed: the joint is gone and stays gone until an
         // end is set again, rather than silently re-pinning that end to the world.
         bool _endDestroyed = false;
-        EventHandlePtr _entityADestroyed;
-        EventHandlePtr _entityBDestroyed;
+        DestroyWatch _entityADestroyed;
+        DestroyWatch _entityBDestroyed;
         std::function<void()> _onBreak;
     };
 }

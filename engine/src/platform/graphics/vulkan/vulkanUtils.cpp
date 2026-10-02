@@ -7,6 +7,8 @@
 #ifdef VISUTWIN_HAS_VULKAN
 
 #include "vulkanUtils.h"
+
+#include <cstring>
 #include "vulkanGraphicsDevice.h"
 
 #include "spdlog/spdlog.h"
@@ -428,6 +430,102 @@ namespace visutwin::canvas
         return format == VK_FORMAT_D16_UNORM_S8_UINT ||
                format == VK_FORMAT_D24_UNORM_S8_UINT ||
                format == VK_FORMAT_D32_SFLOAT_S8_UINT;
+    }
+
+    bool vulkanCreateReadbackBuffer(VmaAllocator allocator, const VkDeviceSize size, VkBuffer& buffer,
+        VmaAllocation& allocation, VmaAllocationInfo* mapped)
+    {
+        VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        bufferInfo.size = size;
+        bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VmaAllocationCreateInfo allocationInfo{};
+        allocationInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+        allocationInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        if (vmaCreateBuffer(allocator, &bufferInfo, &allocationInfo, &buffer, &allocation, mapped) != VK_SUCCESS) {
+            buffer = VK_NULL_HANDLE;
+            allocation = VK_NULL_HANDLE;
+            return false;
+        }
+        return true;
+    }
+
+    void vulkanRecordCopyToHostBarrier(VkCommandBuffer cmd)
+    {
+        VkMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+        barrier.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+        barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        barrier.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+        barrier.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+        VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dependency.memoryBarrierCount = 1;
+        dependency.pMemoryBarriers = &barrier;
+        vkCmdPipelineBarrier2(cmd, &dependency);
+    }
+
+    bool vulkanEnqueueBufferUpload(VulkanGraphicsDevice& device, VmaAllocator allocator, VkBuffer destination,
+        const VkDeviceSize destinationOffset, const void* data, const size_t size,
+        const VkPipelineStageFlags2 consumerStages, const VkAccessFlags2 consumerAccess, const char* owner)
+    {
+        VkBufferCreateInfo stagingInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        stagingInfo.size = size;
+        stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+
+        VmaAllocationCreateInfo stagingAllocInfo{};
+        stagingAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+
+        VkBuffer stagingBuffer = VK_NULL_HANDLE;
+        VmaAllocation stagingAlloc = VK_NULL_HANDLE;
+        if (vmaCreateBuffer(allocator, &stagingInfo, &stagingAllocInfo,
+                &stagingBuffer, &stagingAlloc, nullptr) != VK_SUCCESS) {
+            spdlog::error("{}: staging allocation failed", owner);
+            return false;
+        }
+
+        void* mapped = nullptr;
+        if (vmaMapMemory(allocator, stagingAlloc, &mapped) != VK_SUCCESS) {
+            spdlog::error("{}: staging map failed", owner);
+            vmaDestroyBuffer(allocator, stagingBuffer, stagingAlloc);
+            return false;
+        }
+        std::memcpy(mapped, data, size);
+        vmaUnmapMemory(allocator, stagingAlloc);
+
+        device.enqueueUpload([destination, stagingBuffer, size, destinationOffset, consumerStages, consumerAccess](
+                VkCommandBuffer cmd) {
+            // Pipeline barriers order queue-wide in submission order: the pre-barrier
+            // makes already-submitted frames finish with the buffer before the copy
+            // overwrites it; the post-barrier orders the copy against later use.
+            VkBufferMemoryBarrier2 pre{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+            pre.srcStageMask = consumerStages;
+            pre.srcAccessMask = consumerAccess;
+            pre.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            pre.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            pre.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            pre.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            pre.buffer = destination;
+            pre.size = VK_WHOLE_SIZE;
+            VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+            dependency.bufferMemoryBarrierCount = 1;
+            dependency.pBufferMemoryBarriers = &pre;
+            vkCmdPipelineBarrier2(cmd, &dependency);
+
+            VkBufferCopy copy{};
+            copy.dstOffset = destinationOffset;
+            copy.size = size;
+            vkCmdCopyBuffer(cmd, stagingBuffer, destination, 1, &copy);
+
+            VkBufferMemoryBarrier2 post = pre;
+            post.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            post.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            post.dstStageMask = consumerStages;
+            post.dstAccessMask = consumerAccess;
+            dependency.pBufferMemoryBarriers = &post;
+            vkCmdPipelineBarrier2(cmd, &dependency);
+        }, [allocator, stagingBuffer, stagingAlloc] {
+            vmaDestroyBuffer(allocator, stagingBuffer, stagingAlloc);
+        });
+        return true;
     }
 }
 

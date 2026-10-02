@@ -152,7 +152,7 @@ namespace visutwin::canvas
 
         addLayerToCamera();
         if (_camera && _camera->entity()) {
-            _cameraDestroyed = _camera->entity()->on("destroy", [this]() { _camera = nullptr; });
+            _cameraDestroyed.watch(_camera->entity(), [this] { _camera = nullptr; });
         }
 
         auto root = std::make_unique<Entity>();
@@ -250,14 +250,11 @@ namespace visutwin::canvas
             return;
         }
         removeLayerFromCamera();
-        if (_cameraDestroyed) {
-            _cameraDestroyed->off();
-            _cameraDestroyed.reset();
-        }
+        _cameraDestroyed.reset();
         _camera = camera;
         addLayerToCamera();
         if (_camera && _camera->entity()) {
-            _cameraDestroyed = _camera->entity()->on("destroy", [this]() { _camera = nullptr; });
+            _cameraDestroyed.watch(_camera->entity(), [this] { _camera = nullptr; });
         }
         setEnabled(true);
     }
@@ -606,10 +603,7 @@ namespace visutwin::canvas
             handle->off();
         }
         _handles.clear();
-        if (_cameraDestroyed) {
-            _cameraDestroyed->off();
-            _cameraDestroyed.reset();
-        }
+        _cameraDestroyed.reset();
         if (_captured) {
             SDL_CaptureMouse(false);
             _captured = false;

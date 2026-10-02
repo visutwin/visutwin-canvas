@@ -38,6 +38,7 @@
 #include <optional>
 #include <vector>
 
+#include "framework/destroyWatch.h"
 #include "core/math/vector2.h"
 #include "core/math/vector3.h"
 #include "framework/components/component.h"
@@ -137,7 +138,7 @@ namespace visutwin::canvas
         struct Binding
         {
             Entity* entity = nullptr;
-            EventHandlePtr destroyed;
+            DestroyWatch destroyed;
             ElementComponent* element = nullptr;
             ScrollbarComponent* scrollbar = nullptr;
             std::vector<EventHandlePtr> handles;

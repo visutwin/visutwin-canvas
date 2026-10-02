@@ -26,7 +26,6 @@ MODULES = (
     ("ShadowFrag", "shadow.frag", "frag"),
     ("PostFullscreenVert", "post_fullscreen.vert", "vert"),
     ("EnvReprojectFrag", "env_reproject.frag", "frag"),
-    ("InstanceCullComp", "instance_cull.comp", "comp"),
     ("ParticleVert", "particle.vert", "vert"),
     ("ParticleFrag", "particle.frag", "frag"),
     ("GSplatVert", "gsplat.vert", "vert"),
@@ -129,19 +128,6 @@ def push_constant_size(reflection: dict) -> int:
 
 def validate(module: str, reflection: dict) -> None:
     bindings = resources(reflection)
-    if module == "InstanceCullComp":
-        expected = [
-            (0, 0, "StorageBuffer", 0),
-            (0, 1, "StorageBuffer", 0),
-            (0, 2, "StorageBuffer", 20),
-        ]
-        if bindings != expected or push_constant_size(reflection) != 128:
-            raise RuntimeError(
-                f"{module}: reflected layout mismatch: "
-                f"bindings={bindings}, push={push_constant_size(reflection)}"
-            )
-        return
-        return
     if module == "ParticleVert":
         # The pool, its draw order, a mesh emitter's vertices, and GpuParticleRenderParams
         # (graphicsDevice.h).

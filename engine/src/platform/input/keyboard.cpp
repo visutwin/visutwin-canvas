@@ -5,20 +5,10 @@
 //
 #include "keyboard.h"
 
+#include "platform/input/sdlInputMapping.h"
+
 namespace visutwin::canvas
 {
-    namespace
-    {
-        KeyModifiers modifiersOf(const SDL_Keymod mod)
-        {
-            return KeyModifiers{
-                .shift = (mod & SDL_KMOD_SHIFT) != 0,
-                .control = (mod & SDL_KMOD_CTRL) != 0,
-                .alt = (mod & SDL_KMOD_ALT) != 0,
-                .meta = (mod & SDL_KMOD_GUI) != 0,
-            };
-        }
-    }
 
     void Keyboard::handleEvent(const SDL_Event& event)
     {
@@ -38,7 +28,7 @@ namespace visutwin::canvas
                 // above it they are named keys (arrows, function keys) with none.
                 .character = event.key.key < SDLK_SCANCODE_MASK ? event.key.key : 0u,
                 .repeat = event.key.repeat,
-                .modifiers = modifiersOf(event.key.mod),
+                .modifiers = keyModifiersFromSdl(event.key.mod),
             });
             break;
         }
@@ -51,7 +41,7 @@ namespace visutwin::canvas
                 .key = static_cast<Key>(scancode),
                 .character = event.key.key < SDLK_SCANCODE_MASK ? event.key.key : 0u,
                 .repeat = false,
-                .modifiers = modifiersOf(event.key.mod),
+                .modifiers = keyModifiersFromSdl(event.key.mod),
             });
             break;
         }

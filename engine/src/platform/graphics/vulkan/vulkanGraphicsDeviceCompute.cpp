@@ -16,7 +16,6 @@
 #include <SDL3/SDL_vulkan.h>
 
 #include "vulkanIndexBuffer.h"
-#include "vulkanInstanceCullPass.h"
 #include "vulkanRenderPipeline.h"
 #include "vulkanRenderTarget.h"
 #include "vulkanShader.h"
@@ -263,8 +262,10 @@ namespace visutwin::canvas
             VkMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
             barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
             barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+            // Every later use: the next kernel's reads AND writes (a reset followed by an
+            // atomic count), and a draw's vertex and indirect-argument reads.
             barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-            barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+            barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
             VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
             dependency.memoryBarrierCount = 1;
             dependency.pMemoryBarriers = &barrier;

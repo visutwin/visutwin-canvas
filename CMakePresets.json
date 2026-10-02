@@ -73,7 +73,7 @@
       },
       "filter": {
         "exclude": {
-          "label": "vulkan|golden"
+          "label": "vulkan|golden|gpu"
         }
       }
     },
@@ -88,7 +88,7 @@
       },
       "filter": {
         "exclude": {
-          "label": "vulkan|golden"
+          "label": "vulkan|golden|gpu"
         }
       }
     },
@@ -123,6 +123,21 @@
       }
     },
     {
+      "name": "gpu",
+      "configurePreset": "default",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      },
+      "filter": {
+        "include": {
+          "label": "gpu"
+        }
+      }
+    },
+    {
       "name": "sanitize",
       "configurePreset": "sanitize",
       "output": {
@@ -133,7 +148,7 @@
       },
       "filter": {
         "exclude": {
-          "label": "vulkan|golden"
+          "label": "vulkan|golden|gpu"
         }
       }
     }

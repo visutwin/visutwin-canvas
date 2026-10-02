@@ -27,6 +27,8 @@
 
 namespace visutwin::canvas
 {
+    class PlaneShape;
+
     class WideLineRenderer;
 
     class TransformGizmo : public Gizmo
@@ -82,6 +84,14 @@ namespace visutwin::canvas
         virtual void drawGuideLines(const Vector3& pos, const Quaternion& rot, GizmoAxis activeAxis,
                                     bool activeIsPlane);
         void drawSpanLine(const Vector3& pos, const Quaternion& rot, GizmoAxis axis);
+
+        /// The axis-and-plane gizmos' (translate, scale) camera facing: hides an axis
+        /// seen end-on and a plane seen edge-on, and with `flipPlanes` turns each plane
+        /// toward the camera. `axes` and `planes` are x/y/z and yz/xz/xy.
+        void updateAxisAndPlaneShapes(const std::array<Shape*, 3>& axes, const std::array<PlaneShape*, 3>& planes,
+            bool flipPlanes);
+        /// The same gizmos' shape visibility while dragging, by dragMode.
+        void applyAxisDragVisibility(bool state);
 
         /// Parents every shape under the root and makes it
         /// pickable. Shapes are added in their key order, which is their draw order.

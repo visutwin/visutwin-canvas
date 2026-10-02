@@ -31,6 +31,8 @@ namespace visutwin::canvas
 
         void* nativeBuffer() const override { return raw(); }
 
+        bool read(size_t offset, size_t size, void* out) override;
+
     protected:
         void uploadRange(size_t offset, size_t size) override;
     };

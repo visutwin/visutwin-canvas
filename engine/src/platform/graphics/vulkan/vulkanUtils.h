@@ -9,7 +9,9 @@
 
 #ifdef VISUTWIN_HAS_VULKAN
 
+#include <cstddef>
 #include <vulkan/vulkan.h>
+#include <vk_mem_alloc.h>
 
 #include "platform/graphics/constants.h"
 #include "platform/graphics/stencilParameters.h"
@@ -18,6 +20,15 @@
 namespace visutwin::canvas
 {
     class VulkanGraphicsDevice;
+
+    /// A persistently mapped host buffer for `size` bytes copied back from the GPU, or
+    /// false. `mapped` (when given) receives the allocation info, whose pMappedData the
+    /// caller reads once the copy has completed.
+    bool vulkanCreateReadbackBuffer(VmaAllocator allocator, VkDeviceSize size, VkBuffer& buffer,
+        VmaAllocation& allocation, VmaAllocationInfo* mapped = nullptr);
+
+    /// Makes a copy just recorded into a readback buffer visible to the host.
+    void vulkanRecordCopyToHostBarrier(VkCommandBuffer cmd);
 
     // Insert an image layout transition barrier.
     //
@@ -36,6 +47,18 @@ namespace visutwin::canvas
     // MSAA sample count as the enum bit Vulkan wants. Anything that is not a
     // power of two in 1..64 falls back to a single sample.
     VkSampleCountFlagBits vulkanSampleCountFlag(int samples);
+
+    class VulkanGraphicsDevice;
+
+    /// Copies `size` bytes of `data` into `destination` at `destinationOffset`, through a
+    /// host-visible staging buffer that the device's upload queue records and then frees.
+    /// The copy is fenced on both sides by the stages and accesses that use the
+    /// destination (`consumerStages` / `consumerAccess`): frames already submitted finish
+    /// with it before it is overwritten, and later ones see the new bytes. `owner` names
+    /// the caller in the error log. False when the staging buffer cannot be made.
+    bool vulkanEnqueueBufferUpload(VulkanGraphicsDevice& device, VmaAllocator allocator, VkBuffer destination,
+        VkDeviceSize destinationOffset, const void* data, size_t size, VkPipelineStageFlags2 consumerStages,
+        VkAccessFlags2 consumerAccess, const char* owner);
 
     // Picks a device-supported depth-stencil format: D24_UNORM_S8_UINT when
     // available, else D32_SFLOAT_S8_UINT (MoltenVK on Apple GPUs has no D24S8).

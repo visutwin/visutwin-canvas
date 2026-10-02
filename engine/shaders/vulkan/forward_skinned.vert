@@ -1,6 +1,7 @@
 #version 450
 
 #include "normal_matrix.glsl"
+#include "forward_skin.glsl"
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
@@ -9,10 +10,6 @@ layout(location = 3) in vec4 inTangent;
 layout(location = 4) in vec2 inUV1;
 layout(location = 11) in vec4 inBlendWeights;
 layout(location = 12) in vec4 inBlendIndices;
-
-layout(std430, set = 4, binding = 0) readonly buffer PaletteData {
-    mat4 matrices[];
-} palette;
 
 layout(push_constant) uniform PushConstants {
     mat4 viewProjection;
@@ -28,11 +25,7 @@ layout(location = 5) out float fragViewDepth;
 layout(location = 6) out vec4 fragColor;
 
 void main() {
-    uvec4 joints = uvec4(inBlendIndices);
-    mat4 skin = inBlendWeights.x * palette.matrices[joints.x]
-              + inBlendWeights.y * palette.matrices[joints.y]
-              + inBlendWeights.z * palette.matrices[joints.z]
-              + inBlendWeights.w * palette.matrices[joints.w];
+    mat4 skin = skinMatrix(inBlendWeights, inBlendIndices);
     mat4 modelSkin = pc.model * skin;
     vec4 worldPos = modelSkin * vec4(inPosition, 1.0);
     gl_Position = pc.viewProjection * worldPos;

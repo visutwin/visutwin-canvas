@@ -11,7 +11,6 @@
 #include <chrono>
 #include <cstring>
 #include <ranges>
-#include "metalInstanceCullPass.h"
 #include "metalTexture.h"
 #include "core/scopedTimer.h"
 #include "platform/graphics/screenshot.h"
@@ -257,13 +256,13 @@ namespace visutwin::canvas
         //                 LightingUniforms at slot 4), so needs 2× the draw capacity.
         static constexpr size_t kMaxDrawsPerFrame = 4096;
         _transformRing = std::make_unique<MetalUniformRingBuffer>(
-            _device, kMaxDrawsPerFrame, sizeof(ModelData), "TransformRing");
+            _device, _frameGate, kMaxDrawsPerFrame, sizeof(ModelData), "TransformRing");
         _uniformRing = std::make_unique<MetalUniformRingBuffer>(
-            _device, kMaxDrawsPerFrame * 2, sizeof(MetalUniformBinder::LightingUniforms), "UniformRing");
+            _device, _frameGate, kMaxDrawsPerFrame * 2, sizeof(MetalUniformBinder::LightingUniforms), "UniformRing");
 
         // Variable-size bump-allocator ring buffer for matrix palettes (dynamic batches
         // and skins). Starts at 256KB a frame and grows with what a frame asks for.
-        _paletteRing = std::make_unique<MetalPaletteRingBuffer>(_device, "PaletteRing");
+        _paletteRing = std::make_unique<MetalPaletteRingBuffer>(_device, _frameGate, "PaletteRing");
 
         // GPU pass profiler (MTLCounterSampleBuffer timestamps). Created when the
         // device supports stage-boundary sampling; disabled until setEnabled(true).
@@ -417,14 +416,15 @@ namespace visutwin::canvas
         _insideFrame = true;
         _frameEverStarted = true;
 
-        // Advance ring buffers to next frame region. This blocks if the GPU
-        // hasn't finished with the region we're about to write to.
+        // Wait until the frame kMaxInflightFrames back has completed, then advance the
+        // rings onto the region it used.
+        _frameGate.waitForFrame();
         _transformRing->beginFrame();
         _uniformRing->beginFrame();
         _paletteRing->beginFrame();
         _pendingPaletteOffset = SIZE_MAX;
         // The cluster buffer sets advance with the rings: the slot this frame writes was
-        // last used kMaxInflightFrames frames ago, which the rings' beginFrame has just
+        // last used kMaxInflightFrames frames ago, which the frame gate has just
         // waited out.
         _clusterFrameSlot = (_clusterFrameSlot + 1) % _clusterBufferSets.size();
         _clusterSetsUsed = 0;
@@ -501,15 +501,13 @@ namespace visutwin::canvas
         // been committed yet, or an empty one when everything already was. It carries
         // the ring completion handlers and the present, and one is committed every
         // frame whatever happened — with no back-buffer pass (post-processing toggled
-        // off with stale render actions) _frameDrawable is null, and the semaphores
-        // still have to be signalled or beginFrame() blocks for good after
+        // off with stale render actions) _frameDrawable is null, and the frame gate
+        // still has to get its slot back or it blocks for good after
         // kMaxInflightFrames.
         auto* endBuffer = openCommandBuffer();
         if (endBuffer) {
-            // The semaphore signals track whole-frame GPU completion.
-            _transformRing->endFrame(endBuffer);
-            _uniformRing->endFrame(endBuffer);
-            _paletteRing->endFrame(endBuffer);
+            // The gate's slot comes back when the whole frame has completed on the GPU.
+            _frameGate.releaseFrameOnCompletion(endBuffer);
 
             if (_frameDrawable) {
                 // Present only after this buffer — and therefore every prior
@@ -530,12 +528,10 @@ namespace visutwin::canvas
             }
             flushCommands();
         } else {
-            // Balance the beginFrame() waits even if Metal cannot allocate the
-            // sentinel command buffer. Otherwise the fourth such frame deadlocks.
+            // Balance the frame gate's wait even if Metal cannot allocate the sentinel
+            // command buffer. Otherwise the fourth such frame deadlocks.
             spdlog::error("Failed to allocate end-of-frame Metal command buffer");
-            _transformRing->endFrame(nullptr);
-            _uniformRing->endFrame(nullptr);
-            _paletteRing->endFrame(nullptr);
+            _frameGate.releaseFrameOnCompletion(nullptr);
         }
 
         _insideFrame = false;
@@ -686,47 +682,6 @@ namespace visutwin::canvas
         int numVertices, void* nativeBuffer)
     {
         return createVertexBufferFromMTLBuffer(format, numVertices, static_cast<MTL::Buffer*>(nativeBuffer));
-    }
-
-    std::unique_ptr<InstanceCuller> MetalGraphicsDevice::createInstanceCuller()
-    {
-        return std::make_unique<MetalInstanceCullPass>(this);
-    }
-
-    void MetalGraphicsDevice::beginGpuCullBatch()
-    {
-        // The dispatches encode into the open command buffer, ahead of the rendering
-        // that consumes the compacted buffers and indirect arguments. Cull parameters
-        // and resets are encoder-owned/GPU-side, so no CPU wait is needed to protect
-        // resources reused by the following frame.
-        _gpuCullBatchOpen = true;
-    }
-
-    void MetalGraphicsDevice::endGpuCullBatch()
-    {
-        if (!_gpuCullBatchOpen) {
-            return;
-        }
-        _gpuCullBatchOpen = false;
-        if (!_insideFrame) {
-            if (!_frameEverStarted) {
-                // Before the first frame (an environment bake at load time) the per-draw
-                // rings have no region of their own: the bake wrote into region 0, which
-                // frame 0 reuses. Wait for it, then let the next bake and frame 0 start the
-                // region over. Load time only, so the wait costs no frame anything.
-                MTL::CommandBuffer* buffer = _openCommandBuffer ? _openCommandBuffer->retain() : nullptr;
-                flushCommands();
-                if (buffer) {
-                    buffer->waitUntilCompleted();
-                    buffer->release();
-                }
-                _transformRing->resetBeforeFirstFrame();
-                _uniformRing->resetBeforeFirstFrame();
-                _paletteRing->resetBeforeFirstFrame();
-                return;
-            }
-            flushCommands();
-        }
     }
 
     void MetalGraphicsDevice::beginOfflineWork()

@@ -17,7 +17,6 @@
 #include <SDL3/SDL_vulkan.h>
 
 #include "vulkanIndexBuffer.h"
-#include "vulkanInstanceCullPass.h"
 #include "vulkanRenderPipeline.h"
 #include "vulkanRenderTarget.h"
 #include "vulkanShader.h"
@@ -549,15 +548,7 @@ namespace visutwin::canvas
             return;
         }
 
-        VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-        bufferInfo.size = size;
-        bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        VmaAllocationCreateInfo allocationInfo{};
-        allocationInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-        allocationInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
-        if (vmaCreateBuffer(_vmaAllocator, &bufferInfo, &allocationInfo,
-                &outBuffer, &outAllocation, nullptr) != VK_SUCCESS) {
+        if (!vulkanCreateReadbackBuffer(_vmaAllocator, size, outBuffer, outAllocation)) {
             spdlog::error("Screenshot: failed to allocate readback buffer");
             outBuffer = VK_NULL_HANDLE;
             _pendingScreenshotPath.clear();
@@ -578,15 +569,7 @@ namespace visutwin::canvas
         vkCmdCopyImageToBuffer(cmd, _swapchainImages[_swapchainImageIndex],
             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, outBuffer, 1, &region);
 
-        VkMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-        barrier.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-        barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        barrier.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
-        barrier.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
-        VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        dependency.memoryBarrierCount = 1;
-        dependency.pMemoryBarriers = &barrier;
-        vkCmdPipelineBarrier2(cmd, &dependency);
+        vulkanRecordCopyToHostBarrier(cmd);
     }
 
     void VulkanGraphicsDevice::writeScreenshotFromBuffer(VmaAllocation allocation)

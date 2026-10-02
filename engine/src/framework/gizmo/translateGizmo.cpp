@@ -15,12 +15,7 @@ namespace visutwin::canvas
 {
     namespace
     {
-        constexpr float GLANCE_EPSILON = 0.01f;
 
-        bool isSingleAxis(const GizmoAxis key)
-        {
-            return key == GizmoAxis::X || key == GizmoAxis::Y || key == GizmoAxis::Z || key == GizmoAxis::F;
-        }
 
         Vector3 roundVector(const Vector3& v)
         {
@@ -103,72 +98,12 @@ namespace visutwin::canvas
 
     void TranslateGizmo::shapesLookAtCamera()
     {
-        const Vector3 dir = cameraDir();
-        const Vector3 right = rootRight();
-        const Vector3 up = rootUp();
-        const Vector3 forward = rootForward();
-
-        // axes
-        bool changed = false;
-        const auto setEnabled = [&changed](Shape* s, const bool enabled) {
-            if (s->entity()->enabledLocal() != enabled) {
-                s->entity()->setEnabled(enabled);
-                changed = true;
-            }
-        };
-        setEnabled(_arrows[0], 1.0f - std::abs(dir.dot(right)) > GLANCE_EPSILON);
-        setEnabled(_arrows[1], 1.0f - std::abs(dir.dot(up)) > GLANCE_EPSILON);
-        setEnabled(_arrows[2], 1.0f - std::abs(dir.dot(forward)) > GLANCE_EPSILON);
-
-        // planes
-        const auto setFlipped = [&changed](PlaneShape* plane, const Vector3& flipped) {
-            if (!gizmoVectorEquals(plane->flipped(), flipped)) {
-                plane->setFlipped(flipped);
-                changed = true;
-            }
-        };
-        const auto b = [](const bool v) { return v ? 1.0f : 0.0f; };
-
-        Vector3 v1 = dir.cross(right);
-        setEnabled(_planes[0], 1.0f - v1.length() > GLANCE_EPSILON);
-        setFlipped(_planes[0], flipPlanes ? Vector3(0.0f, b(v1.dot(forward) < 0.0f), b(v1.dot(up) < 0.0f)) : Vector3(0.0f));
-
-        v1 = dir.cross(forward);
-        setEnabled(_planes[2], 1.0f - v1.length() > GLANCE_EPSILON);
-        setFlipped(_planes[2], flipPlanes ? Vector3(b(v1.dot(up) < 0.0f), b(v1.dot(right) > 0.0f), 0.0f) : Vector3(0.0f));
-
-        v1 = dir.cross(up);
-        setEnabled(_planes[1], 1.0f - v1.length() > GLANCE_EPSILON);
-        setFlipped(_planes[1], flipPlanes ? Vector3(b(v1.dot(forward) > 0.0f), 0.0f, b(v1.dot(right) > 0.0f)) : Vector3(0.0f));
-
-        if (changed) {
-            _renderUpdate = true;
-        }
+        updateAxisAndPlaneShapes({_arrows[0], _arrows[1], _arrows[2]}, _planes, flipPlanes);
     }
 
     void TranslateGizmo::drag(const bool state)
     {
-        for (auto& [key, s] : _shapes) {
-            switch (dragMode) {
-                case GizmoDragMode::Show:
-                    continue;
-                case GizmoDragMode::Hide:
-                    s->setVisible(!state);
-                    continue;
-                case GizmoDragMode::Selected:
-                    if (_selectedAxis == GizmoAxis::XYZ) {
-                        s->setVisible(state ? isSingleAxis(key) : true);
-                        continue;
-                    }
-                    if (_selectedIsPlane) {
-                        s->setVisible(state ? isSingleAxis(key) && key != _selectedAxis : true);
-                        continue;
-                    }
-                    s->setVisible(state ? key == _selectedAxis : true);
-            }
-        }
-
-        _renderUpdate = true;
+        applyAxisDragVisibility(state);
     }
 
     void TranslateGizmo::storeNodePositions()

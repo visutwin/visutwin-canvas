@@ -742,18 +742,10 @@ namespace visutwin::canvas::gpu
             return false;
         }
 
-        VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-        bufferInfo.size = size;
-        bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        VmaAllocationCreateInfo allocationInfo{};
-        allocationInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-        allocationInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
         VkBuffer staging = VK_NULL_HANDLE;
         VmaAllocation allocation = nullptr;
         VmaAllocationInfo mapped{};
-        if (vmaCreateBuffer(vulkanDevice->vmaAllocator(), &bufferInfo, &allocationInfo,
-                &staging, &allocation, &mapped) != VK_SUCCESS) {
+        if (!vulkanCreateReadbackBuffer(vulkanDevice->vmaAllocator(), size, staging, allocation, &mapped)) {
             spdlog::error("VulkanTexture::read: failed to allocate a {}-byte staging buffer",
                 static_cast<size_t>(size));
             return false;
@@ -783,15 +775,7 @@ namespace visutwin::canvas::gpu
                 vkCmdCopyImageToBuffer(cmd, _image,
                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging, 1, &copy);
 
-                VkMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-                barrier.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-                barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-                barrier.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
-                barrier.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
-                VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-                dependency.memoryBarrierCount = 1;
-                dependency.pMemoryBarriers = &barrier;
-                vkCmdPipelineBarrier2(cmd, &dependency);
+                vulkanRecordCopyToHostBarrier(cmd);
 
                 if (previous != VK_IMAGE_LAYOUT_UNDEFINED &&
                     previous != VK_IMAGE_LAYOUT_PREINITIALIZED) {

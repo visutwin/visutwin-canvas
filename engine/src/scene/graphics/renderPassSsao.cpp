@@ -10,6 +10,7 @@
 #include <random>
 
 #include "renderPassDepthAwareBlur.h"
+#include "scene/graphics/colorTarget.h"
 #include "core/math/color.h"
 #include "core/math/defines.h"
 #include "framework/components/camera/cameraComponent.h"
@@ -95,25 +96,9 @@ namespace visutwin::canvas
     std::shared_ptr<RenderTarget> RenderPassSsao::createSsaoRenderTarget(const std::string& name,
         std::shared_ptr<Texture>& outTexture) const
     {
-        TextureOptions textureOptions;
-        textureOptions.name = name;
-        textureOptions.width = 1;
-        textureOptions.height = 1;
-        textureOptions.format = PixelFormat::PIXELFORMAT_R8;
-        textureOptions.mipmaps = false;
-        textureOptions.minFilter = FilterMode::FILTER_LINEAR;
-        textureOptions.magFilter = FilterMode::FILTER_LINEAR;
-        outTexture = std::make_shared<Texture>(device().get(), textureOptions);
-        outTexture->setAddressU(AddressMode::ADDRESS_CLAMP_TO_EDGE);
-        outTexture->setAddressV(AddressMode::ADDRESS_CLAMP_TO_EDGE);
-
-        RenderTargetOptions rtOptions;
-        rtOptions.graphicsDevice = device().get();
-        rtOptions.colorBuffer = outTexture.get();
-        rtOptions.depth = false;
-        rtOptions.stencil = false;
-        rtOptions.name = name;
-        return device()->createRenderTarget(rtOptions);
+        auto [texture, target] = createColorTarget(device().get(), name, PixelFormat::PIXELFORMAT_R8);
+        outTexture = std::move(texture);
+        return target;
     }
 
     void RenderPassSsao::prepareShaders()

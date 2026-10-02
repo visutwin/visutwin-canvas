@@ -11,6 +11,7 @@
 #include <limits>
 #include <numbers>
 
+#include "scene/graphics/colorTarget.h"
 #include "scene/graphics/quadShader.h"
 #include "core/math/color.h"
 #include "framework/components/light/lightComponent.h"
@@ -116,25 +117,10 @@ namespace visutwin::canvas
     {
         // rgb = in-scattered light (HDR), a = transmittance. Linear filtering so the combine pass
         // can sample between texels.
-        TextureOptions textureOptions;
-        textureOptions.name = "VolumetricFogTexture";
-        textureOptions.width = 1;
-        textureOptions.height = 1;
-        textureOptions.format = PixelFormat::PIXELFORMAT_RGBA16F;
-        textureOptions.mipmaps = false;
-        textureOptions.minFilter = FilterMode::FILTER_LINEAR;
-        textureOptions.magFilter = FilterMode::FILTER_LINEAR;
-        _fogTexture = std::make_shared<Texture>(device.get(), textureOptions);
-        _fogTexture->setAddressU(AddressMode::ADDRESS_CLAMP_TO_EDGE);
-        _fogTexture->setAddressV(AddressMode::ADDRESS_CLAMP_TO_EDGE);
-
-        RenderTargetOptions rtOptions;
-        rtOptions.graphicsDevice = device.get();
-        rtOptions.colorBuffer = _fogTexture.get();
-        rtOptions.depth = false;
-        rtOptions.stencil = false;
-        rtOptions.name = "VolumetricFogTarget";
-        _fogRenderTarget = device->createRenderTarget(rtOptions);
+        auto [texture, target] = createColorTarget(device.get(), "VolumetricFogTexture",
+            PixelFormat::PIXELFORMAT_RGBA16F, 1, 1, "VolumetricFogTarget");
+        _fogTexture = std::move(texture);
+        _fogRenderTarget = std::move(target);
 
         setScale(_scale);
 

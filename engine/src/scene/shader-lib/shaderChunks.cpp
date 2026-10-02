@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "spdlog/spdlog.h"
+#include "core/hash.h"
 
 namespace visutwin::canvas
 {
@@ -197,16 +198,9 @@ namespace visutwin::canvas
         // unordered_map iteration order cannot change the fingerprint.
         uint64_t combined = 0;
         for (const auto& [name, source] : chunks) {
-            uint64_t hash = 1469598103934665603ull;
-            const auto mix = [&hash](const std::string& text) {
-                for (const char c : text) {
-                    hash ^= static_cast<uint8_t>(c);
-                    hash *= 1099511628211ull;
-                }
-            };
-            mix(name);
+            uint64_t hash = fnv1a64(name);
             hash ^= 0x9e3779b97f4a7c15ull;
-            mix(source);
+            hash = fnv1a64(source, hash);
             combined ^= hash;
         }
         // never collide with the "no overrides" sentinel

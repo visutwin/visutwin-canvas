@@ -92,9 +92,9 @@ namespace visutwin::canvas
     Color& Color::linear(const Color* src)
     {
         const Color* source = src ? src : this;
-        r = std::pow(source->r, 2.2f);
-        g = std::pow(source->g, 2.2f);
-        b = std::pow(source->b, 2.2f);
+        r = gammaToLinear(source->r);
+        g = gammaToLinear(source->g);
+        b = gammaToLinear(source->b);
         a = source->a;
         return *this;
     }

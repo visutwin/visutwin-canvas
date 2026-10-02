@@ -34,6 +34,7 @@
 #include <optional>
 #include <vector>
 
+#include "framework/destroyWatch.h"
 #include "core/math/color.h"
 #include "core/math/vector4.h"
 #include "framework/components/component.h"
@@ -154,7 +155,7 @@ namespace visutwin::canvas
 
         bool _active = true;
         Entity* _imageEntity = nullptr;
-        EventHandlePtr _imageEntityDestroyed;
+        DestroyWatch _imageEntityDestroyed;
         Vector4 _hitPadding = Vector4(0.0f, 0.0f, 0.0f, 0.0f);
         ButtonTransitionMode _transitionMode = ButtonTransitionMode::Tint;
         Color _hoverTint = Color(0.75f, 0.75f, 0.75f, 1.0f);

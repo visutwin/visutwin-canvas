@@ -16,6 +16,7 @@
 
 #include <stdexcept>
 
+#include "core/hash.h"
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/depthState.h"
 #include "platform/graphics/stencilParameters.h"
@@ -500,11 +501,10 @@ namespace visutwin::canvas
     {
         // The state as key words, FNV-1a hashed as they are added.
         PipelineKey key;
-        uint64_t hash = 14695981039346656037ULL;
+        uint64_t hash = kFnv1aOffsetBasis;
         auto mix = [&](uint64_t v) {
             key.words[key.count++] = v;
-            hash ^= v;
-            hash *= 1099511628211ULL;
+            hash = fnv1aMix(hash, v);
         };
         if (colorFormats.size() > kMaxKeyColorFormats) {
             spdlog::error("VulkanRenderPipeline: {} colour attachments, at most {} supported",

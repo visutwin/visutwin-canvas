@@ -10,6 +10,7 @@
 #include <cassert>
 #include <string>
 
+#include "scene/graphics/colorTarget.h"
 #include "framework/components/camera/cameraComponent.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "scene/graphics/taaShaders.h"
@@ -37,25 +38,10 @@ namespace visutwin::canvas
         const int historyWidth = _sourceTexture ? std::max(static_cast<int>(_sourceTexture->width()), 1) : 4;
         const int historyHeight = _sourceTexture ? std::max(static_cast<int>(_sourceTexture->height()), 1) : 4;
         for (int i = 0; i < 2; ++i) {
-            TextureOptions textureOptions;
-            textureOptions.name = "TAA-History-" + std::to_string(i);
-            textureOptions.width = historyWidth;
-            textureOptions.height = historyHeight;
-            textureOptions.format = historyFormat;
-            textureOptions.mipmaps = false;
-            textureOptions.minFilter = FilterMode::FILTER_LINEAR;
-            textureOptions.magFilter = FilterMode::FILTER_LINEAR;
-            _historyTextures[i] = std::make_shared<Texture>(device().get(), textureOptions);
-            _historyTextures[i]->setAddressU(AddressMode::ADDRESS_CLAMP_TO_EDGE);
-            _historyTextures[i]->setAddressV(AddressMode::ADDRESS_CLAMP_TO_EDGE);
-
-            RenderTargetOptions targetOptions;
-            targetOptions.graphicsDevice = device().get();
-            targetOptions.colorBuffer = _historyTextures[i].get();
-            targetOptions.depth = false;
-            targetOptions.stencil = false;
-            targetOptions.name = "TaaHistoryTarget-" + std::to_string(i);
-            _historyRenderTargets[i] = device()->createRenderTarget(targetOptions);
+            auto [texture, target] = createColorTarget(device().get(), "TAA-History-" + std::to_string(i),
+                historyFormat, historyWidth, historyHeight, "TaaHistoryTarget-" + std::to_string(i));
+            _historyTextures[i] = std::move(texture);
+            _historyRenderTargets[i] = std::move(target);
         }
 
         _historyTexture = _historyTextures[0];

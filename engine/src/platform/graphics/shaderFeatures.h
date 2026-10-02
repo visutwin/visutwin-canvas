@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
+#include "core/hash.h"
 
 #define VT_SHADER_FEATURES(X) \
     X(BaseColorMap,              "VT_FEATURE_BASE_COLOR_MAP") \
@@ -160,12 +161,9 @@ namespace visutwin::canvas
         /// select the wrong variant.
         [[nodiscard]] constexpr uint64_t hash() const
         {
-            uint64_t value = 1469598103934665603ull;
+            uint64_t value = kFnv1aOffsetBasis;
             for (const uint32_t w : _words) {
-                for (int shift = 0; shift < 32; shift += 8) {
-                    value ^= static_cast<uint64_t>((w >> shift) & 0xffu);
-                    value *= 1099511628211ull;
-                }
+                value = fnv1aBytesOf(value, w, 4);
             }
             return value;
         }

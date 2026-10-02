@@ -12,18 +12,17 @@
 //   - 33 instances → 2.1KB + padding = 2.25KB
 //   - 330 instances → 21KB + padding = 21.25KB
 //
-// Same triple-buffered semaphore pattern as MetalUniformRingBuffer:
-//   1. beginFrame()           — wait for GPU, grow if last frame overflowed,
+// Same triple-buffered pattern as MetalUniformRingBuffer, paced by the same MetalFrameGate:
+//   1. beginFrame()           — after the gate: grow if the last frame overflowed,
 //                               advance to the next region
 //   2. allocate(data, size, version) — bump-allocate, memcpy data, return offset;
 //                               a repeated version returns this frame's first copy
 //   3. encoder->setVertexBufferOffset(offset, 6) — cheap offset-only bind
-//   4. endFrame(commandBuffer) — register GPU completion signal
 //
 #pragma once
 
 #include <Metal/Metal.hpp>
-#include <dispatch/dispatch.h>
+#include "metalFrameGate.h"
 #include <cassert>
 #include <cstring>
 
@@ -35,18 +34,17 @@ namespace visutwin::canvas
     class MetalPaletteRingBuffer
     {
     public:
-        static constexpr int kMaxInflightFrames = 3;
+        static constexpr int kMaxInflightFrames = MetalFrameGate::kMaxInflightFrames;
         static constexpr size_t kAlignment = 256;          // Metal constant buffer offset alignment
         // Starting size of a frame region, not a limit: a frame that asks for more
         // grows the ring (see growIfNeeded). 256KB = 4096 matrices, across every
         // dynamic batch and skin drawn in one frame.
         static constexpr size_t kInitialRegionSize = 256 * 1024;
 
-        MetalPaletteRingBuffer(MTL::Device* device, const char* label = "PaletteRing")
-            : _device(device), _label(label), _frame(kInitialRegionSize, kAlignment)
+        MetalPaletteRingBuffer(MTL::Device* device, MetalFrameGate& gate, const char* label = "PaletteRing")
+            : _device(device), _label(label), _gate(gate), _frame(kInitialRegionSize, kAlignment)
         {
             allocateBuffer(kInitialRegionSize);
-            _frameSemaphore = dispatch_semaphore_create(kMaxInflightFrames);
         }
 
         ~MetalPaletteRingBuffer()
@@ -64,12 +62,11 @@ namespace visutwin::canvas
         MetalPaletteRingBuffer& operator=(MetalPaletteRingBuffer&&) = delete;
 
         /**
-         * Call at frame start. Blocks if GPU hasn't finished with this region.
-         * Must be called before any allocate() calls for the new frame.
+         * Call at frame start, after MetalFrameGate::waitForFrame() has made the region
+         * free. Must be called before any allocate() calls for the new frame.
          */
         void beginFrame()
         {
-            dispatch_semaphore_wait(_frameSemaphore, DISPATCH_TIME_FOREVER);
             growIfNeeded();
             _frameIndex = (_frameIndex + 1) % kMaxInflightFrames;
             _frame.beginFrame();
@@ -122,22 +119,6 @@ namespace visutwin::canvas
             return absoluteOffset;
         }
 
-        /**
-         * Register GPU completion signal on the frame's command buffer.
-         * Must be called on the LAST command buffer committed per frame.
-         */
-        void endFrame(MTL::CommandBuffer* commandBuffer)
-        {
-            dispatch_semaphore_t sem = _frameSemaphore;
-            if (!commandBuffer) {
-                dispatch_semaphore_signal(sem);
-                return;
-            }
-            commandBuffer->addCompletedHandler(^(MTL::CommandBuffer*) {
-                dispatch_semaphore_signal(sem);
-            });
-        }
-
         [[nodiscard]] MTL::Buffer* buffer() const { return _buffer; }
         [[nodiscard]] size_t writeOffset() const { return _frame.writeOffset(); }
         [[nodiscard]] size_t totalSize() const { return _totalSize; }
@@ -174,14 +155,10 @@ namespace visutwin::canvas
             const size_t previous = _frame.regionSize();
             const size_t wanted = _frame.wantedRegionSize();
 
-            for (int i = 1; i < kMaxInflightFrames; ++i) {
-                dispatch_semaphore_wait(_frameSemaphore, DISPATCH_TIME_FOREVER);
-            }
-            allocateBuffer(wanted);
-            _frame.setRegionSize(wanted);
-            for (int i = 1; i < kMaxInflightFrames; ++i) {
-                dispatch_semaphore_signal(_frameSemaphore);
-            }
+            _gate.withOtherFramesDrained([&] {
+                allocateBuffer(wanted);
+                _frame.setRegionSize(wanted);
+            });
 
             spdlog::warn("{}: {} KB of matrix palettes requested in a frame but only {} KB fit; the "
                          "excess draws kept the palette bound before them for that frame. Grown to "
@@ -194,7 +171,7 @@ namespace visutwin::canvas
         const char* _label = "PaletteRing";
         MTL::Buffer* _buffer = nullptr;
         uint8_t* _basePtr = nullptr;
-        dispatch_semaphore_t _frameSemaphore = nullptr;
+        MetalFrameGate& _gate;
 
         size_t _totalSize = 0;
         int _frameIndex = -1;   // Will become 0 on first beginFrame()

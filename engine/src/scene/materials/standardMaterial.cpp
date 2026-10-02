@@ -112,7 +112,7 @@ namespace visutwin::canvas
         /// An sRGB-authored colour channel in linear space.
         float toLinear(const float c)
         {
-            return std::pow(std::max(c, 0.0f), 2.2f);
+            return gammaToLinear(c);
         }
     }
 

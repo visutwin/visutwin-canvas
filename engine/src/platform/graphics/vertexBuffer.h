@@ -59,9 +59,19 @@ namespace visutwin::canvas
         virtual void unlock() = 0;
 
         int numVertices() const { return _numVertices; }
+        /// Size of the GPU buffer in bytes (also for a zero-copy buffer, whose storage() is empty).
+        int numBytes() const { return _numBytes; }
         BufferUsage usage() const { return _usage; }
 
         virtual void* nativeBuffer() const { return nullptr; }
+
+        /// Copies bytes [offset, offset + size) of the GPU buffer into `out`, BLOCKING until
+        /// the work already encoded or submitted has finished: the buffer's twin of
+        /// Texture::read, for what a compute kernel wrote. `storage()` is the CPU copy the
+        /// buffer was created or last written from, never what the GPU wrote since. False
+        /// when the range is out of bounds or the backend cannot read back (as Texture::read,
+        /// Vulkan refuses while a frame or an offline scope is recording).
+        virtual bool read(size_t /*offset*/, size_t /*size*/, void* /*out*/) { return false; }
 
         /// Count this buffer as a STORAGE buffer in the device's VRAM statistics
         /// rather than a vertex buffer. Called wherever it is bound as storage; the

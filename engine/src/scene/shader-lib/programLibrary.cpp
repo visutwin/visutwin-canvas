@@ -18,7 +18,10 @@
 #include <sstream>
 #include <vector>
 
+#include "core/hash.h"
 #include "platform/graphics/deviceCache.h"
+#include "scene/materials/materialParameterRead.h"
+#include "scene/renderer/cullModeResolve.h"
 #include "spdlog/spdlog.h"
 #include "scene/materials/material.h"
 
@@ -29,16 +32,6 @@ namespace visutwin::canvas
         DeviceCache programLibraryDeviceCache;
         std::unordered_map<GraphicsDevice*, std::shared_ptr<ProgramLibrary>> programLibraries;
         
-        uint64_t fnv1a64(const std::string& text)
-        {
-            uint64_t hash = 1469598103934665603ull;
-            for (const char c : text) {
-                hash ^= static_cast<uint8_t>(c);
-                hash *= 1099511628211ull;
-            }
-            return hash;
-        }
-
         void appendFeatureDefine(std::string& output, const char* name, const bool enabled)
         {
             output += "#define ";
@@ -46,70 +39,12 @@ namespace visutwin::canvas
             output += enabled ? " 1\n" : " 0\n";
         }
 
-        const Material::ParameterValue* getMaterialParameter(const Material* material, std::initializer_list<const char*> names)
-        {
-            if (!material) {
-                return nullptr;
-            }
-            for (const char* name : names) {
-                if (const auto* value = material->parameter(name)) {
-                    return value;
-                }
-            }
-            return nullptr;
-        }
 
-        bool readParameterBool(const Material::ParameterValue* value, bool& out)
-        {
-            if (!value) {
-                return false;
-            }
-            if (const auto* v = std::get_if<bool>(value)) {
-                out = *v;
-                return true;
-            }
-            if (const auto* v = std::get_if<int32_t>(value)) {
-                out = *v != 0;
-                return true;
-            }
-            if (const auto* v = std::get_if<uint32_t>(value)) {
-                out = *v != 0u;
-                return true;
-            }
-            if (const auto* v = std::get_if<float>(value)) {
-                out = *v != 0.0f;
-                return true;
-            }
-            return false;
-        }
 
-        bool readParameterInt(const Material::ParameterValue* value, int& out)
-        {
-            if (!value) {
-                return false;
-            }
-            if (const auto* v = std::get_if<int32_t>(value)) {
-                out = static_cast<int>(*v);
-                return true;
-            }
-            if (const auto* v = std::get_if<uint32_t>(value)) {
-                out = static_cast<int>(*v);
-                return true;
-            }
-            if (const auto* v = std::get_if<float>(value)) {
-                out = static_cast<int>(*v);
-                return true;
-            }
-            if (const auto* v = std::get_if<bool>(value)) {
-                out = *v ? 1 : 0;
-                return true;
-            }
-            return false;
-        }
 
         bool hasTextureParameter(const Material* material, std::initializer_list<const char*> names)
         {
-            if (const auto* value = getMaterialParameter(material, names)) {
+            if (const auto* value = findMaterialParameter(material, names)) {
                 if (const auto* texture = std::get_if<Texture*>(value)) {
                     return *texture != nullptr;
                 }
@@ -145,7 +80,9 @@ namespace visutwin::canvas
             registerGlslPrograms();
             return;
         }
-        registerProgram("forward", {
+        // Every MSL program opens with the same common chunks; "skybox" is the forward
+        // program under another name (one shader serves both, gated by VT_FEATURE_SKYBOX).
+        const std::vector<std::string> commonChunks = {
             "common-structs",
             "common-utils",
             "common-tonemap",
@@ -160,7 +97,14 @@ namespace visutwin::canvas
             "common-sheen",
             "common-iridescence",
             "common-atmosphere",
-            "common-parallax",
+            "common-parallax"
+        };
+        const auto withCommon = [&commonChunks](std::initializer_list<const char*> stages) {
+            std::vector<std::string> order = commonChunks;
+            order.insert(order.end(), stages.begin(), stages.end());
+            return order;
+        };
+        const std::vector<std::string> forwardChunks = withCommon({
             "forward-vertex",
             "forward-fragment-head",
             "forward-fragment-surface",
@@ -170,50 +114,9 @@ namespace visutwin::canvas
             "forward-fragment-emissive",
             "forward-fragment-tail"
         });
-        registerProgram("skybox", {
-            "common-structs",
-            "common-utils",
-            "common-tonemap",
-            "common-falloff",
-            "common-dither",
-            "common-ltc",
-            "common-shadow-pcf",
-            "common-shadow-vsm",
-            "common-shadow-pcss",
-            "common-cookie",
-            "common-brdf",
-            "common-sheen",
-            "common-iridescence",
-            "common-atmosphere",
-            "common-parallax",
-            "forward-vertex",
-            "forward-fragment-head",
-            "forward-fragment-surface",
-            "forward-fragment-lights",
-            "forward-fragment-clustered",
-            "forward-fragment-ambient",
-            "forward-fragment-emissive",
-            "forward-fragment-tail"
-        });
-        registerProgram("shadow", {
-            "common-structs",
-            "common-utils",
-            "common-tonemap",
-            "common-falloff",
-            "common-dither",
-            "common-ltc",
-            "common-shadow-pcf",
-            "common-shadow-vsm",
-            "common-shadow-pcss",
-            "common-cookie",
-            "common-brdf",
-            "common-sheen",
-            "common-iridescence",
-            "common-atmosphere",
-            "common-parallax",
-            "shadow-vertex",
-            "shadow-fragment"
-        });
+        registerProgram("forward", forwardChunks);
+        registerProgram("skybox", forwardChunks);
+        registerProgram("shadow", withCommon({"shadow-vertex", "shadow-fragment"}));
     }
 
     void ProgramLibrary::registerGlslPrograms()
@@ -368,15 +271,7 @@ namespace visutwin::canvas
     void ProgramLibrary::applyGenericMaterialOptions(ShaderVariantOptions& options, const Material* material,
         const uint64_t variantBits)
     {
-        CullMode effectiveCullMode = material ? material->cullMode() : CullMode::CULLFACE_BACK;
-        if (int cullModeValue = static_cast<int>(effectiveCullMode);
-            readParameterInt(getMaterialParameter(material, {"material_cullMode", "cullMode"}), cullModeValue)) {
-            if (cullModeValue >= static_cast<int>(CullMode::CULLFACE_NONE) &&
-                cullModeValue <= static_cast<int>(CullMode::CULLFACE_FRONTANDBACK)) {
-                effectiveCullMode = static_cast<CullMode>(cullModeValue);
-            }
-        }
-        options.doubleSided = effectiveCullMode == CullMode::CULLFACE_NONE;
+        options.doubleSided = resolveMaterialCullMode(material) == CullMode::CULLFACE_NONE;
 
         options.baseColorMap = (material && material->hasBaseColorTexture()) ||
             hasTextureParameter(material, {"texture_baseColorMap", "texture_diffuseMap", "baseColorTexture"});
@@ -390,7 +285,7 @@ namespace visutwin::canvas
             hasTextureParameter(material, {"texture_emissiveMap", "emissiveTexture"});
 
         bool skyboxOverride = options.skybox;
-        if (readParameterBool(getMaterialParameter(material, {"material_isSkybox", "isSkybox"}), skyboxOverride)) {
+        if (readParameterBool(findMaterialParameter(material, {"material_isSkybox", "isSkybox"}), skyboxOverride)) {
             options.skybox = skyboxOverride;
         }
 
@@ -669,8 +564,19 @@ namespace visutwin::canvas
         source += glslFeaturePreamble();
         source += glslMaterialBlock();
 
+        if (!appendChunks(source, programChunks->second, material, "GLSL ")) {
+            return {};
+        }
+        return source;
+    }
+
+    bool ProgramLibrary::appendChunks(std::string& source, const std::vector<std::string>& chunkOrder,
+        const Material* material, const char* languageLabel) const
+    {
+        // Chunk resolution order: per-material override, then the device registry
+        // override, then the default source.
         const auto* materialChunks = material ? &material->shaderChunkOverrides() : nullptr;
-        for (const auto& chunkName : programChunks->second) {
+        for (const auto& chunkName : chunkOrder) {
             const std::string* chunkSource = nullptr;
             if (materialChunks) {
                 if (const auto it = materialChunks->find(chunkName); it != materialChunks->end()) {
@@ -681,14 +587,14 @@ namespace visutwin::canvas
                 chunkSource = _chunks.get(chunkName);
             }
             if (!chunkSource) {
-                spdlog::error("ProgramLibrary GLSL chunk '{}' is missing in '{}'.",
-                    chunkName, _chunks.rootPath().string());
-                return {};
+                spdlog::error("ProgramLibrary {}chunk '{}' is missing in '{}'.",
+                    languageLabel, chunkName, _chunks.rootPath().string());
+                return false;
             }
             source += *chunkSource;
             source += "\n";
         }
-        return source;
+        return true;
     }
 
     bool ProgramLibrary::hasChunkOverrides(const Material* material) const
@@ -754,26 +660,8 @@ namespace visutwin::canvas
         source += fragmentEntry;
         source += "\n\n";
 
-        // Chunk resolution order: per-material override, then the
-        // device registry override, then the default source.
-        const auto* materialChunks = material ? &material->shaderChunkOverrides() : nullptr;
-        for (const auto& chunkName : programChunks->second) {
-            const std::string* chunkSource = nullptr;
-            if (materialChunks) {
-                if (const auto it = materialChunks->find(chunkName); it != materialChunks->end()) {
-                    chunkSource = &it->second;
-                }
-            }
-            if (!chunkSource) {
-                chunkSource = _chunks.get(chunkName);
-            }
-            if (!chunkSource) {
-                spdlog::error("ProgramLibrary chunk '{}' is missing in '{}'.",
-                    chunkName, _chunks.rootPath().string());
-                return {};
-            }
-            source += *chunkSource;
-            source += "\n";
+        if (!appendChunks(source, programChunks->second, material, "")) {
+            return {};
         }
 
         substituteMaterialBlock(source, /*msl=*/true);

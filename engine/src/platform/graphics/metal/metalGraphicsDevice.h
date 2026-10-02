@@ -18,6 +18,7 @@
 
 #include "metalBindGroupFormat.h"
 #include "metalGpuProfiler.h"
+#include "metalFrameGate.h"
 #include "metalPaletteRingBuffer.h"
 #include "metalTextureBinder.h"
 #include "metalUniformBinder.h"
@@ -29,7 +30,6 @@ namespace visutwin::canvas
 {
     class Compute;
     class MetalMarchingCubesPass;
-    class MetalInstanceCullPass;
     class MetalRenderPipeline;
     class MetalComputePipeline;
     class MetalRenderTarget;
@@ -41,7 +41,6 @@ namespace visutwin::canvas
     class MetalGraphicsDevice : public GraphicsDevice
     {
         friend class MetalMarchingCubesPass;
-        friend class MetalInstanceCullPass;
 
     public:
         MetalGraphicsDevice(const GraphicsDeviceOptions& options);
@@ -153,7 +152,6 @@ namespace visutwin::canvas
             const std::shared_ptr<VertexFormat>& format,
             int numVertices, void* nativeBuffer) override;
 
-        bool supportsGpuInstanceCulling() const override { return true; }
 
         // Dual-source blending is core Metal — supported on every device that runs this backend.
         bool supportsDualSourceBlending() const override { return true; }
@@ -161,20 +159,11 @@ namespace visutwin::canvas
         /// ASTC on the Apple GPU families, BC where the device reports it (every Mac,
         /// Apple silicon included); nothing else is block-compressed here.
         bool supportsCompressedFormat(PixelFormat format) const override;
-        std::unique_ptr<InstanceCuller> createInstanceCuller() override;
 
         // Encode all per-frame cull dispatches into one asynchronously submitted
         // command buffer. Rendering on the same queue consumes the results later.
-        void beginGpuCullBatch() override;
-        void endGpuCullBatch() override;
         void beginOfflineWork() override;
         void endOfflineWork() override;
-        /// The buffer the culling dispatches of an open batch encode into: the open
-        /// command buffer. Null when no batch is open.
-        [[nodiscard]] MTL::CommandBuffer* gpuCullBatchCommandBuffer()
-        {
-            return _gpuCullBatchOpen ? openCommandBuffer() : nullptr;
-        }
 
         std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat format, int numIndices,
             const std::vector<uint8_t>& data = {}) override;
@@ -355,8 +344,6 @@ namespace visutwin::canvas
 
         MTL::Buffer* _indirectDrawBuffer = nullptr;  // Set by setIndirectDrawBuffer(), consumed by draw()
 
-        // Between beginGpuCullBatch and endGpuCullBatch.
-        bool _gpuCullBatchOpen = false;
 
         // Nesting depth of beginOfflineWork/endOfflineWork.
         int _envBatchDepth = 0;
@@ -432,6 +419,10 @@ namespace visutwin::canvas
         std::unique_ptr<MetalComputePipeline> _computePipeline;
 
         std::vector<std::shared_ptr<MetalBindGroupFormat>> _bindGroupFormats;
+
+        // Paces the CPU against the GPU; the rings below, and the cluster buffer sets,
+        // rely on it. Declared before them, which hold a reference to it.
+        MetalFrameGate _frameGate;
 
         // Triple-buffered ring buffers for per-draw uniform data.
         // Replaces setVertexBytes()/setFragmentBytes() with pre-allocated MTLBuffer

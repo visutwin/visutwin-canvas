@@ -7,6 +7,7 @@
 
 #include "framework/engine.h"
 #include "platform/input/touchDevice.h"
+#include "sourceEvents.h"
 
 namespace visutwin::canvas
 {
@@ -114,27 +115,10 @@ namespace visutwin::canvas
     void DualGestureSource::attach(Engine* engine)
     {
         InputSource::attach(engine);
-        TouchDevice* touch = engine ? engine->touch() : nullptr;
-        if (!touch) {
-            return;
-        }
-        _handles.push_back(touch->on("touchstart", [this](const TouchEvent& e) {
-            for (const Touch& t : e.changed) {
-                onDown(t.id, t.x, t.y);
-            }
-        }));
-        _handles.push_back(touch->on("touchmove", [this](const TouchEvent& e) {
-            for (const Touch& t : e.changed) {
-                onMove(t.id, t.x, t.y);
-            }
-        }));
-        const auto up = [this](const TouchEvent& e) {
-            for (const Touch& t : e.changed) {
-                onUp(t.id);
-            }
-        };
-        _handles.push_back(touch->on("touchend", up));
-        _handles.push_back(touch->on("touchcancel", up));
+        subscribeTouchPointers(engine, _handles,
+            [this](const int64_t id, const float x, const float y) { onDown(id, x, y); },
+            [this](const int64_t id, const float x, const float y) { onMove(id, x, y); },
+            [this](const int64_t id) { onUp(id); });
     }
 
     void DualGestureSource::detach()
@@ -142,10 +126,7 @@ namespace visutwin::canvas
         if (!_engine) {
             return;
         }
-        for (const auto& handle : _handles) {
-            handle->off();
-        }
-        _handles.clear();
+        releaseHandles(_handles);
         _pointers.clear();
         InputSource::detach();
     }

@@ -28,6 +28,7 @@
 #include <string>
 #include <vector>
 
+#include "framework/destroyWatch.h"
 #include "core/eventHandler.h"
 #include "core/math/quaternion.h"
 #include "core/math/vector3.h"
@@ -168,7 +169,7 @@ namespace visutwin::canvas
 
         std::vector<EventHandlePtr> _handles;
         std::vector<EventHandlePtr> _nodeHandles;
-        EventHandlePtr _cameraDestroyed;
+        DestroyWatch _cameraDestroyed;
         bool _destroyed = false;
         bool _captured = false;
     };

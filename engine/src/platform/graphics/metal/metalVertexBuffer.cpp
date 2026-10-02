@@ -5,6 +5,10 @@
 //
 #include "metalVertexBuffer.h"
 
+#include <cstring>
+
+#include "metalGraphicsDevice.h"
+
 namespace visutwin::canvas
 {
     MetalVertexBuffer::MetalVertexBuffer(GraphicsDevice* graphicsDevice, const std::shared_ptr<VertexFormat>& format,
@@ -38,5 +42,25 @@ namespace visutwin::canvas
         }
         // Shared storage: the bytes are the GPU's as soon as they are copied.
         write(offset, _storage.data() + offset, size);
+    }
+
+    bool MetalVertexBuffer::read(const size_t offset, const size_t size, void* out)
+    {
+        MTL::Buffer* buffer = raw();
+        if (!buffer || !out || offset + size > buffer->length()) {
+            return false;
+        }
+        // Shared storage, so the bytes are readable in place once the GPU is done with
+        // them. Whatever the frame has encoded is committed first (it is in the open
+        // command buffer otherwise, behind the read), and an empty buffer committed after
+        // it on the same queue completes only once everything before it has.
+        auto* device = static_cast<MetalGraphicsDevice*>(_device);
+        device->flushCommands();
+        if (MTL::CommandBuffer* fence = device->commandQueue()->commandBuffer()) {
+            fence->commit();
+            fence->waitUntilCompleted();
+        }
+        std::memcpy(out, static_cast<const uint8_t*>(buffer->contents()) + offset, size);
+        return true;
     }
 }

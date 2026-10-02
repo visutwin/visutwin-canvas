@@ -31,6 +31,8 @@ namespace visutwin::canvas
         void unlock() override;
         void* nativeBuffer() const override { return reinterpret_cast<void*>(_buffer); }
 
+        bool read(size_t offset, size_t size, void* out) override;
+
         [[nodiscard]] VkBuffer buffer() const { return _buffer; }
 
     protected:

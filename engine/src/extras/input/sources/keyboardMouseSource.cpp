@@ -8,6 +8,7 @@
 #include "framework/engine.h"
 #include "platform/input/keyboard.h"
 #include "platform/input/mouse.h"
+#include "sourceEvents.h"
 
 namespace visutwin::canvas
 {
@@ -138,10 +139,7 @@ namespace visutwin::canvas
         if (!_engine) {
             return;
         }
-        for (const auto& handle : _handles) {
-            handle->off();
-        }
-        _handles.clear();
+        releaseHandles(_handles);
         _keyNow.fill(0.0f);
         _keyPrev.fill(0.0f);
         _pointerDown = false;

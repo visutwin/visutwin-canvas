@@ -26,9 +26,6 @@ namespace visutwin::canvas
         // The elements may outlive the scrollbar.
         unbindTrackElement();
         unbindHandleElement();
-        if (_handleEntityDestroyed) {
-            _handleEntityDestroyed->off();
-        }
     }
 
     void ScrollbarComponent::cloneFrom(const Component* source)
@@ -106,17 +103,11 @@ namespace visutwin::canvas
             return;
         }
         unbindHandleElement();
-        if (_handleEntityDestroyed) {
-            _handleEntityDestroyed->off();
-            _handleEntityDestroyed.reset();
-        }
         _handleEntity = entity;
-        if (_handleEntity) {
-            _handleEntityDestroyed = _handleEntity->on("destroy", [this]() {
-                unbindHandleElement();
-                _handleEntity = nullptr;
-            });
-        }
+        _handleEntityDestroyed.watch(_handleEntity, [this] {
+            unbindHandleElement();
+            _handleEntity = nullptr;
+        });
         refreshBindings();
     }
 

@@ -3,9 +3,7 @@
 //
 // Created by Arnis Lektauers on 13.04.2026
 //
-// Shared Gribb/Hartmann frustum plane extraction used by all InstanceCuller
-// backends. Moved here from metalInstanceCullPass.cpp so future non-Metal
-// backends can reuse the same math.
+// Gribb/Hartmann frustum plane extraction for the GPU instance culler.
 //
 #include "instanceCuller.h"
 

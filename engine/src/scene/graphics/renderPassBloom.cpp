@@ -10,6 +10,7 @@
 #include <cmath>
 #include <string>
 
+#include "scene/graphics/colorTarget.h"
 #include "core/math/color.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "renderPassDownsample.h"
@@ -50,25 +51,9 @@ namespace visutwin::canvas
     std::shared_ptr<RenderTarget> RenderPassBloom::createRenderTarget(const int index,
         std::shared_ptr<Texture>& outTexture) const
     {
-        TextureOptions textureOptions;
-        textureOptions.name = "BloomTexture" + std::to_string(index);
-        textureOptions.width = 1;
-        textureOptions.height = 1;
-        textureOptions.format = _textureFormat;
-        textureOptions.mipmaps = false;
-        textureOptions.minFilter = FilterMode::FILTER_LINEAR;
-        textureOptions.magFilter = FilterMode::FILTER_LINEAR;
-        outTexture = std::make_shared<Texture>(device().get(), textureOptions);
-        outTexture->setAddressU(AddressMode::ADDRESS_CLAMP_TO_EDGE);
-        outTexture->setAddressV(AddressMode::ADDRESS_CLAMP_TO_EDGE);
-
-        RenderTargetOptions options;
-        options.graphicsDevice = device().get();
-        options.colorBuffer = outTexture.get();
-        options.depth = false;
-        options.stencil = false;
-        options.name = textureOptions.name;
-        return device()->createRenderTarget(options);
+        auto [texture, target] = createColorTarget(device().get(), "BloomTexture" + std::to_string(index), _textureFormat);
+        outTexture = std::move(texture);
+        return target;
     }
 
     void RenderPassBloom::createRenderTargets(const int count)

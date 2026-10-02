@@ -51,9 +51,6 @@ namespace visutwin::canvas
             handle->off();
         }
         _imageHandles.clear();
-        if (_imageEntityDestroyed) {
-            _imageEntityDestroyed->off();
-        }
     }
 
     void ButtonComponent::cloneFrom(const Component* source)
@@ -101,19 +98,13 @@ namespace visutwin::canvas
         if (_imageEntity == entity) {
             return;
         }
-        if (_imageEntityDestroyed) {
-            _imageEntityDestroyed->off();
-            _imageEntityDestroyed.reset();
-        }
+        _imageEntityDestroyed.reset();
         if (_imageElement) {
             unbindImageElement(true);
         }
         _imageEntity = entity;
         if (_imageEntity) {
-            _imageEntityDestroyed = _imageEntity->on("destroy", [this](const EventArgs&) {
-                _imageEntity = nullptr;
-                _imageEntityDestroyed.reset();
-            });
+            _imageEntityDestroyed.watch(_imageEntity, [this] { _imageEntity = nullptr; });
             if (auto* element = _imageEntity->findComponent<ElementComponent>()) {
                 bindImageElement(element);
             }

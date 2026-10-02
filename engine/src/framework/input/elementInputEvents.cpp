@@ -23,6 +23,7 @@
 #include "framework/components/screen/screenComponent.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
+#include "platform/input/sdlInputMapping.h"
 #include "scene/camera.h"
 #include "scene/composition/layerComposition.h"
 #include "scene/constants.h"
@@ -620,26 +621,7 @@ namespace visutwin::canvas
 
     namespace
     {
-        MouseButton buttonOf(const Uint8 sdlButton)
-        {
-            switch (sdlButton) {
-            case SDL_BUTTON_LEFT:   return MouseButton::Left;
-            case SDL_BUTTON_MIDDLE: return MouseButton::Middle;
-            case SDL_BUTTON_RIGHT:  return MouseButton::Right;
-            default:                return MouseButton::None;
-            }
-        }
 
-        KeyModifiers currentModifiers()
-        {
-            const SDL_Keymod mod = SDL_GetModState();
-            return KeyModifiers{
-                .shift = (mod & SDL_KMOD_SHIFT) != 0,
-                .control = (mod & SDL_KMOD_CTRL) != 0,
-                .alt = (mod & SDL_KMOD_ALT) != 0,
-                .meta = (mod & SDL_KMOD_GUI) != 0,
-            };
-        }
 
         bool isDirectTouch(const SDL_TouchFingerEvent& finger)
         {
@@ -659,17 +641,17 @@ namespace visutwin::canvas
         switch (event.type) {
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
             if (event.button.which != SDL_TOUCH_MOUSEID) {
-                onMouseDown(event.button.x, event.button.y, buttonOf(event.button.button), currentModifiers());
+                onMouseDown(event.button.x, event.button.y, mouseButtonFromSdl(event.button.button), currentKeyModifiers());
             }
             break;
         case SDL_EVENT_MOUSE_BUTTON_UP:
             if (event.button.which != SDL_TOUCH_MOUSEID) {
-                onMouseUp(event.button.x, event.button.y, buttonOf(event.button.button), currentModifiers());
+                onMouseUp(event.button.x, event.button.y, mouseButtonFromSdl(event.button.button), currentKeyModifiers());
             }
             break;
         case SDL_EVENT_MOUSE_MOTION:
             if (event.motion.which != SDL_TOUCH_MOUSEID) {
-                onMouseMove(event.motion.x, event.motion.y, currentModifiers());
+                onMouseMove(event.motion.x, event.motion.y, currentKeyModifiers());
             }
             break;
         case SDL_EVENT_MOUSE_WHEEL: {
@@ -677,7 +659,7 @@ namespace visutwin::canvas
                 break;
             }
             const float flip = event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -1.0f : 1.0f;
-            onMouseWheel(event.wheel.mouse_x, event.wheel.mouse_y, flip * event.wheel.y, currentModifiers(),
+            onMouseWheel(event.wheel.mouse_x, event.wheel.mouse_y, flip * event.wheel.y, currentKeyModifiers(),
                          flip * event.wheel.x);
             break;
         }

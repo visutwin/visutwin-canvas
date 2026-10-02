@@ -8,6 +8,7 @@
 #include <spdlog/spdlog.h>
 
 #include "material.h"
+#include "materialParameterRead.h"
 
 #include <atomic>
 
@@ -30,122 +31,6 @@ namespace visutwin::canvas
     DeviceCache defaultMaterialDeviceCache;
     std::unordered_map<GraphicsDevice*, std::shared_ptr<Material>> defaultMaterials;
 
-    namespace
-    {
-        const Material::ParameterValue* getParam(const Material* material, std::initializer_list<const char*> names)
-        {
-            if (!material) {
-                return nullptr;
-            }
-            // parameter() takes a std::string, so every name here would construct a
-            // temporary — and the longer ones ("texture_metallicRoughnessMap") exceed
-            // the small-string capacity and reach the heap. Materials that never call
-            // setParameter have nothing to find, which is nearly all of them, and this
-            // runs for each of them on every material switch.
-            if (material->parameters().empty()) {
-                return nullptr;
-            }
-            for (const char* name : names) {
-                if (const auto* value = material->parameter(name)) {
-                    return value;
-                }
-            }
-            return nullptr;
-        }
-
-        bool readFloat(const Material::ParameterValue* value, float& out)
-        {
-            if (!value) {
-                return false;
-            }
-            if (const auto* v = std::get_if<float>(value)) {
-                out = *v;
-                return true;
-            }
-            if (const auto* v = std::get_if<int32_t>(value)) {
-                out = static_cast<float>(*v);
-                return true;
-            }
-            if (const auto* v = std::get_if<uint32_t>(value)) {
-                out = static_cast<float>(*v);
-                return true;
-            }
-            return false;
-        }
-
-        bool readInt(const Material::ParameterValue* value, int& out)
-        {
-            if (!value) {
-                return false;
-            }
-            if (const auto* v = std::get_if<int32_t>(value)) {
-                out = static_cast<int>(*v);
-                return true;
-            }
-            if (const auto* v = std::get_if<uint32_t>(value)) {
-                out = static_cast<int>(*v);
-                return true;
-            }
-            if (const auto* v = std::get_if<float>(value)) {
-                out = static_cast<int>(*v);
-                return true;
-            }
-            if (const auto* v = std::get_if<bool>(value)) {
-                out = *v ? 1 : 0;
-                return true;
-            }
-            return false;
-        }
-
-        bool readColor4(const Material::ParameterValue* value, float out[4])
-        {
-            if (!value) {
-                return false;
-            }
-            if (const auto* v = std::get_if<Color>(value)) {
-                out[0] = v->r;
-                out[1] = v->g;
-                out[2] = v->b;
-                out[3] = v->a;
-                return true;
-            }
-            if (const auto* v = std::get_if<Vector3>(value)) {
-                out[0] = v->getX();
-                out[1] = v->getY();
-                out[2] = v->getZ();
-                out[3] = 1.0f;
-                return true;
-            }
-            if (const auto* v = std::get_if<Vector4>(value)) {
-                out[0] = v->getX();
-                out[1] = v->getY();
-                out[2] = v->getZ();
-                out[3] = v->getW();
-                return true;
-            }
-            if (const auto* v = std::get_if<float>(value)) {
-                out[0] = *v;
-                out[1] = *v;
-                out[2] = *v;
-                out[3] = 1.0f;
-                return true;
-            }
-            return false;
-        }
-
-        bool readTexture(const Material::ParameterValue* value, Texture*& out)
-        {
-            if (!value) {
-                return false;
-            }
-            if (const auto* v = std::get_if<Texture*>(value)) {
-                out = *v;
-                return true;
-            }
-            return false;
-        }
-
-    }
 
     // Pre-computes the 3x2 affine matrix from tiling, offset and rotation.
     void Material::packTextureTransform(const TextureTransform& t, float row0[4], float row1[4])
@@ -267,27 +152,27 @@ namespace visutwin::canvas
             return;
         }
 
-        readColor4(getParam(this, {"material_baseColor", "baseColorFactor"}), uniforms.baseColor);
+        readParameterColor4(findMaterialParameter(this, {"material_baseColor", "baseColorFactor"}), uniforms.baseColor);
         {
             // Parameter override convention is sRGB input — linearize to match the typed path.
             float emissiveOverride[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-            if (readColor4(getParam(this, {"material_emissive", "emissiveFactor"}), emissiveOverride)) {
-                uniforms.emissiveColor[0] = std::pow(std::max(emissiveOverride[0], 0.0f), 2.2f);
-                uniforms.emissiveColor[1] = std::pow(std::max(emissiveOverride[1], 0.0f), 2.2f);
-                uniforms.emissiveColor[2] = std::pow(std::max(emissiveOverride[2], 0.0f), 2.2f);
+            if (readParameterColor4(findMaterialParameter(this, {"material_emissive", "emissiveFactor"}), emissiveOverride)) {
+                uniforms.emissiveColor[0] = gammaToLinear(emissiveOverride[0]);
+                uniforms.emissiveColor[1] = gammaToLinear(emissiveOverride[1]);
+                uniforms.emissiveColor[2] = gammaToLinear(emissiveOverride[2]);
                 uniforms.emissiveColor[3] = emissiveOverride[3];
             }
         }
-        readFloat(getParam(this, {"material_alphaCutoff", "alphaCutoff"}), uniforms.alphaCutoff);
-        readFloat(getParam(this, {"material_metallic", "metallicFactor"}), uniforms.metallicFactor);
-        readFloat(getParam(this, {"material_roughness", "roughnessFactor"}), uniforms.roughnessFactor);
-        readFloat(getParam(this, {"material_normalScale", "normalScale"}), uniforms.normalScale);
-        readFloat(getParam(this, {"material_occlusionStrength", "occlusionStrength"}), uniforms.occlusionStrength);
-        readFloat(getParam(this, {"material_occludeSpecularIntensity", "occludeSpecularIntensity"}),
+        readParameterFloat(findMaterialParameter(this, {"material_alphaCutoff", "alphaCutoff"}), uniforms.alphaCutoff);
+        readParameterFloat(findMaterialParameter(this, {"material_metallic", "metallicFactor"}), uniforms.metallicFactor);
+        readParameterFloat(findMaterialParameter(this, {"material_roughness", "roughnessFactor"}), uniforms.roughnessFactor);
+        readParameterFloat(findMaterialParameter(this, {"material_normalScale", "normalScale"}), uniforms.normalScale);
+        readParameterFloat(findMaterialParameter(this, {"material_occlusionStrength", "occlusionStrength"}), uniforms.occlusionStrength);
+        readParameterFloat(findMaterialParameter(this, {"material_occludeSpecularIntensity", "occludeSpecularIntensity"}),
             uniforms.occludeSpecularIntensity);
         {
             int occludeSpecularMode = static_cast<int>(uniforms.occludeSpecularMode);
-            readInt(getParam(this, {"material_occludeSpecular", "occludeSpecular"}), occludeSpecularMode);
+            readParameterInt(findMaterialParameter(this, {"material_occludeSpecular", "occludeSpecular"}), occludeSpecularMode);
             occludeSpecularMode = std::clamp(occludeSpecularMode,
                 static_cast<int>(SPECOCC_NONE), static_cast<int>(SPECOCC_GLOSSDEPENDENT));
             uniforms.occludeSpecularMode = static_cast<uint32_t>(occludeSpecularMode);
@@ -307,9 +192,9 @@ namespace visutwin::canvas
         // Linearize FIRST here so the intensity scaling (applied by StandardMaterial::updateUniforms
         // below) happens in linear space — applying pow() to intensity-scaled sRGB blows up to
         // +Inf for bright neon (e.g. 200 * 1.0 → pow(200, 2.2) ≈ 1.7e5, overflowing fp16 targets).
-        uniforms.emissiveColor[0] = std::pow(std::max(_emissiveFactor.r, 0.0f), 2.2f);
-        uniforms.emissiveColor[1] = std::pow(std::max(_emissiveFactor.g, 0.0f), 2.2f);
-        uniforms.emissiveColor[2] = std::pow(std::max(_emissiveFactor.b, 0.0f), 2.2f);
+        uniforms.emissiveColor[0] = gammaToLinear(_emissiveFactor.r);
+        uniforms.emissiveColor[1] = gammaToLinear(_emissiveFactor.g);
+        uniforms.emissiveColor[2] = gammaToLinear(_emissiveFactor.b);
         uniforms.emissiveColor[3] = _emissiveFactor.a;
         uniforms.alphaCutoff = _alphaCutoff;
         uniforms.metallicFactor = _metallicFactor;
@@ -343,11 +228,11 @@ namespace visutwin::canvas
         int metallicUvSet = _metallicRoughnessUvSet;
         int occlusionUvSet = _occlusionUvSet;
         int emissiveUvSet = _emissiveUvSet;
-        readInt(getParam(this, {"baseColorUvSet"}), baseUvSet);
-        readInt(getParam(this, {"normalUvSet"}), normalUvSet);
-        readInt(getParam(this, {"metallicRoughnessUvSet"}), metallicUvSet);
-        readInt(getParam(this, {"occlusionUvSet"}), occlusionUvSet);
-        readInt(getParam(this, {"emissiveUvSet"}), emissiveUvSet);
+        readParameterInt(findMaterialParameter(this, {"baseColorUvSet"}), baseUvSet);
+        readParameterInt(findMaterialParameter(this, {"normalUvSet"}), normalUvSet);
+        readParameterInt(findMaterialParameter(this, {"metallicRoughnessUvSet"}), metallicUvSet);
+        readParameterInt(findMaterialParameter(this, {"occlusionUvSet"}), occlusionUvSet);
+        readParameterInt(findMaterialParameter(this, {"emissiveUvSet"}), emissiveUvSet);
         if (baseUvSet == 1)     uniforms.flags |= (1u << 4);
         if (normalUvSet == 1)   uniforms.flags |= (1u << 5);
         if (_hasMetallicRoughnessTexture) uniforms.flags |= (1u << 6);
@@ -359,58 +244,58 @@ namespace visutwin::canvas
         if (emissiveUvSet == 1) uniforms.flags |= (1u << 12);
 
         int occludeDirect = _occludeDirect ? 1 : 0;
-        readInt(getParam(this, {"material_occludeDirect", "occludeDirect"}), occludeDirect);
+        readParameterInt(findMaterialParameter(this, {"material_occludeDirect", "occludeDirect"}), occludeDirect);
         if (occludeDirect != 0) uniforms.flags |= (1u << 13);
 
         // Height/parallax map: flag bit 17.
         Texture* heightTex = nullptr;
-        readTexture(getParam(this, {"texture_heightMap"}), heightTex);
+        readParameterTexture(findMaterialParameter(this, {"texture_heightMap"}), heightTex);
         if (heightTex) uniforms.flags |= (1u << 17);
-        readFloat(getParam(this, {"material_heightMapFactor", "heightMapFactor"}), uniforms.heightMapFactor);
+        readParameterFloat(findMaterialParameter(this, {"material_heightMapFactor", "heightMapFactor"}), uniforms.heightMapFactor);
 
         // Anisotropy: parameter override.
-        readFloat(getParam(this, {"material_anisotropy", "anisotropy"}), uniforms.anisotropy);
+        readParameterFloat(findMaterialParameter(this, {"material_anisotropy", "anisotropy"}), uniforms.anisotropy);
 
         // Transmission/refraction: parameter overrides.
-        readFloat(getParam(this, {"material_transmissionFactor", "transmissionFactor"}), uniforms.transmissionFactor);
-        readFloat(getParam(this, {"material_refractionIndex", "refractionIndex"}), uniforms.refractionIndex);
-        readFloat(getParam(this, {"material_thickness", "thickness"}), uniforms.thickness);
+        readParameterFloat(findMaterialParameter(this, {"material_transmissionFactor", "transmissionFactor"}), uniforms.transmissionFactor);
+        readParameterFloat(findMaterialParameter(this, {"material_refractionIndex", "refractionIndex"}), uniforms.refractionIndex);
+        readParameterFloat(findMaterialParameter(this, {"material_thickness", "thickness"}), uniforms.thickness);
 
         // Sheen: parameter overrides (KHR_materials_sheen).
-        readColor4(getParam(this, {"material_sheenColor", "sheenColor"}), uniforms.sheenColor);
-        readFloat(getParam(this, {"material_sheenRoughness", "sheenRoughness"}), uniforms.sheenColor[3]);
+        readParameterColor4(findMaterialParameter(this, {"material_sheenColor", "sheenColor"}), uniforms.sheenColor);
+        readParameterFloat(findMaterialParameter(this, {"material_sheenRoughness", "sheenRoughness"}), uniforms.sheenColor[3]);
 
         // Iridescence: parameter overrides (KHR_materials_iridescence).
-        readFloat(getParam(this, {"material_iridescenceIntensity", "iridescenceIntensity"}), uniforms.iridescenceParams[0]);
-        readFloat(getParam(this, {"material_iridescenceIOR", "iridescenceIOR"}), uniforms.iridescenceParams[1]);
-        readFloat(getParam(this, {"material_iridescenceThicknessMax", "iridescenceThicknessMax"}), uniforms.iridescenceParams[3]);
+        readParameterFloat(findMaterialParameter(this, {"material_iridescenceIntensity", "iridescenceIntensity"}), uniforms.iridescenceParams[0]);
+        readParameterFloat(findMaterialParameter(this, {"material_iridescenceIOR", "iridescenceIOR"}), uniforms.iridescenceParams[1]);
+        readParameterFloat(findMaterialParameter(this, {"material_iridescenceThicknessMax", "iridescenceThicknessMax"}), uniforms.iridescenceParams[3]);
         // No sheen or iridescence map parameters: neither backend samples such maps, and
         // flag bits 18-20 mean skybox-off and hasOpacityMap on a StandardMaterial,
         // so a stray texture parameter must not be able to set them.
 
         // Spec-Gloss: parameter overrides (KHR_materials_pbrSpecularGlossiness).
-        readColor4(getParam(this, {"material_specularColor", "specularColor"}), uniforms.specGlossParams);
-        readFloat(getParam(this, {"material_glossiness", "glossiness"}), uniforms.specGlossParams[3]);
+        readParameterColor4(findMaterialParameter(this, {"material_specularColor", "specularColor"}), uniforms.specGlossParams);
+        readParameterFloat(findMaterialParameter(this, {"material_glossiness", "glossiness"}), uniforms.specGlossParams[3]);
         {
             Texture* sgTex = nullptr;
-            readTexture(getParam(this, {"texture_specGlossMap"}), sgTex);
+            readParameterTexture(findMaterialParameter(this, {"texture_specGlossMap"}), sgTex);
             if (sgTex) uniforms.flags |= (1u << 21);
         }
 
         // Detail normals: parameter overrides.
-        readFloat(getParam(this, {"material_detailNormalScale", "detailNormalScale"}), uniforms.detailDisplacementParams[0]);
+        readParameterFloat(findMaterialParameter(this, {"material_detailNormalScale", "detailNormalScale"}), uniforms.detailDisplacementParams[0]);
         {
             Texture* detailTex = nullptr;
-            readTexture(getParam(this, {"texture_detailNormalMap"}), detailTex);
+            readParameterTexture(findMaterialParameter(this, {"texture_detailNormalMap"}), detailTex);
             if (detailTex) uniforms.flags |= (1u << 22);
         }
 
         // Displacement: parameter overrides.
-        readFloat(getParam(this, {"material_displacementScale", "displacementScale"}), uniforms.detailDisplacementParams[1]);
-        readFloat(getParam(this, {"material_displacementBias", "displacementBias"}), uniforms.detailDisplacementParams[2]);
+        readParameterFloat(findMaterialParameter(this, {"material_displacementScale", "displacementScale"}), uniforms.detailDisplacementParams[1]);
+        readParameterFloat(findMaterialParameter(this, {"material_displacementBias", "displacementBias"}), uniforms.detailDisplacementParams[2]);
         {
             Texture* dispTex = nullptr;
-            readTexture(getParam(this, {"texture_displacementMap"}), dispTex);
+            readParameterTexture(findMaterialParameter(this, {"texture_displacementMap"}), dispTex);
             if (dispTex) uniforms.flags |= (1u << 24);
         }
 
@@ -428,23 +313,23 @@ namespace visutwin::canvas
 
         // Resolve textures from typed properties, with parameter overrides.
         Texture* baseColorTex = _baseColorTexture;
-        readTexture(getParam(this, {"texture_baseColorMap", "texture_diffuseMap", "baseColorTexture"}), baseColorTex);
+        readParameterTexture(findMaterialParameter(this, {"texture_baseColorMap", "texture_diffuseMap", "baseColorTexture"}), baseColorTex);
         if (baseColorTex) slots.push_back({0, baseColorTex});
 
         Texture* normalTex = _normalTexture;
-        readTexture(getParam(this, {"texture_normalMap", "normalTexture"}), normalTex);
+        readParameterTexture(findMaterialParameter(this, {"texture_normalMap", "normalTexture"}), normalTex);
         if (normalTex) slots.push_back({1, normalTex});
 
         Texture* mrTex = _metallicRoughnessTexture;
-        readTexture(getParam(this, {"texture_metallicRoughnessMap", "metallicRoughnessTexture"}), mrTex);
+        readParameterTexture(findMaterialParameter(this, {"texture_metallicRoughnessMap", "metallicRoughnessTexture"}), mrTex);
         if (mrTex) slots.push_back({3, mrTex});
 
         Texture* occlusionTex = _occlusionTexture;
-        readTexture(getParam(this, {"texture_occlusionMap", "occlusionTexture"}), occlusionTex);
+        readParameterTexture(findMaterialParameter(this, {"texture_occlusionMap", "occlusionTexture"}), occlusionTex);
         if (occlusionTex) slots.push_back({4, occlusionTex});
 
         Texture* emissiveTex = _emissiveTexture;
-        readTexture(getParam(this, {"texture_emissiveMap", "emissiveTexture"}), emissiveTex);
+        readParameterTexture(findMaterialParameter(this, {"texture_emissiveMap", "emissiveTexture"}), emissiveTex);
         if (emissiveTex) slots.push_back({5, emissiveTex});
     }
 

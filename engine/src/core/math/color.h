@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 
 #include <string>
@@ -20,6 +22,14 @@ namespace visutwin::canvas
      * The r, g, b components define a color in RGB space. The a (alpha) component
      * defines transparency (1 = fully opaque, 0 = fully transparent).
      */
+    /// A gamma-authored (sRGB, 2.2) channel in linear space. Negative input decodes to 0,
+    /// as a colour below black has no linear value. The one decode for colours the CPU
+    /// linearises: light, fog and ambient colours, emissive factors.
+    inline float gammaToLinear(const float c)
+    {
+        return std::pow(std::max(c, 0.0f), 2.2f);
+    }
+
     struct Color {
         float r;
 

@@ -216,9 +216,9 @@ namespace visutwin::canvas
             gpu.directionSpot[3] = entry.outerConeCos;
 
             // Convert sRGB color to linear for GPU.
-            const float r = std::pow(std::max(ld.color.r, 0.0f), 2.2f);
-            const float g = std::pow(std::max(ld.color.g, 0.0f), 2.2f);
-            const float b = std::pow(std::max(ld.color.b, 0.0f), 2.2f);
+            const float r = gammaToLinear(ld.color.r);
+            const float g = gammaToLinear(ld.color.g);
+            const float b = gammaToLinear(ld.color.b);
             gpu.colorIntensity[0] = r;
             gpu.colorIntensity[1] = g;
             gpu.colorIntensity[2] = b;

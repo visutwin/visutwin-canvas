@@ -11,6 +11,8 @@
 #include <cstring>
 
 #include "graphicsDevice.h"
+
+#include "computeInstanceCuller.h"
 #include "spdlog/spdlog.h"
 
 namespace visutwin::canvas
@@ -227,5 +229,13 @@ namespace visutwin::canvas
 
         _quadVertexBuffer = createVertexBuffer(format, 3, options);
         return _quadVertexBuffer;
+    }
+
+    std::unique_ptr<InstanceCuller> GraphicsDevice::createInstanceCuller()
+    {
+        if (!supportsCompute()) {
+            return nullptr;
+        }
+        return std::make_unique<ComputeInstanceCuller>(this);
     }
 }

@@ -6,6 +6,7 @@
 //
 #include "renderPassDof.h"
 
+#include "scene/graphics/colorTarget.h"
 #include "platform/graphics/graphicsDevice.h"
 
 namespace visutwin::canvas
@@ -89,35 +90,14 @@ namespace visutwin::canvas
 
     std::shared_ptr<Texture> RenderPassDof::createTexture(const std::string& name, const PixelFormat format) const
     {
-        TextureOptions textureOptions;
-        textureOptions.name = name;
-        textureOptions.width = 1;
-        textureOptions.height = 1;
-        textureOptions.format = format;
-        textureOptions.mipmaps = false;
-        textureOptions.minFilter = FilterMode::FILTER_LINEAR;
-        textureOptions.magFilter = FilterMode::FILTER_LINEAR;
-        auto texture = std::make_shared<Texture>(device().get(), textureOptions);
-        texture->setAddressU(AddressMode::ADDRESS_CLAMP_TO_EDGE);
-        texture->setAddressV(AddressMode::ADDRESS_CLAMP_TO_EDGE);
-        return texture;
+        return createColorTexture(device().get(), name, format);
     }
 
     std::shared_ptr<RenderTarget> RenderPassDof::createRenderTarget(const std::string& name, const PixelFormat format,
         std::shared_ptr<Texture>& outColorTexture) const
     {
-        outColorTexture = createTexture(name, format);
-        if (!outColorTexture) {
-            return nullptr;
-        }
-
-        RenderTargetOptions targetOptions;
-        targetOptions.graphicsDevice = device().get();
-        targetOptions.colorBuffer = outColorTexture.get();
-        targetOptions.depth = false;
-        targetOptions.stencil = false;
-        targetOptions.name = name;
-
-        return device()->createRenderTarget(targetOptions);
+        auto [texture, target] = createColorTarget(device().get(), name, format);
+        outColorTexture = std::move(texture);
+        return target;
     }
 }

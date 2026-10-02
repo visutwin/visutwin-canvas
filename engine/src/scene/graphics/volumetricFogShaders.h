@@ -14,6 +14,52 @@
 
 #include "scene/graphics/quadShaderSource.h"
 
+// Helpers the march, combine and local-light programs share, once per language (spliced
+// in as adjacent string literals, like the quad prelude).
+#define VT_FOG_LINEAR_DEPTH_MSL R"(
+// Standard depth [0,1]: near=0, far=1. Returns positive linear view-space distance.
+static inline float getLinearDepth(float rawDepth, float cameraNear, float cameraFar)
+{
+    return (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
+}
+)"
+
+#define VT_FOG_SCATTERING_MSL R"(
+// Interleaved gradient noise, used to offset the ray-march samples and hide banding.
+static inline float fogNoise(float2 fragCoord)
+{
+    const float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
+    return fract(magic.z * fract(dot(fragCoord, magic.xy)));
+}
+
+// Normalized Henyey-Greenstein phase function.
+static inline float fogPhase(float cosTheta, float g)
+{
+    const float g2 = g * g;
+    const float denom = 1.0 + g2 - 2.0 * g * cosTheta;
+    return (1.0 - g2) / (12.56637 * denom * sqrt(max(denom, 1e-6)));
+}
+)"
+
+#define VT_FOG_LINEAR_DEPTH_GLSL R"(
+float getLinearDepth(float rawDepth, float cameraNear, float cameraFar) {
+    return (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
+}
+)"
+
+#define VT_FOG_SCATTERING_GLSL R"(
+float fogNoise(vec2 fragCoord) {
+    const vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
+    return fract(magic.z * fract(dot(fragCoord, magic.xy)));
+}
+
+float fogPhase(float cosTheta, float g) {
+    float g2 = g * g;
+    float denom = 1.0 + g2 - 2.0 * g * cosTheta;
+    return (1.0 - g2) / (12.56637 * denom * sqrt(max(denom, 1e-6)));
+}
+)"
+
 namespace visutwin::canvas::volumetric_fog
 {
     /**
@@ -66,28 +112,7 @@ struct FogUniforms {
     float4 shadowParams;
     float4 cameraParams;
 };
-)" VT_QUAD_MSL_VERTEX(fogVertex) R"(
-static inline float getLinearDepth(float rawDepth, float cameraNear, float cameraFar)
-{
-    // Standard depth [0,1]: near=0, far=1. Returns positive linear view-space distance.
-    return (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
-}
-
-// Interleaved gradient noise, used to offset the ray-march samples and hide banding.
-static inline float fogNoise(float2 fragCoord)
-{
-    const float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
-    return fract(magic.z * fract(dot(fragCoord, magic.xy)));
-}
-
-// Normalized Henyey-Greenstein phase function.
-static inline float fogPhase(float cosTheta, float g)
-{
-    const float g2 = g * g;
-    const float denom = 1.0 + g2 - 2.0 * g * cosTheta;
-    return (1.0 - g2) / (12.56637 * denom * sqrt(max(denom, 1e-6)));
-}
-
+)" VT_QUAD_MSL_VERTEX(fogVertex) VT_FOG_LINEAR_DEPTH_MSL VT_FOG_SCATTERING_MSL R"(
 // Cascaded directional shadow lookup along the ray. Mirrors the forward pass's cascade
 // selection: pick the first cascade whose split distance exceeds the view depth.
 static inline float sampleFogShadow(float3 worldPos, float viewDepth,
@@ -229,21 +254,7 @@ layout(set = 1, binding = 1) uniform sampler2D shadowTexture;
 layout(location = 0) in vec2 vUv;
 layout(location = 0) out vec4 fragColor;
 
-float getLinearDepth(float rawDepth, float cameraNear, float cameraFar) {
-    return (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
-}
-
-float fogNoise(vec2 fragCoord) {
-    const vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
-    return fract(magic.z * fract(dot(fragCoord, magic.xy)));
-}
-
-float fogPhase(float cosTheta, float g) {
-    float g2 = g * g;
-    float denom = 1.0 + g2 - 2.0 * g * cosTheta;
-    return (1.0 - g2) / (12.56637 * denom * sqrt(max(denom, 1e-6)));
-}
-
+)" VT_FOG_LINEAR_DEPTH_GLSL VT_FOG_SCATTERING_GLSL R"(
 float sampleFogShadow(vec3 worldPos, float viewDepth) {
     if (viewDepth >= u.shadowParams.w) {
         return 1.0;
@@ -324,12 +335,7 @@ struct FogCombineUniforms {
     float4 textureSize;   // xy = fog resolution, zw = 1/resolution
     float4 cameraParams;  // x = near, y = far
 };
-)" VT_QUAD_MSL_VERTEX(fogCombineVertex) R"(
-static inline float getLinearDepth(float rawDepth, float cameraNear, float cameraFar)
-{
-    return (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
-}
-
+)" VT_QUAD_MSL_VERTEX(fogCombineVertex) VT_FOG_LINEAR_DEPTH_MSL R"(
 // Point-sampled depth (AGENTS.md "Depth taps in a quad pass must be POINT
 // sampled"): a bilinear tap across a silhouette returns a depth belonging to
 // neither surface. The Vulkan backend binds a nearest sampler for every depth
@@ -401,10 +407,7 @@ layout(set = 1, binding = 1) uniform sampler2D fogTexture;
 layout(location = 0) in vec2 vUv;
 layout(location = 0) out vec4 fragColor;
 
-float getLinearDepth(float rawDepth, float cameraNear, float cameraFar) {
-    return (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
-}
-
+)" VT_FOG_LINEAR_DEPTH_GLSL R"(
 void main() {
     vec2 uv = clamp(vUv, vec2(0.0), vec2(1.0));
     float cameraNear = u.cameraParams.x;
@@ -503,19 +506,7 @@ constexpr sampler atlasCompareSampler(coord::normalized, filter::linear,
                                       address::clamp_to_edge, compare_func::less_equal);
 constexpr sampler cookieSampler(coord::normalized, filter::linear, address::clamp_to_edge);
 
-static inline float fogNoise(float2 fragCoord)
-{
-    const float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
-    return fract(magic.z * fract(dot(fragCoord, magic.xy)));
-}
-
-static inline float fogPhase(float cosTheta, float g)
-{
-    const float g2 = g * g;
-    const float denom = 1.0 + g2 - 2.0 * g * cosTheta;
-    return (1.0 - g2) / (12.56637 * denom * sqrt(max(denom, 1e-6)));
-}
-
+)" VT_FOG_SCATTERING_MSL R"(
 // Falloffs, twins of common-falloff.metal.
 static inline float fogFalloffLinear(float range, float3 lightVec)
 {
@@ -763,17 +754,7 @@ layout(set = 1, binding = 2) uniform sampler2D cookieAtlas;
 layout(location = 0) in vec2 vUv;
 layout(location = 0) out vec4 fragColor;
 
-float fogNoise(vec2 fragCoord) {
-    const vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
-    return fract(magic.z * fract(dot(fragCoord, magic.xy)));
-}
-
-float fogPhase(float cosTheta, float g) {
-    float g2 = g * g;
-    float denom = 1.0 + g2 - 2.0 * g * cosTheta;
-    return (1.0 - g2) / (12.56637 * denom * sqrt(max(denom, 1e-6)));
-}
-
+)" VT_FOG_SCATTERING_GLSL R"(
 float fogFalloffLinear(float range, vec3 lightVec) {
     return max((range - length(lightVec)) / max(range, 1e-4), 0.0);
 }

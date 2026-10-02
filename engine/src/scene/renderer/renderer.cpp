@@ -5,6 +5,7 @@
 //
 #include "renderer.h"
 #include "cullModeResolve.h"
+#include "core/hash.h"
 #include "scene/renderer/sortDistance.h"
 
 #include <algorithm>
@@ -39,6 +40,7 @@
 #include "scene/particles/particleEmitter.h"
 #include "scene/gsplat/gsplatResource.h"
 #include "scene/materials/material.h"
+#include "scene/materials/materialParameterRead.h"
 #include "scene/graphNode.h"
 #include "scene/shader-lib/programLibrary.h"
 #include "scene/lighting/worldClusters.h"
@@ -149,37 +151,10 @@ namespace visutwin::canvas
     // answer as the forward pass.
     CullMode resolveMaterialCullMode(const Material* material)
         {
-            auto readIntParameter = [](const Material::ParameterValue* value, int& out) -> bool {
-                if (!value) {
-                    return false;
-                }
-                if (const auto* v = std::get_if<int32_t>(value)) {
-                    out = static_cast<int>(*v);
-                    return true;
-                }
-                if (const auto* v = std::get_if<uint32_t>(value)) {
-                    out = static_cast<int>(*v);
-                    return true;
-                }
-                if (const auto* v = std::get_if<float>(value)) {
-                    out = static_cast<int>(*v);
-                    return true;
-                }
-                if (const auto* v = std::get_if<bool>(value)) {
-                    out = *v ? 1 : 0;
-                    return true;
-                }
-                return false;
-            };
-
             CullMode mode = material ? material->cullMode() : CullMode::CULLFACE_BACK;
             if (material) {
                 int cullModeValue = static_cast<int>(mode);
-                const auto* cullModeParam = material->parameter("material_cullMode");
-                if (!cullModeParam) {
-                    cullModeParam = material->parameter("cullMode");
-                }
-                if (readIntParameter(cullModeParam, cullModeValue)) {
+                if (readParameterInt(findMaterialParameter(material, {"material_cullMode", "cullMode"}), cullModeValue)) {
                     if (cullModeValue >= static_cast<int>(CullMode::CULLFACE_NONE) &&
                         cullModeValue <= static_cast<int>(CullMode::CULLFACE_FRONTANDBACK)) {
                         mode = static_cast<CullMode>(cullModeValue);
@@ -348,14 +323,9 @@ namespace visutwin::canvas
         // Order-independent hash of the member set: sort, then fold. XOR alone
         // would be order-independent too and would collide on any pair repeated.
         std::sort(members.begin(), members.end());
-        uint64_t hash = 1469598103934665603ull;   // FNV-1a offset basis
+        uint64_t hash = kFnv1aOffsetBasis;
         for (const void* member : members) {
-            uint64_t value = reinterpret_cast<uintptr_t>(member);
-            for (int byte = 0; byte < 8; ++byte) {
-                hash ^= (value & 0xFFull);
-                hash *= 1099511628211ull;
-                value >>= 8;
-            }
+            hash = fnv1aBytesOf(hash, reinterpret_cast<uintptr_t>(member));
         }
         return hash;
     }
@@ -755,11 +725,6 @@ namespace visutwin::canvas
             }
         }
 
-        // Batch all cull dispatches into one backend command buffer with a
-        // single sync at the end — begun lazily so frames with no GPU-culled
-        // instances create no command buffer at all.
-        bool cullBatchStarted = false;
-
         for (auto* rc : RenderComponent::instances()) {
             // active(): a disabled entity's instances are not drawn, so culling them
             // is wasted GPU work.
@@ -817,16 +782,8 @@ namespace visutwin::canvas
                 params.baseVertex  = static_cast<int32_t>(prim.baseVertex);
                 params.baseInstance = 0u;
 
-                if (!cullBatchStarted) {
-                    _device->beginGpuCullBatch();
-                    cullBatchStarted = true;
-                }
-                culler->cull(srcData.vertexBuffer.get(), params);
+                culler->cull(srcData.vertexBuffer, params);
             }
-        }
-
-        if (cullBatchStarted) {
-            _device->endGpuCullBatch();
         }
     }
 

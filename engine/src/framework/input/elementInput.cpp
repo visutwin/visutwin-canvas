@@ -23,6 +23,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include "core/hash.h"
 #include "framework/components/componentSystem.h"
 #include "framework/components/element/elementComponent.h"
 #include "framework/components/element/textLayout.h"
@@ -411,10 +412,8 @@ namespace visutwin::canvas
     {
         // FNV-1a over the fields, one by one: the struct has padding, and 0.0f == -0.0f
         // must hash alike since they compare equal.
-        uint64_t hash = 1469598103934665603ull;
-        const auto mix = [&hash](const uint64_t value) {
-            hash = (hash ^ value) * 1099511628211ull;
-        };
+        uint64_t hash = kFnv1aOffsetBasis;
+        const auto mix = [&hash](const uint64_t value) { hash = fnv1aMix(hash, value); };
         const auto mixFloat = [&mix](const float value) {
             uint32_t bits = 0;
             const float canonical = value == 0.0f ? 0.0f : value;

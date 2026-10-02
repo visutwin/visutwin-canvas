@@ -114,10 +114,6 @@ namespace visutwin::canvas
         std::shared_ptr<VertexBuffer> createVertexBufferFromNativeBuffer(
             const std::shared_ptr<VertexFormat>& format,
             int numVertices, void* nativeBuffer) override;
-        bool supportsGpuInstanceCulling() const override { return true; }
-        std::unique_ptr<InstanceCuller> createInstanceCuller() override;
-        void beginGpuCullBatch() override {}
-        void endGpuCullBatch() override { flushUploads(); }
         std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat format, int numIndices,
             const std::vector<uint8_t>& data = {}) override;
         std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions& options) override;

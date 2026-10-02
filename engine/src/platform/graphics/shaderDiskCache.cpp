@@ -14,6 +14,7 @@
 #include <system_error>
 
 #include "spdlog/spdlog.h"
+#include "core/hash.h"
 
 namespace visutwin::canvas
 {
@@ -24,16 +25,6 @@ namespace visutwin::canvas
         constexpr uint64_t kMagic = 0x3145484341435456ull;   // "VTCACHE1"
         constexpr uint64_t kFormatVersion = 1;
         constexpr size_t kHeaderSize = 4 * sizeof(uint64_t);
-
-        uint64_t fnv1a64(const std::string_view text)
-        {
-            uint64_t hash = 14695981039346656037ull;
-            for (const unsigned char c : text) {
-                hash ^= c;
-                hash *= 1099511628211ull;
-            }
-            return hash;
-        }
 
         std::string hex(const uint64_t value)
         {

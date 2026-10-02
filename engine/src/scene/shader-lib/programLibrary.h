@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+#include "core/hash.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "scene/materials/material.h"
 #include "scene/materials/standardMaterial.h"
@@ -269,8 +270,7 @@ namespace visutwin::canvas
                 // through its own hash so the result stays stable as the set widens.
                 uint64_t value = features.hash();
                 for (const uint64_t part : {programNameHash, chunksHash, materialChunksHash}) {
-                    value ^= part;
-                    value *= 1099511628211ull;
+                    value = fnv1aMix(value, part);
                 }
                 return value;
             }
@@ -325,6 +325,11 @@ namespace visutwin::canvas
         static void substituteMaterialBlock(std::string& source, bool msl);
         /// True when the registry or the material carries any chunk override.
         bool hasChunkOverrides(const Material* material) const;
+        // Appends each chunk of `chunkOrder` (material override, registry override or
+        // default source, in that order) and a newline; false, with an error logged, when a
+        // chunk is missing. `languageLabel` prefixes "chunk" in that error.
+        bool appendChunks(std::string& source, const std::vector<std::string>& chunkOrder,
+            const Material* material, const char* languageLabel) const;
         /// Warn (once per name) about overrides Vulkan cannot apply.
         void warnUnsupportedGlslOverrides() const;
 

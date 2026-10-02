@@ -121,7 +121,6 @@ namespace visutwin::canvas
         void frameUpdate() const override;
 
     private:
-        std::shared_ptr<RenderTarget> createRenderTarget(const std::string& name, bool depth, bool stencil, int samples) const;
         void setupRenderPasses(const CameraFrameOptions& options);
         void createPasses(const CameraFrameOptions& options);
         void updateCameraUseFlags();

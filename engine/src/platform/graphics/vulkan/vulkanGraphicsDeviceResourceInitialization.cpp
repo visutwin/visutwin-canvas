@@ -20,7 +20,6 @@
 #include <SDL3/SDL_vulkan.h>
 
 #include "vulkanIndexBuffer.h"
-#include "vulkanInstanceCullPass.h"
 #include "vulkanRenderPipeline.h"
 #include "vulkanRenderTarget.h"
 #include "vulkanShader.h"
@@ -1142,11 +1141,6 @@ namespace visutwin::canvas
         const VkBuffer buffer = reinterpret_cast<VkBuffer>(nativeBuffer);
         if (buffer == VK_NULL_HANDLE) return nullptr;
         return std::make_shared<VulkanVertexBuffer>(this, format, numVertices, buffer);
-    }
-
-    std::unique_ptr<InstanceCuller> VulkanGraphicsDevice::createInstanceCuller()
-    {
-        return std::make_unique<VulkanInstanceCullPass>(this);
     }
 
     std::shared_ptr<IndexBuffer> VulkanGraphicsDevice::createIndexBuffer(

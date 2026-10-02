@@ -23,6 +23,7 @@
 #include <memory>
 #include <vector>
 
+#include "framework/destroyWatch.h"
 #include "framework/components/component.h"
 #include "framework/components/layoutgroup/layoutCalculator.h"
 #include "framework/components/componentInstanceList.h"
@@ -82,7 +83,7 @@ namespace visutwin::canvas
         float _value = 0.0f;
         float _handleSize = 0.0f;
         Entity* _handleEntity = nullptr;
-        EventHandlePtr _handleEntityDestroyed;
+        DestroyWatch _handleEntityDestroyed;
         ElementComponent* _trackElement = nullptr;
         std::vector<EventHandlePtr> _trackHandles;
         ElementComponent* _handleElement = nullptr;

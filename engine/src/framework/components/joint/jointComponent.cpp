@@ -30,8 +30,6 @@ namespace visutwin::canvas
     {
         // Safe whether or not the ends still exist: a retained handle outlives its
         // emitter and off() then does nothing.
-        if (_entityADestroyed) { _entityADestroyed->off(); }
-        if (_entityBDestroyed) { _entityBDestroyed->off(); }
         dropJoint();
         _instanceList.remove(this);
     }
@@ -64,16 +62,9 @@ namespace visutwin::canvas
     // little later in the same teardown; the entity itself is freed after that. So
     // the joint lets go of both now, while they are still valid, rather than keep
     // pointers the next update would read.
-    void JointComponent::watchEnd(Entity* entity, EventHandlePtr& handle, const bool isA)
+    void JointComponent::watchEnd(Entity* entity, DestroyWatch& watch, const bool isA)
     {
-        if (handle) {
-            handle->off();
-            handle.reset();
-        }
-        if (entity == nullptr) {
-            return;
-        }
-        handle = entity->on("destroy", [this, isA](const EventArgs&) {
+        watch.watch(entity, [this, isA] {
             dropJoint();
             (isA ? _entityA : _entityB) = nullptr;
             _endDestroyed = true;

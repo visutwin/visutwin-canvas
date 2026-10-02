@@ -8,31 +8,10 @@
 #include <SDL3/SDL_mouse.h>
 #include <SDL3/SDL_touch.h>
 
+#include "platform/input/sdlInputMapping.h"
+
 namespace visutwin::canvas
 {
-    namespace
-    {
-        MouseButton buttonOf(const uint8_t sdlButton)
-        {
-            switch (sdlButton) {
-            case SDL_BUTTON_LEFT:   return MouseButton::Left;
-            case SDL_BUTTON_MIDDLE: return MouseButton::Middle;
-            case SDL_BUTTON_RIGHT:  return MouseButton::Right;
-            default:                return MouseButton::None;
-            }
-        }
-
-        KeyModifiers currentModifiers()
-        {
-            const SDL_Keymod mod = SDL_GetModState();
-            return KeyModifiers{
-                .shift = (mod & SDL_KMOD_SHIFT) != 0,
-                .control = (mod & SDL_KMOD_CTRL) != 0,
-                .alt = (mod & SDL_KMOD_ALT) != 0,
-                .meta = (mod & SDL_KMOD_GUI) != 0,
-            };
-        }
-    }
 
     size_t Mouse::index(const MouseButton button)
     {
@@ -59,14 +38,14 @@ namespace visutwin::canvas
                 .dx = event.motion.xrel,
                 .dy = event.motion.yrel,
                 .button = MouseButton::None,
-                .modifiers = currentModifiers(),
+                .modifiers = currentKeyModifiers(),
                 .fromTouch = event.motion.which == SDL_TOUCH_MOUSEID,
             });
             break;
         }
         case SDL_EVENT_MOUSE_BUTTON_DOWN: {
             _attached = true;
-            const MouseButton button = buttonOf(event.button.button);
+            const MouseButton button = mouseButtonFromSdl(event.button.button);
             const size_t i = index(button);
             if (!_buttons[i]) {
                 _pressedThisFrame[i] = true;
@@ -76,14 +55,14 @@ namespace visutwin::canvas
             _y = event.button.y;
             fire("mousedown", MouseEvent{
                 .x = event.button.x, .y = event.button.y,
-                .button = button, .modifiers = currentModifiers(),
+                .button = button, .modifiers = currentKeyModifiers(),
                 .fromTouch = event.button.which == SDL_TOUCH_MOUSEID,
             });
             break;
         }
         case SDL_EVENT_MOUSE_BUTTON_UP: {
             _attached = true;
-            const MouseButton button = buttonOf(event.button.button);
+            const MouseButton button = mouseButtonFromSdl(event.button.button);
             const size_t i = index(button);
             _releasedThisFrame[i] = true;
             _buttons[i] = false;
@@ -91,7 +70,7 @@ namespace visutwin::canvas
             _y = event.button.y;
             fire("mouseup", MouseEvent{
                 .x = event.button.x, .y = event.button.y,
-                .button = button, .modifiers = currentModifiers(),
+                .button = button, .modifiers = currentKeyModifiers(),
                 .fromTouch = event.button.which == SDL_TOUCH_MOUSEID,
             });
             break;
@@ -103,7 +82,7 @@ namespace visutwin::canvas
                 .x = _x, .y = _y,
                 .wheelDelta = event.wheel.y,
                 .button = MouseButton::None,
-                .modifiers = currentModifiers(),
+                .modifiers = currentKeyModifiers(),
             });
             break;
         }

@@ -38,6 +38,14 @@ target_link_libraries(visutwin-camera-projection-tests PRIVATE visutwin-canvas)
 
 add_test(NAME camera-projection COMMAND visutwin-camera-projection-tests)
 
+# GPU instance culling on a real device of this build's backend (tests/gpuInstanceCullTests.cpp).
+# It needs a GPU and a window, so it carries the `gpu` label, which the CI test presets
+# exclude; run it with `ctest --preset gpu`, or `ctest -L gpu` in a Vulkan build.
+add_executable(visutwin-gpu-instance-cull-tests gpuInstanceCullTests.cpp)
+target_link_libraries(visutwin-gpu-instance-cull-tests PRIVATE visutwin-canvas)
+add_test(NAME gpu-instance-cull COMMAND visutwin-gpu-instance-cull-tests)
+set_tests_properties(gpu-instance-cull PROPERTIES LABELS "gpu" TIMEOUT 60)
+
 if(VISUTWIN_BACKEND_VULKAN)
     add_executable(visutwin-vulkan-smoke
         vulkanSmoke.cpp

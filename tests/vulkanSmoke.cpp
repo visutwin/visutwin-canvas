@@ -368,8 +368,7 @@ void main() { imageStore(outputTexture, ivec2(0), texelFetch(inputTexture, ivec2
             params.instanceCount = 1;
             params.indexCount = 3;
             culler->reserve(1);
-            culler->cull(input.get(), params);
-            device->endGpuCullBatch();
+            culler->cull(input, params);
             vkQueueWaitIdle(device->graphicsQueue());
             if (culler->visibleCountReadback() != 1) {
                 spdlog::error("Vulkan smoke: GPU instance culling failed");

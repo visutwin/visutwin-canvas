@@ -34,7 +34,7 @@ Vulkan 1.3.
 
 ```
 visutwin-canvas/
-  engine/          # Core 3D engine (346 .h + 249 .cpp + 1 .mm = 596 files)
+  engine/          # Core 3D engine (353 .h + 249 .cpp + 1 .mm = 603 files)
     src/core/      # Math (Vector2/3/4, Matrix4, Quaternion, SIMD multi-backend), shapes, events, tags
     src/platform/  # Graphics abstraction + Metal and Vulkan backends, input
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
@@ -77,10 +77,11 @@ cmake --build --preset default
 ctest --preset default
 ```
 
-- **Test presets exclude the `vulkan` and `golden` labels.** `vulkan-validation-smoke`
-  and `golden-images` need a GPU and a window, so `ctest --preset default`, `vulkan`
-  and `sanitize` run the unit tests only, `ctest --preset vulkan-smoke` runs the smoke
-  test and `ctest --preset golden` the golden images. Every preset errors when it
+- **Test presets exclude the `vulkan`, `golden` and `gpu` labels.** `vulkan-validation-smoke`,
+  `golden-images` and `gpu-instance-cull` need a GPU and a window, so `ctest --preset default`,
+  `vulkan` and `sanitize` run the unit tests only, `ctest --preset vulkan-smoke` runs the smoke
+  test, `ctest --preset golden` the golden images and `ctest --preset gpu` the tests that
+  run kernels on this build's real device (`ctest -L gpu` in a Vulkan build). Every preset errors when it
   matches no tests, so a broken filter fails rather than passing on nothing.
 - **CI is `.github/workflows/ci.yml`**, four jobs: `simd-backends` compiles the
   header-only SIMD contract test once per backend (SSE and scalar on Linux x86,
@@ -704,6 +705,10 @@ present, but the rule below never depends on reading it.
   textures: the camera frame retargets the half-resolution copy and (upstream #9591) the
   high-quality far pass (`RenderPassDof::setSceneTexture`) every frame; a far pass that
   blurs the raw jittered frame shimmers with a static camera.
+- **A buffer the GPU wrote is read back through `VertexBuffer::read`**, the buffer's twin
+  of `Texture::read` below: it blocks, Metal flushes and fences then copies from shared
+  storage, Vulkan stages through a one-shot copy and refuses while recording. `storage()`
+  is the CPU copy the buffer was made from, never what a kernel wrote since.
 - **Reading a texture back goes through `Texture::read`, and reading one the GPU
   wrote means reading it through STAGING.** The seam is `Texture::read` →
   `gpu::HardwareTexture::read`: Metal blits into a shared-storage texture, Vulkan
@@ -1697,8 +1702,8 @@ present, but the rule below never depends on reading it.
   the next frame boundary. Growth cannot happen mid-frame: every offset already
   handed out is interpreted against the one buffer bound at the start of the render
   pass (Metal) or named by the persistent dynamic-UBO descriptor sets (Vulkan). So
-  it happens behind a full drain — Metal waits out the other two in-flight regions
-  on its own semaphore, Vulkan calls `vkDeviceWaitIdle` and then REWRITES the two
+  it happens behind a full drain — Metal waits out the other two in-flight frames
+  through the device's `MetalFrameGate` (one semaphore paces every ring), Vulkan calls `vkDeviceWaitIdle` and then REWRITES the two
   descriptor sets through `writeUniformRingDescriptors`, which is also what
   initialization calls so the two cannot describe the buffer differently.
   The overflowing frame itself still degrades, and the two backends degrade
@@ -1878,6 +1883,11 @@ present, but the rule below never depends on reading it.
   Rewriting them per block (in `addMainRenderPass` or a forward pass) makes a camera
   frame fire both events twice a frame and feeds a grab-pass split the rewritten flag
   the next frame.
+- **GPU instance culling is ONE implementation, `ComputeInstanceCuller`, over `Compute`**
+  (kernels in `instanceCullShaders.h`); a backend gets it by supporting compute and
+  indirect draws. `tests/gpuInstanceCullTests.cpp` (label `gpu`) culls on the real device
+  and compares the read-back arguments and instances with a CPU cull; no example
+  renders with GPU culling on.
 - **GPU instance culling has ONE output per mesh instance and runs once a frame, before
   anything draws.** With exactly one camera drawing, it culls to that camera's frustum;
   with more, it keeps every instance so each view is complete. Culled per camera into
@@ -1893,7 +1903,8 @@ present, but the rule below never depends on reading it.
 - **A raw `Entity*` an object keeps must follow the entity's `destroy` event**: subscribe
   when set, clear the pointer in the handler, and `off()` the handle in the owner's
   destructor (a handler that outlives its owner is a use-after-free the sanitizer build
-  catches). Joint ends, the transform gizmo's target, a button's image entity and the
+  catches). `DestroyWatch` (`framework/destroyWatch.h`) is that handle: `watch()` on set,
+  and it unsubscribes on the next `watch()`, `reset()` and in its destructor. Joint ends, the transform gizmo's target, a button's image entity and the
   outline renderer's records do; `tests/triageContractsTests.cpp` holds the button.
 - **`ResourceLoader::shutdown` delivers every undelivered completion as an ERROR, and a
   `load()` after it fails at once** — otherwise an `Asset` stays `_loading` forever and a

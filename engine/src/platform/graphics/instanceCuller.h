@@ -5,7 +5,7 @@
 //
 // Backend-agnostic interface for GPU frustum culling of instanced draws.
 //
-// Concrete implementations (e.g. MetalInstanceCullPass) run a compute pipeline
+// The implementation (ComputeInstanceCuller, over the generic Compute seam) runs a kernel
 // that tests each instance's bounding sphere against a camera frustum and
 // writes the visible instances into a compacted buffer plus an indirect draw
 // arguments buffer. The forward renderer then consumes those via indirect
@@ -14,6 +14,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 
 namespace visutwin::canvas
 {
@@ -21,7 +22,7 @@ namespace visutwin::canvas
 
     /// Parameters for GPU instance culling.
     /// Layout must match the CullParams struct used inside backend compute kernels
-    /// (for Metal, see the embedded MSL in metalInstanceCullPass.cpp).
+    /// (see instanceCullShaders.h).
     struct alignas(16) InstanceCullParams
     {
         float frustumPlanes[6][4];  ///< 6 planes: (nx, ny, nz, d). dot(n,p)+d >= 0 = inside.
@@ -63,7 +64,7 @@ namespace visutwin::canvas
         /// Run a frustum cull pass over `input` (packed `InstanceData`, 80 bytes each).
         /// After this call, `compactedNativeBuffer()` contains only the visible
         /// instances and `indirectArgsNativeBuffer()` contains the draw arguments.
-        virtual void cull(VertexBuffer* input, const InstanceCullParams& params) = 0;
+        virtual void cull(const std::shared_ptr<VertexBuffer>& input, const InstanceCullParams& params) = 0;
 
         /// Opaque pointer to the compacted instance buffer
         /// (backend-specific: `MTL::Buffer*`, `VkBuffer`, …). Stable across frames

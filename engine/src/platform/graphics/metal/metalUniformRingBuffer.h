@@ -6,7 +6,7 @@
 #pragma once
 
 #include <Metal/Metal.hpp>
-#include <dispatch/dispatch.h>
+#include "metalFrameGate.h"
 #include <spdlog/spdlog.h>
 #include <algorithm>
 #include <cassert>
@@ -25,20 +25,21 @@ namespace visutwin::canvas
      * Apple Metal Best Practices Guide recommends:
      * - setVertexBytes() for data < 4 KB (acceptable for small draw counts)
      * - Persistent MTLBuffer + setVertexBufferOffset() for high draw counts
-     * - Triple buffering with dispatch_semaphore_t for CPU/GPU sync
+     * - Triple buffering, paced by the device's MetalFrameGate
      * - 256-byte alignment for constant buffer offsets
      *
      * Usage:
-     *   1. beginFrame()           -- wait for GPU, grow if last frame overflowed,
-     *                                 advance to next region
+     *   1. beginFrame()           -- after the device's frame gate: grow if the last
+     *                                 frame overflowed, advance to the next region
      *   2. allocate(data, size)   -- write per-draw data, get buffer offset
      *   3. encoder->setVertexBufferOffset(offset, index)  -- cheap offset-only bind
-     *   4. endFrame(commandBuffer) -- register GPU completion signal
+     *   The gate's completion signal on the frame's last command buffer is what
+     *   frees a region again (MetalFrameGate).
      */
     class MetalUniformRingBuffer
     {
     public:
-        static constexpr int kMaxInflightFrames = 3;
+        static constexpr int kMaxInflightFrames = MetalFrameGate::kMaxInflightFrames;
         static constexpr size_t kAlignment = 256; // Metal constant buffer offset alignment
 
         /**
@@ -49,13 +50,12 @@ namespace visutwin::canvas
          * @param uniformStructSize Size of the largest uniform struct this ring will hold
          * @param label            Debug label for Metal GPU capture
          */
-        MetalUniformRingBuffer(MTL::Device* device, size_t maxDrawsPerFrame,
+        MetalUniformRingBuffer(MTL::Device* device, MetalFrameGate& gate, size_t maxDrawsPerFrame,
                                size_t uniformStructSize, const char* label = "UniformRing")
-            : _device(device), _label(label)
+            : _device(device), _label(label), _gate(gate)
         {
             _alignedSlotSize = alignUp(uniformStructSize, kAlignment);
             allocateBuffer(maxDrawsPerFrame);
-            _frameSemaphore = dispatch_semaphore_create(kMaxInflightFrames);
         }
 
         ~MetalUniformRingBuffer()
@@ -73,12 +73,11 @@ namespace visutwin::canvas
         MetalUniformRingBuffer& operator=(MetalUniformRingBuffer&&) = delete;
 
         /**
-         * Call at frame start. Blocks if GPU hasn't finished with this region.
-         * Must be called before any allocate() calls for the new frame.
+         * Call at frame start, after MetalFrameGate::waitForFrame() has made the region
+         * free. Must be called before any allocate() calls for the new frame.
          */
         void beginFrame()
         {
-            dispatch_semaphore_wait(_frameSemaphore, DISPATCH_TIME_FOREVER);
             growIfNeeded();
             _frameIndex = (_frameIndex + 1) % kMaxInflightFrames;
             _drawCount = 0;
@@ -117,23 +116,6 @@ namespace visutwin::canvas
             std::memcpy(_basePtr + offset, data, std::min(dataSize, _alignedSlotSize));
             ++_drawCount;
             return offset;
-        }
-
-        /**
-         * Register GPU completion signal on the frame's command buffer.
-         * Must be called on the LAST command buffer committed per frame
-         * (typically the present buffer in onFrameEnd).
-         */
-        void endFrame(MTL::CommandBuffer* commandBuffer)
-        {
-            dispatch_semaphore_t sem = _frameSemaphore;
-            if (!commandBuffer) {
-                dispatch_semaphore_signal(sem);
-                return;
-            }
-            commandBuffer->addCompletedHandler(^(MTL::CommandBuffer*) {
-                dispatch_semaphore_signal(sem);
-            });
         }
 
         /**
@@ -200,14 +182,8 @@ namespace visutwin::canvas
             }
             const size_t wanted = std::max(_requestedDraws, _maxDrawsPerFrame * 2);
 
-            for (int i = 1; i < kMaxInflightFrames; ++i) {
-                dispatch_semaphore_wait(_frameSemaphore, DISPATCH_TIME_FOREVER);
-            }
             const size_t previous = _maxDrawsPerFrame;
-            allocateBuffer(wanted);
-            for (int i = 1; i < kMaxInflightFrames; ++i) {
-                dispatch_semaphore_signal(_frameSemaphore);
-            }
+            _gate.withOtherFramesDrained([&] { allocateBuffer(wanted); });
 
             spdlog::warn("{}: {} allocations requested but only {} fit; the excess shared one "
                          "uniform slot for that frame. Grown to {} ({} MB); the next frame is correct.",
@@ -220,7 +196,7 @@ namespace visutwin::canvas
         const char* _label = "UniformRing";
         MTL::Buffer* _buffer = nullptr;
         uint8_t* _basePtr = nullptr;
-        dispatch_semaphore_t _frameSemaphore = nullptr;
+        MetalFrameGate& _gate;
 
         size_t _alignedSlotSize = 0;
         size_t _regionSize = 0;

@@ -1034,24 +1034,15 @@ namespace visutwin::canvas
         /// then uncompressed RGBA8 as the last resort.
         PixelFormat preferredCompressedRgbaFormat() const;
 
-        /// True when this backend can create an InstanceCuller via createInstanceCuller().
-        /// Used by MeshInstance::enableGpuInstanceCulling() to decide whether to allocate
-        /// the per-instance culler resources or fall back to CPU-only path.
-        virtual bool supportsGpuInstanceCulling() const { return false; }
+        /// True when createInstanceCuller() returns a culler: on every backend that runs
+        /// compute, since the culler (ComputeInstanceCuller) is written once over Compute.
+        /// MeshInstance::enableGpuInstanceCulling() asks before allocating its resources.
+        bool supportsGpuInstanceCulling() const { return supportsCompute(); }
 
-        /// Create a GPU instance culler for hardware-instanced meshes.
-        /// Each MeshInstance that opts into GPU frustum culling owns a dedicated
-        /// culler (pipelines are cached by the backend shader compiler, so
-        /// duplication across instances is cheap). Returns nullptr on backends
-        /// that do not support GPU culling — the caller must handle that case.
-        virtual std::unique_ptr<InstanceCuller> createInstanceCuller() { return nullptr; }
-
-        /// GPU instance-cull batching. All InstanceCuller::cull() calls between
-        /// begin/end share one backend command buffer. Backends may submit it
-        /// asynchronously when later rendering is ordered on the same queue;
-        /// standalone cull() preserves immediate CPU-readback semantics.
-        virtual void beginGpuCullBatch() {}
-        virtual void endGpuCullBatch() {}
+        /// A GPU instance culler for a hardware-instanced mesh, or null without compute.
+        /// Each MeshInstance that opts into GPU frustum culling owns one; its kernels are
+        /// shared through the device's shader cache.
+        std::unique_ptr<InstanceCuller> createInstanceCuller();
 
         /**
          * Group consecutive environment operations (reprojection, convolution,

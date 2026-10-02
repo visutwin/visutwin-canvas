@@ -115,69 +115,9 @@ namespace visutwin::canvas
 
     bool VulkanIndexBuffer::uploadStaging(const void* data, size_t size, const size_t destinationOffset)
     {
-        auto* vkDev = static_cast<VulkanGraphicsDevice*>(_device);
-
-        VkBuffer stagingBuffer;
-        VmaAllocation stagingAlloc;
-
-        VkBufferCreateInfo stagingInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-        stagingInfo.size = size;
-        stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-
-        VmaAllocationCreateInfo stagingAllocInfo{};
-        stagingAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
-
-        if (vmaCreateBuffer(_allocator, &stagingInfo, &stagingAllocInfo,
-                &stagingBuffer, &stagingAlloc, nullptr) != VK_SUCCESS) {
-            spdlog::error("VulkanIndexBuffer: staging allocation failed");
-            return false;
-        }
-
-        void* mapped;
-        if (vmaMapMemory(_allocator, stagingAlloc, &mapped) != VK_SUCCESS) {
-            spdlog::error("VulkanIndexBuffer: staging map failed");
-            vmaDestroyBuffer(_allocator, stagingBuffer, stagingAlloc);
-            return false;
-        }
-        memcpy(mapped, data, size);
-        vmaUnmapMemory(_allocator, stagingAlloc);
-
-        const VkBuffer destinationBuffer = _buffer;
-        vkDev->enqueueUpload([destinationBuffer, stagingBuffer, size, destinationOffset](VkCommandBuffer cmd) {
-            // Queue-wide ordering: prior in-flight frames finish their index
-            // reads before the copy; later reads see the copied data.
-            VkBufferMemoryBarrier2 pre{
-                VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-            pre.srcStageMask = VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
-            pre.srcAccessMask = VK_ACCESS_2_INDEX_READ_BIT;
-            pre.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-            pre.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-            pre.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            pre.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            pre.buffer = destinationBuffer;
-            pre.size = VK_WHOLE_SIZE;
-            VkDependencyInfo dependency{
-                VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-            dependency.bufferMemoryBarrierCount = 1;
-            dependency.pBufferMemoryBarriers = &pre;
-            vkCmdPipelineBarrier2(cmd, &dependency);
-
-            VkBufferCopy copy{};
-            copy.dstOffset = destinationOffset;
-            copy.size = size;
-            vkCmdCopyBuffer(cmd, stagingBuffer, destinationBuffer, 1, &copy);
-
-            VkBufferMemoryBarrier2 post = pre;
-            post.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-            post.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-            post.dstStageMask = VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
-            post.dstAccessMask = VK_ACCESS_2_INDEX_READ_BIT;
-            dependency.pBufferMemoryBarriers = &post;
-            vkCmdPipelineBarrier2(cmd, &dependency);
-        }, [allocator = _allocator, stagingBuffer, stagingAlloc] {
-            vmaDestroyBuffer(allocator, stagingBuffer, stagingAlloc);
-        });
-        return true;
+        return vulkanEnqueueBufferUpload(*static_cast<VulkanGraphicsDevice*>(_device), _allocator, _buffer,
+            destinationOffset, data, size, VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT, VK_ACCESS_2_INDEX_READ_BIT,
+            "VulkanIndexBuffer");
     }
 }
 

@@ -24,6 +24,7 @@
 #include "renderPassSsao.h"
 #include "renderPassVolumetricFog.h"
 #include "renderPassTAA.h"
+#include "scene/graphics/colorTarget.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "scene/constants.h"
 #include "scene/renderer/renderPassForward.h"
@@ -283,36 +284,6 @@ namespace visutwin::canvas
         }
     }
 
-    std::shared_ptr<RenderTarget> RenderPassCameraFrame::createRenderTarget(const std::string& name, const bool depth,
-        const bool stencil, const int samples) const
-    {
-        const auto gd = device();
-        if (!gd) {
-            return nullptr;
-        }
-
-        TextureOptions textureOptions;
-        textureOptions.name = name;
-        textureOptions.width = 4;
-        textureOptions.height = 4;
-        textureOptions.format = _hdrFormat;
-        textureOptions.mipmaps = false;
-        textureOptions.minFilter = FilterMode::FILTER_LINEAR;
-        textureOptions.magFilter = FilterMode::FILTER_LINEAR;
-        auto colorTexture = std::make_shared<Texture>(gd.get(), textureOptions);
-        colorTexture->setAddressU(AddressMode::ADDRESS_CLAMP_TO_EDGE);
-        colorTexture->setAddressV(AddressMode::ADDRESS_CLAMP_TO_EDGE);
-
-        RenderTargetOptions rtOptions;
-        rtOptions.graphicsDevice = gd.get();
-        rtOptions.colorBuffer = colorTexture.get();
-        rtOptions.depth = depth;
-        rtOptions.stencil = stencil;
-        rtOptions.samples = samples;
-        rtOptions.name = name;
-        return gd->createRenderTarget(rtOptions);
-    }
-
     std::shared_ptr<RenderAction> RenderPassCameraFrame::cloneActionWithTarget(const RenderAction* source,
         const std::shared_ptr<RenderTarget>& renderTarget)
     {
@@ -430,29 +401,15 @@ namespace visutwin::canvas
         _sceneHalfEnabled = _bloomEnabled || options.dofEnabled;
         _renderTargetScale = options.renderTargetScale;
 
-        // Create the scene color texture explicitly so it survives beyond the helper.
-        // The createRenderTarget() helper creates a local Texture that is destroyed when
-        // the method returns (RenderTarget stores only a raw pointer). We must keep
-        // the color texture alive ourselves.
+        // The scene colour texture is held here: a RenderTarget stores only a raw pointer
+        // to its colour buffer.
         // Start at the device size (not 4×4) so the first frame isn't too small.
         // Scaled the same way _sceneOptions scales it below, so a supersampled frame
         // starts at its real size instead of growing into it on the second frame.
         const auto [devW, devH] = gd->size();
         const int initW = std::max(static_cast<int>(std::floor(devW * _renderTargetScale)), 1);
         const int initH = std::max(static_cast<int>(std::floor(devH * _renderTargetScale)), 1);
-        {
-            TextureOptions colorOpts;
-            colorOpts.name = "SceneColor";
-            colorOpts.width = std::max(initW, 1);
-            colorOpts.height = std::max(initH, 1);
-            colorOpts.format = _hdrFormat;
-            colorOpts.mipmaps = false;
-            colorOpts.minFilter = FilterMode::FILTER_LINEAR;
-            colorOpts.magFilter = FilterMode::FILTER_LINEAR;
-            _sceneTexture = std::make_shared<Texture>(gd.get(), colorOpts);
-            _sceneTexture->setAddressU(AddressMode::ADDRESS_CLAMP_TO_EDGE);
-            _sceneTexture->setAddressV(AddressMode::ADDRESS_CLAMP_TO_EDGE);
-        }
+        _sceneTexture = createColorTexture(gd.get(), "SceneColor", _hdrFormat, std::max(initW, 1), std::max(initH, 1));
 
         TextureOptions sceneDepthOptions;
         sceneDepthOptions.name = "CameraFrameSceneDepth";
@@ -499,30 +456,14 @@ namespace visutwin::canvas
 
         if (_sceneHalfEnabled) {
             // Create half-resolution color texture explicitly (same lifetime fix as _sceneTexture).
-            TextureOptions halfOpts;
-            halfOpts.name = "SceneColorHalf";
             // Half of the scene texture, not 4x4, for the same reason the scene
             // texture starts at the device size: the bloom chain sizes its mip
             // count from this texture on the very first frameUpdate, and a
             // placeholder makes it build a chain it discards a frame later.
-            halfOpts.width = std::max(initW / 2, 1);
-            halfOpts.height = std::max(initH / 2, 1);
-            halfOpts.format = _hdrFormat;
-            halfOpts.mipmaps = false;
-            halfOpts.minFilter = FilterMode::FILTER_LINEAR;
-            halfOpts.magFilter = FilterMode::FILTER_LINEAR;
-            _sceneTextureHalf = std::make_shared<Texture>(gd.get(), halfOpts);
-            _sceneTextureHalf->setAddressU(AddressMode::ADDRESS_CLAMP_TO_EDGE);
-            _sceneTextureHalf->setAddressV(AddressMode::ADDRESS_CLAMP_TO_EDGE);
-
-            RenderTargetOptions halfTargetOptions;
-            halfTargetOptions.graphicsDevice = gd.get();
-            halfTargetOptions.colorBuffer = _sceneTextureHalf.get();
-            halfTargetOptions.depth = false;
-            halfTargetOptions.stencil = false;
-            halfTargetOptions.samples = 1;
-            halfTargetOptions.name = "SceneColorHalf";
-            _sceneHalfRenderTarget = gd->createRenderTarget(halfTargetOptions);
+            auto [halfTexture, halfTarget] = createColorTarget(gd.get(), "SceneColorHalf", _hdrFormat,
+                std::max(initW / 2, 1), std::max(initH / 2, 1));
+            _sceneTextureHalf = std::move(halfTexture);
+            _sceneHalfRenderTarget = std::move(halfTarget);
         }
 
         _sceneOptions = std::make_shared<RenderPassOptions>();
