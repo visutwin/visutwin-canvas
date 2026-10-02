@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 11.09.2026
+//
 // The input devices are state machines driven by a window-system event stream, and
 // nothing about them is visible in a rendered frame: an example screenshot is
 // identical whether the keyboard tracks keys correctly or not at all. So they are

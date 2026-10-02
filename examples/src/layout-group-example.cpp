@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 30.09.2026
+//
 // Port of upstream user-interface/layout-group.
 //
 // A backpack screen built from three layout groups: the item's details are a vertical list,
@@ -85,7 +87,7 @@ namespace
         return ITEMS[0];
     }
 
-    /// Upstream's element properties that this example sets; an image centered on its parent
+    /// The element properties that this example sets; an image centered on its parent
     /// unless they say otherwise.
     struct ElementProps
     {

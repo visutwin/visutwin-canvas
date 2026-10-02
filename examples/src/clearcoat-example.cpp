@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 14.07.2026
+//
 // Clearcoat material demo (parity with upstream materials/clear-coat): the
 // Khronos ClearCoatTest.glb sample asset — six labelled columns of sphere/plane
 // pairs comparing Base / Coating / Coated variants (partial coat masks, rough
@@ -33,7 +35,7 @@ protected:
         scene()->setSkyboxIntensity(1.5f);
         scene()->setSkyboxRotation(Quaternion::fromEulerAngles(0.0f, 70.0f, 0.0f));
 
-        // Morning environment atlas — same asset as the upstream example.
+        // Morning environment atlas.
         _morning = std::make_unique<Asset>(
             "morning-env-atlas",
             AssetType::TEXTURE,
@@ -52,7 +54,7 @@ protected:
         scene()->setEnvAtlas(std::get<Texture*>(*morningResource));
 
         // Khronos ClearCoatTest sample model (KHR_materials_clearcoat), posed
-        // like upstream: yaw 90, position (0,0,1), scale 0.8.
+        // at yaw 90, position (0,0,1), scale 0.8.
         _model = std::make_unique<Asset>(
             "clearcoat-test",
             AssetType::CONTAINER,
@@ -70,10 +72,10 @@ protected:
         modelEntity->setLocalScale(0.8f, 0.8f, 0.8f);
         root()->addChild(modelEntity);
 
-        // Yellow directional light, no shadows (upstream).
+        // Yellow directional light, no shadows.
         createDirectionalLight(Vector3(45.0f, 180.0f, 0.0f), Color(1.0f, 1.0f, 0.0f, 1.0f), 1.0f, false);
 
-        // Orbit camera: upstream orbitCamera yaw 90, distance 12 around the model.
+        // Orbit camera: yaw 90, distance 12 around the model.
         auto* camera = createCamera(Vector3(12.0f, 0.0f, 1.0f), Vector3(0.0f, 90.0f, 0.0f));
         addOrbitControls(camera, Vector3(0.0f, 0.0f, 1.0f));
 

@@ -1,7 +1,7 @@
 // ── Parallax occlusion mapping ──
 //
-// `heightBase` is the height-map value that sits at the level of the geometry
-// (upstream's meaning): texels above it stand proud of the polygon and texels below
+// `heightBase` is the height-map value that sits at the level of the geometry:
+// texels above it stand proud of the polygon and texels below
 // sink into it. 1 treats the map as pure depth carved below the surface, which is
 // what this port marched before the parameter existed; the default 0.5 pivots the
 // relief around mid-grey.
@@ -30,9 +30,8 @@ static inline float2 parallaxOcclusionMap(float2 uv, float3 viewDirTS,
     const int numSteps = int(mix(float(maxSteps), float(minSteps), abs(viewDirTS.z)));
     const float layerDepth = 1.0 / float(numSteps);
 
-    // Upstream's height unit is a TENTH of a uv tile, so a factor of 1 asks for a
-    // relief 0.1 uv deep. Applying that here keeps `heightMapFactor` meaning what it
-    // means upstream; used raw, upstream's own tuned value of 0.4 smears the surface
+    // The height unit is a TENTH of a uv tile, so a factor of 1 asks for a
+    // relief 0.1 uv deep. Used raw, a typical tuned value of 0.4 smears the surface
     // into spikes.
     const float scale = heightScale * 0.1;
     // UV travelled per unit of depth along the view ray, and the per-layer step.

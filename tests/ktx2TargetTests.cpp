@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 25.09.2026
+//
 // A KTX2 (Basis) payload is transcoded to a format the DEVICE says it can create.
 //
 // ASTC is Apple-only and BC desktop-only, and creating an image in a format the GPU

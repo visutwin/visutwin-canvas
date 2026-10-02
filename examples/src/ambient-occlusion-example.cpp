@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // SSAO showcase (mirrors upstream graphics/ambient-occlusion): the laboratory
 // interior lit by the helipad env atlas, torch omni lights and a shadow-casting
 // directional light, with screen-space ambient occlusion applied through the
@@ -44,7 +46,7 @@ protected:
         scene()->setExposure(2.5f);
         scene()->setToneMapping(TONEMAP_NEUTRAL);
 
-        // Assets matching upstream AO example
+        // Assets
         _envAtlas = std::make_unique<Asset>(
             "helipad-env-atlas",
             AssetType::TEXTURE,
@@ -114,7 +116,7 @@ protected:
                     torchLightComp->setShadowNormalBias(0.2f);
                     // Static torches in a static room: render each cubemap once. Measured
                     // on Metal, this and the directional light's mode below take the
-                    // frame from 852 draw calls to about 124, which is upstream's figure.
+                    // frame from 852 draw calls to about 124.
                     torchLightComp->setShadowUpdateMode(ShadowUpdateType::SHADOWUPDATE_THISFRAME);
                 }
                 // Position at the torch's first child mesh center
@@ -164,7 +166,7 @@ protected:
         if (_cameraComp) {
             auto ssao = _cameraComp->ssao();
             ssao.enabled = true;
-            // Upstream's example opens on SSAOTYPE_LIGHTING: the occlusion is folded
+            // Opens on SSAOTYPE_LIGHTING: the occlusion is folded
             // into the ambient term as the scene shades, rather than multiplied over
             // the finished image by compose. The two look different — lighting mode
             // cannot darken what was never lit by ambient light, so an emissive or
@@ -181,9 +183,8 @@ protected:
             ssao.randomize = false;
             _cameraComp->setSsao(ssao);
 
-            // tone mapping, and upstream's 4x MSAA on the scene target (it disables
-            // MSAA only when TAA is on, which this port does not offer). The camera
-            // frame's target is already RGBA16F, upstream's `renderFormats` choice.
+            // tone mapping, and 4x MSAA on the scene target. The camera
+            // frame's target is already RGBA16F.
             auto rendering = _cameraComp->rendering();
             rendering.toneMapping = TONEMAP_NEUTRAL;
             rendering.samples = 4;
@@ -194,8 +195,8 @@ protected:
         const auto labBbox = entityBounds(labEntity);
         _focusPoint = labBbox.center();
         const float sceneRadius = std::max(labBbox.halfExtents().length(), 1.0f);
-        // Upstream's orbit script frames the focus entity at
-        // 1.5 * (largest half extent) / sin(fov / 2), clamped to its distanceMax of 350,
+        // Frame the focus entity at
+        // 1.5 * (largest half extent) / sin(fov / 2), clamped to a distanceMax of 350,
         // which is where the clamp lands for this model.
         const auto& he = labBbox.halfExtents();
         const float frameRadius = std::max({he.getX(), he.getY(), he.getZ()});

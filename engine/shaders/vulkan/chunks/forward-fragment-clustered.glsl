@@ -17,7 +17,7 @@
                 vec3 L = delta / max(distance, 1e-5);
                 // A shaped light (areaHalfWidth.w, the LightShape; 0 punctual — the CPU
                 // leaves it 0 unless clustered area lights are enabled) takes only the
-                // range window, as upstream's clusteredLight with CLUSTER_AREALIGHTS.
+                // range window.
                 uint clShape = vtFeatureEnabled(VT_FEATURE_AREA_LIGHTS_BIT)
                     ? uint(cl.areaHalfWidth.w + 0.5) : 0u;
                 float atten = (clShape != 0u)
@@ -39,7 +39,7 @@
                 // the direction and takes the cubemap path's relative bias.
                 if (cl.shadowData.x > 0.5) {
                     if (cl.shadowData.w > 1.5) {
-                        // Omni receiver offset is upstream's normalOffsetPointShadow
+                        // Omni receiver offset
                         // (see the Metal twin): geometric normal * normalBias *
                         // (1 - NdotL) * distance to the light.
                         vec3 Ng = normalize(fragWorldNormal);
@@ -50,7 +50,7 @@
                             shadowPosW - cl.positionRange.xyz);
                         atten *= mix(1.0, vis, clamp(cl.shadowData.z, 0.0, 1.0));
                     } else {
-                        // A spot keeps the flat normalBias, as upstream.
+                        // A spot keeps the flat normalBias.
                         vec3 shadowPosW = fragWorldPos + N * cl.shadowData.y;
                         vec4 sc = cl.shadowMatrix * vec4(shadowPosW, 1.0);
                         if (sc.w > 0.0) {
@@ -150,7 +150,7 @@
                 // Same convention as the punctual path: no 1/PI, no kD, and no
                 // explicit 1/(4 NdotL NdotV) because the visibility term carries it.
                 vec3 clusteredSpecular = D * Vis * F * specularOn;
-                // Upstream: with area lights in the variant, a punctual light's diffuse
+                // With area lights in the variant, a punctual light's diffuse
                 // is scaled by (1 - specularity).
                 vec3 clDiffuseScale = (vtFeatureEnabled(VT_FEATURE_AREA_LIGHTS_BIT) && specularOn > 0.0)
                     ? vec3(1.0) - F0 : vec3(1.0);

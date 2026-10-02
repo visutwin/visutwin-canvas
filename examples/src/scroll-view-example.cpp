@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 30.09.2026
+//
 // Port of upstream user-interface/scroll-view.
 //
 // A leaderboard of 50 players in a scroll view: drag the list, flick it, scroll it with the

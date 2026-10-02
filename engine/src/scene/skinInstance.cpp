@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 22.12.2025.
+// Created by Arnis Lektauers on 22.12.2025
 //
 #include "skinInstance.h"
 
@@ -47,7 +47,7 @@ namespace visutwin::canvas
         const auto& inverseBindPose = _skin->inverseBindPose();
         const size_t count = std::min(_bones.size(), inverseBindPose.size());
         for (size_t i = 0; i < count; ++i) {
-            // world space -> rootNode space -> bind space (upstream _updateMatrices)
+            // world space -> rootNode space -> bind space
             const Matrix4 boneWorld = _bones[i]
                 ? _bones[i]->worldTransform()
                 : Matrix4::identity();

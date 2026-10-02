@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Upstream extras/gizmo/tri-data.js: the triangles a gizmo shape is PICKED against.
+// Created by Arnis Lektauers on 02.10.2026
+//
+// The triangles a gizmo shape is PICKED against.
 //
 // A shape is selected by intersecting the pointer ray with triangles, not by a screen
 // distance: each shape keeps one or more TriData, a unit primitive (cone, cylinder,
@@ -27,7 +29,7 @@ namespace visutwin::canvas
     {
     public:
         /// @param priority 0 = no priority; a higher value wins over a nearer hit
-        /// (upstream's sort: two prioritised hits order by priority, otherwise by distance).
+        /// (two prioritised hits order by priority, otherwise by distance).
         explicit TriData(const PrimitiveGeometry& geometry, int priority = 0);
 
         const Matrix4& transform() const { return _transform; }
@@ -43,8 +45,7 @@ namespace visutwin::canvas
         /**
          * The nearest hit of a WORLD-space ray against these triangles placed by
          * `parentWorld * transform()`, as the distance from the ray origin to the
-         * hit in world units. Upstream's per-triangle loop in Gizmo._getSelection;
-         * every hit is reported there, and only the nearest survives its sort.
+         * hit in world units.
          */
         bool intersect(const Matrix4& parentWorld, const Vector3& origin, const Vector3& direction,
                        float& outDistance) const;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 18.10.2025.
+// Created by Arnis Lektauers on 18.10.2025
 //
 #include "shadowRendererDirectional.h"
 
@@ -58,7 +58,7 @@ namespace visutwin::canvas
     namespace
     {
         // Shadow camera rotation: align -Z with the light direction. Directional lights
-        // emit along -Y, so upstream applies the light rotation then rotates -90° on X
+        // emit along -Y, so the light rotation is applied, then a -90° rotation on X
         // to map -Y → -Z.
         Quaternion shadowCameraRotation(const Light& light)
         {
@@ -111,12 +111,11 @@ namespace visutwin::canvas
             }
         }
 
-        // Pixel-align the shadow camera position to avoid shadow swimming. Mirrors
-        // upstream:
+        // Pixel-align the shadow camera position to avoid shadow swimming:
         //   sizeRatio = 0.25 * shadowResolution / radius
         // (algebraically equivalent to 0.5 * cascadeRes / radius for the 4-cascade 2×2
         // atlas layout, since cascadeRes = 0.5·resolution.) Only the lateral position
-        // gets quantised, as in upstream shadow-renderer-directional.js; depth is taken
+        // gets quantised; depth is taken
         // straight from the centroid.
         Vector3 snapToShadowTexels(const Vector3& center, const float radius, const int resolution,
             const Matrix4& shadowRotMat)
@@ -136,7 +135,7 @@ namespace visutwin::canvas
 
         // Position the shadow camera far behind the center, looking along the light,
         // with an orthographic projection that encompasses the cascade's bounding
-        // sphere. upstream positions at center + forward * 1,000,000 initially for
+        // sphere. It is positioned at center + forward * 1,000,000 initially for
         // culling, then tightens near/far to the actual caster depth range (see
         // fitDepthRange).
         void placeWideShadowCamera(const CascadeCamera& cascade, const Quaternion& rotation,
@@ -227,9 +226,9 @@ namespace visutwin::canvas
             const Matrix4 shadowVP = cascadeCam.camera->projectionMatrix() * shadowView;
 
             const Vector4& vp = light.cascadeViewports()[cascade];
-            // upstream Mat4.setViewport: maps clip coords to the cascade's viewport
+            // Maps clip coords to the cascade's viewport
             // sub-region, with the Y scale negated for the top-left texture origin (the
-            // translate stays upstream's, since the viewport rect is already top-left) and
+            // translate is unchanged, since the viewport rect is already top-left) and
             // NDC z [-1,1] -> [0,1] baked in because the shader reads the final shadow depth.
             // LightCamera::viewportProjectionBias is exactly that matrix, the one the
             // clustered spot rects use too.
@@ -409,7 +408,7 @@ namespace visutwin::canvas
                     if (sm->blurTempTexture() && sm->blurTempRenderTarget() &&
                         !sm->renderTargets().empty()) {
                         const int resolution = light->shadowResolution();
-                        // Convert upstream-style total-tap count to half-kernel size.
+                        // Convert the total-tap count to half-kernel size.
                         // vsmBlurSize is total taps and should be odd; halfSize = (taps - 1) / 2.
                         const int filterSize = std::max(1, (light->vsmBlurSize() - 1) / 2);
                         // Multi-cascade atlases pack 0.5x0.5 quadrants — the

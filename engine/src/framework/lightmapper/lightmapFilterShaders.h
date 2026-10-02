@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 02.10.2026
+//
 // The GPU lightmapper's post-bake quad passes, one source per language with the pass
 // picked by a define:
 //
-//   LM_DILATE       upstream lightmapper/frag/dilate.js: an unbaked texel takes the first
-//                   baked one of its eight neighbours, so bilinear filtering across a chart
-//                   edge does not pull in the black outside the unwrap.
-//   LM_DENOISE      upstream lightmapper/frag/bilateralDeNoise.js: a 15 x 15 bilateral
-//                   filter over the baked texels only, its spatial kernel and range
-//                   normaliser computed on the CPU (lightmapFilters.h).
-//   LM_AMBIENT_AO   upstream bakeLmEnd.js under LIT_LIGHTMAP_BAKING_ADD_AMBIENT: the
-//                   accumulated ambient visibility (slot 0) is shaped by the occlusion
+//   LM_DILATE       an unbaked texel takes the first baked one of its eight neighbours,
+//                   so bilinear filtering across a chart edge does not pull in the
+//                   black outside the unwrap.
+//   LM_DENOISE      a 15 x 15 bilateral filter over the baked texels only, its spatial
+//                   kernel and range normaliser computed on the CPU (lightmapFilters.h).
+//   LM_AMBIENT_AO   the accumulated ambient visibility (slot 0) is shaped by the occlusion
 //                   contrast and brightness, saturated, and multiplies the ambient light
 //                   baked for the same texel (slot 1).
 //   LM_COPY         a plain copy, for moving a result back into the lightmap's own target.

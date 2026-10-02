@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 11.07.2026.
+// Created by Arnis Lektauers on 11.07.2026
 //
 #pragma once
 
@@ -55,10 +55,10 @@ namespace visutwin::canvas
         const std::shared_ptr<VertexBuffer>& deltaBuffer() const { return _deltaBuffer; }
 
         /**
-         * How far the targets can move the mesh, as a box of position DELTAS (upstream
-         * Morph.aabb): the union of every target's delta bounds, and of the origin, so
+         * How far the targets can move the mesh, as a box of position DELTAS:
+         * the union of every target's delta bounds, and of the origin, so
          * its min is <= 0 and its max >= 0 on every axis. A mesh instance adds its min to
-         * its rest-pose min and its max to its max. Like upstream it is the typical
+         * its rest-pose min and its max to its max. It is the typical
          * case, one target at a time, not the stacked worst case of every target at full
          * weight; a scene that stacks them needs a custom AABB.
          */

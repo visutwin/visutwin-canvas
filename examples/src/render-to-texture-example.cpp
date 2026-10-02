@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Port of upstream graphics/render-to-texture.
 //
 // Three layers: World (objects rendered by both cameras), Excluded (rendered by
@@ -133,7 +135,7 @@ protected:
         createParticleSystem(Vector3(2.0f, 3.0f, 0.0f));
 
         // Create main camera, which renders entities in world, excluded and skybox layers.
-        // Upstream: translate(0, 9, 15), lookAt(1, 4, 0), then the orbit camera keeps that
+        // translate(0, 9, 15), lookAt(1, 4, 0), then the orbit camera keeps that
         // direction and re-seats the camera at the same distance from the plane's centre.
         const Vector3 initialPosition(0.0f, 9.0f, 15.0f);
         const Vector3 lookDirection = (Vector3(1.0f, 4.0f, 0.0f) - initialPosition).normalized();
@@ -274,8 +276,8 @@ private:
         particles->play();
     }
 
-    // Upstream's TextureRenderer::draw(x, y, w, h) takes the left and top edge and the size,
-    // each as a fraction of the viewport, and shows texture row 0 at the top.
+    // (x, y) is the left and top edge and (w, h) the size, each as a fraction of the
+    // viewport; texture row 0 shows at the top.
     void addTexturePreview(const float x, const float y, const float w, const float h)
     {
         const auto [deviceWidth, deviceHeight] = device()->size();

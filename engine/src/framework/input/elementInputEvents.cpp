@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// ElementInput's input half: upstream element-input.js from the event handlers down to
-// the hit test. The drawing half is elementInput.cpp.
+// Created by Arnis Lektauers on 29.09.2026
+//
+// ElementInput's input half, from the event handlers down to the hit test. The drawing half is elementInput.cpp.
 //
 #include "elementInput.h"
 
@@ -31,7 +32,7 @@ namespace visutwin::canvas
 {
     namespace
     {
-        /// Upstream's click brake: a mouse click within this long of a touch click on the
+        /// Click brake: a mouse click within this long of a touch click on the
         /// same element is the platform's synthesized copy of it.
         constexpr auto kClickBrake = std::chrono::milliseconds(300);
 
@@ -43,7 +44,7 @@ namespace visutwin::canvas
 
         float scalarTriple(const Vector3& a, const Vector3& b, const Vector3& c) { return a.cross(b).dot(c); }
 
-        /// Upstream `intersectLineQuad` (Real-Time Collision Detection): the squared distance
+        /// After Real-Time Collision Detection: the squared distance
         /// from p to where line pq crosses the quad with counter-clockwise `corners`, or -1.
         float intersectLineQuad(const Vector3& p, const Vector3& q, const std::array<Vector3, 4>& corners)
         {
@@ -108,7 +109,7 @@ namespace visutwin::canvas
             return entity ? dynamic_cast<Entity*>(entity->parent()) : nullptr;
         }
 
-        /// Upstream `calculateScaleToScreen`: the screen's scale times the local scales up to
+        /// The screen's scale times the local scales up to
         /// the screen entity.
         Vector3 scaleToScreen(const ElementComponent* element)
         {
@@ -121,7 +122,7 @@ namespace visutwin::canvas
             return scale;
         }
 
-        /// Upstream `calculateScaleToWorld`: every local scale up to the root.
+        /// Every local scale up to the root.
         Vector3 scaleToWorld(const ElementComponent* element)
         {
             Vector3 scale(1.0f, 1.0f, 1.0f);
@@ -133,7 +134,7 @@ namespace visutwin::canvas
 
         float checkElement(const Segment& ray, ElementComponent* element, const bool screen)
         {
-            // Upstream: a masked element is only hit where its mask is, all the way up.
+            // A masked element is only hit where its mask is, all the way up.
             if (ElementComponent* mask = element->maskedBy()) {
                 if (checkElement(ray, mask, screen) < 0.0f) {
                     return -1.0f;
@@ -210,7 +211,7 @@ namespace visutwin::canvas
                 cameras.push_back(camera);
             }
         }
-        // Upstream's camera list is in priority order, the order the cameras draw in.
+        // Cameras in priority order, the order they draw in.
         std::stable_sort(cameras.begin(), cameras.end(), [](const CameraComponent* a, const CameraComponent* b) {
             return a->priority() < b->priority();
         });
@@ -262,7 +263,7 @@ namespace visutwin::canvas
             }
         }
 
-        // The candidates, front first (upstream `_sortElements`).
+        // The candidates, front first.
         std::vector<ElementComponent*> elements;
         for (auto* element : ElementComponent::instances()) {
             if (element && element->useInput() && element->entity() && element->entity()->engine() == _engine.get() &&
@@ -482,7 +483,7 @@ namespace visutwin::canvas
         if (!_enabled) {
             return;
         }
-        // Upstream snaps the browser's deltaY, positive TOWARD the user, to its sign.
+        // Snap the browser's deltaY, positive TOWARD the user, to its sign.
         const int wheelDelta = deltaY > 0.0f ? -1 : (deltaY < 0.0f ? 1 : 0);
         // The browser's pixel deltas, for whoever reads them (the scroll view); 100 a notch.
         constexpr float kPixelsPerNotch = 100.0f;
@@ -557,7 +558,7 @@ namespace visutwin::canvas
         if (!_enabled) {
             return;
         }
-        // Upstream clears the brake of every earlier touch here.
+        // Clear the brake of every earlier touch.
         _clickedElements.clear();
         const auto it = _touchedElements.find(id);
         if (it == _touchedElements.end()) {

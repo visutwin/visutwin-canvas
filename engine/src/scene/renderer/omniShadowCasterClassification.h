@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 05.09.2026.
+// Created by Arnis Lektauers on 05.09.2026
 //
 #pragma once
 
@@ -13,7 +13,7 @@ namespace visutwin::canvas
     struct ShadowCasterBounds;
 
     /**
-     * One-pass omni shadow caster classification (upstream cullShadowCastersOmni).
+     * One-pass omni shadow caster classification.
      *
      * An omni light draws six shadow faces. Culling each face independently sweeps
      * the whole scene six times and builds six frustums. This sweeps once and

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 //
 #pragma once
 
@@ -26,7 +28,7 @@ namespace visutwin::canvas
         void setBlurLevel(const int value) { _blurLevel = std::max(value, 1); }
 
         // Brightness below which the scene does not contribute to bloom, with a soft
-        // knee of half the threshold (upstream FramePassBloom.threshold). In the
+        // knee of half the threshold. In the
         // scene-referred units the scene is rendered in, before exposure and tone
         // mapping. 0 (the default) keeps the whole scene and compiles no high pass.
         float threshold() const { return _threshold; }

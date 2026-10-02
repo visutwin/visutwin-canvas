@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 11.09.2025.
+// Created by Arnis Lektauers on 11.09.2025
 //
 #pragma once
 
@@ -108,7 +108,7 @@ namespace visutwin::canvas
     /// age < 0 counts down to birth; age > lifetime on a non-looping emitter = dead.
     struct GpuParticle
     {
-        float posAge[4];        // xyz = position, w = life (<= 0 unborn, as upstream)
+        float posAge[4];        // xyz = position, w = life (<= 0 unborn)
         float velLifetime[4];   // xyz = integrated velocity (initial + gravity/damping), w = lifetime
         float rotSeedSize[4];   // x = angle (rad), y = scalar rotation speed, z = unused, w = hidden flag
         float motion[4];        // xyz = total velocity this step (graphs included), w = per-life random seed
@@ -148,18 +148,18 @@ namespace visutwin::canvas
         float miscParams[4];         // intensity, particle count, hasColorMap, animIndex
         float motionParams[4];       // alignToMotion, stretch, screenSpace, viewport height / width
         float outputParams[4];       // exposure, tone mapping mode, linear HDR target, sorted draw order
-        // Upstream orientation: xyz the face tangent / binormal of a WORLD or EMITTER oriented
+        // Orientation: xyz the face tangent / binormal of a WORLD or EMITTER oriented
         // quad; faceTangent.w = 1 for such a quad, faceBinorm.w = 1 for mesh particles.
         float faceTangent[4];
         float faceBinorm[4];
         float wrapParams[4];         // xyz wrap bounds, w = 1 when wrapping
         float emitterPosition[4];    // xyz the emitter's world position (the wrap origin), w = localSpace
         float softParams[4];         // x softening, y camera near, z camera far, w = 1 when soft
-        // Upstream's light cube (scene ambient + directional lights, six directions), for
+        // Light cube (scene ambient + directional lights, six directions), for
         // lit particles; [0].w = 1 when lit, [1].w = 1 for half Lambert, [2].w = 1 with a normal map.
         float lightCube[6][4];
         float colorLut[16][4];       // rgb + alpha over normalized life
-        // x = size (quad half-extent, as upstream), y = scale graph2, z = alpha graph2
+        // x = size (quad half-extent), y = scale graph2, z = alpha graph2
         float scaleLut[16][4];
     };
     static_assert(sizeof(GpuParticleRenderParams) == 944);
@@ -180,7 +180,7 @@ namespace visutwin::canvas
         // Local light shadow data (spot/point).
         int shadowMapIndex = -1;    // -1 = no shadow, 0 = slot 11, 1 = slot 12
 
-        // Light cookie (upstream Light.cookie): a projected texture masking the
+        // Light cookie: a projected texture masking the
         // light's color. 2D for spot lights, cubemap for omni; the two kinds have
         // separate slot pools, so cookieIndex is an index within the pool the
         // light's type selects. -1 = this light has no cookie.
@@ -192,20 +192,20 @@ namespace visutwin::canvas
         // Spot: world → cookie UV projection. Omni: the light's world transform,
         // whose rotation takes the light→fragment vector into cookie cube space.
         Matrix4 cookieMatrix = Matrix4::identity();
-        // Spot: upstream's cookieTransform, the 2x2 (mat2 columns xy, zw) applied about
+        // Spot: the cookie transform, the 2x2 (mat2 columns xy, zw) applied about
         // the cookie centre after the projection; identity = none. The cookieOffset is
-        // already folded into cookieMatrix (upstream adds it before its clip test).
+        // already folded into cookieMatrix (it applies before the clip test).
         float cookieTransform[4] = {1.0f, 0.0f, 0.0f, 1.0f};
 
         // The source's shape (LightShape: 0 punctual, 1 rect, 2 disk, 3 sphere) and, for
-        // an area light, its world-space half axes (upstream light_halfWidth and
-        // light_halfHeight: the world matrix applied to (-0.5, 0, 0) and (0, 0, 0.5)).
+        // an area light, its world-space half axes (the world matrix applied to
+        // (-0.5, 0, 0) and (0, 0, 0.5)).
         uint32_t shape = 0u;
         Vector3 areaHalfWidth = Vector3(0.0f);
         Vector3 areaHalfHeight = Vector3(0.0f);
     };
 
-    /// Fog falloff curve, upstream's FOG_* constants. The value is uploaded as a
+    /// Fog falloff curve. The value is uploaded as a
     /// float in `fogStartEndType.z`, where 0 also means "fog off" — `enabled` is the
     /// master switch and a disabled scene uploads NONE whatever the type says.
     enum class FogType : uint32_t
@@ -287,9 +287,9 @@ namespace visutwin::canvas
             float normalBias = 0.0f;
             float intensity = 1.0f;
             bool isOmni = false;    // true = cubemap shadow (omni), false = 2D shadow (spot)
-            // A spot light's VSM_16F map: EVSM moments of distance / range (upstream's
-            // spot VSM). `bias` is then subtracted from that ratio and `normalBias` is the
-            // Chebyshev variance bias, upstream's vsmBias / (range / 7).
+            // A spot light's VSM_16F map: EVSM moments of distance / range.
+            // `bias` is then subtracted from that ratio and `normalBias` is the
+            // Chebyshev variance bias, vsmBias / (range / 7).
             bool vsm = false;
             // PCSS (SHADOW_PCSS_32F on the light): blocker-search area in
             // shadow-map UV units (0 = PCSS off) + shadow camera clip range.
@@ -299,7 +299,7 @@ namespace visutwin::canvas
         } localShadows[kMaxLocalShadows];
     };
 
-    // VSM separable gaussian blur (upstream blurVSM equivalent).
+    // VSM separable gaussian blur.
     // Operates on the RGB channels of a 2D RGBA16F moments texture.
     // Run twice per shadow update — once horizontal, once vertical.
 
@@ -322,7 +322,7 @@ namespace visutwin::canvas
 
 
     // DEVIATION: blurred planar reflection parameters.
-    // Upstream implements these as per-material parameters on the BlurredPlanarReflection script;
+    // Upstream implements these as per-material script parameters;
     // we promote them to device-level so the forward pass can read them from LightingData.
     struct ReflectionBlurParams
     {
@@ -425,7 +425,7 @@ namespace visutwin::canvas
         /// Set with the environment, once per layer.
         virtual void setSkyboxRotation(const Quaternion& rotation) { (void)rotation; }
 
-        /// Upstream blueNoiseJitter: the per-frame opacity-dither offset of the camera
+        /// The per-frame opacity-dither offset of the camera
         /// being drawn (zero unless it jitters for TAA). Set once per layer.
         virtual void setDitherJitter(const Vector4& jitter) { (void)jitter; }
 
@@ -769,17 +769,17 @@ namespace visutwin::canvas
 
         int samples() const { return _samples; }
 
-        /// Size the back buffer for a canvas of `width` x `height` POINTS (upstream
-        /// `resizeCanvas`, whose arguments are CSS pixels): points x `pixelRatio()`, floored.
+        /// Size the back buffer for a canvas of `width` x `height` POINTS: points x
+        /// `pixelRatio()`, floored.
         void resizeCanvas(int width, int height);
         virtual void setResolution(int width, int height) = 0;
 
-        /// Upstream `maxPixelRatio`: the most back-buffer pixels per canvas point. The back
+        /// The most back-buffer pixels per canvas point. The back
         /// buffer is the canvas at `pixelRatio()` = min(maxPixelRatio, devicePixelRatio), so a
         /// Retina display with a cap of 1 renders a quarter of its pixels, scaled up to the window.
         /// DEVIATION: unlimited by default (the display's own density, as this engine always
-        /// rendered), where upstream's browser default is 1; the examples cap it at 2 as upstream's
-        /// examples do. Setting it resizes the back buffer at once.
+        /// rendered), where upstream's browser default is 1; the examples cap it at 2.
+        /// Setting it resizes the back buffer at once.
         float maxPixelRatio() const { return _maxPixelRatio; }
         void setMaxPixelRatio(float value);
         /// The display's pixels per point for the window (SDL's pixel density); 1 without one.
@@ -886,7 +886,7 @@ namespace visutwin::canvas
          * here, which is a separate capability from sampling one. VSM shadows
          * render EVSM moments into an RGBA16F attachment, so a device without
          * half-float render targets cannot run them at all and `Light` falls the
-         * type back to PCF3 — upstream's documented VSM_16F fallback.
+         * type back to PCF3.
          *
          * Both default to FALSE, so a backend that never answers loses the feature
          * rather than allocating a target the driver rejects. That is the same
@@ -952,8 +952,8 @@ namespace visutwin::canvas
             return PixelFormat::PIXELFORMAT_DEPTH;
         }
 
-        /// Copy a render target's colour and/or depth into existing textures
-        /// (upstream `copyRenderTarget`). A generic device operation: it knows
+        /// Copy a render target's colour and/or depth into existing textures.
+        /// A generic device operation: it knows
         /// nothing about WHY the copy is wanted, so the scene-colour grab that
         /// feeds refraction and the scene-depth grab that feeds screen-space
         /// reflections are both expressed with it, with the caching and
@@ -986,7 +986,7 @@ namespace visutwin::canvas
         }
 
         // DEVIATION: planar reflection texture, set by application-level code.
-        // Upstream handles this in the planarRenderer script; we promote it to
+        // Upstream handles this in a script; we promote it to
         // a device-level binding so the forward pass can sample it at slot 9.
         Texture* reflectionMap() const { return _reflectionMap; }
         void setReflectionMap(Texture* tex) { _reflectionMap = tex; }
@@ -1026,7 +1026,7 @@ namespace visutwin::canvas
         virtual bool supportsCompressedFormat(PixelFormat format) const;
 
         /// The block-compressed RGBA format a Basis/KTX2 transcode should target here, in
-        /// upstream's order of preference (basis.js chooseTargetFormat): ASTC, then BC,
+        /// order of preference: ASTC, then BC,
         /// then uncompressed RGBA8 as the last resort.
         PixelFormat preferredCompressedRgbaFormat() const;
 
@@ -1116,11 +1116,11 @@ namespace visutwin::canvas
         void setTextureFloatRenderable(const bool value) { _textureFloatRenderable = value; }
         void recordDrawCall(int count = 1) { _drawCallsPerFrame += count; }
         /// Where a backend's createRenderTarget accumulates its time (stats.misc, a running
-        /// total as upstream's, never reset).
+        /// total, never reset).
         double& renderTargetCreationTimeTotal() { return _renderTargetCreationTime; }
         /// One draw of `primitive`, counted into the draw calls AND the primitives the
-        /// frame statistics turn into stats.frame.triangles / otherPrimitives (upstream's
-        /// _primsPerFrame, which counts every instance). Each backend's draw() calls it.
+        /// frame statistics turn into stats.frame.triangles / otherPrimitives (every
+        /// instance counts). Each backend's draw() calls it.
         void recordDraw(const Primitive& primitive, const int numInstances)
         {
             ++_drawCallsPerFrame;

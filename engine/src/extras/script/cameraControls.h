@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 28.12.2025
+// Created by Arnis Lektauers on 28.12.2025
 //
 // Script over the input
 // framework in extras/input: an orbit, a fly and a focus controller, fed by a keyboard
@@ -12,7 +12,7 @@
 //
 // DEVIATION: the sources listen to the engine's input devices (the application's
 // event loop feeds them), not to the canvas; there is no XR frame discard. The camera
-// rotation is set as a WORLD rotation, as upstream's setEulerAngles.
+// rotation is set as a WORLD rotation.
 //
 #pragma once
 

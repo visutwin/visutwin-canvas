@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 05.09.2025.
+// Created by Arnis Lektauers on 05.09.2025
 //
 #pragma once
 
@@ -66,7 +66,7 @@ namespace visutwin::canvas
         float nearClip() const { return _nearClip; }
         void setNearClip(const float value) { _nearClip = value; _projMatDirty = true; }
 
-        /// Upstream's physical camera: aperture in f-stops (default 16), shutter in seconds
+        /// Physical camera: aperture in f-stops (default 16), shutter in seconds
         /// (1/1000) and sensitivity in ISO (1000). Read only under Scene::physicalUnits,
         /// where they replace the scene exposure (see physicalExposure()).
         float aperture() const { return _aperture; }
@@ -76,7 +76,7 @@ namespace visutwin::canvas
         float sensitivity() const { return _sensitivity; }
         void setSensitivity(const float value) { _sensitivity = value; }
 
-        /// Upstream `Camera.getExposure`: 1 / (1.2 * 2^EV100), EV100 = log2(N^2 / t * 100 / S).
+        /// 1 / (1.2 * 2^EV100), EV100 = log2(N^2 / t * 100 / S).
         float physicalExposure() const
         {
             const float ev100 = std::log2((_aperture * _aperture) / _shutter * 100.0f / _sensitivity);
@@ -105,7 +105,7 @@ namespace visutwin::canvas
         const Vector2& projectionOffset() const { return _projectionOffset; }
         void setProjectionOffset(const Vector2& value) { _projectionOffset = value; _projMatDirty = true; }
 
-        /// Upstream `horizontalFov`: the fov is the WIDTH's angle rather than the
+        /// The fov is the WIDTH's angle rather than the
         /// height's, which keeps a scene's width in view on a portrait window.
         bool horizontalFov() const { return _horizontalFov; }
         void setHorizontalFov(const bool value)
@@ -117,7 +117,7 @@ namespace visutwin::canvas
         }
 
         /**
-         * Upstream `screenToWorld`: the world point under canvas point (x, y) — y down, in a
+         * The world point under canvas point (x, y) — y down, in a
          * canvas `cw` x `ch` — through the camera's rect. Perspective: `z` is the DISTANCE from
          * the camera along the ray through the point. Orthographic: `z` picks the depth
          * between the clip planes (z / (far - near) of the way through NDC). Taken from the
@@ -126,11 +126,11 @@ namespace visutwin::canvas
         Vector3 screenToWorld(float x, float y, float z, float cw, float ch);
 
         /**
-         * Upstream `worldToScreen`: the canvas point (x right, y DOWN, in a `cw` x `ch`
+         * The canvas point (x right, y DOWN, in a `cw` x `ch`
          * canvas) a world point projects to, through the camera's rect. z is the clip-space
-         * z before the divide, as upstream's transformPoint leaves it. A point behind the
+         * z before the divide. A point behind the
          * camera still returns a position (mirrored through the centre); test the view-space
-         * depth to reject it, as upstream's examples do.
+         * depth to reject it.
          */
         Vector3 worldToScreen(const Vector3& worldCoord, float cw, float ch);
 
@@ -161,7 +161,7 @@ namespace visutwin::canvas
         const Color& clearColor() const { return _clearColor; }
         void setClearColor(const Color& value) { _clearColor = value; }
 
-        // Per-camera tone mapping (upstream CameraComponent::toneMapping). TONEMAP_INHERIT
+        // Per-camera tone mapping. TONEMAP_INHERIT
         // keeps the scene-wide Scene::toneMapping value; any other value overrides it for
         // everything this camera renders.
         // The HDR camera-frame path has its own setting in CameraComponent::RenderingSettings.
@@ -180,7 +180,7 @@ namespace visutwin::canvas
 
         /**
          * The fraction of the viewport's HEIGHT this world-space sphere covers, in
-         * [0,1] — upstream's Camera.getScreenSize. 1 when the camera is inside the
+         * [0,1]. 1 when the camera is inside the
          * sphere. Used to rank lights when more of them are visible than the shader
          * has slots: apparent size is what decides how much of the picture a light
          * is responsible for, where distance or authoring order decide nothing.
@@ -188,8 +188,8 @@ namespace visutwin::canvas
         float screenSize(const BoundingSphere& sphere) const;
 
         /**
-         * Bitmask ANDed with MeshInstance::mask() during culling — upstream's
-         * Camera.cullingMask. All bits by default, so every instance passes. A camera
+         * Bitmask ANDed with MeshInstance::mask() during culling.
+         * All bits by default, so every instance passes. A camera
          * that wants a subset of the scene says so here instead of being given its
          * own layer.
          */
@@ -203,7 +203,7 @@ namespace visutwin::canvas
         // exists only for this camera.
         void setOwnedNode(std::unique_ptr<GraphNode> value);
 
-        /// Copy every SETTING of `other` (upstream `Camera.copy`): projection, clip
+        /// Copy every SETTING of `other`: projection, clip
         /// planes, clears, rects, render target, tone mapping, culling mask, jitter
         /// debug pass and the physical exposure settings. Not copied: the node, the grab passes and render passes
         /// (per-camera objects its component rebuilds) and the per-frame matrices.
@@ -374,7 +374,7 @@ namespace visutwin::canvas
         void setPlanarReflectionDepthPass(bool v) { _planarReflectionDepthPass = v; }
         [[nodiscard]] bool planarReflectionDepthPass() const { return _planarReflectionDepthPass; }
 
-        // Lightmap bake pass (upstream's UV-space lightmapper render). Meshes drawn by
+        // Lightmap bake pass. Meshes drawn by
         // this camera rasterize across their own UV1 unwrap instead of through the view
         // projection, and the fragment stage outputs the diffuse light reaching each
         // texel rather than a shaded pixel. See GpuLightmapper.

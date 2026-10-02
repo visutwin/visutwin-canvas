@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 01.10.2026
+//
 // Matrix palettes are uploaded ONCE a frame per palette, and the ring that holds them
 // GROWS. Both rules live in PaletteFrameAllocator (the bookkeeping of the Metal palette
 // ring, with no GPU types) and in the version a SkinInstance or SkinBatchInstance gives

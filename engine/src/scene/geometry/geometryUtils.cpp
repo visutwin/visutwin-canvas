@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Port of upstream geometry-utils calculateTangents. See the header for the two
-// deviations.
+// Created by Arnis Lektauers on 15.09.2026
+//
+// calculateTangents: per-vertex tangents derived from the UVs. See the header for the
+// two deviations.
 //
 #include "geometryUtils.h"
 
@@ -43,7 +45,7 @@ namespace visutwin::canvas
             Vector3 sdir;
             Vector3 tdir;
             if (area == 0.0f) {
-                // Degenerate triangle or UVs: upstream's fallback values.
+                // Degenerate triangle or UVs: fixed fallback values.
                 sdir = Vector3(0.0f, 1.0f, 0.0f);
                 tdir = Vector3(1.0f, 0.0f, 0.0f);
             } else {

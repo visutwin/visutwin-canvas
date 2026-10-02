@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 13.07.2026.
+// Created by Arnis Lektauers on 13.07.2026
 //
 #pragma once
 
@@ -28,7 +28,7 @@ namespace visutwin::canvas
         {
             if (engine && engine->systems()) {
                 engine->systems()->on("update", [engine](const float dt) {
-                    // stats.particles, as upstream: emitters simulated this frame and
+                    // stats.particles: emitters simulated this frame and
                     // the time it took.
                     ParticleStats* stats = engine->stats() ? &engine->stats()->particles() : nullptr;
                     const auto start = std::chrono::steady_clock::now();

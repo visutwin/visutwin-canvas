@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// What one frame's rendering did, for ApplicationStats (upstream app.stats). Written by
+// Created by Arnis Lektauers on 25.09.2026
+//
+// What one frame's rendering did, for ApplicationStats. Written by
 // whoever does the work — the forward renderer, the shadow passes, the depth-only draws
 // — and read and reset by Engine::fillFrameStats. It lives on the GraphicsDevice because
 // every one of those writers already holds the device and most hold nothing else in

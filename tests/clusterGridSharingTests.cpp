@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 25.09.2026
+//
 // One cluster grid per DISTINCT light set (Renderer::clustersForLightSet).
 //
 // The local-light list is per (camera, layer), so the grid has to be too. What this

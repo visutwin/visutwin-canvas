@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis  on 01.10.2025.
+// Created by Arnis Lektauers on 01.10.2025
 //
 
 #include <algorithm>
@@ -54,9 +54,8 @@ namespace visutwin::canvas
         }
 
         // All three containers together, or not at all. Erasing from the maps alone
-        // would leave the system alive in _ownedSystems and still subscribed —
-        // exactly the shape of the bug upstream's registry.remove had, where the
-        // list entry outlived the map entry.
+        // would leave the system alive in _ownedSystems and still subscribed,
+        // with the list entry outliving the map entry.
         const auto owned = std::find_if(_ownedSystems.begin(), _ownedSystems.end(),
             [system](const std::unique_ptr<IComponentSystem>& candidate) {
                 return candidate.get() == system;

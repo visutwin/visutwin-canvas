@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 // LTC area lights — Real-Time Polygonal-Light Shading with Linearly
 // Transformed Cosines (Heitz, Dupuy, Hill, Neubelt).
-// Port of upstream ltc.js: rect, disk and sphere shapes.
+// Rect, disk and sphere shapes.
 // ---------------------------------------------------------------------------
 
 constexpr sampler ltcLutSampler(filter::linear, mip_filter::none, address::clamp_to_edge);
@@ -70,7 +70,7 @@ static inline float ltcEvaluateRect(float3 N, float3 V, float3 P, float3x3 mInv,
 }
 
 // An extended version of the cubic solver from "How to solve a cubic equation,
-// revisited" (http://momentsingraphics.de/?p=105) — upstream SolveCubic.
+// revisited" (http://momentsingraphics.de/?p=105).
 static inline float3 ltcSolveCubic(float4 coefficient)
 {
     const float pi = 3.14159;
@@ -139,8 +139,8 @@ static inline float3 ltcSolveCubic(float4 coefficient)
     return root;
 }
 
-// Evaluates the LTC integral of a disk light inscribed in the quad p0/p1/p2
-// (upstream LTC_EvaluateDisk). LUT2's w channel holds the tabulated
+// Evaluates the LTC integral of a disk light inscribed in the quad p0/p1/p2.
+// LUT2's w channel holds the tabulated
 // horizon-clipped sphere scale.
 static inline float ltcEvaluateDisk(float3 N, float3 V, float3 P, float3x3 mInv,
     float3 p0, float3 p1, float3 p2, texture2d<float> lut2)
@@ -236,15 +236,14 @@ static inline float ltcEvaluateDisk(float3 N, float3 V, float3 P, float3x3 mInv,
     const float scale = lut2.sample(ltcLutSampler, uv, level(0)).w;
     const float result = formFactor * scale;
 
-    // upstream FixNan: the disk evaluator rarely produces NaNs (upstream TODO);
-    // zero them before they spread through bloom/DOF blurs.
+    // The disk evaluator rarely produces NaNs; zero them before they spread
+    // through bloom/DOF blurs.
     return isnan(result) ? 0.0 : result;
 }
 
 // ---------------------------------------------------------------------------
 // A light with a non-punctual shape (LightShape 1 rect, 2 disk, 3 sphere), as both
-// the main light loop and the cluster loop evaluate it — upstream's
-// calc{Rect,Disk,Sphere}LightValues, get*LightDiffuse and get*LightSpecular.
+// the main light loop and the cluster loop evaluate it.
 // ---------------------------------------------------------------------------
 struct LtcAreaLight {
     float3 p0;
@@ -254,8 +253,8 @@ struct LtcAreaLight {
     float sphereRadius;
 };
 
-// The quad's corners, ccw (upstream getLTCLightCoords). A sphere is billboarded to the
-// reflection vector so the disk integral can take it (upstream calcSphereLightValues).
+// The quad's corners, ccw. A sphere is billboarded to the reflection vector so the
+// disk integral can take it.
 static inline LtcAreaLight ltcAreaLight(uint shape, float3 lightPos, float3 halfWidth, float3 halfHeight,
                                         float3 N, float3 cameraPosition)
 {
@@ -285,7 +284,7 @@ static inline float ltcAreaDiffuse(uint shape, LtcAreaLight a, float3 lightPos, 
         return ltcEvaluateDisk(N, V, P, identity, a.p0, a.p1, a.p2, lut2) * 16.0;
     }
     if (shape == 3u) {
-        // Punctual Lambert with a radius-based falloff (upstream getSphereLightDiffuse).
+        // Punctual Lambert with a radius-based falloff.
         const float3 toLight = lightPos - P;
         const float falloff = a.sphereRadius / (dot(toLight, toLight) + a.sphereRadius);
         return max(dot(N, normalize(toLight)), 0.0) * falloff * 16.0;
@@ -293,7 +292,7 @@ static inline float ltcAreaDiffuse(uint shape, LtcAreaLight a, float3 lightPos, 
     return ltcEvaluateRect(N, V, P, identity, a.p0, a.p1, a.p2, a.p3) * 16.0;
 }
 
-// Upstream dLTCSpecFres: the Fresnel magnitude and geometric attenuation from LUT2.
+// The Fresnel magnitude and geometric attenuation from LUT2.
 static inline float3 ltcSpecularFresnel(float3 N, float3 V, float gloss, float3 F0, texture2d<float> lut2)
 {
     const float4 t2 = lut2.sample(ltcLutSampler, ltcUv(N, V, gloss), level(0));

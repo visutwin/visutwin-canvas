@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// The physics backend seam (upstream PhysicsWorld / PhysicsBody).
+// Created by Arnis Lektauers on 05.09.2026
+//
+// The physics backend seam.
 //
 // The engine owns no simulation. An application supplies a PhysicsWorld through
 // AppOptions, exactly the way it supplies component systems, and
@@ -32,7 +34,7 @@ namespace visutwin::canvas
         Capsule,
         Cylinder,
         Plane,
-        Cone,        ///< radius and height, apex up +Y (upstream 'cone', axis 1)
+        Cone,        ///< radius and height, apex up +Y
         Mesh,        ///< `points` + `indices` as triangles; static or kinematic bodies only
         ConvexHull   ///< the convex hull of `points`
     };
@@ -58,7 +60,7 @@ namespace visutwin::canvas
         float height = 1.0f;
 
         /// Mesh and ConvexHull: the geometry in the body's own space, the entity's world
-        /// scale already applied (upstream scales a mesh collider by it). Mesh reads
+        /// scale already applied. Mesh reads
         /// `indices` as triangles.
         std::vector<Vector3> points;
         std::vector<uint32_t> indices;
@@ -124,8 +126,7 @@ namespace visutwin::canvas
     /// anchors: `framePosition` / `frameRotation` are the world pose of the joint
     /// itself, and its local **X axis is the primary axis** — the hinge's rotation
     /// axis, the slider's travel axis, the ball joint's twist axis. That is
-    /// upstream's convention, and it is why a joint lives on its own entity there:
-    /// the entity's transform IS the frame.
+    /// why a joint lives on its own entity: the entity's transform IS the frame.
     struct PhysicsJointDesc
     {
         PhysicsJointType type = PhysicsJointType::Ball;
@@ -145,7 +146,7 @@ namespace visutwin::canvas
         float maxLimit = 0.0f;
 
         /// Hinge (radians/second) or slider (metres/second). The motor is only
-        /// active when `maxMotorForce` is above zero, matching upstream.
+        /// active when `maxMotorForce` is above zero.
         float motorSpeed = 0.0f;
         float maxMotorForce = 0.0f;
 

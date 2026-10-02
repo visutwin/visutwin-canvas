@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 05.09.2026
+//
 // Jolt-backed PhysicsWorld. Built only when VISUTWIN_PHYSICS_JOLT is on; the
 // header is safe to include either way, but the factory returns null without it.
 //

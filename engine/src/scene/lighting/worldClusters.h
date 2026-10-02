@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Metal-optimized: uses Metal buffers instead of upstream's texture-based approach.
+// Created by Arnis Lektauers on 21.03.2026
+//
+// Metal-optimized: uses Metal buffers rather than a texture-based cell layout.
 //
 #pragma once
 
@@ -24,7 +26,7 @@ namespace visutwin::canvas
         int cellsX = 12;
         int cellsY = 16;
         int cellsZ = 12;
-        // Max lights bucketed per grid cell (matches upstream clustered-lighting default).
+        // Max lights bucketed per grid cell.
         // The fragment shader loops up to this count dynamically, so raising it only
         // costs a little cell-index memory (totalCells * maxLightsPerCell bytes).
         int maxLightsPerCell = 48;
@@ -54,7 +56,7 @@ namespace visutwin::canvas
         float shadowMatrix[16] = {};
         float shadowData[4] = {};        // x=castShadows(0/1), y=normalOffsetBias,
                                          // z=intensity, w=1 spot / 2 omni
-        // An area light (upstream ClusterLightAreaData): the world half axes, and the
+        // An area light: the world half axes, and the
         // LightShape in areaHalfWidth.w (0 = punctual, which shades as before).
         float areaHalfWidth[4] = {};
         float areaHalfHeight[4] = {};
@@ -86,13 +88,12 @@ namespace visutwin::canvas
         float shadowNear = 0.01f;
         float shadowFar = 10.0f;
         float shadowRelativeBias = 0.0f;
-        // Upstream's clustered spot shadow applies NO depth bias in the shader
-        // ("depth bias is already applied on render" — the pass sets hardware
-        // polygon offset). What it DOES apply is a normal offset on the receiver.
+        // A clustered spot shadow applies NO depth bias in the shader (the pass
+        // sets hardware polygon offset). What it DOES apply is a normal offset on the receiver.
         float shadowNormalBias = 0.0f;
         float shadowIntensity = 1.0f;
 
-        // Clustered cookie (upstream cookieAtlas): the light's cookie, copied into the
+        // Clustered cookie: the light's cookie, copied into the
         // same rect of the cookie atlas. A spot without a shadow still fills
         // `shadowMatrix` with its projection into that rect, and an omni `atlasViewport`.
         bool hasCookie = false;
@@ -124,7 +125,7 @@ namespace visutwin::canvas
          * Called per frame: collect lights, build grid, pack GPU data arrays.
          * @param localLights  Local lights (point/spot) collected from LightComponent.
          *
-         * The grid is sized from the LIGHTS alone (upstream evaluateBounds). It used
+         * The grid is sized from the LIGHTS alone. It used
          * to take a camera AABB too, which padded the grid to a 100-unit cube around
          * the viewer and coarsened every cell; the camera has nothing to say about
          * where the lights are.

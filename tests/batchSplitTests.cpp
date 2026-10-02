@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 11.09.2026
+//
 // Batching merges many mesh instances into one draw, which means one vertex
 // layout, one primitive type, one pair of shadow flags and one bounding box. A
 // batcher that applies none of those rules reinterprets any vertex buffer as the
@@ -53,7 +55,7 @@ namespace
 {
     bool checkEntityBatchable()
     {
-        // Upstream excludes the WHOLE entity when any of its mesh instances deforms.
+        // The WHOLE entity is excluded when any of its mesh instances deforms.
         check(entityIsBatchable({}), "an entity with no mesh instances is batchable");
         check(entityIsBatchable({false, false, false}),
             "an entity whose instances all hold still is batchable");

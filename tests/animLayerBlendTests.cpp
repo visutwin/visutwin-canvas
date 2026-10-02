@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 19.09.2026
+//
 // Animation layer blending: a layer's weight is a CONTRIBUTION, composed per node
-// across layers the way upstream's AnimTargetValue composes it, not an on/off
-// switch. A blend where every layer with weight > 0 writes the nodes in turn lets
-// the last one win, so a 0.25 layer becomes a full overwrite; these cases fail it.
+// across layers, not an on/off switch. A blend where every layer with weight > 0
+// writes the nodes in turn lets the last one win, so a 0.25 layer becomes a full overwrite; these cases fail it.
 //
 // The scenes here are two layers driving one node "Bone" (rest position (1, 2, 3))
 // with constant translation tracks, A = (10, 0, 0) on the base layer and
@@ -188,7 +189,7 @@ int main()
             "normalised: the topmost overwrite layer alone drives the node: " + str(rig.bone->localPosition()));
     }
     // Normalised with an additive top layer: 1 and 0.25 become 0.8 and 0.2, blended
-    // sequentially from identity as upstream does: (8,0,0) then a fifth toward (0,4,0).
+    // sequentially from identity: (8,0,0) then a fifth toward (0,4,0).
     {
         const Rig rig = build(0.25f, AnimLayerBlendType::ADDITIVE, true);
         check(near(rig.bone->localPosition(), 6.4f, 0.8f, 0.0f),
@@ -221,9 +222,9 @@ int main()
             "rotation overwrite at 0.5 lands at the half turn: " + str(turned));
     }
 
-    // No state graph: assigning a plain state name makes upstream's default graph, which plays
-    // it; a second name becomes a state too, and a timed transition (upstream
-    // `layer.transition(to, time)`) blends to it over that time.
+    // No state graph: assigning a plain state name makes a default graph, which plays
+    // it; a second name becomes a state too, and a timed transition blends to it over
+    // that time.
     {
         Rig rig;
         rig.root = std::make_unique<Entity>();

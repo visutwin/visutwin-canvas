@@ -12,7 +12,7 @@
 // a positive factor cancels and this IS the inverse transpose. Getting there
 // through cofactors costs three cross products and no division; going through
 // det also keeps the sign, which a mirrored mesh needs: its normals must flip
-// with its surface, the same way upstream's matrix_normal flips them. The
+// with its surface. The
 // renderer flips which face is culled for the same meshes (applyNodeScaleFlip),
 // and the two halves only make sense together.
 
@@ -24,9 +24,8 @@ mat3 normalMatrixFrom(mat4 model) {
     // column doubles as the term the determinant needs, so the sign is nearly free.
     vec3 cof0 = cross(c1, c2);
     float det = dot(c0, cof0);
-    // A singular 3x3 (a zero scale on some axis) has no inverse transpose: upstream's
-    // Mat3.invertMat4 and Matrix4::normalMatrix() (Metal) return the identity, and so
-    // does this. The cofactor matrix would still give the right NORMAL there, but it
+    // A singular 3x3 (a zero scale on some axis) has no inverse transpose:
+    // Matrix4::normalMatrix() (Metal) returns the identity, and so does this. The cofactor matrix would still give the right NORMAL there, but it
     // maps tangents along the flattened axes to zero, which normalize turns into NaN.
     if (det == 0.0) {
         return mat3(1.0);

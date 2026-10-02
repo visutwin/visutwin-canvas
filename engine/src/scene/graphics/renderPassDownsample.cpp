@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 //
 #include "renderPassDownsample.h"
 
@@ -13,7 +15,7 @@ namespace visutwin::canvas
 {
     namespace
     {
-        // Two variants compiled separately. Matches upstream's BOXFILTER/!BOXFILTER split:
+        // Two variants compiled separately:
         //  - SIMPLE (options.boxFilter=true): single bilinear fetch + optional negative clamp.
         //    Used for the scene-half pre-bloom pass where we only want a crisp half-res copy.
         //  - KARIS (options.boxFilter=false, default): 13-tap partial-average filter from the
@@ -53,14 +55,14 @@ fragment float4 downsampleFragment(
     // downsample — we want a crisp, non-blurry half-res copy of the scene.
     float3 value = sourceTexture.sample(linearSampler, clamp(in.uv, float2(0.0), float2(1.0))).rgb;
     // Clamp invalid/negative values so bloom & DOF don't propagate NaN/Inf from the scene
-    // texture. Matches upstream's REMOVE_INVALID path.
+    // texture.
     value = max(value, float3(0.0));
     return float4(value, 1.0);
 }
 )";
 
         // Box filter that also multiplies the source by one channel of a second
-        // texture at the same uv — upstream's PREMULTIPLY option. The depth-of-field
+        // texture at the same uv. The depth-of-field
         // far pass uses it to weight the scene by the far circle of confusion before
         // blurring, so in-focus pixels do not bleed into the blur. `{CH}` is the
         // channel letter, substituted when the variant is built.
@@ -133,8 +135,7 @@ fragment float4 downsampleFragment(
     sampler linearSampler [[sampler(0)]]{PREFILTER_ARG})
 {
     // 13-tap Karis partial-average (Call of Duty: Advanced Warfare — Next Generation Post
-    // Processing). Same weights upstream uses for its bloom mip-chain downsample
-    // (render-pass/frag/downsample.js). Damps fireflies at each mip level so a single very
+    // Processing). Damps fireflies at each mip level so a single very
     // bright pixel doesn't cascade unfiltered through the chain.
     const float2 texel = float2(1.0 / float(sourceTexture.get_width()),
                                 1.0 / float(sourceTexture.get_height()));
@@ -288,12 +289,12 @@ void main() {
 #endif
 )";
 
-        // Upstream's PREFILTER option: a soft-knee high pass on the Karis result, compiled
+        // A soft-knee high pass on the Karis result, compiled
         // only into the FIRST bloom downsample and only while the bloom threshold is above
         // zero. It scales the filtered value down by how far its brightest channel sits
-        // below the threshold, with a quadratic knee (upstream uses half the threshold)
-        // smoothing the transition. It runs on the FILTERED result rather than per tap, as
-        // upstream does, so an isolated bright pixel that the filter has already averaged
+        // below the threshold, with a quadratic knee (half the threshold)
+        // smoothing the transition. It runs on the FILTERED result rather than per tap,
+        // so an isolated bright pixel that the filter has already averaged
         // down needs a proportionally lower threshold. The Karis sources carry three
         // markers that are substituted with these, or with nothing for the plain variant.
         constexpr const char* PREFILTER_MSL_DECL = R"(struct PrefilterUniforms {
@@ -358,8 +359,7 @@ void main() {
         // the AGX compiled-variants footprint limit. Two cache entries because the two
         // filter variants (simple vs Karis) share symbol names but different bodies.
         const bool glsl = device->shaderLanguage() == ShaderLanguage::Glsl;
-        // The premultiplied box variant is only meaningful with a box filter (as
-        // upstream), and is keyed on the channel it reads.
+        // The premultiplied box variant is only meaningful with a box filter, and is keyed on the channel it reads.
         const bool premultiply = options.boxFilter && options.premultiplyTexture != nullptr;
         const std::string channel(1, premultiply ? options.premultiplySrcChannel : 'x');
         const std::string cacheKeyStorage = premultiply

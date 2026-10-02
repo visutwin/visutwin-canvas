@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 05.09.2026
+//
 // Port of upstream physics/joints.
 //
 // Six mechanisms in a row, each built from one joint type:
@@ -14,7 +16,7 @@
 // A joint lives on its OWN entity, and that entity's transform is the joint frame:
 // its local X axis is the primary axis. The entity is positioned and parented
 // BEFORE the component is added, so the frame is captured from the final world
-// transform — the same ordering rule upstream documents.
+// transform.
 //
 #include <cmath>
 #include <memory>
@@ -60,7 +62,7 @@ protected:
         _green = material(Color(0.3f, 0.8f, 0.4f, 1.0f));
         _red = material(Color(1.0f, 0.3f, 0.3f, 1.0f));
 
-        // Floor, light and camera, at upstream's poses.
+        // Floor, light and camera.
         Entity* floor = createBox("floor", Vector3(26.0f, 1.0f, 10.0f),
             Vector3(0.0f, 0.0f, 0.0f), _gray.get(), RigidBodyType::Static, 0.0f);
         if (auto* body = floor->findComponent<RigidBodyComponent>()) {
@@ -111,7 +113,7 @@ protected:
 
     void update(const float dt) override
     {
-        // Reverse the slider motor at each end of the rail, as upstream does.
+        // Reverse the slider motor at each end of the rail.
         // A body only exists after its own first update, so the launch velocity is
         // applied on the frame AFTER the ball is created.
         for (auto it = _pendingShots.begin(); it != _pendingShots.end();) {

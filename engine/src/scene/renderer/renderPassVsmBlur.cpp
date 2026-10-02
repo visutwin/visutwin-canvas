@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Separable 1D gaussian blur for EVSM moments. Mirrors upstream blurVSM.js
-// (GAUSS path). Operates on the RGB channels of an RGBA16F source; the alpha
+// Created by Arnis Lektauers on 25.04.2026
+//
+// Separable 1D gaussian blur for EVSM moments. Operates on the RGB channels of an RGBA16F source; the alpha
 // "rendered" flag is preserved by re-emitting 1.0.
 //
 // This effect lives ABOVE GraphicsDevice: it is a shader, one input texture and

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 01.10.2025.
+// Created by Arnis Lektauers on 01.10.2025
 //
 #pragma once
 
@@ -19,7 +19,7 @@ namespace visutwin::canvas
     class Shader;
 
     /**
-     * Upstream RenderPassCookieRenderer: copies the cookie of every clustered spot and
+     * Copies the cookie of every clustered spot and
      * omni light into its slot of the cookie atlas, so the cluster loop samples cookies
      * from one texture (see LightTextureAtlas). A spot's 2D cookie fills the rect its
      * projection maps to; an omni light's cube cookie is drawn face by face into the
@@ -27,8 +27,8 @@ namespace visutwin::canvas
      * shadow face, so a direction lands on the same atlas texel in both.
      *
      * A cookie is copied only when its light was given a different slot, or the atlas
-     * lost its contents (the cookie texture is taken to be static, as upstream does
-     * unless the texture's upload version changes, which this port does not track).
+     * lost its contents (the cookie texture is taken to be static; its upload
+     * version is not tracked).
      *
      * DEVIATION, in the exact direction: upstream copies a spot cookie into the WHOLE
      * slot and an omni face at exactly 90 degrees, then samples them through the

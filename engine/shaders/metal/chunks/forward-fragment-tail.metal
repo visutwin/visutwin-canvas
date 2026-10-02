@@ -22,17 +22,16 @@
     return float4(float3(dShadowCatcher), 1.0);
 #else
 #if VT_FEATURE_LIGHTMAP
-    // Baked lightmap becomes the indirect diffuse (upstream lightmapAdd.js adds it,
-    // but lit-shader.js gates the ambient behind `addAmbient = !lightMapEnabled`, so
-    // a lightmapped surface takes its indirect diffuse from the bake alone —
+    // Baked lightmap becomes the indirect diffuse (a lightmapped surface takes its
+    // indirect diffuse from the bake alone —
     // otherwise the runtime ambient double-counts what the bake already contains and
     // washes the surface out). Specular IBL is unaffected.
     // Sampled at UV1 (the GLB parser falls back to UV0 when the mesh has no second UV
     // set); stored sRGB → decoded to linear like the other LDR material textures.
     // Lightmaps store LINEAR light (see the bake output above and Lightmapper's encoder).
     indirectDiffuse = max(lightMapTexture.sample(defaultSampler, rd.uv1).rgb, float3(0.0));
-    // occludeDirect (flag bit 13) occludes the bake as well: upstream's second
-    // occludeDiffuse runs after addLightMap. The default path leaves it alone.
+    // occludeDirect (flag bit 13) occludes the bake as well: a second occlusion
+    // runs after the lightmap is added. The default path leaves it alone.
     if ((material.flags & (1u << 13)) != 0u) {
         indirectDiffuse *= ao;
     }
@@ -55,7 +54,7 @@
 #endif
 
 #if VT_FEATURE_NO_SPECULAR
-    // Upstream's useSpecular false: no specular of any kind. Every specular term
+    // No specular of any kind. Every specular term
     // accumulates into these two, and both are combined only from here on.
     directSpecular = float3(0.0);
     indirectSpecular = float3(0.0);
@@ -64,8 +63,8 @@
     float3 litLinear = diffuseColor * (directDiffuse + indirectDiffuse) + directSpecular + indirectSpecular + emissiveLinear;
 
 #if VT_FEATURE_TRANSMISSION
-    // Scalar maps modulate their factors per pixel (upstream thicknessMap /
-    // refractionMap, both defaulting to the green channel). Sampled once here and
+    // Scalar maps modulate their factors per pixel (the thickness and
+    // refraction maps, both defaulting to the green channel). Sampled once here and
     // used by BOTH refraction paths below.
     float refractionFactor = material.transmissionFactor;
     float refractionThickness = material.thickness;
@@ -79,7 +78,7 @@
     }
 
 #if VT_FEATURE_DYNAMIC_REFRACTION
-    // Dynamic grab-pass refraction (upstream refractionDynamic.js): sample the
+    // Dynamic grab-pass refraction: sample the
     // mid-frame scene color grab at the screen position of the refracted exit
     // point instead of the environment atlas. Requires the camera to have
     // requestSceneColorMap(true) so the depth-layer grab pass publishes slot 22.
@@ -87,13 +86,13 @@
         const float ior = max(material.refractionIndex, 1.001);
         const float thickness = max(refractionThickness, 0.0);
         // The simple forward path grabs the tonemapped sRGB back buffer — decode
-        // to linear (upstream SCENE_COLORMAP_GAMMA). Under the HDR camera-frame
+        // to linear. Under the HDR camera-frame
         // path (flag bit 5) the grab is mid-frame LINEAR — no decode.
         const bool grabIsGamma = (lighting.flagsAndPad.x & (1u << 5)) == 0u;
 
-        // Dispersion (KHR_materials_dispersion, upstream LIT_DISPERSION): spread
+        // Dispersion (KHR_materials_dispersion): spread
         // the refraction eta per channel and sample R/G/B separately. eta-space
-        // spread mirrors upstream: halfSpread = (ior - 1) * 0.025 * dispersion.
+        // spread: halfSpread = (ior - 1) * 0.025 * dispersion.
         const float dispersion = max(material.dispersionParams.x, 0.0);
         const float eta = 1.0 / ior;
         const float halfSpread = (ior - 1.0) * 0.025 * dispersion;
@@ -106,7 +105,7 @@
 
             // Refraction vector scaled by volume thickness (total internal
             // reflection falls back to the unshifted surface point).
-            // Scaled by the model's per-axis scale too, as upstream's refractionDynamic
+            // Scaled by the model's per-axis scale too
             // (the vertex stage passes it, the fragment stage has no model matrix).
             const float3 refractionVector = (length_squared(refrDir) > 0.0)
                 ? normalize(refrDir) * thickness * rd.modelScale : float3(0.0);
@@ -116,7 +115,7 @@
             const float invW = 1.0 / max(projected.w, 1e-6);
             const float2 grabUv = clamp(projected.xy * invW * float2(0.5, -0.5) + 0.5, 0.001, 0.999);
 
-            // IOR + roughness select the grab mip (upstream iorToRoughness):
+            // IOR + roughness select the grab mip:
             // higher IOR and rougher surfaces read blurrier scene color.
             const float iorCh = 1.0 / etaCh;
             const float iorToRoughness = saturate(1.0 - gloss) * clamp(iorCh * 2.0 - 2.0, 0.0, 1.0);
@@ -132,10 +131,9 @@
             }
         }
 
-        // Volume transmittance (KHR_materials_volume Beer's law, upstream
-        // material_attenuation/material_invAttenuationDistance); distance 0 transmits
-        // everything. Then the diffuse ALBEDO, once: upstream mixes the refraction into
-        // dDiffuseLight and combineColor multiplies that by the albedo. Not
+        // Volume transmittance (KHR_materials_volume Beer's law); distance 0 transmits
+        // everything. Then the diffuse ALBEDO, once: the refraction mixes into the
+        // diffuse light and the combine multiplies that by the albedo. Not
         // baseColor^(thickness + 1): that would darken a coloured refraction by a
         // further albedo^thickness, several times over in the weak channels.
         const float attDistance = material.attenuationParams.w;
@@ -156,7 +154,7 @@
         litLinear = mix(litLinear, refrColor + specPart, transmission);
     }
 #else
-    // Cubemap-based refraction (upstream refractionCube.js): the reflection lookup
+    // Cubemap-based refraction: the reflection lookup
     // along the REFRACTED direction, mixed into the diffuse light.
     if (envAtlasTexture.get_width() > 0) {
         const float ior = max(material.refractionIndex, 1.001);
@@ -165,7 +163,7 @@
         const float2 refrUv = toSphericalUv(
             refracts ? normalize(float3(-refrDir.x, refrDir.y, refrDir.z)) : float3(0.0, 0.0, 1.0));
 
-        // Screen-space mip for the shiny rect (upstream shinyMipLevel), taken HERE in
+        // Screen-space mip for the shiny rect, taken HERE in
         // uniform control flow: refractionFactor below carries the refraction map, so
         // derivatives inside that branch would be undefined.
         const float2 refrUvFull = refrUv * ATLAS_SIZE;
@@ -177,8 +175,8 @@
         const float refrILevel2 = floor(refrLevel2);
 
         if (refractionFactor > 0.0 && refracts) {
-            // Same lookup as the specular IBL in forward-fragment-ambient (upstream
-            // calcReflection). Shiny mips 0 and 1 are blended by the SCREEN-SPACE level,
+            // Same lookup as the specular IBL in forward-fragment-ambient. Shiny mips
+            // 0 and 1 are blended by the SCREEN-SPACE level,
             // not the roughness level, which would make a surface at gloss 0.9 read the
             // half-resolution shiny rect instead of blending toward the first
             // prefiltered level.
@@ -206,11 +204,11 @@
                 refrColor *= exp(-(-log(attColor) / attDistance) * max(refractionThickness, 0.0));
             }
 
-            // The diffuse albedo TWICE, as upstream: refractionCube mixes
-            // refraction * albedo into dDiffuseLight and combineColor multiplies that
-            // by the albedo again (the dynamic path, upstream's and ours, applies it
-            // once). Not baseColor^(thickness + 1), which is neither and ignores
-            // metalness. No Fresnel weight: upstream's cube path has none.
+            // The diffuse albedo TWICE, reproducing upstream: the cube path mixes
+            // refraction * albedo into the diffuse light and the combine multiplies that
+            // by the albedo again (the dynamic path applies it once). Not
+            // baseColor^(thickness + 1), which is neither and ignores metalness. No
+            // Fresnel weight on the cube path.
             refrColor *= diffuseColor * diffuseColor;
 
             // Blend: replace surface diffuse with refracted view, keep specular.
@@ -347,7 +345,7 @@
 #endif
 
 #if VT_FEATURE_DEBUG_PASS
-    // Debug surface-quantity output (upstream debug-output.js). Replaces the shaded result with
+    // Debug surface-quantity output. Replaces the shaded result with
     // one input to the lighting equation. DEBUGPASS_LIGHTING is deliberately absent here: it is
     // handled in the surface chunk by neutralizing albedo, then falls through to the normal path
     // below so it still receives fog and tonemapping.
@@ -386,7 +384,7 @@
 #endif
 
 #if VT_FEATURE_FOG
-    // Fog. The three curves are upstream's (fog.js): LINEAR over [start, end], EXP
+    // Fog. The three curves: LINEAR over [start, end], EXP
     // on density, EXP2 on density squared, chosen by the type uploaded in
     // fogStartEndType.z (0 is off).
     //

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 02.09.2026
+//
 // TAA resolve — depth reprojection into the previous frame, Catmull-Rom or
 // bilinear history fetch, neighbourhood colour clamping, 5% history blend
 // (100% when the reprojection lands offscreen). One implementation over
@@ -134,7 +136,7 @@ static inline float4 SampleTextureCatmullRom(
 }
 
 // 3x3 neighbourhood clamp in PREMULTIPLIED space, the same domain as the temporal
-// mix (upstream taaResolve.js colorClampPremul).
+// mix.
 static inline float3 colorClampPremul(texture2d<float> sourceTexture, sampler linearSampler, float2 uv,
     float3 historyPremul, float2 textureSize)
 {
@@ -177,8 +179,8 @@ fragment float4 taaFragment(
         return srcColor;
     }
 
-    // DEVIATION: upstream uses getLinearScreenDepth()/delinearizeDepth() from
-    // screenDepthPS for the round-trip; the linearize->delinearize is an identity
+    // DEVIATION: upstream uses getLinearScreenDepth()/delinearizeDepth()
+    // for the round-trip; the linearize->delinearize is an identity
     // on the raw hardware depth.  We skip the round-trip and use rawDepth directly
     // since reproject() only needs the original viewport [0,1] depth.
     // Point sampled: an edge pixel reprojected with a depth halfway between the
@@ -196,8 +198,7 @@ fragment float4 taaFragment(
         historyColor = historyTexture.sample(linearSampler, historyUv);
     }
 
-    // Premultiplied (rgb * a) is the coverage-correct space for TAA (upstream
-    // taaResolve.js): straight RGB interpolates colour and opacity independently at
+    // Premultiplied (rgb * a) is the coverage-correct space for TAA: straight RGB interpolates colour and opacity independently at
     // edges, which fringes and ghosts. Clamp and mix premultiplied, then
     // un-premultiply by the CURRENT alpha — alpha is not filtered over time, so the
     // HISTORY alpha is neither blended nor kept. With alpha 1 the result is the
@@ -298,7 +299,7 @@ vec4 sampleCatmullRom(vec2 uv, vec2 texSize) {
     return result;
 }
 
-// Twin of the MSL colorClampPremul (upstream taaResolve.js).
+// Twin of the MSL colorClampPremul.
 vec3 colorClampPremul(vec2 uv, vec3 historyPremul, vec2 texSize) {
     vec3 minPremul = vec3(9999.0);
     vec3 maxPremul = vec3(-9999.0);

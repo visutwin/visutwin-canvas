@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 15.09.2026
+//
 // Image orientation across loaders, pinned without a GPU.
 //
 // stb_image has a global and a thread-local vertical-flip flag, and once the

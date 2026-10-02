@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 12.09.2026
+//
 // A splat is an ellipsoid, so the cloud reaches past the hull of its centres and a
 // bound built from centres alone culls it while part of it is still on screen.
 //
 // What the bound must be is exact rather than approximate, because this parser keeps
 // the composed covariance Sigma = R S^2 R^T. Its diagonal is the variance along each
 // model axis, so 2 * sqrt(Sigma_dd) is the tightest axis-aligned bound on the
-// 2-sigma ellipsoid — the same convention upstream uses, tighter than either of the
-// two bounds upstream computes. These cases pin that: a rotated splat's bound has to
-// follow the ROTATED extent, which is the half a naive "pad x by scale_0" gets wrong
-// and which no amount of looking at a render would reveal.
+// 2-sigma ellipsoid, tighter than either of the two bounds upstream computes. These
+// cases pin that: a rotated splat's bound has to follow the ROTATED extent, which is
+// the half a naive "pad x by scale_0" gets wrong and which no amount of looking at a render would reveal.
 //
 #include <cmath>
 #include <cstdint>
@@ -148,7 +149,7 @@ int main()
     // ── A 45-degree rotation: exactly the ellipsoid's own bound ───────────────
     // Sigma_xx = Sigma_yy = (sx^2 + sy^2) / 2 for a half-turn-of-a-quarter about Z,
     // which is strictly between the two scales — so a bound that merely picked one
-    // of them, or padded by the largest as upstream's pessimistic path does, lands
+    // of them, or padded by the largest, lands
     // somewhere else. This is where the DEVIATION is worth the arithmetic.
     {
         const float cos22 = std::cos(0.39269908f);   // 22.5 degrees = half of 45
@@ -166,7 +167,7 @@ int main()
         checkClose(boundsMax.getX(), expected, "45-degree +x is the exact ellipsoid bound");
         checkClose(boundsMax.getY(), expected, "45-degree +y is the exact ellipsoid bound");
 
-        // And it is genuinely tighter than upstream's isotropic 2 * max(scale) pad,
+        // And it is genuinely tighter than an isotropic 2 * max(scale) pad,
         // which is the whole reason for keeping the covariance rather than the scales.
         check(boundsMax.getX() < 2.0f * sx,
             "45-degree bound is tighter than an isotropic largest-scale pad");

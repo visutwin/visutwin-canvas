@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 12.09.2025.
+// Created by Arnis Lektauers on 12.09.2025
 //
 #pragma once
 
@@ -91,9 +91,9 @@ namespace visutwin::canvas
 
         /**
          * Read a rectangle of one mip level and face back from the GPU into `out`,
-         * tightly packed, BLOCKING until it arrives. Upstream's `Texture#read`,
-         * which returns a promise; this port has no frame-deferred variant, so a
-         * caller on the hot path pays a full pipeline drain and should not be there.
+         * tightly packed, BLOCKING until it arrives. There is no frame-deferred
+         * variant, so a caller on the hot path pays a full pipeline drain and should
+         * not be there.
          *
          * A zero width or height means the whole level. `out` is resized to
          * `width * height * bytesPerPixel`. Returns false and leaves `out` alone

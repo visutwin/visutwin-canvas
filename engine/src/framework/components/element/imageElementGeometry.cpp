@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 29.09.2026
+//
 #include "imageElementGeometry.h"
 
 #include <algorithm>
@@ -15,7 +18,7 @@ namespace visutwin::canvas
         float h = height;
         if (fitMode != ElementFitMode::Stretch && aspect > 0.0f && height != 0.0f) {
             const float actual = width / height;
-            // Which side must change to keep the image's aspect (upstream _updateMesh).
+            // Which side must change to keep the image's aspect.
             if ((fitMode == ElementFitMode::Contain && actual > aspect) ||
                 (fitMode == ElementFitMode::Cover && actual < aspect)) {
                 w = height * aspect;
@@ -65,11 +68,10 @@ namespace visutwin::canvas
         const float right = frame.border.getZ();
         const float top = frame.border.getW();
 
-        // Upstream's vertex shader, solved for the final positions: the outer edges sit at
+        // The 9-slice vertex shader, solved for the final positions: the outer edges sit at
         // the element's rectangle; each inner edge sits a border's width (pixels over ppu)
-        // inside it. When the rectangle is narrower than twice the left border (upstream's
-        // outerScale max with innerOffset.x), the grid is laid out at that minimum width
-        // and scaled down by width / minimum (upstream's node scale clamp), which keeps
+        // inside it. When the rectangle is narrower than twice the left border, the grid is laid out at that minimum width
+        // and scaled down by width / minimum, which keeps
         // the outer edges on the rectangle and pulls the inner ones in proportionally.
         const auto axis = [](const float extent, const float nearBorder, const float farBorder) {
             const float minimum = 2.0f * nearBorder;
@@ -131,7 +133,7 @@ namespace visutwin::canvas
         // One axis as segments of (position from the low edge, frame pixel) pairs: the near
         // border, the middle cut into tiles of the inner region's natural size, the far
         // border. The grid and its shrink are the sliced grid's; the tile period shrinks with
-        // it, as upstream's whole mesh scales by the same clamp.
+        // it, as the whole mesh scales by the same clamp.
         struct Segment
         {
             float p0, p1;    // positions from the low edge

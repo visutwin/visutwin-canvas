@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 05.09.2025.
+// Created by Arnis Lektauers on 05.09.2025
 //
 #pragma once
 
@@ -176,7 +176,7 @@ namespace visutwin::canvas
         void onHierarchyStateChanged(bool enabled) override;
 
         /**
-         * Deep copy of this entity and its Entity descendants (upstream `clone`): name,
+         * Deep copy of this entity and its Entity descendants: name,
          * tags, local transform, enabled flag, and every component through
          * Component::cloneFrom, in creation order. Then a second pass over the whole
          * copy, Component::resolveClonedReferences, points each reference into the

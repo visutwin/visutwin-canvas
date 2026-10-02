@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 02.10.2026
+//
 #include "dualGestureSource.h"
 
 #include "framework/engine.h"
@@ -10,7 +12,7 @@ namespace visutwin::canvas
 {
     namespace
     {
-        // Upstream constants.js.
+        // Gesture thresholds.
         constexpr auto kDoubleTapThreshold = std::chrono::milliseconds(250);
         constexpr float kDoubleTapVariance = 100.0f;
     }

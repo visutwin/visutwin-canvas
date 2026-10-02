@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 06.09.2026
+//
 // The forward pass sorts transparent draws back-to-front on the SIGNED depth
-// along the camera's forward vector (scene/renderer/sortDistance.h), as upstream's
-// layer.js does. The squared radial distance would rank an off-axis surface as
+// along the camera's forward vector (scene/renderer/sortDistance.h). The squared radial distance would rank an off-axis surface as
 // farther than a centred one at the same view depth — by up to 1 / cos(fov / 2) —
 // and cannot tell a surface behind the camera from one in front. This holds the
 // contract with cases the radial form gets wrong.

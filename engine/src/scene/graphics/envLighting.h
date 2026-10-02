@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 #pragma once
 
 #include <array>
@@ -32,12 +34,12 @@ namespace visutwin::canvas
         static Texture* generateSkyboxCubemap(GraphicsDevice* device, Texture* source, int size = 0);
 
         /**
-         * Upstream `EnvLighting.generatePrefilteredAtlas`: an env atlas from six
+         * An env atlas from six
          * PREFILTERED cubemaps instead of one environment. sources[0] supplies the
          * mipmap rects (and, convolved, the ambient), sources[1..5] the five blurry
          * reflection levels; with `legacyAmbient` the ambient is reprojected from
          * sources[5] instead. The result is the engine's RGBP RGBA8 atlas of `size`
-         * (a multiple of 512 keeps upstream's layout exact). The sources must be
+         * (a multiple of 512 keeps the rect layout exact). The sources must be
          * linear (float or Default-encoded 8-bit) cubemaps: the reproject shader does
          * not decode RGBM / RGBP. Returns a new texture the caller owns, or null.
          */

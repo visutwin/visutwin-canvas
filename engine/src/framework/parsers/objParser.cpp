@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // OBJ + MTL file parser for VisuTwin Canvas.
 //
 // Uses tinyobjloader (v2 ObjReader API) to parse Wavefront OBJ geometry and
@@ -14,8 +16,6 @@
 //   - Phong-to-PBR material conversion for classic MTL files
 //   - Smooth normal generation when OBJ has no normals
 //   - Tangent generation from UV seams (Lengyel algorithm, same as GlbParser)
-//
-// Custom loader (not derived from upstream).
 //
 #include "objParser.h"
 #include "framework/parsers/packedVertex.h"

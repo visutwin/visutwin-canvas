@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 11.09.2025.
+// Created by Arnis Lektauers on 11.09.2025
 //
 #include <cmath>
 #include <algorithm>
@@ -199,7 +199,7 @@ namespace visutwin::canvas
         }
 
         // DEVIATION: Metal/WebGPU texture UV origin is top-left (V=0 at top).
-        // Upstream handles this via getImageEffectUV() Y-flip in shader.
+        // Upstream flips Y in the shader instead.
         // We flip UV.y here in the vertex data so all post-processing fragment
         // shaders receive Metal-convention UVs matching texture layout.
         //

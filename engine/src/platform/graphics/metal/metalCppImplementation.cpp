@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 20.09.2026
+//
 // The metal-cpp *_PRIVATE_IMPLEMENTATION translation unit for a SHARED engine.
 //
 // metal-cpp is header-only apart from one TU per binary that materializes its

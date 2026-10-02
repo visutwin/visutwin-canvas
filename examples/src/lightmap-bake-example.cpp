@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 14.07.2026
+//
 // Port of upstream's graphics/lights-baked-a-o: the house.glb scene
 // — which ships with a generated UV1 channel unwrapped for lightmapping and
 // stripped textures — is lit by a directional sun, a yellow omni and a red spot and
-// baked on the GPU (GpuLightmapper, upstream's UV-space technique) into per-mesh
+// baked on the GPU (GpuLightmapper, a UV-space render) into per-mesh
 // lightmaps: soft directional shadows from 15 virtual copies of the sun, ambient
-// occlusion from 20 virtual sky lights shaped by upstream's occlusion contrast and
+// occlusion from 20 virtual sky lights shaped by the occlusion contrast and
 // brightness, then the bilateral denoise and dilate. The helipad env atlas provides
 // the skybox and the ambient that the occlusion darkens. Each house mesh is masked
 // out of realtime lighting (MASK_AFFECT_LIGHTMAPPED), so its whole look comes from
@@ -99,7 +101,7 @@ protected:
         }
         scene()->setEnvAtlas(std::get<Texture*>(*helipadResource));
 
-        // Instantiate the house (unwrapped UV1 for lightmapping), scaled up like upstream.
+        // Instantiate the house (unwrapped UV1 for lightmapping), scaled up.
         const auto houseResource = _house->resource();
         if (!houseResource) {
             spdlog::error("Failed to load house model");
@@ -134,7 +136,7 @@ protected:
 
         _gpuBakeStart = std::chrono::steady_clock::now();
 
-        // GPU baker (upstream's UV-space render). Needs the lights to exist as real scene
+        // GPU baker (a UV-space render). Needs the lights to exist as real scene
         // LightComponents, since the bake evaluates the ordinary lit pipeline; the CPU baker
         // instead takes its own light descriptions below.
         _gpuLightmapper = std::make_unique<GpuLightmapper>(engine());
@@ -157,7 +159,7 @@ protected:
         _omni.castShadows = true;
 
         // JS: lightSpot — red, position (-5, 10, -7.5), range 10, intensity 2.5, bake: true.
-        // Upstream leaves the spot at its default rotation, which points straight down.
+        // The spot keeps its default rotation, which points straight down.
         _spot.type = LightType::LIGHTTYPE_SPOT;
         _spot.position = Vector3(-5.0f, 10.0f, -7.5f);
         _spot.direction = Vector3(0.0f, -1.0f, 0.0f);
@@ -203,7 +205,7 @@ protected:
             cameraControls->setZoomRange(Vector2(5.0f, 60.0f));   // JS: distanceMax 60
         }
 
-        // Upstream's HUD panels become keys; each one re-bakes like the HUD does.
+        // Keys stand in for the HUD panels; each one re-bakes.
         spdlog::info("Keys (each re-bakes): 1 directional  2 other lights  3 ambient bake  "
                      "4 hemisphere  5 lightmap filter  6 cubemap  |  "
                      "G GPU bake  C CPU ray-traced bake  L show/hide  |  ESC quits");
@@ -267,7 +269,6 @@ protected:
         }
 
         if (bakeSettingChanged) {
-            // Upstream: "Bake when settings are changed only".
             gpuRebake();
             return true;
         }
@@ -325,8 +326,8 @@ private:
         return light;
     }
 
-    // Re-bake with the current flags. Upstream re-bakes whenever a HUD setting
-    // changes and reports the duration in its "Bake stats" panel.
+    // Re-bake with the current flags, whenever a setting changes, and report the
+    // duration.
     void rebake()
     {
         _lightmapper->clear();
@@ -362,7 +363,7 @@ private:
                 continue;
             }
             mi->setMask(MASK_AFFECT_LIGHTMAPPED);
-            // Each mesh instance owns its bake (upstream 0cd268478), so submeshes that
+            // Each mesh instance owns its bake, so submeshes that
             // share one material each show their own bake.
             mi->setLightMap(lightmap);
             _bakedLightmaps[i] = std::move(lightmap);
@@ -374,7 +375,7 @@ private:
         spdlog::info("Bake duration: {} ms ({} lightmapped mesh(es))", bakeMs, baked);
     }
 
-    // The GPU bake is upstream's own mechanism and costs a single frame, so it is what
+    // The GPU bake costs a single frame, so it is what
     // the example starts with; the CPU ray-traced bake (rebake(), key C) stays available
     // as the higher-quality reference — true AO and soft shadows for seconds of work.
     void gpuRebake()
@@ -431,8 +432,7 @@ private:
     std::chrono::steady_clock::time_point _gpuBakeStart;
     Texture* _helipadTexture = nullptr;   // owned by _helipad
 
-    // Upstream's HUD toggles; changing one re-bakes, exactly as upstream does
-    // ("Bake when settings are changed only").
+    // HUD toggles; changing one re-bakes.
     bool _directionalEnabled = true;   // data.directional.enabled
     bool _otherLightsEnabled = true;   // data.other.enabled
     bool _ambientBakeEnabled = true;   // data.ambient.ambientBake

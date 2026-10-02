@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Upstream extras/gizmo/mesh-line.js: a line drawn as a thin cylinder (the rotate
+// Created by Arnis Lektauers on 02.10.2026
+//
+// A gizmo line drawn as a thin cylinder (the rotate
 // gizmo's angle guides), alpha blended, written at depth 0 so it shows in front of
 // every shape of the gizmo layer.
 //
@@ -33,7 +35,7 @@ namespace visutwin::canvas
         float thickness() const { return _thickness; }
         void setThickness(const float value) { _thickness = value; }
 
-        /// Upstream `draw(from, to, scale, color)`: a cylinder from `from` along the
+        /// A cylinder from `from` along the
         /// direction to `to`, `distance * scale` long and `thickness * scale` wide.
         void draw(const Vector3& from, const Vector3& to, float scale, const Color& color);
 

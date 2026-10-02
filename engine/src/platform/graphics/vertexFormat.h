@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 13.09.2025.
+// Created by Arnis Lektauers on 13.09.2025
 //
 #pragma once
 
@@ -88,7 +88,7 @@ namespace visutwin::canvas
         /**
          * Hash of the ATTRIBUTE SET alone — semantic, data type, component count and
          * normalization per element, order-independent — with offsets and stride left
-         * out (upstream's `batchingHash`). Two formats that hash the same describe the
+         * out. Two formats that hash the same describe the
          * same attributes and can be merged into one batch; the rendering hash is the
          * stricter test, since it also pins the byte layout.
          */
@@ -114,7 +114,7 @@ namespace visutwin::canvas
         static constexpr int INSTANCING_MATRIX_COLOR_SIZE = 80;
 
         /**
-         * Matrix-only per-instance format (upstream getDefaultInstancingFormat): 64 bytes,
+         * Matrix-only per-instance format: 64 bytes,
          * a column-major float4x4 model matrix. Instances share the material's base color.
          */
         static std::shared_ptr<VertexFormat> defaultInstancingFormat();

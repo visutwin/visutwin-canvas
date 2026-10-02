@@ -38,11 +38,11 @@ static inline int getShadowCascadeIndex(float4 distances, int count, float depth
     return min(int(dot(comparisons, float4(1.0))), count - 1);
 }
 
-// Upstream ditherShadowCascadeIndex (shadowCascades.js): over the stretch of a
+// Over the stretch of a
 // cascade from blendFactor x its end distance to its end, move a growing,
 // pseudo-randomly dithered share of the fragments to the NEXT cascade, so the
 // seam between two shadow resolutions dissolves instead of drawing a line.
-// fragCoord is the pixel position; the hash is upstream's.
+// fragCoord is the pixel position.
 static inline int ditherShadowCascadeIndex(int cascadeIndex, float4 distances, int count,
                                            float blendFactor, float depth, float2 fragCoord) {
     if (cascadeIndex < count - 1) {

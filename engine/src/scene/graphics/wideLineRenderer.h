@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Draws a collection of WideLines (upstream extras/renderers/wide-line-renderer.js).
+// Created by Arnis Lektauers on 05.09.2026
+//
+// Draws a collection of WideLines.
 #pragma once
 
 #include <memory>

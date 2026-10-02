@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 21.03.2026
+//
 #include "collisionComponent.h"
 
 #include <cstring>
@@ -166,7 +169,7 @@ namespace visutwin::canvas
             return;
         }
         // Each mesh instance's node relative to the entity, without the entity's own
-        // scale (which `scale` applies, as upstream does).
+        // scale (which `scale` applies).
         const Matrix4 ownerInverse = Matrix4::trs(owner->position(), owner->rotation(), Vector3(1.0f)).inverse();
         for (const auto* meshInstance : render->meshInstances()) {
             if (!meshInstance || !meshInstance->mesh()) {

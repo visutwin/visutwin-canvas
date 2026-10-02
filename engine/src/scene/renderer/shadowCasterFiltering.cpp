@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 13.02.2026.
+// Created by Arnis Lektauers on 13.02.2026
 //
 #include "shadowCasterFiltering.h"
 
@@ -110,7 +110,7 @@ namespace visutwin::canvas
         Material* material = meshInstance->material();
         const bool alphaTestCaster = material && material->alphaMode() == AlphaMode::MASK;
         // A material that dithers its shadow is asking to cast one despite being blended
-        // (upstream opacityShadowDither): the shadow pass discards the same screen-space
+        // (opacityShadowDither): the shadow pass discards the same screen-space
         // Bayer pattern, so the caster throws a thinned shadow instead of a solid one.
         const auto* standard = dynamic_cast<const StandardMaterial*>(material);
         const bool ditheredShadowCaster = standard &&

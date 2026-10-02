@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Port of upstream graphics/shadow-cascades.
 //
 // A low-poly terrain (scaled 30x) under the helipad environment, lit by one white
@@ -139,7 +141,7 @@ protected:
         if (auto* cameraComp = camera->findComponent<CameraComponent>();
             cameraComp && cameraComp->camera()) {
             cameraComp->camera()->setClearColor(Color(0.9f, 0.9f, 0.9f, 1.0f));
-            // upstream 0b30839ea: keep geometry visible beyond the light's shadow distance
+            // keep geometry visible beyond the light's shadow distance
             cameraComp->camera()->setFarClip(3000.0f);
             cameraComp->setToneMapping(TONEMAP_ACES);
         }
@@ -147,7 +149,7 @@ protected:
         _controls = addOrbitControls(camera, focusPoint);
         if (_controls) {
             _controls->setZoomRange(Vector2(0.0f, 1800.0f));
-            // upstream: on the first frame, move the camera further away from the focus tree
+            // move the camera further away from the focus tree
             _controls->setOrbitDistance(470.0f);
             _controls->storeResetState();
         }
@@ -158,7 +160,7 @@ protected:
         dirLight->setName("Cascaded Light");
         _light = dirLight->findComponent<LightComponent>();
         if (_light) {
-            // Upstream authoring values; see AGENTS.md "Shadow bias convention".
+            // Authoring values; see AGENTS.md "Shadow bias convention".
             _light->setShadowBias(0.3f);
             _light->setShadowNormalBias(0.2f);
             _light->setShadowDistance(1000.0f);
@@ -305,7 +307,7 @@ private:
     LightComponent* _light = nullptr;
     CameraControls* _controls = nullptr;
 
-    // Upstream's initial settings.light values.
+    // Initial light settings.
     int _numCascades = 4;
     int _shadowResolution = 2048;
     float _cascadeDistribution = 0.5f;

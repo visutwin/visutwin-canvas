@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Assimp-based multi-format 3D model parser for VisuTwin Canvas.
 //
 // Uses Assimp (Open Asset Import Library) to parse Collada (.dae), FBX (.fbx),
@@ -15,7 +17,7 @@
 //   - Tangent generation: Assimp first, Lengyel fallback, Gram-Schmidt last
 //   - Pre-order DFS node traversal maps to GlbNodePayload flat array
 //
-// Custom loader (not derived from upstream).
+// Custom loader.
 //
 #include "assimpParser.h"
 #include "framework/parsers/packedVertex.h"

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Port of upstream graphics/taa.
 //
 // The PBR house (scaled 100x) under the table-mountain env atlas (skybox mip 0,
@@ -75,7 +77,7 @@ protected:
         houseEntity->setLocalScale(100, 100, 100);
         root()->addChild(houseEntity);
 
-        // Frame the house the way upstream's orbitCamera frameOnStart does.
+        // Frame the house the way frameOnStart does.
         constexpr float fov = 80.0f;
         const auto houseBbox = entityBounds(houseEntity);
         const Vector3 pivot = houseBbox.center();
@@ -151,7 +153,7 @@ protected:
         switch (event.key.key) {
         case SDLK_T:
             taa.enabled = !taa.enabled;
-            // TAA has been flipped, setup sharpening appropriately (as upstream).
+            // TAA has been flipped, setup sharpening appropriately.
             rendering.sharpness = taa.enabled ? 1.0f : 0.0f;
             break;
         case SDLK_LEFTBRACKET:

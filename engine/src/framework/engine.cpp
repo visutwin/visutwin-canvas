@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 18.07.2025.
+// Created by Arnis Lektauers on 18.07.2025
 //
 #include "engine.h"
 
@@ -227,7 +227,6 @@ namespace visutwin::canvas
         _root->setEngine(this);
         // The root entity has no parent, so _enabledInHierarchy must be set
         // explicitly — onInsertChild never runs for it.
-        // Matches upstream: `this.root._enabledInHierarchy = true;`
         _root->setEnabledInHierarchy(true);
 
         Asset::setDefaultGraphicsDevice(_graphicsDevice);
@@ -276,7 +275,7 @@ namespace visutwin::canvas
         _defaultLayerDepth = std::make_shared<Layer>("Depth", 2);
         _defaultLayerSkybox = std::make_shared<Layer>("Skybox", 3);
         _defaultLayerUi = std::make_shared<Layer>("UI", 4);
-        // Upstream: UI draws in the order its screens assign (ElementComponent::drawOrder),
+        // UI draws in the order its screens assign (ElementComponent::drawOrder),
         // not by distance, which means nothing for a clip-space element.
         _defaultLayerUi->setTransparentSortMode(SortMode::SORTMODE_MANUAL);
         _defaultLayerImmediate = std::make_shared<Layer>("Immediate", 5);
@@ -343,8 +342,8 @@ namespace visutwin::canvas
     {
         _frame = 0;
 
-        // The initialize phase. Upstream (app-base.js) fires this before the first
-        // tick and nothing here ever did — `Script::initialize` was reachable only
+        // The initialize phase, fired before the first tick. Without it
+        // `Script::initialize` was reachable only
         // through ScriptComponent at creation time, so a component system had no
         // point at which to do deferred setup, and a script created before start()
         // never saw an application-wide phase at all.
@@ -377,7 +376,7 @@ namespace visutwin::canvas
         const auto renderStart = std::chrono::high_resolution_clock::now();
         _graphicsDevice->resetDisplayWaitMilliseconds();
         // Each render counts only itself. The tick path fills the stats BEFORE its
-        // render (upstream's order, reading the previous frame) and the manual
+        // render (reading the previous frame) and the manual
         // update()/render() path the examples use fills them AFTER; resetting in the
         // fill left a tick followed by a manual frame — start() then the examples' loop
         // — counting two renders into one frame. Zeroed here, both paths read one.
@@ -389,7 +388,7 @@ namespace visutwin::canvas
         _renderCompositionCalled = false;
         _frameEndCalled = false;
 
-        // Upstream AppBase.render fires `prerender` first: the last chance to move what
+        // `prerender` fires first: the last chance to move what
         // this frame draws, after every update (the camera's included).
         fire("prerender");
 
@@ -430,7 +429,7 @@ namespace visutwin::canvas
         // CPU time spent rendering: the wall time of this call less what the device spent
         // blocked on the display (see GraphicsDevice::displayWaitMilliseconds), which under
         // vsync is the pacing wait and not work. Written AFTER "postrender", so the HUD reads
-        // the previous frame's figure — one frame of lag, as upstream's CpuTimer has.
+        // the previous frame's figure — one frame of lag.
         if (_stats) {
             const double wallMs = std::chrono::duration<double, std::milli>(
                 std::chrono::high_resolution_clock::now() - renderStart).count();
@@ -565,7 +564,7 @@ namespace visutwin::canvas
         _resolutionMode = mode;
 
         // In AUTO mode the resolution is the canvas's, unless specified. resizeCanvas takes
-        // POINTS and applies the device's pixel ratio (upstream: CSS pixels).
+        // POINTS and applies the device's pixel ratio.
         if (mode == ResolutionMode::RESOLUTION_AUTO && (width == 0)) {
             const auto points = _graphicsDevice->windowSizeInPoints();
             if (points.first <= 0 || points.second <= 0) {
@@ -590,7 +589,7 @@ namespace visutwin::canvas
         stats.shaders = _graphicsDevice->_shaderSwitchesPerFrame;
         stats.shadowMapUpdates = counters.shadowMapUpdates;
         stats.shadowMapTime = counters.shadowMapTime;
-        stats.depthMapTime = 0.0;   // deprecated upstream, never measured
+        stats.depthMapTime = 0.0;   // deprecated, never measured
         stats.forwardTime = counters.forwardTime;
         stats.cullTime = counters.cullTime;
         stats.sortTime = counters.sortTime;
@@ -633,7 +632,7 @@ namespace visutwin::canvas
         if (_touch && event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
             _touch->setWindowSize(event.window.data1, event.window.data2);
         }
-        // UI elements first, as upstream's ElementInput is attached before its devices: a
+        // UI elements first, before the devices: a
         // press an element handler stops (`stopPropagation`) does not reach the mouse or
         // touch devices, so game code reading them does not act on a click that landed on
         // the UI. Keys and gamepads never go through elements and always get everything.

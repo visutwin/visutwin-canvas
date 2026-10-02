@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Metal compute pass for GPU Marching Cubes isosurface extraction.
 //
 // Two-pass atomic pipeline:
@@ -16,8 +18,7 @@
 //   - Lazy resource creation
 //   - Friend access to MetalGraphicsDevice for command queue
 //
-// Custom shader -- no upstream GLSL equivalent exists for GPU
-// Marching Cubes isosurface extraction.
+// Custom shader for GPU Marching Cubes isosurface extraction.
 //
 #pragma once
 

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Lays out the element children of its entity (upstream framework/components/layout-group/
-// component.js): in a row or a column, wrapping into more of them when asked, sized to the
+// Created by Arnis Lektauers on 30.09.2026
+//
+// Lays out the element children of its entity: in a row or a column, wrapping into more of them when asked, sized to the
 // group by the width and height fittings and each child's LayoutChildComponent, and placed
 // by the alignment, padding and spacing. A child takes part while its entity and its element
 // are enabled and its layout child does not exclude it. The group sets each child's anchors
@@ -15,7 +16,7 @@
 // inserted, resized, enabled ...). Here the layout group system compares every group's
 // inputs after each update and reflows the groups whose inputs differ from their last
 // reflow, outermost first, until none does. A reflow is a pure function of those inputs, so
-// the layouts are upstream's; nothing has to fire an event this port does not have.
+// the layouts are the same; nothing has to fire an event this port does not have.
 //
 #pragma once
 
@@ -46,7 +47,7 @@ namespace visutwin::canvas
         void setOrientation(const Orientation value) { _options.orientation = value; }
         bool reverseX() const { return _options.reverseX; }
         void setReverseX(const bool value) { _options.reverseX = value; }
-        /// On by default, as upstream: rows stack from the top.
+        /// On by default: rows stack from the top.
         bool reverseY() const { return _options.reverseY; }
         void setReverseY(const bool value) { _options.reverseY = value; }
         /// Where the laid-out block sits: x 0 left to 1 right, y 0 bottom to 1 top. Default (0, 1).
@@ -64,7 +65,7 @@ namespace visutwin::canvas
         bool wrap() const { return _options.wrap; }
         void setWrap(const bool value) { _options.wrap = value; }
 
-        /// Lay the children out now (upstream `reflow`), and fire `reflow` with the bounds.
+        /// Lay the children out now, and fire `reflow` with the bounds.
         void reflow();
         /// Reflow if an input changed since the last reflow; returns whether it did. The
         /// system calls this after each update.

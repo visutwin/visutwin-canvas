@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 13.04.2026
+//
 // Shared Gribb/Hartmann frustum plane extraction used by all InstanceCuller
 // backends. Moved here from metalInstanceCullPass.cpp so future non-Metal
 // backends can reuse the same math.

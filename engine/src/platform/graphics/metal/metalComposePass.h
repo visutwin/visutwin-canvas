@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Compose post-processing pass — CAS sharpening, SSAO, DOF, bloom, tonemapping, gamma.
 // Extracted from MetalGraphicsDevice for single-responsibility decomposition.
 //

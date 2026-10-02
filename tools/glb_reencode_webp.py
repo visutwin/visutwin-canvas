@@ -3,7 +3,7 @@
 
 The engine's GLB parser decodes images with stb_image, which has no WebP support, so a
 model whose textures are WebP loads with magenta placeholders. Browsers decode WebP
-natively, which is why upstream ships such models unmodified.
+natively, which is why such models ship unmodified.
 
 Usage: glb_reencode_webp.py <in.glb> <out.glb> [--format jpeg|png] [--quality 92]
 

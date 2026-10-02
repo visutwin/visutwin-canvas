@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 19.02.2026.
+// Created by Arnis Lektauers on 19.02.2026
 //
 #pragma once
 
@@ -183,9 +183,8 @@ namespace visutwin::canvas
         }
 
         /**
-         * Reallocate to fit the demand the PREVIOUS frame actually had. Upstream's
-         * DynamicBuffers grows by taking another buffer from its pool; the same
-         * cannot be done mid-frame here, because an offset is only meaningful
+         * Reallocate to fit the demand the PREVIOUS frame actually had. Growing
+         * by taking another buffer from a pool cannot be done mid-frame here, because an offset is only meaningful
          * against the buffer bound at the start of the render pass. So the growth
          * happens here, at a frame boundary, behind a full drain: the caller has
          * already waited for THIS region, and the other kMaxInflightFrames - 1

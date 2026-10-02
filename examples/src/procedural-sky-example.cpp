@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 14.07.2026
+//
 // Port of the upstream "procedural-sky" example.
 //
 // A laboratory bedded into dry-sand dunes, lit by a single sun that sweeps across a
@@ -17,7 +19,7 @@
 // single-scattering atmosphere from the same sun direction instead. The scene, the
 // lighting, the framing, the effects and the time-of-day behaviour all match; the sky
 // itself is a different scattering model and has no night phase, so the cycle here skips
-// the night exactly as upstream's does (20:00 wraps back to 05:00).
+// the night (20:00 wraps back to 05:00).
 //
 // @credit Laboratory by Sketchfab, CC BY 4.0
 // @credit FREE - Dry Sand Terrain by josevega, Sketchfab, CC BY 4.0
@@ -38,7 +40,7 @@
 
 using namespace visutwin::canvas;
 
-// Upstream's initial control values.
+// Initial control values.
 constexpr float INITIAL_HOUR = 9.0f;
 constexpr float TIME_SPEED = 1.0f;      // hours per second
 constexpr float SKY_EXPOSURE = 1.8f;
@@ -147,7 +149,7 @@ protected:
                  return node && node->name().find("Fackel") != std::string::npos;
              })) {
             // The mesh sits on a child node (the glTF splits node/primitive), so search the
-            // subtree rather than the node itself — upstream's findComponent does the same.
+            // subtree rather than the node itself.
             auto* torchEntity = dynamic_cast<Entity*>(torch);
             const auto renders = torchEntity ? torchEntity->findComponents<RenderComponent>()
                                              : std::vector<RenderComponent*>{};
@@ -312,7 +314,7 @@ protected:
         // The light shines FROM the sun, so its forward axis is the negated direction.
         _sunEntity->lookAt(_sunEntity->position() + (sunDir * -1.0f));
 
-        // Sky luminance follows the elevation, exactly as upstream's curve does.
+        // Sky luminance follows the elevation.
         const float luminance = _luminanceCurve.value(elevation);
         AtmosphereData atmosphere;
         atmosphere.sunDirection[0] = sunDir.getX();
@@ -321,7 +323,7 @@ protected:
         // DEVIATION: upstream's `luminance` curve is a Preetham control with no Nishita
         // counterpart — the scattering integral already darkens the sky as the sun sets.
         // The curve still drives the sun light's own intensity, so the ground lighting
-        // follows the same day curve upstream uses.
+        // follows the same day curve.
         (void)luminance;
         scene()->setAtmosphereUniforms(&atmosphere, sizeof(atmosphere));
 
@@ -352,7 +354,7 @@ private:
     Entity* _sunEntity = nullptr;
     CameraComponent* _cameraComponent = nullptr;
 
-    // Time-of-day curves (upstream's editable keyframes, smoothstepped)
+    // Time-of-day curves (keyframes, smoothstepped)
     Curve _elevationCurve = makeCurve({0.0f, -60.0f, 6.0f, 0.0f, 12.0f, 60.0f, 18.0f, 0.0f, 24.0f, -90.0f});
     Curve _luminanceCurve = makeCurve({0.0f, 2.0f, 35.0f, 0.4f, 90.0f, 0.3f});
     Curve _bloomCurve     = makeCurve({0.0f, 0.005f, 5.0f, 0.001f, 8.0f, 0.001f, 90.0f, 0.002f});

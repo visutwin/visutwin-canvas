@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 12.10.2025.
+// Created by Arnis Lektauers on 12.10.2025
 //
-// Localization (upstream framework/i18n: i18n.js, utils.js, constants.js, i18n-parser.js).
+// Localization: the current locale, localized messages and their plural forms.
 //
 // DEVIATIONS from upstream: localization ASSETS are not ported (no `assets` list; data is added
 // with addData from JSON text or a file), and a text element does not swap its font asset per
@@ -27,7 +27,7 @@ namespace visutwin::canvas
     /**
      * Handles localization: the current locale, the messages for each locale, and plural forms.
      *
-     * Events (as upstream): "change" (std::string locale, std::string oldLocale) when the locale
+     * Events: "change" (std::string locale, std::string oldLocale) when the locale
      * changes; "data:add" and "data:remove" (std::string locale, std::vector<std::string> keys)
      * when messages are added or removed.
      */
@@ -39,7 +39,7 @@ namespace visutwin::canvas
         explicit I18n(const std::shared_ptr<Engine>& engine = nullptr);
 
         /// The current locale, e.g. "en-US". Setting it fires "change" when it differs; an
-        /// "in" language is replaced by "id", as upstream.
+        /// "in" language is replaced by "id".
         [[nodiscard]] const std::string& locale() const { return _locale; }
         void setLocale(const std::string& value);
 
@@ -48,7 +48,7 @@ namespace visutwin::canvas
         /// the language), else DEFAULT_LOCALE.
         [[nodiscard]] std::string findAvailableLocale(const std::string& desiredLocale) const;
 
-        /// Upstream's static findAvailableLocale over a set of locales.
+        /// findAvailableLocale over a given set of locales.
         [[nodiscard]] static std::string findAvailableLocale(const std::string& desiredLocale,
             const std::vector<std::string>& availableLocales);
 
@@ -61,7 +61,7 @@ namespace visutwin::canvas
         /// there is none.
         [[nodiscard]] std::string getPluralText(const std::string& key, double n, const std::string& locale = {}) const;
 
-        /// Add localization data, upstream's format:
+        /// Add localization data, in this format:
         /// {"header": {"version": 1}, "data": [{"info": {"locale": "en-US"}, "messages": {...}}]}.
         /// A message is a string, or an array of plural forms (null for a missing form). False,
         /// with the reason logged, when the data is malformed.
@@ -74,8 +74,8 @@ namespace visutwin::canvas
         [[nodiscard]] static std::string getLang(const std::string& locale);
         /// The locale with its language replaced.
         [[nodiscard]] static std::string replaceLang(const std::string& locale, const std::string& lang);
-        /// The plural form index for `n` in `lang` (upstream's PLURALS table; en's rule for a
-        /// language it does not list).
+        /// The plural form index for `n` in `lang` (en's rule for a
+        /// language the table does not list).
         [[nodiscard]] static int pluralIndex(const std::string& lang, double n);
 
     private:

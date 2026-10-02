@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 05.09.2026
+//
 #include "joltPhysicsWorld.h"
 
 #include <spdlog/spdlog.h>
@@ -595,7 +598,7 @@ namespace visutwin::canvas
                 return nullptr;
             }
 
-            // The frame's local X is the primary axis (upstream's convention); Y is
+            // The frame's local X is the primary axis; Y is
             // the reference direction the limits are measured from.
             const JPH::Quat frame = toJolt(desc.frameRotation).Normalized();
             const JPH::Vec3 point = toJolt(desc.framePosition);

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 12.09.2026
+//
 // World-space bounds of what a local light can reach, for the cluster grid.
 //
 // Free functions over plain values so a unit test can hold them without a Light, a
@@ -29,7 +31,7 @@ namespace visutwin::canvas
      * outside; past a quarter turn from the rim it reaches nothing at all and the
      * apex is the extreme point, which is what the clamp at zero expresses.
      *
-     * DEVIATION, in the tighter direction: upstream (light.js getBoundingBox) builds
+     * DEVIATION, in the tighter direction: upstream builds
      * a box of `sin(outer) * range` across by `range` deep and transforms it by the
      * node, which bounds the sector but is far looser for a narrow cone — and a
      * rotated box's own AABB is looser again. The grid is sized from the union of

@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 12.07.2026
+//
 // Port of upstream graphics/area-lights: three animated lights with an area SHAPE — a
 // white rect on a shadowed spot, a yellow sphere on an omni and a blue "sky" disk on a
 // shadowed directional light, held 5000 units from the camera along its direction —
 // illuminate the statue.glb hero standing on a seaside-rocks textured floor, lit by the
 // helipad environment atlas. Each light carries an emissive primitive matching its
-// shape, and the spot a black back face. Clustered area lights are enabled, as upstream.
+// shape, and the spot a black back face. Clustered area lights are enabled.
 //
 // DEVIATION: upstream loads the LTC LUTs from a JSON asset; this engine has them built in.
 //
@@ -21,7 +23,7 @@
 
 using namespace visutwin::canvas;
 
-// Upstream `far`: the directional disk light is held this far from the camera.
+// The directional disk light is held this far from the camera.
 constexpr float kFar = 5000.0f;
 
 class AreaLightExample final: public ExampleApp
@@ -34,8 +36,7 @@ protected:
     {
         scene()->setToneMapping(TONEMAP_ACES);
 
-        // Skydome + image-based lighting from the helipad environment atlas (darkened),
-        // matching the upstream counterpart.
+        // Skydome + image-based lighting from the helipad environment atlas (darkened).
         scene()->setSkyboxMip(1);
         scene()->setSkyboxIntensity(0.4f);
 
@@ -92,7 +93,7 @@ protected:
         }
         root()->addChild(floor);
 
-        // Statue hero standing on the floor (upstream scale 0.4).
+        // Statue hero standing on the floor (scale 0.4).
         _statue = std::make_unique<Asset>(
             "statue", AssetType::CONTAINER, assetPath("models/statue.glb"));
         const auto statueResource = _statue->resource();
@@ -104,7 +105,7 @@ protected:
         statueEntity->setLocalScale(0.4f, 0.4f, 0.4f);
         root()->addChild(statueEntity);
 
-        // Camera matching upstream: pos (0, 2.5, 12), lookAt origin, fov 60, gray clear.
+        // Camera: pos (0, 2.5, 12), lookAt origin, fov 60, gray clear.
         // lookAt(0,0,0) from (0,2.5,12): pitch = -atan2(2.5, 12).
         _camera = createCamera(Vector3(0.0f, 2.5f, 12.0f), Vector3(-11.77f, 0.0f, 0.0f));
         if (auto* cameraComp = _camera->findComponent<CameraComponent>()) {
@@ -116,7 +117,7 @@ protected:
         // Area lights are disabled by default for clustered lighting.
         scene()->lighting().areaLightsEnabled = true;
 
-        // Three lights matching upstream: white rect, yellow sphere, blue "sky" disk.
+        // Three lights: white rect, yellow sphere, blue "sky" disk.
         _light1 = createAreaLight(LightType::LIGHTTYPE_SPOT, LightShape::LIGHTSHAPE_RECT,
             Vector3(-3.0f, 4.0f, 0.0f), 4.0f, Color(1.0f, 1.0f, 1.0f, 1.0f), 2.0f, true, 10.0f);
         _light2 = createAreaLight(LightType::LIGHTTYPE_OMNI, LightShape::LIGHTSHAPE_SPHERE,
@@ -165,7 +166,7 @@ private:
         return a + (b - a) * t;
     }
 
-    // Upstream createAreaLight: a parent entity carrying the light, scaled to the source's
+    // A parent entity carrying the light, scaled to the source's
     // size, plus an emissive primitive matching the shape (and for a spot, a black
     // primitive facing the other way).
     Entity* createAreaLight(const LightType type, const LightShape shape, const Vector3& position,
@@ -243,7 +244,7 @@ private:
         return lightParent;
     }
 
-    // Per-frame animation mirroring the upstream update callback.
+    // Per-frame animation.
     void animateLights(const float t) const
     {
         const float factor1 = (std::sin(t) + 1.0f) * 0.5f;
@@ -258,7 +259,7 @@ private:
         _light3->setLocalEulerAngles(
             lerp(230.0f, 310.0f, factor2), lerp(-30.0f, 0.0f, factor3), 90.0f
         );
-        // Upstream: position = camera + lightY * far (the disk hangs in the sky
+        // position = camera + lightY * far (the disk hangs in the sky
         // along its emission axis).
         const Vector3 dir(_light3->worldTransform().getColumn(1));
         _light3->setPosition(_camera->position() + dir * kFar);

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// UI input and buttons: ElementInput's event delivery (upstream element-input.js — hover,
+// Created by Arnis Lektauers on 29.09.2026
+//
+// UI input and buttons: ElementInput's event delivery (hover,
 // press capture, click, bubbling, the hit test through screen corners, world corners and
 // hit padding, touches and the touch click brake) and ButtonComponent's visual states, with
 // upstream's button component.test.mjs ported.
@@ -173,7 +175,7 @@ namespace
     const std::vector<std::string> kTouchEvents = {"touchstart", "touchmove", "touchend", "touchleave",
                                                    "touchcancel", "click"};
 
-    /// Upstream's createButton: an image button entity holding an image child it tints.
+    /// An image button entity holding an image child it tints.
     struct TestButton
     {
         Entity* button = nullptr;
@@ -457,7 +459,7 @@ int main()
         engine->handleInputEvent(finger);
         check(r.count("touchstart") == 0, "a finger on no DIRECT touch device (a trackpad, or SDL video not up) is not a touch");
 
-        // Upstream's stopImmediatePropagation: a press an element handler stops does not
+        // A press an element handler stops does not
         // reach the mouse device, so game code reading it does not act on a UI click.
         int devicePresses = 0;
         auto deviceHandle = mouseDevice->on("mousedown", [&devicePresses]() { ++devicePresses; });
@@ -526,7 +528,7 @@ int main()
 
     std::cout << "\nmasks (upstream _updateMask)\n";
     {
-        // Upstream's masking card: a card mask, a cover mask inside it over a photo, and an
+        // The masking card: a card mask, a cover mask inside it over a photo, and an
         // avatar mask with its picture, the last element of the card.
         const auto image = [&](GraphNode* parent, const std::string& name, const bool mask, const float w,
                                const float h, const bool useInput = false) {
@@ -692,7 +694,7 @@ int main()
         b->setImageEntity(nullptr);
         check(b->imageEntity() == nullptr && !element2->hasEvent("set:color"), "null lets go of both");
 
-        // An element added to the image entity AFTER the button names it (upstream element:add).
+        // An element added to the image entity AFTER the button names it.
         Entity* late = addTo(engine->root(), newEntity("late"));
         b->setImageEntity(late);
         b->setActive(false);

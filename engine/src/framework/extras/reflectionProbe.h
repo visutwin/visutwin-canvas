@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 14.07.2026.
+// Created by Arnis Lektauers on 14.07.2026
 //
 #pragma once
 
@@ -38,7 +38,7 @@ namespace visutwin::canvas
      * The captured faces hold tonemapped/gamma-encoded LDR (the normal forward
      * output), which the probe shader sRGB-decodes — matching the existing
      * static-cubemap path. DEVIATIONS: roughness picks a box-filtered cube mip
-     * (upstream's reflectionCube samples the cube unfiltered and ignores gloss;
+     * (upstream samples the cube unfiltered and ignores gloss;
      * the env ATLAS is where upstream GGX-prefilters); a single probe;
      * directional-shadow cascades are fit only for the presentation camera, so
      * probe faces may miss directional shadows.

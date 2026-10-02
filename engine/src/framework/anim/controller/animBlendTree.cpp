@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 11.07.2026.
+// Created by Arnis Lektauers on 11.07.2026
 //
 #include "animBlendTree.h"
 
@@ -15,7 +15,7 @@ namespace visutwin::canvas
 {
     namespace
     {
-        // Signed angle between two vectors (upstream Vec2.angleRad).
+        // Signed angle between two vectors.
         float angleRad(const Vector2& a, const Vector2& b)
         {
             return std::atan2(a.x * b.y - a.y * b.x, a.x * b.x + a.y * b.y);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 10.02.2026.
+// Created by Arnis Lektauers on 10.02.2026
 //
 #include "renderComponent.h"
 #include "primitiveGeometry.h"
@@ -42,12 +42,12 @@ namespace visutwin::canvas
             geometry.uvs.insert(geometry.uvs.end(), {u, v});
         }
 
-        // Upstream's primitiveUv1Padding: every lightmap cell keeps an 8/64 border of
+        // Every lightmap cell keeps an 8/64 border of
         // its own size free, so bilinear taps and the bake's dilation stay inside it.
         constexpr float kUv1Padding = 8.0f / 64.0f;
         constexpr float kUv1PaddingScale = 1.0f - kUv1Padding * 2.0f;
 
-        // One UV1 in upstream's layout. (u, v) are upstream's UNFLIPPED coordinates in
+        // One UV1. (u, v) are UNFLIPPED coordinates in
         // [0, 1] for the part; they are padded, scaled into the part's cell and offset
         // to it, and stored as (u, 1 - v) like every other uv here.
         void pushUv1(PrimitiveGeometry& geometry, const float u, const float v,
@@ -74,8 +74,8 @@ namespace visutwin::canvas
             }
 
             const int vertexCount = static_cast<int>(geometry.positions.size() / 3);
-            // A primitive without an unwrap of its own uses its UV0 as UV1 (upstream's
-            // plane and sphere set `uvs1 = uvs`).
+            // A primitive without an unwrap of its own (the plane and sphere) uses its UV0
+            // as UV1.
             const std::vector<float>& uvs1 =
                 geometry.uvs1.size() == geometry.uvs.size() ? geometry.uvs1 : geometry.uvs;
             std::vector<float> interleaved;
@@ -234,7 +234,7 @@ namespace visutwin::canvas
                             position.getX(), position.getY(), position.getZ(),
                             faceNormals[side][0], faceNormals[side][1], faceNormals[side][2],
                             u, 1.0f - v);
-                        // Upstream packs the six faces 3x2, one face per cell (the
+                        // The six faces pack 3x2, one face per cell (the
                         // top third of the square stays empty rather than stretching).
                         pushUv1(geometry, u, v, 1.0f / 3.0f, 1.0f / 3.0f,
                             static_cast<float>(side % 3) / 3.0f, static_cast<float>(side / 3) / 3.0f);
@@ -269,7 +269,7 @@ namespace visutwin::canvas
                 const float cosTheta = std::cos(theta);
 
                 // Each pole vertex is used by a single triangle, so its u is centred on that
-                // triangle's segment (upstream #9597): the top triangles use the vertex at the
+                // triangle's segment: the top triangles use the vertex at the
                 // segment's end, the bottom ones the vertex at its start.
                 float poleUOffset = 0.0f;
                 if (lat == 0) {
@@ -319,7 +319,7 @@ namespace visutwin::canvas
                 for (int i = 0; i <= heightSegments; ++i) {
                     // A row with a zero radius collapses to the tip, and each of its vertices is
                     // used by a single triangle, so the vertex is centred on that triangle's
-                    // segment to keep its normal and u unskewed (upstream #9597). The triangles
+                    // segment to keep its normal and u unskewed. The triangles
                     // use the vertex at the segment's start at the top, and its end at the bottom.
                     float tipOffset = 0.0f;
                     if (i == heightSegments && peakRadius == 0.0f) {
@@ -377,7 +377,7 @@ namespace visutwin::canvas
                 // the bottom cap's the vertex at its start.
                 const float poleUOffset = 0.5f / static_cast<float>(longitudeBands);
                 // The caps index from the vertices made so far: with a zero height there is no body
-                // (upstream #9597; a capsule as tall as it is wide indexed vertices that did not exist).
+                // (a capsule as tall as it is wide indexed vertices that did not exist).
                 const auto topOffset = static_cast<uint32_t>(geometry.positions.size() / 3);
 
                 for (int lat = 0; lat <= latitudeBands; ++lat) {
@@ -457,7 +457,7 @@ namespace visutwin::canvas
                 }
             } else {
                 // The caps index from the vertices made so far: the body is skipped at a zero
-                // height, and a cap at a zero radius (upstream #9597; an inverted cone indexed its
+                // height, and a cap at a zero radius (an inverted cone indexed its
                 // top cap past the vertices).
                 auto offset = static_cast<uint32_t>(geometry.positions.size() / 3);
                 if (baseRadius > 0.0f) {
@@ -515,7 +515,7 @@ namespace visutwin::canvas
 
         PrimitiveGeometry createCapsuleGeometry()
         {
-            // Upstream primitive cache defaults: radius=0.5, height=2, heightSegments=1, sides=20.
+            // Defaults: radius=0.5, height=2, heightSegments=1, sides=20.
             return createConeBaseGeometry(0.5f, 0.5f, 1.0f, 1, 20, true);
         }
 
@@ -525,9 +525,8 @@ namespace visutwin::canvas
             PrimitiveGeometry geometry;
 
             // 4 vertices: (-0.5, 0, -0.5) to (0.5, 0, 0.5)
-            // Normal pointing up (+Y). UVs are upstream's: u = 0..1 along +X, v = 0 at
-            // z = -0.5 and 1 at z = +0.5 (upstream writes `1 - v` with its v running from
-            // +Z to -Z). The far edge samples the image's top row, which stands the
+            // Normal pointing up (+Y). UVs: u = 0..1 along +X, v = 0 at z = -0.5 and 1 at
+            // z = +0.5 (`1 - v` of a v running from +Z to -Z). The far edge samples the image's top row, which stands the
             // picture upright once the plane is rotated +90 degrees about X. The derived
             // tangent is +X (+u) and cross(n, t) * w is -Z, toward the image's top.
             pushVertex(geometry, -0.5f, 0.0f,  0.5f,  0.0f, 1.0f, 0.0f,  0.0f, 1.0f);
@@ -544,9 +543,9 @@ namespace visutwin::canvas
         PrimitiveGeometry createTorusGeometry(const float tubeRadius, const float ringRadius,
             const float sectorAngleDegrees, const int segments, const int sides)
         {
-            // Upstream TorusGeometry, value for value: `segments` cross-sections around the
-            // ring, `sides` divisions around the tube, lying in the XZ plane. Its UVs are
-            // (i / sides, j / segments) after upstream's `1 - v`, and UV1 is UV0.
+            // `segments` cross-sections around the ring, `sides` divisions around the
+            // tube, lying in the XZ plane. Its UVs are (i / sides, j / segments) after
+            // `1 - v`, and UV1 is UV0.
             PrimitiveGeometry geometry;
             const float sectorAngle = sectorAngleDegrees * PI_F / 180.0f;
             for (int i = 0; i <= sides; ++i) {
@@ -578,7 +577,7 @@ namespace visutwin::canvas
 
         PrimitiveGeometry createTorusGeometry()
         {
-            // Upstream's primitive defaults: tube 0.2, ring 0.3, a full ring, 30 x 20.
+            // Defaults: tube 0.2, ring 0.3, a full ring, 30 x 20.
             return createTorusGeometry(0.2f, 0.3f, 360.0f, 30, 20);
         }
 
@@ -586,7 +585,7 @@ namespace visutwin::canvas
     {
         /**
          * The mesh of one primitive type on one device, SHARED by every render component
-         * of that type (upstream's getShapePrimitive): a scene of ten thousand boxes has
+         * of that type: a scene of ten thousand boxes has
          * one box mesh, not ten thousand, and draws of one material and one primitive
          * then keep one vertex buffer bound. A mesh per component would repeat the
          * geometry, tangents and GPU buffers (about 190 KB of GPU memory for a sphere)
@@ -671,7 +670,7 @@ namespace visutwin::canvas
         auto* meshInstanceRaw = meshInstance.get();
         _meshInstances.push_back(std::move(meshInstance));
         _meshInstanceViewDirty = true;
-        // A new source for the group (upstream's batcher insert).
+        // A new source for the group.
         if (auto* batches = batcher(); batches && active()) {
             batches->markGroupDirty(_batchGroupId);
         }
@@ -703,7 +702,7 @@ namespace visutwin::canvas
         }
     }
 
-    // Upstream's render component inserts into and removes from the batcher on
+    // The render component inserts into and removes from the batcher on
     // enable and disable. Disabling is also what an entity's destroy() does first.
     void RenderComponent::onEnable()
     {
@@ -745,7 +744,7 @@ namespace visutwin::canvas
         }
         _material = material;
 
-        // Upstream: a primitive's instances take the new material; nothing is rebuilt.
+        // A primitive's instances take the new material; nothing is rebuilt.
         // Rebuilding the primitive would build a second mesh for the common setType,
         // setMaterial order and drop whatever had been set on the instance.
         if (_type != "asset" && !_meshInstances.empty()) {
@@ -801,8 +800,7 @@ namespace visutwin::canvas
         _batchGroupId = src->_batchGroupId;
         setEnabled(src->enabled());
 
-        // The mesh instances share the source's meshes and materials (upstream
-        // `_onSetMeshes(meshes)` plus the material copy). A primitive's mesh is owned
+        // The mesh instances share the source's meshes and materials. A primitive's mesh is owned
         // by the component, so the clone co-owns it: it has to outlive the source.
         //
         // An instance another owner attached here — a splat (GSplatComponent), an
@@ -822,8 +820,7 @@ namespace visutwin::canvas
     void RenderComponent::resolveClonedReferences(const Component* /*source*/, const CloneNodeMap& map)
     {
         // A skinned mesh's bones are nodes of the model it came with; the clone must
-        // be driven by the CLONED skeleton (upstream remaps `rootBone`, from which it
-        // rebuilds the skin). A bone outside the cloned subtree stays shared.
+        // be driven by the CLONED skeleton. A bone outside the cloned subtree stays shared.
         for (const auto& mi : _meshInstances) {
             auto* skin = mi ? mi->skinInstance() : nullptr;
             if (!skin) {

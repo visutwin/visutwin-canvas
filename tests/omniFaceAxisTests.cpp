@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 05.09.2026
+//
 // The one-pass omni shadow caster classification
 // (scene/renderer/omniShadowCasterClassification.cpp) tests a caster's AABB against
 // all six cube faces at once, using the fact that each face looks straight down a

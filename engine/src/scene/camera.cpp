@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 05.09.2025.
+// Created by Arnis Lektauers on 05.09.2025
 //
 #include "camera.h"
 
@@ -13,7 +13,7 @@ namespace visutwin::canvas
 
     float Camera::screenSize(const BoundingSphere& sphere) const
     {
-        // Upstream Camera.getScreenSize. Orthographic has no foreshortening, so the
+        // Orthographic has no foreshortening, so the
         // sphere covers the same fraction wherever it sits.
         if (_projection != ProjectionType::Perspective) {
             if (_orthoHeight <= 0.0f) {

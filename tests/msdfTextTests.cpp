@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 29.09.2026
+//
 // MSDF text, below the shader: the font loader's pages, pixel range and intensity, the
 // text visual's split into one mesh instance and material per atlas page, and the
-// material values the MSDF shader path reads — upstream's editor-unit scaling of the
+// material values the MSDF shader path reads — the editor-unit scaling of the
 // outline (x 0.2) and shadow (x 0.005 of the page, y by minus the page's aspect), colours
 // uploaded linear, and the page size (textureSize() does not survive MoltenVK).
 //
 // The two pages are deliberately DIFFERENT sizes, so a per-page value that is taken from
 // page 0 for every page is caught. A render cannot show that: every shipped font but
-// upstream's roboto is a single page.
+// roboto is a single page.
 
 #include <cmath>
 #include <filesystem>
@@ -151,7 +153,7 @@ int main()
           "the font's vertical extent is the union of the glyph bounds (upstream _fontMinY / _fontMaxY)");
 
     {
-        // Format version 3 (upstream's roboto) keys glyphs by the LETTER, escaped where JSON
+        // Format version 3 (roboto's) keys glyphs by the LETTER, escaped where JSON
         // needs it; the code point is the glyph's `id`. Reading the key as the code point
         // lost every letter and put the digits on codes 0-9.
         writePng(dir / "v3.png", 64, 32);

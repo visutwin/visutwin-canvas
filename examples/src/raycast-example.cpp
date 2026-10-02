@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Port of upstream physics/raycast.
 //
 // Two rows of static physics shapes (box, capsule, cone, cylinder, sphere) at
@@ -13,8 +15,8 @@
 // normal at each hit. World-space labels "raycastFirst" and "raycastAll" sit above
 // the rows.
 //
-// The raycasts go through a real PhysicsWorld (Jolt), supplied in configure(), as
-// upstream's go through Ammo — not the CPU fallback over collision bounds.
+// The raycasts go through a real PhysicsWorld (Jolt), supplied in configure() — not
+// the CPU fallback over collision bounds.
 //
 // DEVIATIONS:
 // - Upstream draws the rays and normals with app.drawLine (1-pixel hardware lines).
@@ -168,7 +170,7 @@ private:
 
     void createPhysicalShape(const std::string& type, const float x, const float y, const float z)
     {
-        // As upstream: the position is set before the static rigid body exists,
+        // The position is set before the static rigid body exists,
         // because static bodies are never moved after creation.
         auto* entity = createPrimitive(type.c_str(), _green.get(), Vector3(x, y, z));
         if (auto* render = entity->findComponent<RenderComponent>()) {

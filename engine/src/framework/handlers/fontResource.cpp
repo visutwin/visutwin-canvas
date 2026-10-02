@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 21.03.2026
+//
 #include "fontResource.h"
 
 #include <algorithm>
@@ -266,7 +269,7 @@ namespace visutwin::canvas
                     const size_t keyStart = charsBlock.find('"', p);
                     if (keyStart == std::string::npos) break;
                     // The key is the code point in format version 2 and the LETTER itself in
-                    // version 3 (upstream's roboto), which may be an escaped quote or
+                    // version 3 (the roboto font), which may be an escaped quote or
                     // backslash, so the closing quote is found escape-aware.
                     size_t keyEnd = keyStart + 1;
                     while (keyEnd < charsBlock.size() && charsBlock[keyEnd] != '"') {
@@ -325,7 +328,7 @@ namespace visutwin::canvas
                             font->maxY = std::max(font->maxY, bounds[3]);
                         }
                     }
-                    // Upstream _getPxRange: scale x range of the first glyph that has one.
+                    // The pixel range: scale x range of the first glyph that has one.
                     if (float range = 0.0f; !font->msdf && parseNumberField(block, "range", range) && range > 0.0f) {
                         float scale = 1.0f;
                         parseNumberField(block, "scale", scale);
@@ -408,8 +411,7 @@ namespace visutwin::canvas
                 }
             }
 
-        // One image per page: <name>.png, <name>1.png, <name>2.png, ... (upstream's font
-        // handler names them the same way).
+        // One image per page: <name>.png, <name>1.png, <name>2.png, ...
         const std::string basePath = replaceExtensionWithPng(jsonPath);
         const std::string stem = basePath.substr(0, basePath.size() - 4);
         const size_t pageCount = std::max<size_t>(pageSizes.size(), 1);

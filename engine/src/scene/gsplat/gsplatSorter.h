@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 11.07.2026.
+// Created by Arnis Lektauers on 11.07.2026
 //
 #pragma once
 
@@ -16,8 +16,7 @@
 namespace visutwin::canvas
 {
     /**
-     * Background depth sorter for Gaussian splats — a port of upstream's
-     * gsplat-sort-worker.js (web worker) to a std::thread.
+     * Background depth sorter for Gaussian splats, on a std::thread.
      *
      * Counting sort over view-direction-projected distances, with a coarse chunk
      * histogram distributing sort-key bits where the splats actually are.

@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 02.10.2026
+//
 #include "meshLine.h"
 
 #include <cmath>
@@ -22,7 +25,7 @@ namespace visutwin::canvas
             return;
         }
         _material = std::make_shared<GizmoMaterial>(engine->graphicsDevice());
-        // Upstream: DEPTH_WRITE 1 with uDepth 0.
+        // Depth write on, at depth 0.
         _material->setDepth(0.0f);
 
         auto entity = std::make_unique<Entity>();

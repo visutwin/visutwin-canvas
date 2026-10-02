@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 14.07.2026
+//
 // Port of the upstream "graphics/reflection-cubemap" example.
 //
 // A high-polygon shiny ball reflects the scene through a cubemap re-rendered from its
@@ -10,7 +12,7 @@
 // capture it — a probe at the ball's centre would otherwise photograph its own inside.
 //
 // Around the edges, that same captured cube is reprojected into the other spherical
-// layouts and blitted to screen, which is what upstream's panel demonstrates:
+// layouts and blitted to screen:
 //   cube -> equirect, cube -> octahedral, equirect -> octahedral, octahedral -> equirect
 // plus a prefiltered environment atlas built from the same cube.
 //
@@ -52,10 +54,10 @@
 
 using namespace visutwin::canvas;
 
-// Layer for objects that must not render into the cubemap (upstream: 'Excluded').
+// Layer for objects that must not render into the cubemap.
 constexpr int LAYERID_EXCLUDED = 100;
 
-// Upstream renders the dynamic cube at 256 with mipmaps.
+// The dynamic cube renders at 256 with mipmaps.
 constexpr int PROBE_FACE_SIZE = 256;
 
 constexpr int NUM_PRIMITIVES = 6;
@@ -150,7 +152,7 @@ public:
 protected:
     bool create() override
     {
-        // Setup skydome — upstream: skyboxMip 0 (full resolution), intensity 2.
+        // Setup skydome: skyboxMip 0 (full resolution), intensity 2.
         _helipad = std::make_unique<Asset>(
             "helipad-env-atlas",
             AssetType::TEXTURE,
@@ -169,7 +171,7 @@ protected:
         scene()->setSkyboxMip(0);
         scene()->setSkyboxIntensity(2.0f);
 
-        // A layer for objects that do not render into the cubemap. Upstream pushes it
+        // A layer for objects that do not render into the cubemap, pushed
         // onto the end of the existing composition rather than rebuilding one.
         const auto layers = scene()->layers();
         auto excludedLayer = std::make_shared<Layer>("Excluded", LAYERID_EXCLUDED);
@@ -203,15 +205,14 @@ protected:
         // The dynamic cubemap. Constructed BEFORE the main camera: its six face
         // cameras render as ordinary cameras, and cameras of equal priority (all 0
         // here) render in construction order, so building it later would leave the
-        // main camera sampling the previous frame's cube (upstream orders it with
-        // priority -1).
+        // main camera sampling the previous frame's cube.
         //
-        // Upstream's camera-on-the-ball renders the World and Skybox layers only.
+        // The camera on the ball renders the World and Skybox layers only.
         // -----------------------------------------------------------------------
         _probe = std::make_unique<ReflectionProbe>(engine(), PROBE_FACE_SIZE);
         _probe->setPosition(Vector3(0.0f, 0.0f, 0.0f));
         _probe->setLayers({LAYERID_WORLD, LAYERID_SKYBOX});
-        // No box projection — upstream treats the capture as an infinite environment.
+        // No box projection: the capture is treated as an infinite environment.
         _probe->setBox(Vector3(0.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 0.0f), false);
         _probe->setDynamic(true);
 
@@ -299,7 +300,7 @@ protected:
         device()->beginOfflineWork();
 
         // Regenerate the roughness mips from the freshly captured faces and keep the
-        // probe installed (upstream's cubemapRenderer does this inside its own update).
+        // probe installed.
         _probe->update();
 
         const auto& sourceCube = _probe->cubemapShared();
@@ -393,7 +394,7 @@ private:
         reprojectTexture(device().get(), options);
     }
 
-    // Upstream lays the five previews out with app.drawTexture(x, y, w, h) in NDC,
+    // The five previews are laid out as (x, y, w, h) in NDC,
     // where x/y is the centre and w/h the size. This engine has no immediate texture
     // draw, so each becomes a full-screen-quad pass with a viewport.
     std::shared_ptr<RenderPassDownsample> addPanel(const std::shared_ptr<Texture>& texture,

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // ORIGINAL SCENE — not a port: upstream has no counterpart. It is a companion to the
-// ambient-occlusion port (upstream graphics/ambient-occlusion), which is the one to
-// compare against upstream.
+// ambient-occlusion port, which is the one to compare against.
 //
 // SSAO showcase, da Vinci workshop variant: the workshop model and a Leonardo bust
 // under a museum spotlight, both auto-scaled to a common size, with the full colour
@@ -312,7 +313,7 @@ protected:
             // discards the SSAO multiply for two of the three channels, so every
             // occluded pixel keeps a darkened green over full-strength red and blue —
             // magenta tracing the exact AO footprint, at any offset size. The
-            // re-sample is upstream's own design (it is why fringing must precede
+            // re-sample is by design (it is why fringing must precede
             // bloom), so an SSAO showcase is simply the wrong place to combine them.
             // See post-processing-example for fringing shown on a scene without
             // compose-mode SSAO.

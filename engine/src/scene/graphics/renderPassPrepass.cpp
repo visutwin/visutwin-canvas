@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 //
 #include "renderPassPrepass.h"
 
@@ -28,7 +30,7 @@ namespace visutwin::canvas
     {
         /**
          * Whether this mesh instance contributes to the depth the prepass produces.
-         * Upstream's test is `material.depthWrite`; the equivalent here is a material
+         * The test is a material
          * that is not blended, since a transparent surface writes colour over what is
          * behind it without replacing its depth. An alpha-tested (MASK) material DOES
          * write depth, and its cut-out holes come from the opacity frontend the shadow

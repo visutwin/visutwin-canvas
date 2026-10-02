@@ -28,26 +28,26 @@ vec2 applyUvTransform(vec2 uv, vec4 row0, vec4 row1) {
 
 // Distance attenuation: inverse-square with a smooth range window, or linear
 // falloff when coneParams.z != 0 (matches the engine's falloffModeLinear).
-// A range of 0 is clamped as Metal's getFalloffWindow / getFalloffInvSquared and
-// upstream clamp it, so it extinguishes the light instead of removing the limit.
+// A range of 0 is clamped as Metal's getFalloffWindow / getFalloffInvSquared
+// clamp it, so it extinguishes the light instead of removing the limit.
 float distanceAttenuation(float dist, float range, float linearFalloff) {
     range = max(range, 1e-4);
     float t = clamp(dist / range, 0.0, 1.0);
     if (linearFalloff > 0.5) {
         return clamp(1.0 - t, 0.0, 1.0);
     }
-    // Upstream's getFalloffInvSquared, which the Metal chunk already matches:
+    // As the Metal chunk's getFalloffInvSquared:
     // 16 / (d^2 + 1), NOT 1 / d^2. The +1 keeps the curve finite at the light and
     // the 16 restores the magnitude that softening costs; without them a light at
-    // four units reads 1/16 where upstream reads 16/17, roughly a fifteenth.
+    // four units reads 1/16 instead of 16/17, roughly a fifteenth.
     float sqrDist = dist * dist;
     float invSq = 16.0 / (sqrDist + 1.0);
     float window = clamp(1.0 - t * t * t * t, 0.0, 1.0);
     return invSq * window * window;
 }
 
-// Spot cone falloff. SMOOTHSTEP between the two cone cosines, as upstream's
-// spot.js and the Metal chunk both do. A plain ramp, squared or not, is dimmer
+// Spot cone falloff. SMOOTHSTEP between the two cone cosines, as the Metal
+// chunk does. A plain ramp, squared or not, is dimmer
 // through the whole penumbra — a squared ramp gives half the light at the middle
 // of it — and only agrees at the two ends.
 float getSpotEffect(float innerConeCos, float outerConeCos, float cosAngle) {

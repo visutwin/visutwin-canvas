@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 11.09.2026
+//
 // A component contributes to a frame only when it is enabled AND its entity is
 // enabled in the hierarchy. Component::enabled() answers only the first half; a
 // light-gathering loop that tests it alone keeps a light on a disabled entity, or

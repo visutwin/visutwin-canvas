@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Curve::closest and the CurveType numbers, as upstream's curve.test.mjs has them since
-// 2.23.0-beta.20 (#9543, #9544).
+// Created by Arnis Lektauers on 26.09.2026
+//
+// Curve::closest and the CurveType numbers, as upstream's curve.test.mjs has them.
 //
 // A closest() that starts its search at a distance of 2 and falls back to the FIRST key
 // answers with that first key whenever it sits more than 2 from the time, even when
 // another key matches exactly; and without clamping, a time far beyond the curve rounds
 // every key to one distance and the tie-break walks to the last key. The type numbers
-// are upstream's (SPLINE 4, STEP 5) so curve data authored there reads the same here.
+// are SPLINE 4 and STEP 5, as in that test.
 
 #include <cmath>
 #include <iostream>

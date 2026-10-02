@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 29.09.2026
+//
 // Image element geometry (framework/components/element/imageElementGeometry.h).
 //
 // Upstream slices a sprite in its VERTEX SHADER (transform.js / uv0.js with innerOffset,
 // outerScale and atlasRect, the renderable node scaled and offset by image-element.js
 // `_updateMesh`, and the fragment stage's `nineSlicedUv = (u, 1 - v)`); the port builds
-// the same grid on the CPU. The oracle here is that shader path ported LITERALLY, every
-// step as upstream spells it, so the test cannot share a derivation with the code it checks.
+// the same grid on the CPU. The oracle here is that shader path ported LITERALLY, step
+// for step, so the test cannot share a derivation with the code it checks.
 //
 // Orientation is pinned separately: a frame rect is measured from the image's BOTTOM and
 // this engine samples v = 0 at the image's TOP row, so the bottom edge of a quad must
@@ -39,7 +41,7 @@ namespace
 
     bool near(const float a, const float b, const float eps = 1e-4f) { return std::abs(a - b) <= eps; }
 
-    /// Upstream's sliced vertex, ported literally: the 4x4 mesh from Sprite._create9SliceMesh
+    /// The sliced vertex, ported literally: the 4x4 mesh from Sprite._create9SliceMesh
     /// (x, z in {+1, -1}, texCoord0 = 1 on the inner lines), transform.js and uv0.js under
     /// NINESLICED, the renderable node's scale and position from _updateMesh, and the
     /// fragment stage's v flip. Returns element-local x, y and the sampled u, v.
@@ -105,7 +107,7 @@ namespace
         return {x, y, u, v};
     }
 
-    /// Upstream's TILED fragment, ported literally: the sliced mesh's varyings (localPos before
+    /// The TILED fragment, ported literally: the sliced mesh's varyings (localPos before
     /// the -0.5, vUv0, vMask) interpolated across the grid cell holding element point (x, y),
     /// then startNineSlicedTiled.js. Returns the sampled u, v.
     Vector2 upstreamTiledUv(const float x, const float y, const Vector2& size, const Vector2& pivot,
@@ -201,7 +203,7 @@ namespace
         for (int row = 0; ok && row < 4; ++row) {
             for (int col = 0; col < 4; ++col) {
                 const ImageVertex ours = geometry.vertices[static_cast<size_t>(row * 4 + col)];
-                // Upstream's column index i runs left to right, and row j bottom to top.
+                // The oracle's column index i runs left to right, and row j bottom to top.
                 const ImageVertex theirs = upstreamSlicedVertex(col, row, size, pivot, frame, texW, texH, ppu);
                 worst = std::max({worst, std::abs(ours.x - theirs.x), std::abs(ours.y - theirs.y),
                                   std::abs(ours.u - theirs.u), std::abs(ours.v - theirs.v)});
@@ -224,7 +226,7 @@ int main()
               "the bottom edge samples the image's bottom row (v = 1), the top edge its top (v = 0)");
     }
     {
-        // Upstream's rect: x, y from the bottom, width, height.
+        // The rect: x, y from the bottom, width, height.
         const ImageGeometry g = buildSimpleImageGeometry(Vector2(10.0f, 10.0f), Vector2(0.0f, 0.0f),
                                                          Vector4(0.25f, 0.5f, 0.5f, 0.25f));
         check(near(g.vertices[0].x, 0.0f) && near(g.vertices[2].x, 10.0f), "pivot (0, 0) puts the origin at the corner");
@@ -277,7 +279,7 @@ int main()
 
     std::cout << "sliced grid against upstream's shader\n";
     {
-        TextureAtlasFrame panel;   // upstream ui-atlas 'panel'
+        TextureAtlasFrame panel;   // ui-atlas 'panel'
         panel.rect = Vector4(548.0f, 660.0f, 128.0f, 128.0f);
         panel.border = Vector4(32.0f, 32.0f, 32.0f, 32.0f);
         TextureAtlasFrame button;   // 'button': an asymmetric bottom border
@@ -297,7 +299,7 @@ int main()
         compareWithUpstream("borderless frame", Vector2(50.0f, 70.0f), Vector2(0.5f, 0.5f), flat, 1024, 1024, 2);
 
         // Negative control: the comparison must SEE a difference. The same frame drawn with a
-        // different pivot, or with the fragment stage's v flip left out, is not upstream's.
+        // different pivot, or with the fragment stage's v flip left out, is not the oracle's.
         const ImageGeometry ours = buildSlicedImageGeometry(Vector2(300.0f, 200.0f), Vector2(0.5f, 0.5f), panel, 1024, 1024, 2);
         const ImageVertex shifted = upstreamSlicedVertex(1, 1, Vector2(300.0f, 200.0f), Vector2(0.4f, 0.5f), panel, 1024, 1024, 2);
         check(std::abs(ours.vertices[5].x - shifted.x) > 1.0f, "control: a different pivot is detected");

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 11.09.2025.
+// Created by Arnis Lektauers on 11.09.2025
 //
 #pragma once
 
@@ -31,19 +31,19 @@ namespace visutwin::canvas
         void pushTransparent(const std::shared_ptr<Layer>& layer);
 
         // Inserts both sublayers of a layer at the given position in the layerList,
-        // opaque first then transparent (upstream LayerComposition::insert). Pair it
+        // opaque first then transparent. Pair it
         // with getTransparentIndex/getOpaqueIndex to slot a layer relative to another.
         void insert(const std::shared_ptr<Layer>& layer, int index);
 
         /**
-         * Insert ONLY the opaque sublayer at `index` (upstream insertOpaque). Needed
+         * Insert ONLY the opaque sublayer at `index`. Needed
          * to reorder a layer whose transparent half should not move with it — the
          * depth layer's grab, for instance, has to run after the skydome's opaque
          * draw so the grabbed scene colour includes the sky.
          */
         void insertOpaque(const std::shared_ptr<Layer>& layer, int index);
 
-        /// Remove both sublayers of `layer` (upstream remove). No-op when absent.
+        /// Remove both sublayers of `layer`. No-op when absent.
         void remove(const std::shared_ptr<Layer>& layer);
 
         const std::vector<RenderAction*>& renderActions();
@@ -52,7 +52,7 @@ namespace visutwin::canvas
         std::shared_ptr<Layer> getLayerById(int layerId) const;
         std::shared_ptr<Layer> getLayerByName(const std::string& name) const;
         bool isEnabled(const Layer* layer, bool transparent) const;
-        /// Upstream `sortTransparentLayers`: negative when a transparent sublayer of
+        /// Negative when a transparent sublayer of
         /// `layersA` draws after (on top of) every one of `layersB`, positive for the
         /// reverse, 0 when they tie. Layer ids the composition lacks count for nothing.
         int sortTransparentLayers(const std::vector<int>& layersA, const std::vector<int>& layersB) const;

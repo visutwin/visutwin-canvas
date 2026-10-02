@@ -39,11 +39,11 @@ static inline float3 toneMapAces(float3 color, float exposure)
     return (color * (tA * color + tB)) / (color * (tC * color + tD) + tE);
 }
 
-// ACES approximation by Stephen Hill — TONEMAP_ACES2 (used by upstream
-// camera.toneMapping = TONEMAP_ACES2). Two-matrix fit with RRT+ODT polynomial.
+// ACES approximation by Stephen Hill — TONEMAP_ACES2. Two-matrix fit with
+// RRT+ODT polynomial.
 // Higher dynamic range than the simpler Narkowicz fit in toneMapAces — bright
 // HDR values (e.g. specular highlights) roll off smoothly past 1.0 instead of
-// clipping, which is essential for parity with upstream published demos.
+// clipping.
 static inline float3 RRTAndODTFit(float3 v)
 {
     const float3 a = v * (v + 0.0245786) - 0.000090537;
@@ -71,7 +71,7 @@ static inline float3 toneMapAces2(float3 color, float exposure)
     return clamp(color, float3(0.0), float3(1.0));
 }
 
-// Uncharted 2 filmic operator (upstream TONEMAP_FILMIC, tonemappingFilmicPS).
+// Uncharted 2 filmic operator (TONEMAP_FILMIC).
 static inline float3 uncharted2Tonemap(float3 x)
 {
     const float A = 0.15; // shoulder strength
@@ -91,7 +91,7 @@ static inline float3 toneMapFilmic(float3 color, float exposure)
     return color * whiteScale;
 }
 
-// Hejl/Burgess-Dawson operator (upstream TONEMAP_HEJL, tonemappingHejlPS).
+// Hejl/Burgess-Dawson operator (TONEMAP_HEJL).
 // Output includes the sRGB curve baked in by construction.
 static inline float3 toneMapHejl(float3 color, float exposure)
 {

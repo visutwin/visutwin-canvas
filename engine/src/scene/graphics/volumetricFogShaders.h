@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 02.09.2026
+//
 // Shader sources for the volumetric fog march and its depth-aware combine,
 // in both languages the engine speaks. Selected by
 // GraphicsDevice::shaderLanguage() and driven through QuadRender, so the effect
@@ -504,7 +506,7 @@ void main() {
 )";
 
     /**
-     * Local light uniforms (upstream RenderPassVolumetricFogLocal), one block per light.
+     * Local light uniforms, one block per light.
      * 352 bytes, every member a float4 / float4x4 so the MSL and std140 layouts agree.
      */
     struct alignas(16) FogLocalUniforms
@@ -528,14 +530,14 @@ void main() {
     };
     static_assert(sizeof(FogLocalUniforms) == 352);
 
-    // The in-scattering of one clustered spot or omni light, added into the fog texture
-    // (upstream volumetricFogLocal.js). The pass draws a fullscreen triangle per light,
+    // The in-scattering of one clustered spot or omni light, added into the fog texture.
+    // The pass draws a fullscreen triangle per light,
     // scissored to the screen bounds of its volume, and marches each pixel's ray over the
     // part inside the light's bounding sphere — clipped to the cone for a spot — sampling
     // the clustered shadow and cookie atlases. Their lookups are twins of the cluster
     // loop's (common-shadow-pcf: a spot projects into its rect with no shader bias, an
     // omni face stores perspective depth with a RELATIVE bias), one tap a step offset on
-    // upstream's spiral.
+    // a spiral.
     constexpr const char* LOCAL_MSL = R"(
 #include <metal_stdlib>
 using namespace metal;
@@ -739,7 +741,7 @@ fragment float4 fogLocalFragment(
     float t0 = max(-halfB - rootOffset, 0.0);
     float t1 = min(-halfB + rootOffset, sceneT);
 
-    // A spot: clip to the cone's slab and surface (upstream's volClipCone).
+    // A spot: clip to the cone's slab and surface.
     if (u.lightDir.w > 0.0) {
         const float3 apexToCam = u.cameraPosition.xyz - u.lightPosRange.xyz;
         const float axisStart = dot(apexToCam, u.lightDir.xyz);

@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 05.09.2026
+//
 #pragma once
 
 #include <functional>
@@ -15,13 +18,13 @@
 namespace visutwin::canvas
 {
     /**
-     * A constraint between two rigid bodies (upstream JointComponent).
+     * A constraint between two rigid bodies.
      *
      * The joint lives on its OWN entity, and that entity's world transform is the
      * joint FRAME: its local **X axis is the primary axis** — the hinge's rotation
      * axis, the slider's travel axis, the ball joint's twist axis. Position and
-     * orient the entity, then add the component; that is upstream's convention and
-     * it is why the component takes two entities rather than an anchor offset.
+     * orient the entity, then add the component; that convention is
+     * why the component takes two entities rather than an anchor offset.
      *
      * `entityB` may be null, which pins that end to the world.
      *
@@ -52,14 +55,14 @@ namespace visutwin::canvas
         Entity* entityB() const { return _entityB; }
         void setEntityB(Entity* entity);
 
-        /// Hinge angle in DEGREES or slider offset in metres, matching upstream's
-        /// authoring units; converted to radians for the backend.
+        /// Hinge angle in DEGREES or slider offset in metres, the authoring
+        /// units; converted to radians for the backend.
         void setLimits(float minimum, float maximum);
         void clearLimits();
         [[nodiscard]] bool hasLimits() const { return _enableLimits; }
 
         /// Degrees per second for a hinge, metres per second for a slider. The
-        /// motor only acts once `setMaxMotorForce` is above zero, as upstream.
+        /// motor only acts once `setMaxMotorForce` is above zero.
         void setMotorSpeed(float value);
         [[nodiscard]] float motorSpeed() const { return _motorSpeed; }
         void setMaxMotorForce(float value);

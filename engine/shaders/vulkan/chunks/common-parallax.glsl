@@ -1,7 +1,7 @@
 // ── Parallax occlusion mapping (parity with common-parallax.metal) ──
 //
 // `heightBase` is the height-map value that sits at the level of the geometry
-// (upstream's meaning): texels above it stand proud, texels below sink in. 1 treats
+// texels above it stand proud, texels below sink in. 1 treats
 // the map as pure depth below the surface; the default 0.5 pivots around mid-grey.
 // Implicit-LOD form, for the view march: uniform control flow, mips intact.
 float parallaxDepth(vec2 uv, float heightBase) {
@@ -20,7 +20,7 @@ vec2 parallaxOcclusionMap(vec2 uv, vec3 viewDirTS, float heightScale, float heig
     int numSteps = int(mix(float(maxSteps), float(minSteps), abs(viewDirTS.z)));
     float layerDepth = 1.0 / float(numSteps);
 
-    // Upstream's height unit is a TENTH of a uv tile: a factor of 1 is a relief
+    // The height unit is a TENTH of a uv tile: a factor of 1 is a relief
     // 0.1 uv deep. See the matching note in common-parallax.metal.
     float scale = heightScale * 0.1;
     // UV travelled per unit of depth along the view ray, and the per-layer step.
@@ -132,12 +132,12 @@ float pcf3x3Atlas(vec2 uv, float receiver) {
     return sum / 9.0;
 }
 
-// Upstream's getCubemapFaceCoordinates with its V term NEGATED: the dominant axis
+// Cubemap face coordinates with the V term NEGATED: the dominant axis
 // of the unnormalized light-to-fragment direction picks the face (+X, -X, +Y, -Y,
 // +Z, -Z — the order LightCamera::pointLightRotations renders them), the other two
 // axes map to a UV within it, and `tileOffset` is the face's column and row in the
-// slot's 3x3 tile grid. The faces are rendered by upstream's own camera rotations,
-// but into top-down storage where upstream's is bottom-up, so v runs the other way.
+// slot's 3x3 tile grid. The faces are rendered into top-down storage, so v runs
+// the other way from a bottom-up convention.
 // Twin of common-shadow-pcf.metal; mirrored in LightTextureAtlas::cubemapFaceCoordinates,
 // which a test holds against the face cameras' real projection.
 vec2 getCubemapFaceCoordinates(vec3 dir, out vec2 tileOffset) {

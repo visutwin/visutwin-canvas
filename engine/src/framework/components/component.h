@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 05.09.2025.
+// Created by Arnis Lektauers on 05.09.2025
 //
 #pragma once
 
@@ -60,7 +60,7 @@ namespace visutwin::canvas
 
         /**
          * True when this component is enabled AND its entity is enabled in the
-         * hierarchy — upstream's notion of an ACTIVE component, and the exact
+         * hierarchy — an ACTIVE component — and the exact
          * condition onEnable / onDisable fire on.
          *
          * Any loop that gathers components for a frame must test THIS, not
@@ -72,7 +72,7 @@ namespace visutwin::canvas
 
         virtual void initializeComponentData() = 0;
 
-        // Lifecycle methods matching upstream Component.
+        // Lifecycle methods.
         // Called when the component becomes active (component enabled AND entity enabled).
         virtual void onEnable() {}
 
@@ -82,8 +82,8 @@ namespace visutwin::canvas
         // Called after all hierarchy state changes have been processed.
         virtual void onPostStateChange() {}
 
-        /// Relative order for enable/disable dispatch, lowest first (upstream's
-        /// `static order`). A rigid body returns -1 so its body exists before any
+        /// Relative order for enable/disable dispatch, lowest first.
+        /// A rigid body returns -1 so its body exists before any
         /// sibling that might move or query it, and is torn down after them.
         /// Components with equal order keep their creation order.
         [[nodiscard]] virtual int order() const { return 0; }
@@ -98,8 +98,7 @@ namespace visutwin::canvas
         /**
          * Second pass of Entity::clone, run once the WHOLE subtree exists: a reference
          * the source held to a node INSIDE the cloned subtree is pointed at that node's
-         * copy, and one to a node outside it is left alone (upstream's
-         * resolveDuplicatedEntityReferenceProperties). A component that holds a node
+         * copy, and one to a node outside it is left alone. A component that holds a node
          * or entity pointer overrides this; cloneFrom copies the pointer as it is.
          */
         virtual void resolveClonedReferences(const Component* /*source*/, const CloneNodeMap& /*map*/) {}
@@ -117,7 +116,7 @@ namespace visutwin::canvas
 
     protected:
         // Called internally when the enabled setter changes the value.
-        // Matching Upstream: only fires onEnable/onDisable if entity is also enabled.
+        // Only fires onEnable/onDisable if entity is also enabled.
         virtual void onSetEnabled(bool oldValue, bool newValue);
 
         Entity* _entity;

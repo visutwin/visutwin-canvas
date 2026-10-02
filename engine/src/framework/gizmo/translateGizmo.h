@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Upstream extras/gizmo/translate-gizmo.js: arrows along X, Y and Z, plane handles at
+// Created by Arnis Lektauers on 02.10.2026
+//
+// Arrows along X, Y and Z, plane handles at
 // their intersections and a centre sphere.
 //
 //     auto layer = Gizmo::createLayer(engine);

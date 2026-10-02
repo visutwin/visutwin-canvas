@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 24.09.2026
+//
 // glTF cameras (core) and KHR_lights_punctual lights become camera and light
-// components on the instantiated hierarchy, as upstream's createCamera / createLight
-// build them. A parser that reads neither leaves a model's cameras and lights simply
+// components on the instantiated hierarchy. A parser that reads neither leaves a model's cameras and lights simply
 // not there. Checked through BOTH halves of the load pipeline.
 //
-// What upstream does and this test pins: both are imported DISABLED; a camera sits on
+// What this test pins: both are imported DISABLED; a camera sits on
 // its node (glTF and the engine both look down -Z); a light sits on an extra CHILD
 // entity turned 90 degrees about X (glTF lights shine down -Z, lights here down -Y);
 // yfov goes from radians to degrees, ymag is the ortho half height, an aspect ratio

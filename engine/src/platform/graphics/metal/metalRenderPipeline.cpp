@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 27.08.2025.
+// Created by Arnis Lektauers on 27.08.2025
 //
 #include "metalRenderPipeline.h"
 
@@ -469,7 +469,7 @@ namespace visutwin::canvas
         // Hardware instancing: set up vertex descriptor layout(5) with perInstance step function.
         // instance_line1..4 (4x float4 for model matrix) map to [[attribute(6)]]..[[attribute(9)]].
         // An 80-byte stride also carries a per-instance color at [[attribute(10)]]; the matrix-only
-        // 64-byte stride (upstream's default instancing format) does not, and the shader variant it
+        // 64-byte stride (the default instancing format) does not, and the shader variant it
         // is paired with declares no such attribute — see VT_FEATURE_INSTANCING_COLOR.
         if (instancingStride > 0) {
             constexpr NS::UInteger INST_BUFFER_INDEX = 5;

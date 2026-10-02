@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Port of upstream scripts/esm/annotations.mjs (AnnotationManager). The deviations are
-// listed in the header.
+// Created by Arnis Lektauers on 21.03.2026
+//
+// AnnotationManager. The deviations are listed in the header.
 //
 #include "annotationManager.h"
 #include "annotation.h"
@@ -49,7 +50,7 @@ namespace visutwin::canvas
 {
     namespace
     {
-        // Upstream's stylesheet (.pc-annotation and friends), in points.
+        // Tooltip and hotspot styling, in points.
         constexpr float kTooltipPadding = 8.0f;
         constexpr float kTooltipMaxContentWidth = 200.0f;
         constexpr float kTooltipOffsetX = 25.0f;
@@ -63,7 +64,7 @@ namespace visutwin::canvas
         constexpr float kLineHeight = 17.0f;
         constexpr float kFadeSeconds = 0.2f;
 
-        // The hotspot texture: upstream's 64 px canvas, a radius-28 disc with a 6 px ring
+        // The hotspot texture: a 64 px canvas, a radius-28 disc with a 6 px ring
         // and "bold 32px" text centred on (32, 33).
         constexpr int kHotspotTextureSize = 64;
         constexpr float kHotspotBorderWidth = 6.0f;
@@ -72,7 +73,7 @@ namespace visutwin::canvas
         // (ascent 0.905, descent 0.212 em) that is 0.3465 em above the alphabetic baseline.
         constexpr float kMiddleAboveBaseline = 0.3465f;
 
-        // A free layer id: upstream allocates them, this port names them.
+        // A layer id the composition does not use yet.
         int unusedLayerId(const LayerComposition& layers)
         {
             int id = 1000;
@@ -122,8 +123,8 @@ namespace visutwin::canvas
             return std::max(std::min(rgb[0], rgb[1]), std::min(std::max(rgb[0], rgb[1]), rgb[2]));
         }
 
-        /// Coverage of `label` set in `font` at kHotspotLabelSize, centred as upstream's
-        /// canvas centres it (textAlign 'center', textBaseline 'middle' at (32, 33)), for
+        /// Coverage of `label` set in `font` at kHotspotLabelSize, centred horizontally
+        /// and vertically on (32, 33), for
         /// every pixel of the hotspot texture.
         std::vector<float> rasterizeLabel(const std::string& label, const FontResource& font)
         {
@@ -238,7 +239,7 @@ namespace visutwin::canvas
             return;
         }
         _hotspotSize = value;
-        // Upstream rewrites the stylesheet that sizes the hotspot DOM elements.
+        // Resize every existing hotspot element.
         for (const auto& resources : _annotationResources) {
             if (auto* element = resources->hotspot ? resources->hotspot->findComponent<ElementComponent>() : nullptr) {
                 element->setWidth(_hotspotSize + 5.0f);
@@ -328,7 +329,7 @@ namespace visutwin::canvas
 
                 const auto alpha = static_cast<uint8_t>(std::lround(p.a * 255.0f));
                 // Set the colour of semitransparent pixels to white so the blending at the
-                // edges is correct (upstream's fix-up of the canvas pixels)
+                // edges is correct
                 const float c = alpha < 255 ? 1.0f : p.r / std::max(p.a, 1e-6f);
                 const auto channel = static_cast<uint8_t>(std::lround(clamp01(c) * 255.0f));
                 uint8_t* out = &rgba[(static_cast<size_t>(y) * size + x) * 4u];
@@ -784,7 +785,7 @@ namespace visutwin::canvas
         if (_camera) {
             auto* camera = _camera->findComponent<CameraComponent>();
             std::vector<int> ids = camera->layers();
-            // An empty list renders every layer; spell out upstream's default camera
+            // An empty list renders every layer; spell out the default camera
             // layers before adding to it, or the camera would render only these two
             if (ids.empty()) {
                 ids = {LAYERID_WORLD, LAYERID_DEPTH, LAYERID_SKYBOX, LAYERID_UI, LAYERID_IMMEDIATE};
@@ -797,8 +798,7 @@ namespace visutwin::canvas
 
         createTooltip();
 
-        // A press that no hotspot took dismisses the active tooltip (upstream's single
-        // document-level pointerdown listener)
+        // A press that no hotspot took dismisses the active tooltip
         const auto onDocumentPointerDown = [this]() {
             if (_activeAnnotation) {
                 hideTooltip(_activeAnnotation);
@@ -855,8 +855,8 @@ namespace visutwin::canvas
                 continue;
             }
 
-            // Screen position, in canvas points from the top-left as upstream's
-            // worldToScreen, then from the bottom-left where the screen's elements sit
+            // Screen position, in canvas points from the top-left as worldToScreen
+            // gives it, then from the bottom-left where the screen's elements sit
             const Vector4 clip = projMatrix * Vector4(view.getX(), view.getY(), view.getZ(), 1.0f);
             const float screenX = (clip.getX() / clip.getW() * 0.5f + 0.5f) * static_cast<float>(canvasWidth);
             const float screenY = (1.0f - (clip.getY() / clip.getW() * 0.5f + 0.5f)) * screenHeight;

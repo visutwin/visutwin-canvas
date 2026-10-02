@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.04.2026
+//
 #pragma once
 
 #include <memory>
@@ -54,7 +56,7 @@ namespace visutwin::canvas
         int numSamples = 0;
         // NoL-weighted accumulation (sum * L.z) / sum(L.z): required for GGX
         // specular prefilter. Lambert / Phong leave this false for a uniform
-        // average. Mirrors upstream prefilterSamples vs. prefilterSamplesUnweighted.
+        // average.
         bool weightByNoL = false;
     };
 

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 01.10.2026
+//
 // A glTF's images are decoded by GlbParser::prepareFromModel, all at once, one per
 // thread. tinygltf's image callback (GlbParser::loadImageData) decodes nothing: it keeps
 // each image's encoded bytes, marked `as_is`. Decoding in the callback decodes a model's

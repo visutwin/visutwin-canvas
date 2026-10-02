@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// The layout a layout group gives its children (upstream layout-group/layout-calculator.js),
-// as a pure function: the caller reads each child's sizes, limits and pivot, and applies the
-// sizes and positions that come back. Upstream reads and writes the elements itself; the
-// arithmetic, its order and its double precision are upstream's.
+// Created by Arnis Lektauers on 30.09.2026
+//
+// The layout a layout group gives its children, as a pure function: the caller reads each
+// child's sizes, limits and pivot, and applies the sizes and positions that come back. The
+// arithmetic, its order and its double precision follow upstream exactly.
 //
 #pragma once
 
@@ -16,14 +17,14 @@
 
 namespace visutwin::canvas
 {
-    /// Upstream ORIENTATION_HORIZONTAL / ORIENTATION_VERTICAL.
+    /// Whether a layout group lays its children out in a row or a column.
     enum class Orientation
     {
         Horizontal = 0,
         Vertical = 1
     };
 
-    /// How a layout group fits its children to its size along an axis (upstream FITTING_*).
+    /// How a layout group fits its children to its size along an axis.
     enum class LayoutFitting
     {
         /// Children keep their sizes.
@@ -53,7 +54,7 @@ namespace visutwin::canvas
     };
 
     /// One child: its own size and pivot, and the limits and share its layout child gives it
-    /// (upstream's defaults where it has none).
+    /// (the defaults where it has none).
     struct LayoutItem
     {
         float width = 0.0f;
@@ -80,7 +81,7 @@ namespace visutwin::canvas
     {
         /// One per item, in the items' order.
         std::vector<LayoutPlacement> placements;
-        /// Upstream's `layoutInfo.bounds`: x and y of the laid-out block's bottom-left corner
+        /// x and y of the laid-out block's bottom-left corner
         /// within the group, its width and its height.
         Vector4 bounds = Vector4(0.0f, 0.0f, 0.0f, 0.0f);
     };

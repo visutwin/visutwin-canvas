@@ -2,8 +2,8 @@
 // Copyright 2025-2026 Arnis Lektauers
 constant float PI = 3.14159265358979323846;
 constant float ATLAS_SIZE = 512.0;
-// Seam inset MUST match the atlas-bake `seamPixels` convention. Both
-// upstream and visutwin-canvas use 1-pixel duplicated border at every
+// Seam inset MUST match the atlas-bake `seamPixels` convention: a
+// 1-pixel duplicated border at every
 // rect edge — pre-baked .png atlases (e.g. helipad-env-atlas.png) also
 // follow this convention, so keep this at 1 pixel regardless of any
 // CPU-bake seamPixels experimentation.

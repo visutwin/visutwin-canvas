@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 12.07.2026.
+// Created by Arnis Lektauers on 12.07.2026
 //
 #pragma once
 
@@ -19,7 +19,7 @@ namespace visutwin::canvas
     class StandardMaterial;
 
     /**
-     * @brief Screen-corner orientation gizmo (port of upstream extras `ViewCube`).
+     * @brief Screen-corner orientation gizmo.
      * @ingroup group_framework
      *
      * Shows the world axes as a small gnomon anchored to the top-right corner of the

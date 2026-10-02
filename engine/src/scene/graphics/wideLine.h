@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// A connected, variable-width polyline (upstream extras/renderers/wide-line.js).
+// Created by Arnis Lektauers on 05.09.2026
+//
+// A connected, variable-width polyline.
 #pragma once
 
 #include <cstdint>

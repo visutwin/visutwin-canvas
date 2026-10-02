@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Port of upstream user-interface/text (as rebuilt in #9566).
+// Created by Arnis Lektauers on 14.07.2026
+//
+// Port of upstream user-interface/text.
 //
 // A game-over screen: a "Game Over" title in Roboto Bold with an outline and a soft shadow,
 // a letter-spaced subtitle, a sliced panel holding two columns of stats — labels aligned
@@ -45,7 +47,7 @@ namespace
         return res && std::holds_alternative<FontResource*>(*res) ? std::get<FontResource*>(*res) : nullptr;
     }
 
-    /// Upstream's text properties that this port sets per element. Unset fields keep the
+    /// The text properties set per element. Unset fields keep the
     /// element's defaults (auto size, centred, the font size as the line height).
     struct TextProps
     {
@@ -181,7 +183,7 @@ protected:
     }
 
 private:
-    /// A text element centred on its parent (upstream's `createText`): Roboto Regular in
+    /// A text element centred on its parent: Roboto Regular in
     /// the light colour unless `props` says otherwise.
     ElementComponent* createText(Entity* parent, const TextProps& props) const
     {
@@ -193,7 +195,7 @@ private:
         desc.width = props.width;
         desc.height = props.height;
         element->setup(desc);
-        // Upstream applies every property before laying the text out.
+        // Every property is applied before the text is laid out.
         element->setAutoWidth(props.autoWidth);
         element->setAutoHeight(props.autoHeight);
         element->setWrapLines(props.wrapLines);

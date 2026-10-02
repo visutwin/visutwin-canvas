@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 24.09.2026
+//
 // A GLB loads through three paths — the synchronous parse(), createFromModel and
 // prepareFromModel + createFromPrepared (the last two are what loadAsync uses) — and
 // all three call one createGltfMaterial. An async path with its own copy that drifts

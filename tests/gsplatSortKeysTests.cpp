@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 13.09.2026
+//
 // The splat sort key kernel has a SIMD path and a scalar reference, and the two
 // must agree BIT FOR BIT: a key that differs by one bucket reorders splats, and
 // nothing in a render would say which order was intended. This compares them on

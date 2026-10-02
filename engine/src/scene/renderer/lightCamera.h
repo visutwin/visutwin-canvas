@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 04.10.2025.
+// Created by Arnis Lektauers on 04.10.2025
 //
 #pragma once
 
@@ -22,8 +22,7 @@ namespace visutwin::canvas
         static Camera* create(const std::string& name, LightType lightType, int face = 0);
 
         /**
-         * World → cookie-UV projection for a spot light's cookie (upstream
-         * LightCamera.evalSpotCookieMatrix). Shadow-casting spots already have the
+         * World → cookie-UV projection for a spot light's cookie. Shadow-casting spots already have the
          * same matrix as their shadow VP; this evaluates it for cookie-only lights,
          * which never get a shadow camera.
          */

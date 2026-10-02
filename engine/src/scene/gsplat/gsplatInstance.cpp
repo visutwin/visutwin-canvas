@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 11.07.2026.
+// Created by Arnis Lektauers on 11.07.2026
 //
 #include "gsplatInstance.h"
 
@@ -60,12 +60,11 @@ namespace visutwin::canvas
         // dot(model * localCenter, cameraForward) — the true world-space depth — for
         // ANY affine transform.
         //
-        // Transforming the view direction by the INVERSE instead (upstream's older
-        // form) weights axis i by 1/s_i where the true depth
+        // Transforming the view direction by the INVERSE instead weights axis i by 1/s_i where the true depth
         // weights it by s_i; the two cancel only when every scale is equal. Under a
         // non-uniform scale the error depends on the view direction, so such a splat
         // sorts wrongly against the rest of the scene at some camera angles and not
-        // others, with camera distance making no difference (upstream #9268).
+        // others, with camera distance making no difference.
         const Vector3 localDirection = sortDirection(model, cameraForward);
         _sorter->setCamera(localPosition, localDirection);
 

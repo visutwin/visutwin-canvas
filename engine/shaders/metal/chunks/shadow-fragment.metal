@@ -10,8 +10,8 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
                                   sampler defaultSampler [[sampler(0)]])
 {
 #if VT_FEATURE_ALPHA_TEST || VT_FEATURE_SHADOW_DITHER
-    // Opacity frontend, run before depth is written — upstream's litShadowMain
-    // evaluates the material the same way here as in the forward pass, and a
+    // Opacity frontend, run before depth is written: the material is evaluated
+    // the same way here as in the forward pass, and a
     // shadow computed from anything less is the shadow of a different surface.
     // The alpha has to be the SAME product the forward pass tests: base colour
     // alpha times the base-colour texture's alpha. Testing the factor alone made
@@ -49,7 +49,7 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
 #endif
 
 #if VT_FEATURE_SHADOW_DITHER
-    // Shadow-pass opacity dither (upstream opacityShadowDither, flags bits 29-31, kept
+    // Shadow-pass opacity dither (flags bits 29-31, kept
     // independent of the forward dither in bits 25-27). A partially-opaque caster discards
     // the same screen-space Bayer pattern here, so it throws a thinned shadow instead of a
     // solid one. The mode is still read at runtime — the feature only says a caster in
@@ -74,7 +74,7 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
     // (1 - moments.z) fallback in calculateEVSM(); cleared pixels are (0,0,0,0)
     // and synthesize "fully lit" at sample time.
     // Metal: depth ∈ [0, 1]. A spot light (a perspective pass) stores distance / range
-    // instead, as upstream's spot VSM does (shadowDistanceRatio).
+    // instead (shadowDistanceRatio).
     float ndcZ = rd.position.z;
     float distanceRatio = 0.0;
     if (shadowDistanceRatio(scene.projViewMatrix, rd.worldPos, distanceRatio)) {

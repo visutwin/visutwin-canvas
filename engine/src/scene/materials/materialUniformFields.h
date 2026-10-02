@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 02.09.2026
+//
 // THE per-draw material uniform block, declared once.
 //
 // Four declarations have to agree on this block — the C++ struct, the MSL
@@ -89,7 +91,7 @@
     X(vec4, attenuationParams, {1, 1, 1, 0}) \
     /* x=dispersion strength, y=alphaDither (<0 = unset, dither follows opacity), zw=pad */ \
     X(vec4, dispersionParams, {0, -1.0f, 0, 0}) \
-    /* --- Scalar maps (upstream glossMap / thicknessMap / refractionMap) --- */ \
+    /* --- Scalar maps (gloss / thickness / refraction) --- */ \
     /* x = the gloss factor that the gloss map modulates; y,z,w = which channel of */ \
     /* the gloss / thickness / refraction map to read (0=r,1=g,2=b,3=a). A NEGATIVE */ \
     /* channel means "no map bound": presence rides in the sign because the flags */ \
@@ -101,35 +103,35 @@
     /* x = height-map base: the map value that sits at the level of the geometry, so */ \
     /* anything above it stands proud and anything below sinks in. 1 keeps the whole */ \
     /* map below the surface; 0.5, the */ \
-    /* default, pivots the relief around mid-grey as upstream does. */ \
+    /* default, pivots the relief around mid-grey. */ \
     /* y = self-shadow strength (0 = off); the directional light marches the height */ \
     /* field and darkens texels its ray passes over. zw = pad. */ \
     X(vec4, heightMapParams, {0.0f, 0.0f, 0.0f, 0.0f}) \
-    /* --- Metalness workflow dielectric F0 (upstream getSpecularModulate) --- */ \
+    /* --- Metalness workflow dielectric F0 --- */ \
     /* rgb = f0(IOR) x metalness specular colour (linear) x specularity factor, the */ \
     /* F0 of the NON-metal part; w = the specularity factor. 0.04 is IOR 1.5, white, 1. */ \
     X(vec4, metalnessSpecular, {0.04f, 0.04f, 0.04f, 1.0f}) \
-    /* --- Anisotropy direction (upstream material_anisotropyRotation) --- */ \
+    /* --- Anisotropy direction --- */ \
     /* xy = (cos, sin) of the rotation from the tangent toward the bitangent; zw = pad. */ \
     X(vec4, anisotropyParams, {1.0f, 0.0f, 0.0f, 0.0f}) \
-    /* --- Ambient tint (upstream material_ambient, the litArgs_ambient of #9538) --- */ \
+    /* --- Ambient tint --- */ \
     /* rgb = StandardMaterial::ambient, linear; multiplies the AMBIENT diffuse only */ \
     /* (not a lightmap, not direct light). White (the default) packs exactly 1. w = pad. */ \
     X(vec4, ambientTint, {1.0f, 1.0f, 1.0f, 1.0f}) \
-    /* --- MSDF text (upstream msdf.js), read only under VT_FEATURE_MSDF --- */ \
+    /* --- MSDF text, read only under VT_FEATURE_MSDF --- */ \
     /* x = font_pxrange, y = font_sdfIntensity, zw = the atlas page's size in texels */ \
     /* (textureSize() on a combined sampler does not survive MoltenVK, so it comes in here). */ \
     X(vec4, msdfParams, {2.0f, 0.0f, 1.0f, 1.0f}) \
-    /* outline colour, LINEAR, alpha straight (upstream outline_color) */ \
+    /* outline colour, LINEAR, alpha straight */ \
     X(vec4, msdfOutlineColor, {0.0f, 0.0f, 0.0f, 1.0f}) \
-    /* shadow colour, LINEAR, alpha straight (upstream shadow_color) */ \
+    /* shadow colour, LINEAR, alpha straight */ \
     X(vec4, msdfShadowColor, {0.0f, 0.0f, 0.0f, 1.0f}) \
-    /* x = outline thickness (upstream outline_thickness, already x 0.2), yz = shadow */ \
-    /* offset in UV (upstream shadow_offset), w = pad */ \
+    /* x = outline thickness (already x 0.2), yz = shadow */ \
+    /* offset in UV, w = pad */ \
     X(vec4, msdfOutlineShadow, {0.0f, 0.0f, 0.0f, 0.0f}) \
-    /* --- Clearcoat map channels (upstream clearCoatMapChannel / clearCoatGlossMapChannel) --- */ \
+    /* --- Clearcoat map channels --- */ \
     /* x = channel of the clearcoat intensity map, y = of the clearcoat gloss map */ \
-    /* (0=r,1=g,2=b,3=a; default g as upstream, the glTF parser picks r for intensity), zw = pad */ \
+    /* (0=r,1=g,2=b,3=a; default g, the glTF parser picks r for intensity), zw = pad */ \
     X(vec4, clearCoatMapChannels, {1.0f, 1.0f, 0.0f, 0.0f})
 
 namespace visutwin::canvas

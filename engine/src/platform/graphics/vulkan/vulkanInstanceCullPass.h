@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 23.07.2026
+//
 #pragma once
 
 #ifdef VISUTWIN_HAS_VULKAN

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis  on 09.10.2025.
+// Created by Arnis Lektauers on 09.10.2025
 //
 
 #include "sky.h"
@@ -29,7 +29,7 @@ namespace visutwin::canvas
         }
     }
 
-    // Upstream Sky.depthWrite: stored, and handed to the sky mesh now and whenever
+    // Depth write: stored, and handed to the sky mesh now and whenever
     // one is built.
     void Sky::setDepthWrite(const bool value)
     {

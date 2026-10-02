@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// GPU particle emitter (upstream particle-emitter.js, GPU-simulation subset).
+// Created by Arnis Lektauers on 14.07.2026
+//
+// GPU particle emitter.
 //
 // Simulation runs entirely on the GPU: a compute kernel (particleSimShaders.h,
 // dispatched through the backend-agnostic Compute seam) ages, integrates, and
@@ -13,7 +15,7 @@
 // does on the CPU and which forces its CPU path, is a compute bitonic sort here
 // (ParticleSortShaders.h), keyed on the first active camera rather than the one
 // rendering the emitter; an initial velocity + spread with gravity/damping beside
-// upstream's velocity graphs. colorGraph2 is kept but, as on upstream's GPU path,
+// the velocity graphs. colorGraph2 is kept but, as on upstream's GPU path,
 // not sampled.
 //
 #pragma once
@@ -46,7 +48,7 @@ namespace visutwin::canvas
         EMITTERSHAPE_SPHERE = 1  // uniform spawn inside a sphere (radius)
     };
 
-    /// Upstream PARTICLEORIENTATION_*: how a quad faces.
+    /// How a quad faces.
     enum class ParticleOrientation : uint32_t
     {
         SCREEN = 0,    // faces the camera
@@ -54,7 +56,7 @@ namespace visutwin::canvas
         EMITTER = 2    // faces particleNormal turned by the emitter
     };
 
-    /// Upstream PARTICLESORT_*: the draw order of the particles.
+    /// The draw order of the particles.
     enum class ParticleSort : uint32_t
     {
         NONE = 0,
@@ -68,21 +70,21 @@ namespace visutwin::canvas
         BLEND_ADDITIVE = 0,
         BLEND_NORMAL = 1,
         BLEND_PREMULTIPLIED = 2,
-        BLEND_NONE = 3           // opaque (upstream BLEND_NONE), drawn with the opaque meshes
+        BLEND_NONE = 3           // opaque, drawn with the opaque meshes
     };
 
-    /// Authoring options (upstream particle-system component property subset).
+    /// Authoring options.
     struct ParticleEmitterOptions
     {
         uint32_t numParticles = 256;      // particle pool size
 
         float lifetime = 2.0f;            // per-particle lifetime min (seconds)
         float lifetime2 = 2.0f;           // per-particle lifetime max
-        // Seconds between births, as upstream: particle i is born at i * rate, so 0 emits
+        // Seconds between births: particle i is born at i * rate, so 0 emits
         // the whole pool at once (a burst), and a looping particle comes back after
         // max(lifetime, numParticles * rate).
         float rate = 1.0f;
-        // Upstream rate2: each wrap of a particle takes a random rate between rate and
+        // Each wrap of a particle takes a random rate between rate and
         // rate2 for its emission period. Unset means rate.
         std::optional<float> rate2;
         bool loop = true;                 // one-shot when false
@@ -103,7 +105,7 @@ namespace visutwin::canvas
         float rotationSpeed = 0.0f;       // rotation speed min (degrees/s)
         float rotationSpeed2 = 0.0f;      // rotation speed max
 
-        // Upstream's velocity graphs over normalized life (units/s): the local graph is
+        // Velocity graphs over normalized life (units/s): the local graph is
         // turned by the emitter, the world graph is not, and each particle takes a random
         // point between a graph and its graph2 (an empty graph2 means the graph itself).
         // Empty graphs contribute nothing.
@@ -115,7 +117,7 @@ namespace visutwin::canvas
         Curve rotationSpeedGraph;
         Curve rotationSpeedGraph2;
         // Speed away from the emitter's centre over normalized life (units/s), a random
-        // point between graph and graph2 per particle life (upstream radialSpeedGraph).
+        // point between graph and graph2 per particle life.
         Curve radialSpeedGraph;
         Curve radialSpeedGraph2;
 
@@ -123,38 +125,37 @@ namespace visutwin::canvas
         float stretch = 0.0f;             // pull the trailing vertices back by velocity * stretch
 
         bool localSpace = false;          // particles follow the emitter node when true
-        // Upstream screenSpace: the emitter's world transform is already clip space (a child
+        // The emitter's world transform is already clip space (a child
         // of a screen-space element), and sizes are measured in viewport heights.
         bool screenSpace = false;
         std::vector<int> layers;          // layers to render on (empty: the render component's)
 
-        Curve scaleGraph;                 // quad half-extent over normalized life, as upstream
+        Curve scaleGraph;                 // quad half-extent over normalized life
         CurveSet colorGraph;              // rgb over normalized life
         Curve alphaGraph;                 // alpha over normalized life
         // A random point between each graph and its graph2 per particle (empty: the
-        // graph). colorGraph2 is kept for authoring, but upstream's GPU path never samples
-        // it, and neither does this one.
+        // graph). colorGraph2 is kept for authoring, but never sampled.
         Curve scaleGraph2;
         Curve alphaGraph2;
         CurveSet colorGraph2;
         float intensity = 1.0f;           // color multiplier (HDR glow)
 
-        // Upstream wrap: world-space particles wrap around the emitter's position within
+        // World-space particles wrap around the emitter's position within
         // a box of wrapBounds, so a field of them (rain, snow) follows a moving emitter.
         bool wrap = false;
         Vector3 wrapBounds = Vector3(0.0f);
 
-        // Upstream depthSoftening: fade a particle where it nears the scene behind it.
+        // Fade a particle where it nears the scene behind it.
         // Needs the camera's scene depth (CameraComponent::requestSceneDepthMap).
         float depthSoftening = 0.0f;
 
-        // Upstream lighting: shade with the light cube (scene ambient and directional
+        // Shade with the light cube (scene ambient and directional
         // lights), from a normal map when one is set, else the quad's own normal.
         bool lighting = false;
         bool halfLambert = false;
         Texture* normalMap = nullptr;
 
-        // Upstream mesh: draw this mesh for each particle instead of a quad (its vertex
+        // Draw this mesh for each particle instead of a quad (its vertex
         // buffer must be the engine's packed 14-float layout: position, normal, uv0 ...).
         std::shared_ptr<Mesh> mesh;
         ParticleOrientation orientation = ParticleOrientation::SCREEN;
@@ -168,11 +169,11 @@ namespace visutwin::canvas
         int animNumFrames = 1;            // frames played over each particle's life
         // Which animation in the sheet to play. Each animation is animNumFrames
         // tiles long and they run in reading order, so a 4x4 sheet at 4 frames
-        // holds four animations, indices 0-3 (upstream animIndex).
+        // holds four animations, indices 0-3.
         int animIndex = 0;
         float animSpeed = 1.0f;
 
-        ParticleBlendType blendType = ParticleBlendType::BLEND_NORMAL;   // upstream default
+        ParticleBlendType blendType = ParticleBlendType::BLEND_NORMAL;
         bool depthWrite = false;
 
         ParticleEmitterOptions();
@@ -201,7 +202,7 @@ namespace visutwin::canvas
         /// particle-system component with the emitter node's world transform.
         void update(float dt, const Matrix4& emitterTransform);
 
-        /// Stop emitting (upstream `stop`): live particles finish their lives, the unborn
+        /// Stop emitting: live particles finish their lives, the unborn
         /// never appear, and nothing respawns until play() restores the loop.
         void stop();
 
@@ -215,15 +216,15 @@ namespace visutwin::canvas
         /// after the simulation step).
         void sort(const Vector3& cameraPosition, const Matrix4& emitterTransform);
 
-        /// Light the particles with upstream's light cube: six colours for -X, +X, -Y, +Y,
+        /// Light the particles with a light cube: six colours for -X, +X, -Y, +Y,
         /// -Z, +Z (the scene ambient plus each directional light). Filled per draw.
         void setLightCube(const float (&colors)[6][3]);
 
-        /// Upstream depth softening's inputs: the camera's clip planes, and whether the scene
+        /// Depth softening's inputs: the camera's clip planes, and whether the scene
         /// depth grab it reads exists (without one the particles stay hard). Filled per draw.
         void setSoftening(float cameraNear, float cameraFar, bool sceneDepthAvailable);
 
-        /// The output stage the fragment applies (upstream particle_end): the scene's exposure
+        /// The output stage the fragment applies: the scene's exposure
         /// and tone mapping, and whether the target is a camera frame's linear HDR scene
         /// (tone mapping and gamma left to compose). Called by the renderer per draw.
         void setOutput(float exposure, int toneMapping, bool linearTarget);
@@ -287,7 +288,7 @@ namespace visutwin::canvas
         uint32_t _step = 0;            // simulation steps taken, the kernel's hash seed
         bool _playing = true;
         bool _loop = true;
-        bool _stopPending = false;     // the next step hides the unborn (upstream OnStop)
+        bool _stopPending = false;     // the next step hides the unborn
         bool _prewarmPending = false;  // reset() asked for a pre-warm; run at the next update
     };
 }

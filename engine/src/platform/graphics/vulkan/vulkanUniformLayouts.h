@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 16.06.2026
+//
 // GPU-side uniform block layouts for the Vulkan backend.
 //
 // These mirror the std140 layout declared in the embedded GLSL shaders
@@ -208,14 +210,14 @@ namespace visutwin::canvas
         float dirShadow1PcssCascadeRadii[4]       = {1.0f, 1.0f, 1.0f, 1.0f};
         float dirShadow1PcssCascadeDepthRanges[4] = {1.0f, 1.0f, 1.0f, 1.0f};
         // Scene::skyboxRotation, one column per vec4 (w unused): environment samples
-        // read along R * dir (upstream cubeMapRotate).
+        // read along R * dir.
         float skyboxRotation[12]                  = {1.0f, 0.0f, 0.0f, 0.0f,
                                                      0.0f, 1.0f, 0.0f, 0.0f,
                                                      0.0f, 0.0f, 1.0f, 0.0f};
-        // Spot cookie 2x2 per 2D cookie slot (upstream cookieTransform), mat2 columns.
+        // Spot cookie 2x2 per 2D cookie slot, mat2 columns.
         float cookieTransform2D[8]                = {1.0f, 0.0f, 0.0f, 1.0f,
                                                      1.0f, 0.0f, 0.0f, 1.0f};
-        // Upstream blueNoiseJitter: xy offset the opacity dither per frame while the
+        // Blue-noise jitter: xy offset the opacity dither per frame while the
         // camera jitters (TAA), zero otherwise.
         float ditherJitter[4]                     = {0.0f, 0.0f, 0.0f, 0.0f};
     };

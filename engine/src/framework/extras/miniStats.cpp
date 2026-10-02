@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 30.07.2026
+//
 #include "miniStats.h"
 
 #include <algorithm>
@@ -23,8 +25,8 @@ namespace visutwin::canvas
 {
     namespace
     {
-        // Upstream's panel geometry: 8 px in from the left and bottom edges, and 128 px wide in
-        // its compact size. The detailed view sizes itself to its content.
+        // Panel geometry: 8 px in from the left and bottom edges, and 128 px wide in
+        // the compact size. The detailed view sizes itself to its content.
         constexpr float kInset = 8.0f;
         constexpr float kCompactWidth = 128.0f;
     }
@@ -75,8 +77,7 @@ namespace visutwin::canvas
         }
 
         ++_passFrame;
-        // Passes sharing a name are ONE row holding their sum, as upstream's
-        // gpu-profiler accumulates them: the forward pass draws the scene and then
+        // Passes sharing a name are ONE row holding their sum: the forward pass draws the scene and then
         // the UI layer, and a separable blur runs twice. Keyed on the last of them
         // the row showed the 0.1 ms UI pass and hid the 3 ms scene pass behind it.
         std::vector<std::pair<std::string, float>> frameTotals;
@@ -115,7 +116,7 @@ namespace visutwin::canvas
         char text[32];
         std::snprintf(text, sizeof(text), "%.*f", decimals, value);
 
-        // Upstream's compact row: the label muted at the left, the value right-aligned, and the
+        // Compact row: the label muted at the left, the value right-aligned, and the
         // units muted after it. SameLine() takes an offset from the window's left edge, which is
         // the frame GetCursorPosX() reports in, so the two agree without a padding term.
         const float left = ImGui::GetCursorPosX();
@@ -179,14 +180,14 @@ namespace visutwin::canvas
         const auto& vram = device->vram();
         constexpr double toMb = 1.0 / (1024.0 * 1024.0);
 
-        // CPU is upstream's CpuTimer: the update phase plus the render phase, on the CPU. The
-        // render figure is the previous frame's (Engine::render writes it after frameEnd, this
-        // hook runs before), which is one frame of lag upstream carries too.
+        // CPU is the update phase plus the render phase, on the CPU. The render figure is the
+        // previous frame's (Engine::render writes it after frameEnd, this hook runs before),
+        // which is one frame of lag.
         _frame.push(frameMs, frameMs);
         _cpu.push(static_cast<float>(frame.updateTime + frame.renderTime), frameMs);
         _gpu.push(profiler ? static_cast<float>(profiler->frameMilliseconds()) : 0.0f, frameMs);
         _drawCalls.push(static_cast<float>(drawCalls.total), frameMs);
-        // Upstream's `vram.totalUsed`: textures, vertex, index, uniform and storage buffers. Still
+        // Total VRAM: textures, vertex, index, uniform and storage buffers. Still
         // a LOWER BOUND: the texture figure is content size (no driver padding, no GPU-generated
         // mips). The detailed view spells the parts out.
         _vram.push(static_cast<float>(static_cast<double>(vram.tex + vram.vb + vram.ib + vram.ub + vram.sb) * toMb),
@@ -200,8 +201,8 @@ namespace visutwin::canvas
 
         _overlay->beginFrame();
 
-        // Bottom-left, inset by upstream's 8 px, following the window through resizes. The panel
-        // is not draggable, and it has no title bar: upstream's is a bare rectangle too.
+        // Bottom-left, inset by 8 px, following the window through resizes. The panel
+        // is not draggable, and it has no title bar: a bare rectangle.
         const ImGuiViewport* viewport = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(
             ImVec2(viewport->WorkPos.x + kInset, viewport->WorkPos.y + viewport->WorkSize.y - kInset),
@@ -216,14 +217,14 @@ namespace visutwin::canvas
             | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoSavedSettings;
 
         if (ImGui::Begin("MiniStats", nullptr, flags)) {
-            // A click anywhere on the panel switches views, as a click cycles upstream's sizes.
+            // A click anywhere on the panel switches views.
             if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                 _detailed = !_detailed;
             }
 
             if (!_detailed) {
-                // Upstream's compact size, in its order: the Engine counters (draw calls, then
-                // frame), then CPU, GPU and VRAM. Decimal places are upstream's per stat.
+                // Compact size: the Engine counters (draw calls, then frame), then CPU, GPU
+                // and VRAM, with fixed decimal places per stat.
                 compactRow("Draw calls", _drawCalls.displayed, 0, "");
                 compactRow("Frame", _frame.displayed, 1, "ms");
                 compactRow("CPU", _cpu.displayed, 1, "ms");
@@ -271,7 +272,7 @@ namespace visutwin::canvas
                     static_cast<double>(texOther) * toMb);
 
                 // Deliberately no triangle / material-switch / shader-switch / CPU-breakdown rows:
-                // those ApplicationStats fields exist (inherited from upstream's struct shape) but
+                // those ApplicationStats fields exist but
                 // nothing in this engine writes them, so displaying them would print a confident
                 // zero rather than a measurement. Add rows here as the counters get instrumented.
 

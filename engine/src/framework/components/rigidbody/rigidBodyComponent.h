@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 21.03.2026
+//
 #pragma once
 
 #include <algorithm>
@@ -39,8 +42,7 @@ namespace visutwin::canvas
     class RigidBodyComponent : public Component
     {
     public:
-        /// Enabled before, and disabled after, every sibling component (upstream
-        /// gives RigidBodyComponent `static order = -1`): the collision body must
+        /// Enabled before, and disabled after, every sibling component (order -1): the collision body must
         /// exist before anything can move or raycast against it.
         [[nodiscard]] int order() const override { return -1; }
 
@@ -104,7 +106,7 @@ namespace visutwin::canvas
 
     private:
         // Writes a dynamic body's pose to an entity with a negative local scale or a
-        // mirrored world transform (upstream _setMirroredTransform).
+        // mirrored world transform.
         void setMirroredTransform(const Vector3& position, const Quaternion& bodyRotation);
 
     public:

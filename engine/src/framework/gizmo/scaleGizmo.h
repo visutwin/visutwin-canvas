@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Upstream extras/gizmo/scale-gizmo.js: box-tipped lines along X, Y and Z, plane handles
+// Created by Arnis Lektauers on 02.10.2026
+//
+// Box-tipped lines along X, Y and Z, plane handles
 // at their intersections and a centre box for uniform scaling. Always in local space.
 //
 #pragma once
@@ -24,7 +26,7 @@ namespace visutwin::canvas
         ScaleGizmo(CameraComponent* camera, std::shared_ptr<Layer> layer);
         ~ScaleGizmo() override;
 
-        /// Disallowed: the scale gizmo always works in local space (upstream ignores the set).
+        /// Disallowed: the scale gizmo always works in local space.
         void setCoordSpace(GizmoSpace /*value*/) override {}
 
         /// Uniform scaling for the planes.

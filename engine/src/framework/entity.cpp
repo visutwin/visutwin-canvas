@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektasuers on 18.10.2025.
+// Created by Arnis Lektauers on 18.10.2025
 //
 #include <algorithm>
 
@@ -215,7 +215,7 @@ namespace visutwin::canvas
         auto* engine = findEngine();
         cloned->setEngine(engine);
 
-        // GraphNode state (upstream GraphNode._cloneInternal).
+        // GraphNode state.
         cloned->setName(name());
         cloned->tags().add(tags().list());
         cloned->setLocalPosition(localPosition());
@@ -225,7 +225,7 @@ namespace visutwin::canvas
         // Not in a hierarchy yet, so nothing is enabled: adding the clone to a parent
         // is what fires onEnable, after every component has its data.
 
-        // Components in CREATION order, as upstream walks `this.c` — the map's order is
+        // Components in CREATION order — the map's order is
         // a hash detail and would give each clone a different order.
         for (const auto& srcComponent : _componentStorage) {
             const Component& srcRef = *srcComponent;
@@ -260,7 +260,7 @@ namespace visutwin::canvas
             raw->setEnabled(srcComponent->enabled());
         }
 
-        // Only Entity children are copied, as upstream; and not one its owner rebuilds
+        // Only Entity children are copied; and not one its owner rebuilds
         // for itself (setExcludedFromClone).
         for (const auto& child : children()) {
             if (const auto* childEntity = dynamic_cast<const Entity*>(child.get());

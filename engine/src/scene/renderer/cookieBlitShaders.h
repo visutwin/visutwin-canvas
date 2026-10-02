@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Upstream's cookie blit shaders (cookie-blit.js, cookie-blit-2d.js, cookie-blit-cube.js):
+// Created by Arnis Lektauers on 02.10.2026
+//
+// Cookie blit shaders:
 // copy a light cookie into its rect of the clustered cookie atlas. A 2D cookie is copied
 // as is; a cube cookie is drawn one face at a time, each texel reading the cube along the
 // ray of the face camera through it (`invViewProj`), x flipped as every cube read in this

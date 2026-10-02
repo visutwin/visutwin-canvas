@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 16.06.2026
+//
 // Triple-buffered host-visible ring buffer for per-draw / per-pass uniform data.
 //
 // Mirrors the Metal MetalUniformRingBuffer: one persistently-mapped VkBuffer is
@@ -42,8 +44,7 @@ namespace visutwin::canvas
 
         /**
          * Reallocate to fit the demand the PREVIOUS frame actually had, returning
-         * false when nothing needed to change. Upstream's DynamicBuffers grows by
-         * taking another buffer from its pool; that cannot be done mid-frame here,
+         * false when nothing needed to change. The ring cannot grow mid-frame,
          * because every offset this ring hands out is interpreted against the ONE
          * buffer the persistent descriptor sets name. So growth happens at a frame
          * boundary, and the caller owes two things around it: the device must be

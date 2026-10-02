@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// How a layout group may size one of its children (upstream framework/components/
-// layout-child/component.js): limits on its width and height, its share of the space a
+// Created by Arnis Lektauers on 30.09.2026
+//
+// How a layout group may size one of its children: limits on its width and height, its share of the space a
 // Stretch or Shrink fit hands out, and whether it takes part at all. The group reads these
 // whenever it lays its children out; a child without this component takes part with its own
 // width and height and no limits.
@@ -38,7 +39,7 @@ namespace visutwin::canvas
         void setMinWidth(const float value) { _minWidth = value; }
         float minHeight() const { return _minHeight; }
         void setMinHeight(const float value) { _minHeight = value; }
-        /// No value is no limit (upstream's null).
+        /// No value is no limit.
         std::optional<float> maxWidth() const { return _maxWidth; }
         void setMaxWidth(const std::optional<float> value) { _maxWidth = value; }
         std::optional<float> maxHeight() const { return _maxHeight; }

@@ -60,14 +60,14 @@ void main() {
 
     if (vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BAKE_BIT)) {
         // Lightmap bake: rasterize across the mesh's own UV1 unwrap instead of through
-        // the view projection (upstream's UV-space lightmapper render). World position
+        // the view projection. World position
         // and normal below are untouched, so the fragment stage lights the real surface.
         gl_Position = vec4(inUV1.x * 2.0 - 1.0, 1.0 - inUV1.y * 2.0, 0.0, 1.0);
     }
 
     if (vtFeatureEnabled(VT_FEATURE_SCREEN_SPACE_BIT)) {
-        // Screen-space UI (upstream SCREENSPACE): the world position IS the clip position,
-        // carried there by the element's screen projection; depth 0.5, upstream's z = 0.
+        // Screen-space UI: the world position IS the clip position,
+        // carried there by the element's screen projection; depth 0.5.
         // Twin of the block in forward-vertex.metal.
         gl_Position = vec4(worldPos.x, worldPos.y, 0.5, 1.0);
     }

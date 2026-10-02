@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 13.10.2025.
+// Created by Arnis Lektauers on 13.10.2025
 //
 #include "elementInput.h"
 
@@ -47,7 +47,7 @@ namespace visutwin::canvas
 {
     namespace
     {
-        /// `#rrggbb` or `#rrggbbaa`, sRGB (upstream Color.fromString); null otherwise.
+        /// `#rrggbb` or `#rrggbbaa`, sRGB; null otherwise.
         std::optional<Color> parseHexColor(const std::string& text)
         {
             if ((text.size() != 7 && text.size() != 9) || text[0] != '#') {
@@ -64,7 +64,7 @@ namespace visutwin::canvas
             return Color(channel(1), channel(3), channel(5), text.size() == 9 ? channel(7) : 1.0f);
         }
 
-        /// A tag attribute as a number (upstream Number()), null when absent or not one.
+        /// A tag attribute as a number, null when absent or not one.
         std::optional<float> parseNumber(const MarkupTag& tag, const char* key)
         {
             const auto it = tag.attributes.find(key);
@@ -79,14 +79,14 @@ namespace visutwin::canvas
             return value;
         }
 
-        /// Upstream text-element's per-symbol colour, outline and shadow for one symbol's
+        /// The per-symbol colour, outline and shadow for one symbol's
         /// tags, falling back to the element's own values where a tag leaves one out.
         ElementInput::TextStyle resolveTextStyle(const ElementComponent* element, const MarkupTags& tags)
         {
             ElementInput::TextStyle style{element->color(), element->outlineColor(), element->outlineThickness(),
                                           element->shadowColor(), element->shadowOffset()};
             if (const auto it = tags.find("color"); it != tags.end() && it->second.value) {
-                // Upstream accepts only #rrggbb here; the element's opacity stays the alpha.
+                // Only #rrggbb is accepted here; the element's opacity stays the alpha.
                 if (const auto c = parseHexColor(*it->second.value); c && it->second.value->size() == 7) {
                     style.color = Color(c->r, c->g, c->b, element->color().a);
                 }
@@ -164,7 +164,7 @@ namespace visutwin::canvas
             const std::vector<PlacedGlyph> glyphs = placeText(*font, symbols, measure, element->calculatedWidth(),
                 element->calculatedHeight(), element->pivot(), horizontal, element->verticalAlign(), element->justify());
 
-            // Upstream's palettes: index 0 the element's own style, one more per distinct
+            // The palettes: index 0 the element's own style, one more per distinct
             // tag style.
             std::vector<int> styleOf(symbols.size(), 0);
             result.styles.push_back({element->color(), element->outlineColor(), element->outlineThickness(),
@@ -329,7 +329,7 @@ namespace visutwin::canvas
 
     namespace
     {
-        /// Upstream's element materials are EMISSIVE-only: black diffuse, the element
+        /// Element materials are EMISSIVE-only: black diffuse, the element
         /// colour as the emissive (times an image's texture), alpha from the texture's
         /// alpha through the opacity map or, for MSDF text, from the distance field.
         std::shared_ptr<StandardMaterial> makeBaseElementMaterial(const bool worldSpace)
@@ -352,13 +352,13 @@ namespace visutwin::canvas
             return material;
         }
 
-        /// Upstream text-element's shadow_offset, verbatim. It has TWO conventions:
+        /// The text shadow's UV offset. It has TWO conventions:
         /// - the uniform one, for text without markup tags: 0.005 of the page per unit, the
         ///   y term scaled by -width/height. It is NOT sign-flipped for this engine's v-down
         ///   glyph UVs, although upstream writes its glyph UVs v-up: measured on upstream's
         ///   own ui-text thumbnail, a (0.25, -0.25) shadow sits right of and BELOW the
         ///   glyphs (rim below 23 : above 6), and the flipped value drew it above;
-        /// - the per-vertex one (msdf.js unpackMsdfParams), which upstream uses for EVERY
+        /// - the per-vertex one, which is used for EVERY
         ///   symbol of a text with tags, the element's own included: 0.005 per unit on both
         ///   axes, with no aspect and no minus sign. For a square page the two point y in
         ///   opposite directions; that is upstream's behaviour, reproduced.
@@ -477,7 +477,7 @@ namespace visutwin::canvas
                 break;
             }
             if (key.kind == Kind::ImageMask) {
-                // Upstream's mask material: into the stencil alone, every colour
+                // The mask material: into the stencil alone, every colour
                 // channel off, and only where the image is fully opaque (alpha test 1),
                 // which is what lets a sprite's transparent corners shape the mask.
                 // setAlphaMode resets the blend, the depth state and transparency,
@@ -529,7 +529,7 @@ namespace visutwin::canvas
             ? TextStyle{element->color(), element->outlineColor(), element->outlineThickness(),
                         element->shadowColor(), element->shadowOffset()}
             : visual.styles[static_cast<size_t>(part.style)];
-        // Upstream's editor units: thickness x 0.2, offset x 0.005 of the page.
+        // Editor units: thickness x 0.2, offset x 0.005 of the page.
         key.outlineColor = style.outlineColor;
         key.outlineThickness = 0.2f * style.outlineThickness;
         key.shadowColor = style.shadowColor;
@@ -616,7 +616,7 @@ namespace visutwin::canvas
 
     void ElementInput::syncMasks()
     {
-        // Upstream getMaskOffset: how far past its last descendant an unmask draws, from
+        // How far past its last descendant an unmask draws, from
         // 0.5 down by 0.001 each time the same element is asked in a frame, so masks ending
         // on the same element unmask innermost first (the walk meets the outer one first).
         std::unordered_map<const ElementComponent*, double> maskOffsets;
@@ -630,7 +630,7 @@ namespace visutwin::canvas
             auto* entity = dynamic_cast<Entity*>(node);
             return entity ? entity->findComponent<ElementComponent>() : nullptr;
         };
-        // upstream getLastChild: the last element child, followed down to its own last one
+        // The last element child, followed down to its own last one
         const auto lastDescendant = [&elementOf](ElementComponent* element) {
             ElementComponent* last = nullptr;
             for (ElementComponent* current = element; current;) {
@@ -662,7 +662,7 @@ namespace visutwin::canvas
         std::unordered_map<const ElementComponent*, uint32_t> maskRefs;
         bool anyMask = false;
 
-        // Upstream _updateMask: depth-first, each element tested against the mask above it,
+        // Depth-first, each element tested against the mask above it,
         // and each mask written (the outermost with REPLACE, a nested one with INCREMENT
         // inside its parent's value) and unmasked after its last descendant.
         const auto update = [&](auto&& self, ElementComponent* element, ElementComponent* currentMask,
@@ -681,7 +681,7 @@ namespace visutwin::canvas
                 maskRefs[element] = depth;
                 if (ElementVisual* visual = visualOf(element); visual && visual->unmask) {
                     // Back to the parent's value: where the stencil holds this mask's
-                    // (parentRef + 1), decrement it (upstream _setStencil).
+                    // (parentRef + 1), decrement it.
                     const auto sp = stencilParameters(StencilCompareFunction::Equal,
                                                       StencilOperation::DecrementClamp, parentRef + 1u);
                     visual->unmask->setStencil(sp, sp);
@@ -700,8 +700,8 @@ namespace visutwin::canvas
             }
         };
 
-        // Every element tree: an element whose parent entity has none (upstream starts from
-        // the element directly under a screen, or at the root).
+        // Every element tree: an element whose parent entity has none (the
+        // element directly under a screen, or at the root).
         for (auto* element : ElementComponent::instances()) {
             if (!element || !element->entity() || element->entity()->engine() != _engine.get()) {
                 continue;
@@ -914,7 +914,7 @@ namespace visutwin::canvas
                     const ImageMeshData image = buildImageMeshData(element);
                     VisualPart part;
                     part.texture = image.texture;
-                    // Upstream: a custom material draws the quad, and owns what the
+                    // A custom material draws the quad, and owns what the
                     // element's own material would have done with its colour and texture.
                     part.customMaterial = element->material();
                     visual.cachedMask = element->mask();
@@ -954,7 +954,7 @@ namespace visutwin::canvas
                 visual.cachedPivot = element->pivot();
             }
 
-            // Upstream _updateRenderRange: draw only the symbols in [rangeStart, rangeEnd), by
+            // Draw only the symbols in [rangeStart, rangeEnd), by
             // narrowing each part's index range to its quads inside it — no new layout.
             if (isText && (rangeStale || visual.cachedRangeVersion != element->rangeVersion())) {
                 const auto start = static_cast<uint32_t>(element->rangeStart());

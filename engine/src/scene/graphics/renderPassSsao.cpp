@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 //
 #include "renderPassSsao.h"
 
@@ -147,7 +149,7 @@ namespace visutwin::canvas
             return;
         }
 
-        // Compute derived SSAO parameters (matching upstream RenderPassSsao.execute())
+        // Compute derived SSAO parameters
         const float aspect = width / height;
         const float spiralTurns = 10.0f;
         const float step = (1.0f / (static_cast<float>(_sampleCount) - 0.5f)) * spiralTurns * 2.0f * PI;
@@ -168,7 +170,7 @@ namespace visutwin::canvas
 
         const float minAngleSin = std::sin(_minAngle * DEG_TO_RAD);
 
-        // Blue noise for randomization (simple PRNG matching upstream BlueNoise behavior)
+        // Blue noise for randomization (simple PRNG)
         if (_randomize) {
             _blueNoiseValue = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
         } else {

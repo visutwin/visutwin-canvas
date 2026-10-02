@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 21.03.2026
+//
 #include "rigidBodyComponent.h"
 
 #include <spdlog/spdlog.h>
@@ -251,7 +254,7 @@ namespace visutwin::canvas
     // was created with that rotation, so writing it back as the WORLD rotation baked the
     // correction into the local rotation and the entity turned on its first step. Apply
     // instead the rotation the body turned through since the entity was last synced, to
-    // the LOCAL rotation — upstream #9500. tests/mirroredBodyTests.cpp holds it.
+    // the LOCAL rotation. tests/mirroredBodyTests.cpp holds it.
     void RigidBodyComponent::setMirroredTransform(const Vector3& position, const Quaternion& bodyRotation)
     {
         Entity* owner = entity();
@@ -291,7 +294,7 @@ namespace visutwin::canvas
         if (!src) {
             return;
         }
-        // Settings only (upstream's property list). The clone's body is created from
+        // Settings only. The clone's body is created from
         // them lazily, at the clone's own transform; velocities are simulation state.
         _type = src->_type;
         _mass = src->_mass;

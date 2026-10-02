@@ -2,7 +2,6 @@
 // Copyright 2025-2026 Arnis Lektauers
 // ---------------------------------------------------------------------------
 // EVSM (Exponential Variance Shadow Maps), 16-bit float storage.
-// Match upstream SHADOW_VSM_16F (shadowEVSM.js + blurVSM.js).
 //
 // Storage convention (set by shadow-fragment.metal):
 //   moments.x = exp(c · z),   moments.y = exp(c · z)²,   moments.z = 1.0 (rendered flag),
@@ -15,7 +14,6 @@
 // c < ln(65504)/2 ≈ 5.54. Going higher (e.g. 8 or 11) overflows the second
 // moment to fp16 ∞, which explodes the variance reconstruction and
 // produces severe light bleeding (the opposite of the intended effect).
-// 5.54 is also upstream default for SHADOW_VSM_16F.
 // ---------------------------------------------------------------------------
 constant float VSM_EXPONENT = 5.54;
 
@@ -62,7 +60,7 @@ static inline float calculateEVSM(float3 moments, float Z, float vsmBias, float 
 
     const float depthScale = vsmBias * exponent * warpedDepth;
     const float minVariance = depthScale * depthScale;
-    // 0.1 = upstream default light-bleeding reduction. With c at the proper
+    // 0.1 = default light-bleeding reduction. With c at the proper
     // 16F-safe value, the Chebyshev probability is well-conditioned and 0.1
     // is enough to clip residual bleeding without darkening contact shadows.
     return chebyshevUpperBound(stored, warpedDepth, minVariance, 0.1);
@@ -76,9 +74,8 @@ static inline float getShadowVSM16(texture2d<float> momentsTex, float2 shadowUv,
     return calculateEVSM(moments, receiverDepth, vsmBias, VSM_EXPONENT);
 }
 
-// A VSM spot light's shadow pass stores distance / range, as upstream does for a spot
-// VSM (litShadowMain without PERSPECTIVE_DEPTH: min(distance(view_position, vPositionW)
-// / light_radius, 0.99999)): perspective depth with a near plane of 0.01 is crushed
+// A VSM spot light's shadow pass stores distance / range
+// (min(distance(view_position, vPositionW) / light_radius, 0.99999)): perspective depth with a near plane of 0.01 is crushed
 // against 1, where the exponential warp leaves no precision at all. The pass's own
 // view-projection carries both inputs, so no light uniform is needed: the light is
 // the projection centre, where clip x, y and w vanish (rows 0, 1 and 3), and the far

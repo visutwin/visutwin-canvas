@@ -28,7 +28,7 @@ uint pcgHash(uint v) {
     return (word >> 22u) ^ word;
 }
 float rnd(uint key) { return float(pcgHash(key) >> 8) * (1.0 / 16777216.0); }
-// Upstream's rotate(): a positive angle turns clockwise.
+// A positive angle turns clockwise.
 vec2 rotate2(vec2 v, float c, float s) { return vec2(v.x * c + v.y * s, -v.x * s + v.y * c); }
 
 void main() {
@@ -37,7 +37,7 @@ void main() {
     uint iid=gl_InstanceIndex; if(iid>=uint(params.miscParams.y)) return;
     uint id=params.outputParams.w>0.5?drawOrder.values[iid]:iid;
     Particle p=particles.values[id]; float lifetime=max(p.velLifetime.w,1e-5);
-    // Unborn, dead or hidden (upstream particle.js).
+    // Unborn, dead or hidden.
     if(p.posAge.w<=0.0||p.posAge.w>lifetime||p.rotSeedSize.w>0.5) return;
     float life=clamp(p.posAge.w/lifetime,0.0,1.0), lp=life*15.0;
     int a=int(lp), b=min(a+1,15); float f=fract(lp);
@@ -49,7 +49,7 @@ void main() {
     color.a+=(scaleSample.z-color.a)*rnd(seed+21u);
     if(color.a<=0.001||size<=0.0001) return;
 
-    // Upstream particle_wrap: a world-space particle wraps into a box around the emitter.
+    // A world-space particle wraps into a box around the emitter.
     vec3 particlePos=p.posAge.xyz;
     if(params.wrapParams.w>0.5){
         vec3 bounds=params.wrapParams.xyz, rel=particlePos-params.emitterPosition.xyz;
@@ -79,7 +79,7 @@ void main() {
     vec4 clip;
     if(useMesh||customFace){
         if(useMesh){
-            // Upstream particle_mesh: the mesh's vertex, turned about z then x by the angle.
+            // The mesh's vertex, turned about z then x by the angle.
             uint base=uint(gl_VertexIndex)*14u;
             vec3 local=vec3(meshVertices.values[base],meshVertices.values[base+1u],meshVertices.values[base+2u]);
             local.xy=rotate2(local.xy,ca,sa);
@@ -87,7 +87,7 @@ void main() {
             worldOffset=local;
             meshUv=vec2(meshVertices.values[base+6u],meshVertices.values[base+7u]);
         } else {
-            // Upstream particle_customFace: the quad in the plane of the face vectors.
+            // The quad in the plane of the face vectors.
             worldOffset=params.faceTangent.xyz*offset.x+params.faceBinorm.xyz*offset.y;
         }
         vec3 viewOffset=(params.view*vec4(worldOffset*size,0)).xyz;
@@ -99,8 +99,8 @@ void main() {
         view.xyz+=viewOffset;
         clip=params.projection*view;
     } else {
-        // Upstream's billboard in view space; in SCREEN SPACE the model matrix lands in clip
-        // space and the quad is sized in viewport heights, its x scaled by height / width (#9570).
+        // A billboard in view space; in SCREEN SPACE the model matrix lands in clip
+        // space and the quad is sized in viewport heights, its x scaled by height / width.
         if(params.motionParams.y>0.0){
             vec3 previous=view.xyz-viewVelocity*params.motionParams.y;
             float interpolation=dot(-velocityV,normalize(offset))*0.5+0.5;
@@ -114,7 +114,7 @@ void main() {
     clip.z=0.5*(clip.z+clip.w); gl_Position=clip;
     outViewDepth=-view.z;
 
-    // A lit particle (upstream particle_normal / particle_TBN).
+    // A lit particle.
     if(params.lightCube[0].w>0.5){
         outNormal=normalize(worldOffset+cameraBack);
         vec3 t=-cameraRight, bn=-cameraUp;

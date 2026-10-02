@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // 2D-cartesian animation blend-tree example — mirrors upstream's
 // `animation/blend-trees-2d-cartesian` example. The skinned bitmoji character is
 // driven through an AnimComponent state graph whose single "Emote" state hosts a
@@ -92,7 +94,7 @@ protected:
 
     bool create() override
     {
-        // Match upstream blend-trees-2d-cartesian: exposure 2, full-intensity skybox,
+        // Exposure 2, full-intensity skybox,
         // default linear tone mapping (no ACES — it darkens midtones noticeably).
         scene()->setSkyboxMip(2);
         scene()->setExposure(2.0f);
@@ -231,7 +233,7 @@ protected:
                      "driven by (speedX, speedY) — keys 1-5 set the blend point");
 
         // -----------------------------------------------------------------------
-        // Ground plane (playcanvas-grey texture, like the upstream demos)
+        // Ground plane (playcanvas-grey texture)
         // -----------------------------------------------------------------------
         _groundMaterial = std::make_shared<StandardMaterial>();
         if (const auto groundTexRes = _groundTexAsset->resource();
@@ -267,8 +269,8 @@ protected:
         auto* keyLight = createDirectionalLight(Vector3(45.0f, 30.0f, 0.0f),
             Color(1.0f, 1.0f, 1.0f, 1.0f), 1.5f, true);
         if (auto* keyLightComp = keyLight->findComponent<LightComponent>()) {
-            // Upstream shadow settings: distance 6, bias 0.02, normalOffsetBias 0.02,
-            // single cascade (upstream default) — the tight fit keeps the whole
+            // Shadow settings: distance 6, bias 0.02, normal offset bias 0.02,
+            // single cascade (the default) — the tight fit keeps the whole
             // character silhouette in one cascade instead of splitting it.
             keyLightComp->setShadowResolution(2048);
             keyLightComp->setShadowDistance(20.0f);

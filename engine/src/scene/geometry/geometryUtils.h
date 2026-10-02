@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 15.09.2026
+//
 // Per-vertex tangent frames from positions, normals, UVs and a triangle list —
-// upstream's calculateTangents (Lengyel's method): accumulate each triangle's
-// dP/du and dP/dv on its corners, Gram-Schmidt dP/du against the normal, and take
-// the handedness from dP/dv.
+// Lengyel's method: accumulate each triangle's dP/du and dP/dv on its corners,
+// Gram-Schmidt dP/du against the normal, and take the handedness from dP/dv.
 //
 // DEVIATION: the handedness is the sign that makes cross(n, t) * w point toward
 // DECREASING v — toward v = 0, the image's top row. Upstream's calculateTangents

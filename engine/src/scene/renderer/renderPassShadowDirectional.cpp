@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 13.02.2026.
+// Created by Arnis Lektauers on 13.02.2026
 //
 #include "renderPassShadowDirectional.h"
 
@@ -100,13 +100,12 @@ namespace visutwin::canvas
         // The slope-based bias automatically adds more offset on steep geometry, preventing
         // acne without requiring excessive fixed bias that would erase self-shadows.
         {
-            // Light::shadowBias() is upstream's NEGATIVE internal value (LightComponent
+            // Light::shadowBias() is the NEGATIVE internal value (LightComponent
             // remaps its 0..1 authoring value with -0.01 * clamp), so this product is
             // POSITIVE: it offsets casters away from the light, which is the direction
             // that removes acne.
             //
-            // PCSS applies its own bias in the shader (upstream light.js does the same
-            // skip); a hardware offset on top of it eats valid contact shadows.
+            // PCSS applies its own bias in the shader; a hardware offset on top of it eats valid contact shadows.
             const float bias = (_light->shadowType() == SHADOW_PCSS_32F)
                 ? 0.0f : _light->shadowBias() * -1000.0f;
             _graphicsDevice->setDepthBias(bias, bias, 0.0f);

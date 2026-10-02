@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 07.10.2025.
+// Created by Arnis Lektauers on 07.10.2025
 //
 #include "graphNode.h"
 #include "graphNodeTransformHook.h"
@@ -441,7 +441,6 @@ namespace visutwin::canvas
 
         // A child is enabled-in-hierarchy only if BOTH the parent hierarchy
         // is enabled AND the child's own _enabled flag is true.
-        // Mirrors upstream: node._enabledInHierarchy = parent.enabled && node._enabled
         bool enabledInHierarchy = enabled() && node->_enabled;
         if (node->_enabledInHierarchy != enabledInHierarchy) {
             node->_enabledInHierarchy = enabledInHierarchy;
@@ -474,7 +473,6 @@ namespace visutwin::canvas
 
     void GraphNode::setEnabled(bool value)
     {
-        // Mirrors upstream GraphNode enabled setter.
         if (_enabled != value) {
             _enabled = value;
 

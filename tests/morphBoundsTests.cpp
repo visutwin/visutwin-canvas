@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 23.09.2026
+//
 // A morph moves vertices past the rest pose, so the bounds that culling, light
 // culling and the shadow fit read must grow by how far its targets reach — or a
 // mesh whose targets push it outward is culled while still on screen; the same holds
 // for GLB bone boxes that ignore morph targets. Nothing in a render shows it unless a
 // morph carries a mesh across a frustum edge, so these pin the numbers:
-//   - Morph::aabb is the union of every target's DELTA bounds and the origin
-//     (upstream Morph.aabb);
-//   - a morphed mesh instance's local bounds grow by it (upstream _expand), and
+//   - Morph::aabb is the union of every target's DELTA bounds and the origin;
+//   - a morphed mesh instance's local bounds grow by it, and
 //     attaching the morph invalidates bounds cached before it;
 //   - a skinned, morphed glTF's bone box takes each vertex's reach under all of its
-//     targets at once (upstream Mesh._initBoneAabbs).
+//     targets at once.
 
 #include <tiny_gltf.h>
 

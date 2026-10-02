@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 29.09.2026
+//
 #include "markup.h"
 
 #include <cctype>
@@ -27,13 +30,13 @@ namespace visutwin::canvas
             return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
         }
 
-        /// Upstream's IDENTIFIER_REGEX, /[\w|/]/.
+        /// Identifier symbol: /[\w|/]/.
         bool isIdentifierSymbol(const char c)
         {
             return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '|' || c == '/';
         }
 
-        /// Upstream's Scanner: TEXT mode outside brackets, TAG mode inside.
+        /// Scanner: TEXT mode outside brackets, TAG mode inside.
         class Scanner
         {
         public:
@@ -170,7 +173,7 @@ namespace visutwin::canvas
             std::optional<size_t> end;
         };
 
-        /// Upstream's Parser.
+        /// Parser.
         class Parser
         {
         public:
@@ -293,7 +296,7 @@ namespace visutwin::canvas
         if (tags.empty()) {
             return result;
         }
-        // Upstream resolveMarkupTags + combineTags: every tag open over a symbol, in the
+        // Every tag open over a symbol, in the
         // order the tags were opened, merged so an inner tag replaces an outer one's VALUE
         // (a bare inner tag replaces it with null) and adds to or replaces its attributes.
         result.tags.resize(result.symbols.size());

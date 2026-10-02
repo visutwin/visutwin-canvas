@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 13.10.2025.
+// Created by Arnis Lektauers on 13.10.2025
 //
 #include "lightmapper.h"
 #include "lightmapperBvh.h"
@@ -103,9 +103,9 @@ namespace visutwin::canvas
             return static_cast<uint8_t>(c * 255.0f + 0.5f);
         }
 
-        constexpr float GOLDEN_ANGLE = 2.399963229728653f;  // upstream _goldenAngle
+        constexpr float GOLDEN_ANGLE = 2.399963229728653f;
 
-        /// Upstream random.circlePointDeterministic — evenly spread points in a unit disc.
+        /// Evenly spread points in a unit disc.
         void circlePointDeterministic(float& x, float& y, const int index, const int numPoints)
         {
             const float theta = static_cast<float>(index) * GOLDEN_ANGLE;
@@ -114,11 +114,11 @@ namespace visutwin::canvas
             y = r * std::sin(theta);
         }
 
-        /// Upstream random.spherePointDeterministic — Fibonacci sphere, optionally
+        /// Fibonacci sphere, optionally
         /// covering only the top `end` part of the sphere (y from +1 downwards).
         Vector3 spherePointDeterministic(const int index, const int numPoints, const float end)
         {
-            const float start = 1.0f;                 // upstream: 1 - 2 * 0
+            const float start = 1.0f;                 // 1 - 2 * 0
             const float finish = 1.0f - 2.0f * end;
             const float t = static_cast<float>(index) / static_cast<float>(std::max(numPoints, 1));
             const float y = start + (finish - start) * t;
@@ -157,8 +157,8 @@ namespace visutwin::canvas
 
     namespace
     {
-        // Resolution: either fixed, or derived from the target's world-space bounds
-        // the way upstream's calculateLightmapSize does. The ceiling is the device's
+        // Resolution: either fixed, or derived from the target's world-space bounds.
+        // The ceiling is the device's
         // own texture limit — a bounds-derived resolution has no other one.
         int resolveLightmapSize(const Mesh& target, const Matrix4& worldTransform,
             const Lightmapper::Options& options, const int maxSize)
@@ -179,7 +179,7 @@ namespace visutwin::canvas
             if (bmax.getX() < bmin.getX()) {
                 return size;   // no triangles
             }
-            // upstream uses the half extents and the three face areas, unit area per axis
+            // the half extents and the three face areas, unit area per axis
             const Vector3 half = (bmax - bmin) * 0.5f;
             const float hx = half.getX();
             const float hy = half.getY();
@@ -347,8 +347,7 @@ namespace visutwin::canvas
 
             /// The unoccluded fraction of the light: 0 or 1 for a hard shadow ray, and
             /// for a soft directional light the fraction of rays spread over a
-            /// bakeArea-degree cone, the same spread upstream applies by rotating its
-            /// virtual lights.
+            /// bakeArea-degree cone.
             float shadowVisibility(const Lightmapper::Light& light, const Vector3& origin, const Vector3& L,
                 const float reach) const
             {
@@ -375,10 +374,9 @@ namespace visutwin::canvas
                 return static_cast<float>(unshadowed) / static_cast<float>(light.bakeNumSamples);
             }
 
-            // Upstream bakes ambient as N virtual directional lights spread over the
-            // top `spherePart` of the sphere. Here the same distribution drives N
-            // occlusion rays, weighted by N·L like the virtual lights' own N·L term,
-            // then shaped by upstream's bakeLmEnd curve.
+            // Ambient is baked from N occlusion rays spread over the top `spherePart`
+            // of the sphere, weighted by N·L as N virtual directional lights would be,
+            // then shaped by a contrast and brightness curve.
             float ambientBakeOcclusion(const Vector3& origin, const Vector3& N) const
             {
                 float weight = 0.0f;
@@ -395,7 +393,7 @@ namespace visutwin::canvas
                 }
                 float ambientOcclusion = weight > 0.0f ? visible / weight : 1.0f;
 
-                // upstream bakeLmEnd: contrast around 0.5, then brightness, then saturate
+                // contrast around 0.5, then brightness, then saturate
                 ambientOcclusion = ((ambientOcclusion - 0.5f) *
                     std::max(_options.ambientBakeOcclusionContrast + 1.0f, 0.0f)) + 0.5f;
                 return std::clamp(ambientOcclusion + _options.ambientBakeOcclusionBrightness, 0.0f, 1.0f);
@@ -428,8 +426,7 @@ namespace visutwin::canvas
             const Lightmapper::Options& _options;
         };
 
-        // Bilateral denoise over the shaded texels (upstream's bilateralDeNoise pass,
-        // driven by the same two sigmas: filterRange spatially, filterSmoothness on
+        // Bilateral denoise over the shaded texels (driven by two sigmas: filterRange spatially, filterSmoothness on
         // intensity, so lighting detail survives while ray noise is smoothed away).
         // Only covered texels contribute, so it runs before dilation.
         void bilateralFilter(std::vector<Vector3>& accum, const UvSurface& surface, const int size,

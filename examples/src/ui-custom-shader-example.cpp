@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 30.09.2026
+//
 // Port of upstream user-interface/custom-shader.
 //
 // Ability buttons whose cooldown is drawn by a ShaderMaterial on an image element: a shaded
@@ -52,7 +54,7 @@ namespace
 
     // A vertex shader for image elements on a screen-space screen, which pass one UV set through.
     // There, the model matrix already maps the element straight to clip space, so the camera's
-    // matrices are not needed. Depth is upstream's GL 0, which is 0.5 in this engine's [0, 1].
+    // matrices are not needed. Depth is GL 0, which is 0.5 in this engine's [0, 1].
     //
     // A radial cooldown: a circle the size of the element, whose shaded part shrinks clockwise
     // from twelve o'clock as the cooldown runs out. `progress` is the fraction left, 1 down to 0;
@@ -149,8 +151,8 @@ void main() {
 #endif
 )GLSL";
 
-    /// The cooldown material: the shader and its one uniform block (upstream's uColor and
-    /// uProgress). It blends normally and doesn't write depth, as upstream's does; a custom
+    /// The cooldown material: the shader and its one uniform block (colour and progress).
+    /// It blends normally and doesn't write depth; a custom
     /// material replaces the element's own handling of colour and opacity, so the shading colour
     /// is a uniform of its own.
     class CooldownMaterial final : public ShaderMaterial

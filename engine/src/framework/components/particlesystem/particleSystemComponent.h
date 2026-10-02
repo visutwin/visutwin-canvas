@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 13.07.2026.
+// Created by Arnis Lektauers on 13.07.2026
 //
 #pragma once
 
@@ -15,7 +15,7 @@
 namespace visutwin::canvas
 {
     /**
-     * GPU particle system (upstream particle-system component subset).
+     * GPU particle system.
      *
      * Authoring flow: mutate options() (pool size, lifetime, emitter shape,
      * velocity/gravity, scale/color/alpha graphs, color map, blending), then
@@ -42,17 +42,17 @@ namespace visutwin::canvas
         /// the particle mesh instance to the entity's RenderComponent.
         void apply();
 
-        /// Upstream play(): unfreeze, show, and loop again if the options loop.
+        /// Unfreeze, show, and loop again if the options loop.
         void play();
         /// Freeze the simulation.
         void pause();
         void unpause();
-        /// Upstream stop(): stop emitting and let the live particles finish their lives.
+        /// Stop emitting and let the live particles finish their lives.
         void stop();
         /// Restart the emission stream from time zero (and pre-warm it if asked to).
         void reset();
 
-        /// Upstream `drawOrder`: the order among UI draws, which a screen assigns to a
+        /// The order among UI draws, which a screen assigns to a
         /// particle system in its hierarchy (ScreenComponent::syncDrawOrder).
         [[nodiscard]] int drawOrder() const { return _drawOrder; }
         void setDrawOrder(int value);

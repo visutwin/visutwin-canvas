@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 30.09.2026
+//
 // The layout group's calculator (framework/components/layoutgroup/layoutCalculator.h),
 // ported case for case from upstream's test/framework/components/layout-group/
-// layout-calculator.test.mjs. Upstream builds elements and reads their calculated sizes and
+// layout-calculator.test.mjs. That test builds elements and reads their calculated sizes and
 // local positions back; the calculator here is a pure function, so the harness plays the
 // element's part: an item left out of the layout (a layout child's `excludeFromLayout`)
-// keeps its own size and its position at the origin, as upstream's untouched element does.
+// keeps its own size and its position at the origin, as an untouched element does.
 
 #include <cmath>
 #include <iostream>

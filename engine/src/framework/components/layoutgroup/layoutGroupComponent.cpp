@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 30.09.2026
+//
 #include "layoutGroupComponent.h"
 
 #include <algorithm>
@@ -14,8 +17,8 @@ namespace visutwin::canvas
 {
     namespace
     {
-        /// The child's element, when the child takes part (upstream
-        /// `isEnabledAndHasEnabledElement`, before the layout child's exclusion).
+        /// The child's element, when the child takes part (before the layout
+        /// child's exclusion).
         ElementComponent* enabledElementOf(GraphNode* node)
         {
             auto* entity = dynamic_cast<Entity*>(node);
@@ -26,7 +29,7 @@ namespace visutwin::canvas
             return element && element->enabled() ? element : nullptr;
         }
 
-        /// The child's layout child, when it is enabled (upstream reads a disabled one as absent).
+        /// The child's layout child, when it is enabled (a disabled one reads as absent).
         LayoutChildComponent* enabledLayoutChildOf(Entity* entity)
         {
             auto* child = entity->findComponent<LayoutChildComponent>();
@@ -141,7 +144,7 @@ namespace visutwin::canvas
             if (layoutChild && layoutChild->excludeFromLayout()) {
                 continue;
             }
-            // Upstream getProperty: the layout child's value when it has one, else the
+            // The layout child's value when it has one, else the
             // element's (width and height), else the default.
             LayoutItem item;
             item.width = element->width();
@@ -163,7 +166,7 @@ namespace visutwin::canvas
         }
 
         // Anchors other than all-zero make positions hard to reason about, and a split one
-        // would make the size follow the group instead; upstream forces them to zero.
+        // would make the size follow the group instead; they are forced to zero.
         for (ElementComponent* element : elements) {
             if (element->anchor().getX() != 0.0f || element->anchor().getY() != 0.0f ||
                 element->anchor().getZ() != 0.0f || element->anchor().getW() != 0.0f) {
@@ -185,9 +188,9 @@ namespace visutwin::canvas
             entity->setLocalPosition(placement.x, placement.y, entity->localPosition().getZ());
         }
 
-        // The inputs as the layout left them (it reset the anchors): upstream ignores what its
-        // own reflow changes (`_isPerformingReflow`), but not what a `reflow` handler changes,
-        // such as the group's size, which the next pass then sees differ.
+        // The inputs as the layout left them (it reset the anchors): what the reflow itself
+        // changes is ignored, but not what a `reflow` handler changes, such as the group's
+        // size, which the next pass then sees differ.
         gatherInputs(_lastInputs);
         fire("reflow", layout.bounds);
     }

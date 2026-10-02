@@ -27,7 +27,7 @@ struct VertexData {
     float4 instance_line4 [[attribute(9)]];   // model matrix column 3
 #if VT_FEATURE_INSTANCING_COLOR
     // Only present with the 80-byte instance stride. The matrix-only 64-byte stride
-    // (upstream's default instancing format) leaves base color to the material, and the
+    // (the default instancing format) leaves base color to the material, and the
     // vertex descriptor declares no attribute(10) for it.
     float4 instanceColor  [[attribute(10)]];  // sRGB diffuse color
 #endif
@@ -60,7 +60,7 @@ struct RasterizerData {
     float pointSize [[point_size]];
 #endif
 #if VT_FEATURE_DYNAMIC_REFRACTION
-    // The model matrix's per-axis scale (upstream refractionDynamic's modelScale): the
+    // The model matrix's per-axis scale: the
     // fragment stage has no model matrix of its own.
     float3 modelScale [[flat]];
 #endif
@@ -83,7 +83,7 @@ VT_MATERIAL_DATA_BLOCK
 /// The shader reads it through [[stage_in]] attributes (instance_line1..4 + instanceColor).
 ///
 /// Two strides are supported, chosen by the VertexFormat the app builds:
-///   64 bytes — model matrix only (VertexFormat::defaultInstancingFormat, upstream's default).
+///   64 bytes — model matrix only (VertexFormat::defaultInstancingFormat, the default).
 ///              Base color comes from the material, as it does for non-instanced draws.
 ///   80 bytes — model matrix + per-instance sRGB base color that replaces the material's
 ///              (VertexFormat::colorInstancingFormat), gated by VT_FEATURE_INSTANCING_COLOR.
@@ -236,7 +236,7 @@ struct LightingData {
     uint4 clusterParams;                    // x=cellsX, y=cellsY, z=cellsZ, w=maxLightsPerCell
     uint4 clusterParams2;                   // x=numClusteredLights, y-w=unused
 
-    // Ambient SH light probes: premultiplied irradiance coefficients (upstream AMBIENTSH).
+    // Ambient SH light probes: premultiplied irradiance coefficients.
     float4 ambientSH[9];
     // Camera view-projection for fragment-stage screen projection
     // (VT_FEATURE_DYNAMIC_REFRACTION grab-pass UV).
@@ -280,11 +280,11 @@ struct LightingData {
     float4 shadow1PcssCascadeRadii;
     float4 shadow1PcssCascadeDepthRanges;
     // Scene::skyboxRotation, one column per vector: environment samples read along
-    // R * dir (upstream cubeMapRotate). Identity unless the scene turns its sky.
+    // R * dir. Identity unless the scene turns its sky.
     float4 skyboxRotation[3];
-    // Spot cookie 2x2 per 2D cookie slot (upstream cookieTransform), mat2 columns xy, zw.
+    // Spot cookie 2x2 per 2D cookie slot, mat2 columns xy, zw.
     float4 cookieTransform2D[2];
-    // Upstream blueNoiseJitter: xy offset the opacity dither per frame while the camera
+    // Blue-noise jitter: xy offset the opacity dither per frame while the camera
     // jitters (TAA), zero otherwise.
     float4 ditherJitter;
 };

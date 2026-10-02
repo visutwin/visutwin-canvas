@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Particle sorting (upstream PARTICLESORT_*), as one compute dispatch of ONE workgroup:
-// each thread keys a share of the pool — upstream's keys, sorted ascending: minus the
+// Created by Arnis Lektauers on 02.10.2026
+//
+// Particle sorting, as one compute dispatch of ONE workgroup:
+// each thread keys a share of the pool — sorted ascending: minus the
 // squared distance to the camera (farthest drawn first), the life (newest first) or minus
 // the life (oldest first) — then the workgroup runs a bitonic sort over the pool rounded
 // up to a power of two (padding keys sort last), with a barrier between stages, and
 // writes the particle indices in draw order. One workgroup keeps every stage's barrier a
-// workgroup barrier, so the sort is a single dispatch at any pool size; upstream sorts on
-// the CPU instead, which on its GPU path it cannot.
+// workgroup barrier, so the sort is a single dispatch at any pool size.
 //
 // Bindings follow Compute's name-order contract: buffers "order", "particles",
 // "sortKeys" at 0, 1, 2 and the uniform block after them (buffer(3) / binding 3).

@@ -77,8 +77,8 @@ vec3 toneMapByMode(vec3 color, int mode) {
 }
 
 // Exposure then tonemap, by mode — the twin of common-tonemap.metal's toneMap(color,
-// exposure, mode). NONE (6) returns the colour UNTOUCHED, exposure included, as
-// upstream's tonemappingNone does. Callers pass exposure here rather than multiplying
+// exposure, mode). NONE (6) returns the colour UNTOUCHED, exposure included.
+// Callers pass exposure here rather than multiplying
 // by it first, or NONE would apply exposure on Vulkan alone.
 vec3 toneMapExposed(vec3 color, float exposure, int mode) {
     if (mode == 6) {

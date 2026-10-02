@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 01.10.2026
+//
 // How UI visuals share what they draw with. None of it changes a pixel — a visual with
 // buffers and a material of its own draws the same image — so the frame cannot hold it:
 //   - RangeAllocator hands out runs first-fit and merges what comes back;

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 02.10.2026
+//
 // DEVIATION (all shapes): the unit primitives come from the engine's render primitives
 // (primitiveGeometry.h), whose sphere has 48 bands where upstream's gizmo sphere has 32
 // (render) and 16 (picking), and whose plane is one quad where upstream's has 5 x 5.

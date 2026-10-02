@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Vulkan render target — dynamic-rendering attachment bundle.
 //
 // We use VK_KHR_dynamic_rendering (Vulkan 1.3 core), so this class doesn't

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 13.10.2025.
+// Created by Arnis Lektauers on 13.10.2025
 //
 #include "layerComposition.h"
 
@@ -99,7 +99,7 @@ namespace visutwin::canvas
         if (isSublayerAdded(layer, false) || isSublayerAdded(layer, true)) {
             return;
         }
-        // Mirrors upstream LayerComposition::insert: BOTH sublayers of the layer go in
+        // BOTH sublayers of the layer go in
         // at the index, opaque first then transparent, so the layer as a whole slots
         // into the existing order (e.g. at another layer's transparent index, which
         // puts it after that layer's opaque meshes but before its transparent ones).
@@ -281,7 +281,7 @@ namespace visutwin::canvas
             return;
         }
 
-        // Cameras render in PRIORITY order, smallest first (upstream). The sort is
+        // Cameras render in PRIORITY order, smallest first. The sort is
         // stable and everything defaults to 0, so a scene that sets no priority keeps
         // construction order; a scene that needs one camera first (a dynamic reflection
         // probe) says so with a priority rather than relying on that order.
@@ -329,7 +329,7 @@ namespace visutwin::canvas
                 action->transparent = _subLayerList[i];
                 action->lastCameraUse = false;
 
-                // Match upstream clear behavior: camera clears on first use / first use of target, layer clears always apply.
+                // Camera clears on first use / first use of target, layer clears always apply.
                 bool usedCameraTarget = false;
                 for (auto existingIt = _renderActions.rbegin(); existingIt != _renderActions.rend(); ++existingIt) {
                     const auto* existing = *existingIt;
@@ -355,12 +355,10 @@ namespace visutwin::canvas
 
             if (lastRenderAction) {
                 lastRenderAction->lastCameraUse = true;
-                // The camera's last action carries the post-processing trigger. Upstream moves
-                // it to the action before `disablePostEffectsLayer` (UI by default), but that
-                // camera setting serves only its legacy PostEffectQueue, which this port does
-                // not have: post-processing here is the camera frame, which ends its scene at
-                // `lastSceneLayerId` (Immediate) and draws the layers after it (UI) after
-                // compose, exactly what disablePostEffectsLayer = UI gives upstream.
+                // The camera's last action carries the post-processing trigger. There is no
+                // `disablePostEffectsLayer` to move it earlier: post-processing here is the
+                // camera frame, which ends its scene at `lastSceneLayerId` (Immediate) and
+                // draws the layers after it (UI) after compose.
                 lastRenderAction->triggerPostprocess = true;
             }
         }

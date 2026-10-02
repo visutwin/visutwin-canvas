@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 16.09.2026
+//
 #pragma once
 
 #include <memory>
@@ -49,8 +51,7 @@ namespace visutwin::canvas
      * and the clustered atlas holds one-shot shadows that must survive while a
      * neighbouring slot re-renders, so a face's rect is cleared by drawing a
      * fullscreen triangle at depth 1 under a viewport and scissor with the depth
-     * test set to ALWAYS — which is how upstream's WebGPU backend clears a
-     * viewport too. Restores the viewport and scissor; the caller re-binds its
+     * test set to ALWAYS. Restores the viewport and scissor; the caller re-binds its
      * own depth state and shader afterwards.
      */
     void clearDepthRect(GraphicsDevice* device, const Vector4& rect);
@@ -58,9 +59,8 @@ namespace visutwin::canvas
     /**
      * Clears the depth of the bound target, within the current viewport, to 1.0 INSIDE a
      * render pass that also has colour attachments, leaving the colour untouched: the same
-     * depth-1 triangle under ALWAYS, with every colour write masked off. Upstream clears a
-     * render action that is not the first of its pass in the middle of the pass
-     * (RenderPassForward `options.clearDepth` -> `renderer.clear`), which is how a layer
+     * depth-1 triangle under ALWAYS, with every colour write masked off. A render action
+     * that is not the first of its pass is cleared in the middle of the pass, which is how a layer
      * with `clearDepthBuffer` (a gizmo layer, the layers example's front layer) draws over
      * everything before it; a load action can only clear at the start of a pass.
      */

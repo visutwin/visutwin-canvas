@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 02.10.2026
+//
 #include "keyboardMouseSource.h"
 
 #include "framework/engine.h"
@@ -104,7 +106,7 @@ namespace visutwin::canvas
                 _pointerDown = true;
             }));
             _handles.push_back(mouse->on("mousemove", [this](const MouseEvent& e) {
-                // Upstream captures the pointer on a press, so movement counts only
+                // The pointer is captured on a press, so movement counts only
                 // between a press and its release.
                 if (e.fromTouch || !_pointerDown) {
                     return;

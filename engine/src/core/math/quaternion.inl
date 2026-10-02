@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025-2026 Arnis Lektauers
+//
 // Created by Arnis Lektauers on 18.08.2025
 //
 #pragma once
@@ -191,8 +194,7 @@ namespace visutwin::canvas
 
     inline Quaternion Quaternion::normalized() const
     {
-        // A zero quaternion normalises to identity on every backend, as upstream
-        // (quat.js) does. Without this guard the SSE and Apple paths divide by zero and
+        // A zero quaternion normalises to identity on every backend. Without this guard the SSE and Apple paths divide by zero and
         // return NaN, and since invert() routes through here, the NaN would spread to
         // anything inverting a degenerate rotation.
         if (lengthSquared() == 0.0f) {

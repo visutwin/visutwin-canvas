@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 30.09.2026
+//
 #include "scrollViewComponent.h"
 
 #include <algorithm>
@@ -43,7 +46,7 @@ namespace visutwin::canvas
     ScrollViewComponent::~ScrollViewComponent()
     {
         _instanceList.remove(this);
-        // upstream onBeforeRemove: everything the view refers to may outlive it.
+        // Everything the view refers to may outlive it.
         for (Binding* binding : {&_self, &_viewport, &_content, &_scrollbars[0], &_scrollbars[1]}) {
             unbind(*binding);
             if (binding->destroyed) {
@@ -417,7 +420,7 @@ namespace visutwin::canvas
                 _content.entity->setLocalPosition(position);
                 setScrollFromContentPosition(position);
             }
-            // Per frame, as upstream: the fling's decay follows the frame rate.
+            // Per frame: the fling's decay follows the frame rate.
             _velocity = Vector3(_velocity.getX() * (1.0f - _friction), _velocity.getY() * (1.0f - _friction),
                                 _velocity.getZ());
         }

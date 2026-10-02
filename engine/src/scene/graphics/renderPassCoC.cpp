@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Circle-of-confusion pass for depth of field: writes (cocFar, cocNear) from
 // linear scene depth. One implementation over QuadRender — a shader, one input
 // texture and one uniform block — rather than a pass class per backend.
 //
-// Ramp matches upstream's coc.js: a dead zone of +/- focusRange/2 around the
+// Ramp: a dead zone of +/- focusRange/2 around the
 // focus distance, then a ramp over the full focusRange, output as
 // (cocFar, cocNear). The same ramp as applyDofSinglePass in composeShaders.h (the
 // compose fallback when no CoC texture is bound), so the two DOF paths agree.
@@ -86,9 +88,9 @@ fragment float4 cocFragment(
     float rawDepth = depthTexture.sample(depthPointSampler, uv);
     float linearDepth = getLinearDepth(rawDepth, u.focus.z, u.focus.w);
 
-    // upstream coc.js: a dead zone of +/- focusRange/2 around the focus distance,
+    // A dead zone of +/- focusRange/2 around the focus distance,
     // then a ramp over the FULL focusRange. Matches applyDofSinglePass in
-    // composeShaders.h, which already followed upstream.
+    // composeShaders.h.
     const float invRange = 1.0 / max(u.focus.y, 0.001);
     const float farRange = u.focus.x + u.focus.y * 0.5;
     float cocFar = saturate((linearDepth - farRange) * invRange);

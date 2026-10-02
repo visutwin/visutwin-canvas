@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 11.10.2025.
+// Created by Arnis Lektauers on 11.10.2025
 //
 #pragma once
 
@@ -34,7 +34,7 @@ namespace visutwin::canvas
         void registerProgram(const std::string& name, const std::vector<std::string>& chunkOrder);
         bool hasProgram(const std::string& name) const;
 
-        /// Mutable shader chunk registry (upstream ShaderChunks): override chunk
+        /// Mutable shader chunk registry: override chunk
         /// sources at runtime; affected variants recompile lazily via cache-key
         /// hashing. Per-material overrides live on Material::setShaderChunk.
         ShaderChunks& chunks() { return _chunks; }
@@ -141,7 +141,7 @@ namespace visutwin::canvas
         void setPcssShadowsEnabled(bool value) { _pcssShadowsEnabled = value; }
 
         // Set when the directional light uses SHADOW_PCF1_32F / SHADOW_PCF5_32F: the
-        // depth-map PCF kernel is one tap / upstream's 5x5 instead of the 3x3.
+        // depth-map PCF kernel is one tap / 5x5 instead of the 3x3.
         void setPcf1ShadowsEnabled(bool value) { _pcf1ShadowsEnabled = value; }
         void setPcf5ShadowsEnabled(bool value) { _pcf5ShadowsEnabled = value; }
 
@@ -216,7 +216,7 @@ namespace visutwin::canvas
             bool skinning = false;
             bool morphing = false;
             bool specGloss = false;
-            bool noSpecular = false;         // upstream useSpecular false: no direct, area, clustered or reflected specular
+            bool noSpecular = false;         // useSpecular false: no direct, area, clustered or reflected specular
             bool orenNayar = false;
             bool detailNormals = false;
             bool displacement = false;
@@ -231,7 +231,7 @@ namespace visutwin::canvas
             bool instancingColor = false;  // 80-byte instance stride: per-instance base color overrides the material
             bool planarReflection = false;  // Planar reflection — screen-space UV sampling + Fresnel blend
             bool planarReflectionDepthPass = false;  // Depth pass: output distance-from-plane instead of PBR
-            bool screenSpace = false;       // upstream SCREENSPACE: the world position IS the clip position (screen-space UI)
+            bool screenSpace = false;       // the world position IS the clip position (screen-space UI)
             bool lightmapBake = false;      // UV-space lightmap bake: rasterize the unwrap, output diffuse light
             bool lightmapBakeAccum = false; // Accumulating bake pass: direct light only, ambient already baked
             bool debugPass = false;         // Debug surface-quantity output (mode chosen at runtime)
@@ -242,8 +242,7 @@ namespace visutwin::canvas
             bool vsmShadows = false;        // Directional EVSM_16F: moments texture sampled via Chebyshev.
             bool pcssShadows = false;       // Directional PCSS: raw depth samples, Vogel-disk blocker search.
             bool pcf1Shadows = false;       // Directional PCF1_32F: one comparison tap.
-            bool pcf5Shadows = false;       // Directional PCF5_32F: upstream's 9-tap 5x5 kernel.
-                                            // Mirrors upstream SHADOW_VSM_16F.
+            bool pcf5Shadows = false;       // Directional PCF5_32F: 9-tap 5x5 kernel.
             bool dynamicBatch = false;      // Dynamic batching — per-vertex bone index + matrix palette
             bool pointSize = false;         // Point primitive rendering — [[point_size]] in vertex output
             bool areaLights = false;        // Area rectangular lights — MRP evaluation in main loop

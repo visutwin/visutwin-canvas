@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 
-// Upstream cubeMapRotate: the direction an environment sample (sky, env atlas, SH)
+// cubeMapRotate: the direction an environment sample (sky, env atlas, SH)
 // reads along under Scene::skyboxRotation. Column 0's w flags a rotation at all.
 static inline float3 cubeMapRotate(const float3 dir, constant LightingData& lighting)
 {
@@ -102,12 +102,12 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
 #if VT_FEATURE_ATMOSPHERE
                                   constant AtmosphereData &atmosphere [[buffer(9)]],
 #endif
-                                  // Scalar maps (upstream glossMap / thicknessMap / refractionMap): one channel
+                                  // Scalar maps (gloss / thickness / refraction): one channel
                                   // each, chosen by material.mapChannelParams — see the MaterialData comment.
                                   texture2d<float> glossMap [[texture(31)]],
                                   texture2d<float> thicknessMap [[texture(32)]],
                                   texture2d<float> refractionMap [[texture(33)]],
-                                  // Opacity map (upstream opacityMap), flags bit 19. Metal only.
+                                  // Opacity map, flags bit 19. Metal only.
                                   texture2d<float> opacityMap [[texture(34)]],
                                   // Second directional shadow slot's map; the type follows slot 0's.
 #if VT_FEATURE_VSM_SHADOWS

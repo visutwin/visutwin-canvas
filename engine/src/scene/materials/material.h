@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 11.10.2025.
+// Created by Arnis Lektauers on 11.10.2025
 //
 #pragma once
 
@@ -131,7 +131,7 @@ namespace visutwin::canvas
         uint64_t shaderVariantKey() const { return _shaderVariantKey; }
         void setShaderVariantKey(const uint64_t value) { _shaderVariantKey = value; markUniformsDirty(); }
         /**
-         * Per-material shader chunk overrides (upstream material.shaderChunks):
+         * Per-material shader chunk overrides:
          * replace a named chunk's source for programs compiled for THIS material
          * only. Resolution order at composition: material override, then the
          * ProgramLibrary registry override, then the default chunk. The override
@@ -259,12 +259,11 @@ namespace visutwin::canvas
         // flag to match. BLEND enables standard src-alpha blending, disables depth-write, and
         // marks the material as transparent (rendered in the back-to-front sublayer).
         // OPAQUE/MASK disable blending, re-enable depth-write, and clear the transparent flag.
-        // Matches upstream material.blendType setter semantics.
         void setAlphaMode(AlphaMode mode);
 
         float alphaCutoff() const { return _alphaCutoff; }
         void setAlphaCutoff(const float value) { _alphaCutoff = value; markUniformsDirty(); }
-        /// The picker's id pass (upstream SHADER_PICK): the material draws `pickColor` as
+        /// The picker's id pass: the material draws `pickColor` as
         /// exact 8-bit rgb in place of its shading, after its alpha test. Set on the
         /// Picker's private clones only.
         bool pickPass() const { return _pickPass; }
@@ -316,8 +315,7 @@ namespace visutwin::canvas
         /// updateUniforms plus what every material owes the block after it: the pick id.
         void packAll(MaterialUniforms& uniforms) const;
 
-        /// A per-map UV transform as the two rows the shaders read (upstream
-        /// texture_*MapTransform0/1). A subclass packs its own transforms with it rather
+        /// A per-map UV transform as the two rows the shaders read. A subclass packs its own transforms with it rather
         /// than writing them into the base fields from a const method.
         static void packTextureTransform(const TextureTransform& t, float row0[4], float row1[4]);
 
@@ -355,13 +353,13 @@ namespace visutwin::canvas
         virtual void getTextureSlots(std::vector<TextureSlot>& slots) const;
 
         /**
-         * Identity, not state — a per-process counter, as upstream's Material.id.
+         * Identity, not state — a per-process counter.
          *
          * The sort key takes this rather than a hash of the material's state: a hash
          * XORed from bit ranges lets materials that differ produce the same key and
          * interleave.
          *
-         * Identity is what upstream sorts on and what this renderer actually wants:
+         * Identity is what this renderer actually wants:
          * consecutive draws of the SAME material skip binding entirely (see the
          * lastShaderMaterial cache in renderForwardLayer), which state similarity
          * cannot deliver.
@@ -369,7 +367,7 @@ namespace visutwin::canvas
         uint32_t id() const { return _id; }
 
         /**
-         * An independent copy of this material (upstream Material::clone).
+         * An independent copy of this material.
          *
          * Needed whenever one loaded asset is instantiated more than once and the copies
          * must be configured differently — a container's materials are shared across every

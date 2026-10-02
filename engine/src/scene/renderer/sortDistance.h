@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// The distance the forward pass sorts draws on. Upstream (layer.js,
-// _calculateSortDistances) uses the SIGNED depth along the camera's forward
-// vector, not the radial distance to the camera: two transparent surfaces at the
+// Created by Arnis Lektauers on 06.09.2026
+//
+// The distance the forward pass sorts draws on: the SIGNED depth along the
+// camera's forward vector, not the radial distance to the camera. Two transparent surfaces at the
 // same view depth must draw in a stable order whatever their screen position,
 // and radial distance ranks an off-axis surface as farther than a centred one by
 // up to 1 / cos(fov / 2). Radial distance also cannot tell "behind the camera"

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Port of upstream's graphics/layers: composes the frame from multiple layers.
 // An X-Ray layer draws a character silhouette through walls using a greater depth
 // test, a Character layer renders the walking character on top of it, and a Front
@@ -246,7 +248,7 @@ protected:
         _cubeEntity->setLocalPosition(28.0f, -22.0f, -60.0f);
 
         // ------ UI handling ------
-        // Upstream exposes five checkboxes; here they are keys.
+        // The layer toggles are keys.
         spdlog::info("Keys: 1 World  2 X-Ray  3 Character  4 Front  5 Front clear-depth  |  ESC quits");
 
         return true;

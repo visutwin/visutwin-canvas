@@ -1,4 +1,4 @@
-// ── Ordered dither (parity with common-dither.metal, upstream bayer.js) ──
+// ── Ordered dither (parity with common-dither.metal) ──
 // 2x2 bayer matrix [1 2][3 0], p in [0,1]
 float bayer2(vec2 p) { return mod(2.0 * p.y + p.x + 1.0, 4.0); }
 
@@ -35,7 +35,7 @@ const uint VT_DITHER_BAYER16 = 4u;
 const uint VT_DITHER_BLUENOISE = 5u;
 const uint VT_DITHER_IGNNOISE  = 6u;
 
-// Upstream blueNoiseTex32, G channel (core/math/blueNoise.h), row-major 32x32, four
+// Blue noise texture, G channel (core/math/blueNoise.h), row-major 32x32, four
 // texels per uint, lowest byte first.
 const uint kBlueNoise32[256] = uint[](
     0x1FCF4CE3u, 0x008047C0u, 0x17873EEDu, 0xD93D94F6u, 0x8239FF13u, 0x30FA216Du, 0x0A925319u, 0x3A238C7Fu,
@@ -72,8 +72,8 @@ const uint kBlueNoise32[256] = uint[](
     0x7185B071u, 0xDD1CF393u, 0xB5CD2AABu, 0x719F0652u, 0x08E68C5Cu, 0xAC7B45DBu, 0xE039C7D5u, 0xAAD750C7u
 );
 
-// Dither threshold for a screen position (parity with common-dither.metal, upstream
-// opacity-dither.js). `jitter` is upstream's blueNoiseJitter.xy, zero unless the camera
+// Dither threshold for a screen position (parity with common-dither.metal).
+// `jitter` is the blue-noise jitter xy, zero unless the camera
 // jitters for TAA.
 float ditherThreshold(uint ditherMode, vec2 screenPos, vec2 jitter) {
     vec2 p = screenPos + jitter;
@@ -91,7 +91,7 @@ float ditherThreshold(uint ditherMode, vec2 screenPos, vec2 jitter) {
         uint index = texel.y * 32u + texel.x;
         noise = float((kBlueNoise32[index >> 2u] >> ((index & 3u) * 8u)) & 0xFFu) / 255.0;
     } else if (ditherMode == VT_DITHER_IGNNOISE) {
-        // Interleaved gradient noise, as upstream.
+        // Interleaved gradient noise.
         vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
         noise = fract(magic.z * fract(dot(p, magic.xy)));
     } else {  // VT_DITHER_BAYER8

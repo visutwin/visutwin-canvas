@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 29.09.2026
+//
 // A node's transform, computed by something other than the node.
 //
-// Upstream's ElementComponent replaces its entity's `_sync`, `setPosition` and
-// `setLocalPosition` at runtime (element/component.js `_patch`): a UI element's world
-// transform is not parent x local, it goes through its anchors, its parent element's model
-// transform and its screen's projection, and setting its position also re-derives its
-// margins. C++ cannot swap a member function on one object, so a GraphNode carries an
-// optional hook instead, installed and removed where upstream patches and unpatches. A node
-// without one pays a single pointer test.
+// A UI element's world transform is not parent x local, it goes through its anchors, its
+// parent element's model transform and its screen's projection, and setting its position
+// also re-derives its margins. C++ cannot swap a member function on one object, so a
+// GraphNode carries an optional hook that replaces its sync, setPosition and
+// setLocalPosition, installed and removed by the element. A node without one pays a single
+// pointer test.
 //
 #pragma once
 
@@ -31,7 +32,7 @@ namespace visutwin::canvas
         virtual void setNodeLocalPosition(GraphNode& node, const Vector3& position) = 0;
 
     protected:
-        // What upstream reaches through `Entity.prototype._sync` and the node's fields.
+        // The node's own sync, position setters and fields.
         static void defaultSync(GraphNode& node) { node.defaultSync(); }
         static void defaultSetPosition(GraphNode& node, const Vector3& p) { node.defaultSetPosition(p); }
         static void defaultSetLocalPosition(GraphNode& node, const Vector3& p) { node.defaultSetLocalPosition(p); }

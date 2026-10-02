@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 13.09.2025.
+// Created by Arnis Lektauers on 13.09.2025
 //
 #include <cmath>
 #include "metalGraphicsDevice.h"
@@ -131,8 +131,7 @@ namespace visutwin::canvas
         _metalLayer->setFramebufferOnly(false);
         // Frame pacing (options.vsync, default true): lock the render loop to
         // the display cadence so the wall-clock dt the app measures is even
-        // (the browser's rAF gives upstream examples this for free; jittery
-        // dt shows as animation judder even at high fps).
+        // (jittery dt shows as animation judder even at high fps).
         //  - displaySync must be forced ON: SDL's renderer (whose layer we
         //    borrow) may have disabled it, letting presents outrun the
         //    refresh rate entirely.
@@ -1943,7 +1942,7 @@ namespace visutwin::canvas
             _renderPassEncoder->setDepthStencilState(_defaultDepthStencilState);
             _encoderDepthStencilState = _defaultDepthStencilState;
         }
-        // glTF (and upstream/WebGL) use counter-clockwise front faces by default, and
+        // glTF uses counter-clockwise front faces by default, and
         // nothing draws with the other winding, so it is encoder state set once.
         _renderPassEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
         const int targetWidth = target ? target->width() : size().first;
@@ -2063,8 +2062,8 @@ namespace visutwin::canvas
     {
         GraphicsDevice::setScissor(x, y, w, h);
         if (_renderPassEncoder && w > 0 && h > 0) {
-            // Clamped to the pass's attachments, as Vulkan's applyScissor does and
-            // upstream does on WebGPU (#9516): a camera rect reaching past the target
+            // Clamped to the pass's attachments, as Vulkan's applyScissor does:
+            // a camera rect reaching past the target
             // makes the scissor do the same, and Metal requires the rect to lie within
             // the attachments. Unclamped, a negative x or y would wrap to an enormous
             // NS::UInteger rather than clip.

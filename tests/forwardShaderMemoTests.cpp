@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 01.10.2026
+//
 // ProgramLibrary::getForwardShader remembers, ON THE MATERIAL, the shader it resolved,
 // against everything the resolution reads: the material as of its uniformsVersion(), the
 // draw's flags, the library's frame switches and the chunk registry. A repeat is then a

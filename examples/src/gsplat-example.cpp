@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Gaussian splatting example — port of upstream's gaussian-splatting/simple:
 // a captured splat on a shadow-receiving ground plane under a PCSS directional
 // light, viewed with an orbit camera. Rendered via the classic gsplat path:
 // instanced screen-space EWA quads with a background CPU depth sorter for
 // back-to-front blending.
 //
-// DEVIATION: upstream uses its own `biker` capture, whose licence PlayCanvas does
-// not document. This uses a CC-BY-4.0 capture instead (see tamiya-dt03.txt), so
-// the splat's own transform is fitted to that model rather than copied from
-// upstream; the surrounding scene matches upstream value for value.
+// DEVIATION: upstream uses its own `biker` capture, whose licence is not
+// documented. This uses a CC-BY-4.0 capture instead (see tamiya-dt03.txt), so
+// the splat's own transform is fitted to that model rather than copied; the
+// surrounding scene matches upstream value for value.
 //
 #include <cmath>
 #include <memory>
@@ -25,20 +27,20 @@
 
 using namespace visutwin::canvas;
 
-// Upstream's scene layout, kept as-is (the ground is 10x10 centred on the origin,
+// Scene layout (the ground is 10x10 centred on the origin,
 // so its top surface is at y = -0.45 + 0.5 = 0.05 and the subject stands on it).
 constexpr float GROUND_TOP = 0.05f;
 constexpr float SUBJECT_X = -1.5f;
 
 // Fitted to this capture: a 180-degree flip about X puts it the right way up (raw
-// 3DGS captures are Y-down, which is why upstream flips its biker too), and the
+// 3DGS captures are Y-down), and the
 // scale brings the ~17.6-unit capture down to a ~2.6-unit subject so the orbit
 // framing carries over. Offsets centre it and rest it on the ground.
 constexpr float SPLAT_SCALE = 0.148f;
 
-constexpr float ORBIT_DISTANCE = 4.0f;   // upstream ORBIT_DISTANCE
-constexpr float ORBIT_YAW = 32.0f;       // upstream ORBIT_INITIAL_YAW
-constexpr float ORBIT_PITCH = -10.0f;    // upstream ORBIT_INITIAL_PITCH
+constexpr float ORBIT_DISTANCE = 4.0f;
+constexpr float ORBIT_YAW = 32.0f;
+constexpr float ORBIT_PITCH = -10.0f;
 
 class GsplatExample final: public ExampleApp
 {
@@ -55,7 +57,7 @@ protected:
     {
         spdlog::info("*** Gaussian Splatting Example ***");
 
-        // Upstream sets no environment at all — the splat carries its own colour and
+        // No environment at all — the splat carries its own colour and
         // the ground is lit by the directional light alone. Tone mapping is ACES and
         // exposure stays at the default 1.
         scene()->setToneMapping(TONEMAP_ACES);
@@ -79,7 +81,7 @@ protected:
         auto* gsplatComponent = static_cast<GSplatComponent*>(modelEntity->addComponent<GSplatComponent>());
         gsplatComponent->setResource(splatResource);
 
-        // Flip upright and stand it on the ground at upstream's subject offset.
+        // Flip upright and stand it on the ground at the subject offset.
         // DEVIATION: upstream sets castShadows on the gsplat component; GSplatComponent
         // has no such option here, so the splat lights nothing and casts no shadow (the
         // ground still catches the light itself). Upstream notes gsplats are unlit there too.
@@ -94,7 +96,7 @@ protected:
         // -----------------------------------------------------------------------
         // Lights
         // -----------------------------------------------------------------------
-        // Single shadow-casting directional light, upstream's values verbatim.
+        // Single shadow-casting directional light.
         auto* keyLight = createDirectionalLight(Vector3(55.0f, 0.0f, 20.0f),
             Color(1.0f, 1.0f, 1.0f), 1.0f, true);
         if (auto* keyLightComp = keyLight->findComponent<LightComponent>()) {
@@ -110,7 +112,7 @@ protected:
             keyLightComp->setPenumbraFalloff(4.0f);
         }
 
-        // Ground plane to receive the shadow — upstream's box, material and transform.
+        // Ground plane to receive the shadow.
         // GOTCHA: on StandardMaterial the diffuse/metalness/gloss setters are the ones
         // updateUniforms() reads; setBaseColorFactor and friends get overwritten.
         _groundMaterial = std::make_shared<StandardMaterial>();
@@ -129,7 +131,7 @@ protected:
         // -----------------------------------------------------------------------
         // Camera with orbit controls
         // -----------------------------------------------------------------------
-        // Place the camera at upstream's initial orbit pose, then hand that pose to
+        // Place the camera at the initial orbit pose, then hand that pose to
         // CameraControls: setFocusPoint derives the orbit distance and angles from the
         // camera's CURRENT position without moving it, so the exact pose survives.
         const float yawRad = ORBIT_YAW * DEG_TO_RAD;

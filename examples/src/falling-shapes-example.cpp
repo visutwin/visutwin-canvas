@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 05.09.2026
+//
 // Port of upstream physics/falling-shapes.
 //
 // A grey floor with restitution 0.5, and forty dynamic shapes dropped onto it one

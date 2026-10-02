@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Upstream's Picker: prepare() renders the chosen layers into an offscreen buffer with
+// Created by Arnis Lektauers on 21.03.2026
+//
+// Picker: prepare() renders the chosen layers into an offscreen buffer with
 // each mesh instance's id as its colour (and the depth beside it), and the queries read
 // that buffer — so a selection is what is VISIBLE at those pixels, occlusion and alpha
 // test included, and getWorldPoint is a point on the rendered surface.

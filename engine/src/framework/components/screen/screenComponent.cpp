@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 21.03.2026
+//
 #include "screenComponent.h"
 
 #include <algorithm>
@@ -24,7 +27,7 @@ namespace visutwin::canvas
     ScreenComponent::~ScreenComponent()
     {
         _instanceList.remove(this);
-        // Upstream onBeforeRemove: every element bound here loses its screen. On a copy,
+        // Every element bound here loses its screen. On a copy,
         // because each one unbinds itself from this list.
         const auto elements = _elements;
         for (auto* element : elements) {
@@ -35,7 +38,7 @@ namespace visutwin::canvas
 
     void ScreenComponent::initializeComponentData()
     {
-        // Upstream ScreenComponentSystem.initializeComponentData: elements added BEFORE their
+        // Elements added BEFORE their
         // screen find it now; a nested screen keeps its own subtree.
         const std::function<void(GraphNode*)> bindDescendants = [&](GraphNode* node) {
             for (const auto& child : node->children()) {
@@ -69,7 +72,7 @@ namespace visutwin::canvas
 
     void ScreenComponent::setResolution(const Vector2& value)
     {
-        // Upstream: a screen-space screen ignores the value and takes the canvas's.
+        // A screen-space screen ignores the value and takes the canvas's.
         _resolution = _screenSpace ? canvasResolution() : value;
         updateScale();
         calcProjectionMatrix();
@@ -95,12 +98,12 @@ namespace visutwin::canvas
 
     void ScreenComponent::setScaleMode(ScreenScaleMode value)
     {
-        // World-space screens do not support scale modes (upstream).
+        // World-space screens do not support scale modes.
         if (!_screenSpace && value != ScreenScaleMode::None) {
             value = ScreenScaleMode::None;
         }
         _scaleMode = value;
-        setResolution(_resolution);   // force update, as upstream
+        setResolution(_resolution);   // force update
         fire("set:scalemode");
     }
 
@@ -169,7 +172,7 @@ namespace visutwin::canvas
 
     void ScreenComponent::updateScale()
     {
-        // Upstream _calcScale, in log space so that an x scale of 2 and a y scale of 0.5
+        // Scale in log space, so that an x scale of 2 and a y scale of 0.5
         // blend to 1. With ScreenScaleMode::None the reference IS the resolution: scale 1.
         const Vector2& reference = referenceResolution();
         const float lx = std::log2((_resolution.x != 0.0f ? _resolution.x : 1.0f) / reference.x);
@@ -191,7 +194,7 @@ namespace visutwin::canvas
 
     void ScreenComponent::dirtifyEntityLocal()
     {
-        // Upstream dirtifies the screen entity's local transform so its elements re-sync.
+        // Dirty the screen entity's local transform so its elements re-sync.
         if (_entity) {
             _entity->setLocalPosition(_entity->localPosition());
         }
@@ -222,7 +225,7 @@ namespace visutwin::canvas
         if (!src) {
             return;
         }
-        // Upstream cloneComponent's order: space, mode, blend, priority, resolutions.
+        // Clone order: space, mode, blend, priority, resolutions.
         setScreenSpace(src->_screenSpace);
         setScaleMode(src->_scaleMode);
         setScaleBlend(src->_scaleBlend);

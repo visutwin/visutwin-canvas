@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 13.07.2026
+//
 // Port of upstream test/contact-hardening-shadows.
 //
 // The animated robot-arm.glb (scale 3, idle clip at speed 0.1) stands on a large
@@ -14,7 +16,7 @@
 // https://sketchfab.com/3d-models/black-honey-robotic-arm-c50671f2a8e74de2a2e687103fdc93ab
 //
 // Keys stand in for upstream's control panel:
-//   Space = cycle the active light on/off (upstream "Cycle Active Light")
+//   Space = cycle the active light on/off
 //   A     = animate lights on/off
 //   1/2/3 = toggle the area / point / directional light while not cycling
 //   P     = switch all three lights between PCSS_32F and PCF5_32F
@@ -151,7 +153,7 @@ protected:
         _area->setInnerConeAngle(45.0f);
         _area->setOuterConeAngle(50.0f);
         _area->setShadowNormalBias(0.1f);
-        // Upstream leaves the default bias of 0.05. See the DEVIATION in the header.
+        // Not the default bias of 0.05. See the DEVIATION in the header.
         _area->setShadowBias(0.0f);
         _areaLight->setLocalScale(3.0f, 1.0f, 3.0f);
         _areaLight->setLocalEulerAngles(45.0f, 90.0f, 0.0f);
@@ -159,7 +161,7 @@ protected:
 
         // Emissive material that is the light source colour. The unlit path adds
         // the base colour to the emissive, so the diffuse is black: with no lights
-        // and no ambient, upstream's diffuse contributes nothing either.
+        // and no ambient, a diffuse would contribute nothing anyway.
         _brightMaterial = std::make_shared<StandardMaterial>();
         _brightMaterial->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
         _brightMaterial->setEmissive(_area->color());
@@ -177,7 +179,7 @@ protected:
         _directional->setColor(Color(1.0f, 1.0f, 1.0f, 1.0f));
         _directional->setCastShadows(true);
         _directional->setNumCascades(1);
-        // Upstream uses 1. See the DEVIATION in the header for why this is 0.02.
+        // See the DEVIATION in the header for why this is 0.02.
         _directional->setPenumbraSize(0.02f);
         _directional->setShadowType(SHADOW_PCSS_32F);
         _directional->setIntensity(2.0f);

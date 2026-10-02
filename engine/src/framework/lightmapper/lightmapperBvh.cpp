@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 13.09.2026
+//
 // Define VISUTWIN_KERNELS_FORCE_SCALAR to build the scalar slab test on a SIMD
 // target, for measuring what the SIMD path is worth.
 //

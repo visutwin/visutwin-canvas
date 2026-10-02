@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 11.09.2025.
+// Created by Arnis Lektauers on 11.09.2025
 //
 #include "renderer.h"
 #include "cullModeResolve.h"
@@ -105,7 +105,7 @@ namespace visutwin::canvas
             int h = 1;
         };
 
-        /// A normalized camera or scissor rect in pixels of a target. Upstream rect
+        /// A normalized camera or scissor rect in pixels of a target. The rect's
         /// origin is bottom-left; the viewport and scissor origin is top-left.
         PixelRect normalizedRectToPixels(const Vector4& rect, const int targetWidth, const int targetHeight)
         {
@@ -269,13 +269,13 @@ namespace visutwin::canvas
             }
 
             // A light an earlier camera already reached is still TESTED: its screen size
-            // is the maximum over every camera (upstream's culler updates it per camera),
+            // is the maximum over every camera,
             // and skipping it let only the first camera rank it for an atlas slot.
             const BoundingSphere bounds = sceneLight->boundingSphere();
             if (frustum.checkSphere(bounds.center(), bounds.radius())) {
                 sceneLight->setVisibleThisFrame(true);
                 // The union over cameras of the viewport fraction the light covers,
-                // which ranks it for an atlas slot (upstream maxScreenSize).
+                // which ranks it for an atlas slot.
                 sceneLight->setMaxScreenSize(std::max(sceneLight->maxScreenSize(), camera->screenSize(bounds)));
                 continue;
             }
@@ -283,7 +283,7 @@ namespace visutwin::canvas
                 continue;   // another camera reached it; this one does not see it
             }
 
-            // Upstream's one exception, and it is about allocation rather than
+            // The one exception, and it is about allocation rather than
             // visibility: outside clustered lighting the shadow passes still read a
             // culled light's map, so a caster that has never had one allocated is
             // marked visible to get one. A light that already has its map stays
@@ -321,7 +321,7 @@ namespace visutwin::canvas
     {
         // Two layers that see the same lights share a grid — the content depends on
         // the lights and nothing else, so building it twice would produce the same
-        // cells twice. That is upstream's rule and the reason for the hash.
+        // cells twice. That is the reason for the hash.
         if (const auto found = _clustersByLightSet.find(lightSetHash);
             found != _clustersByLightSet.end()) {
             return found->second;
@@ -439,9 +439,9 @@ namespace visutwin::canvas
         _device->frameCounters().camerasRendered += static_cast<int>(_cullCameras.size());
         for (Camera* camera : _cullCameras) {
             // Before the frustum is built, so a listener may still move the camera.
-            // Upstream passes the owning camera COMPONENT, or nothing for an internal
-            // camera (shadow, reflection, picker); this port has no back pointer from
-            // Camera to its component, so it passes the camera.
+            // Listeners get the camera itself: there is no back pointer from Camera
+            // to its component, and an internal camera (shadow, reflection, picker)
+            // has none.
             if (_scene) {
                 _scene->fire("precull", camera);
             }
@@ -545,7 +545,7 @@ namespace visutwin::canvas
             if (!meshInstance->mesh()->hasVertexBuffer()) {
                 return Bucket::None;
             }
-            // Upstream's Camera.cullingMask against MeshInstance.mask: a camera that
+            // Camera::cullingMask against MeshInstance::mask: a camera that
             // wants a subset of the scene says so here rather than by juggling layers.
             if ((meshInstance->mask() & cullingMask) == 0u) {
                 return Bucket::None;
@@ -699,10 +699,9 @@ namespace visutwin::canvas
             // the per-cascade fit — during the cull, then reads them at bind time. So a
             // re-fit here would move every sampling matrix with the view while the
             // texture stayed put, and a one-shot shadow came out wrong the moment the
-            // camera moved. Upstream can afford to re-fit every frame because it writes
-            // its shadowMatrix inside the shadow pass, so under NONE the matrix keeps
-            // the fit the texture was rendered with; skipping the fit is the same
-            // invariant reached from the other side. The light still joins the list:
+            // camera moved. Writing the shadow matrix inside the shadow pass would
+            // keep, under NONE, the fit the texture was rendered with; skipping the
+            // fit is the same invariant reached from the other side. The light still joins the list:
             // the forward pass reads its matrices from it, and the pass builder and the
             // one-shot consume both gate on needsShadowRendering themselves.
             if (sceneLight->shadowUpdateMode() != ShadowUpdateType::SHADOWUPDATE_NONE) {
@@ -970,7 +969,7 @@ namespace visutwin::canvas
             view.viewProjection = view.projMatrix * view.viewMatrix;
             camera.storeShaderMatrices(view.viewProjection, jitterX, jitterY, device.renderVersion());
 
-            // Per-camera tone mapping (upstream CameraComponent::toneMapping) overrides the
+            // Per-camera tone mapping overrides the
             // scene-wide value; TONEMAP_INHERIT keeps the scene's.
             const int sceneToneMapping = scene ? scene->toneMapping() : TONEMAP_LINEAR;
             view.toneMapping = camera.toneMapping() != TONEMAP_INHERIT ? camera.toneMapping() : sceneToneMapping;
@@ -1015,7 +1014,7 @@ namespace visutwin::canvas
 
                 // The cookie's shape has to match the light: a spot projects a 2D
                 // texture, an omni samples a cubemap by direction. A mismatch is
-                // ignored, as upstream does.
+                // ignored.
                 if (lc->cookie()) {
                     if (type == LightType::LIGHTTYPE_SPOT && !lc->cookie()->isCubemap()) {
                         use.cookie2D = true;
@@ -1070,7 +1069,7 @@ namespace visutwin::canvas
 
                 const auto worldBounds = meshInstance->aabb();
                 if (meshInstance->node() && !entry->material->isSkybox()) {
-                    // Signed view-axis depth, as upstream's _calculateSortDistances. A
+                    // Signed view-axis depth. A
                     // radial distance would rank an off-axis transparent surface behind a
                     // centred one at the same depth.
                     const auto& customDistance = meshInstance->calculateSortDistance();
@@ -1084,7 +1083,7 @@ namespace visutwin::canvas
             }
         }
 
-        // Upstream's Layer.sortVisible: the mode is a per-layer, per-sublayer
+        // The sort mode is a per-layer, per-sublayer
         // property, because the two sublayers want opposite things — the opaque pass
         // wants the fewest state changes, the transparent pass has to composite
         // back-to-front whatever that costs. The defaults are MATERIALMESH and
@@ -1189,10 +1188,9 @@ namespace visutwin::canvas
             lightData.color = lightComponent.color();
             lightData.intensity = std::max(lightComponent.renderIntensity(physicalUnits), 0.0f);
             lightData.range = std::max(lightComponent.range(), 1e-4f);
-            // inner/outerConeAngle are HALF-angles in degrees (upstream Light:
-            // `cos(angle * DEG_TO_RAD)`, and its spot shadow/cookie cameras use
-            // `fov = outerConeAngle * 2`). Halving them here made every spot cone
-            // half as wide as the shadow and cookie frustum fitted to the same
+            // inner/outerConeAngle are HALF-angles in degrees (the spot shadow/cookie
+            // cameras use `fov = outerConeAngle * 2`). Halving them here made every spot
+            // cone half as wide as the shadow and cookie frustum fitted to the same
             // light — visible as a beam covering only the middle of its cookie.
             lightData.innerConeCos = std::cos(toRadians(std::max(lightComponent.innerConeAngle(), 0.0f)));
             lightData.outerConeCos = std::cos(toRadians(std::max(lightComponent.outerConeAngle(), 0.0f)));
@@ -1202,7 +1200,7 @@ namespace visutwin::canvas
             lightData.falloffModeLinear = lightComponent.falloffMode() == LightFalloff::LIGHTFALLOFF_LINEAR;
             lightData.castShadows = lightComponent.castShadows();
 
-            // An area source (upstream _setLtcPositional): the world matrix's X and Z
+            // An area source: the world matrix's X and Z
             // axes, halved — its COLUMNS (row 0 would be the X component of all three
             // axes, a vector outside the light's own plane once it is rotated).
             lightData.shape = static_cast<uint32_t>(lightComponent.shape());
@@ -1281,7 +1279,7 @@ namespace visutwin::canvas
             // slope-aware. For VSM_16F the slot carries the vsmBias instead: it
             // sets the minVariance floor in chebyshevUpperBound, which decides how
             // aggressively low-variance (noisy) samples are clamped to lit. Too
-            // small flickers; too large detaches contact shadows. Upstream's
+            // small flickers; too large detaches contact shadows. The
             // default is 0.0025.
             dir.bias = vsm ? sceneLight->vsmBias() : 0.0001f;
             dir.penumbraSize = sceneLight->penumbraSize();
@@ -1343,13 +1341,13 @@ namespace visutwin::canvas
                 ls.viewProjection = sceneLight->shadowViewProjection();
             }
             // Our local-shadow shader subtracts this from the receiver depth,
-            // so it needs a POSITIVE value while Light::shadowBias() is upstream's
+            // so it needs a POSITIVE value while Light::shadowBias() is a
             // negative internal one — hence the negation. The per-type scaling
-            // mirrors upstream Light::_getUniformBiasValues (spot x20, omni raw).
+            // is spot x20, omni raw.
             ls.bias = isOmni ? -sceneLight->shadowBias()
                              : -sceneLight->shadowBias() * 20.0f;
             ls.normalBias = sceneLight->normalBias();
-            // A VSM spot (upstream _getUniformBiasValues): a fixed 0.0002 off the
+            // A VSM spot: a fixed 0.0002 off the
             // distance ratio and the variance bias in place of the normal offset.
             ls.vsm = !isOmni && sceneLight->shadowType() == SHADOW_VSM_16F;
             if (ls.vsm) {
@@ -1360,7 +1358,7 @@ namespace visutwin::canvas
             ls.nearClip = 0.01f;
             ls.farClip = std::max(sceneLight->range(), 0.1f);
 
-            // PCSS local shadows (upstream shadowPCSS.js): blocker-search
+            // PCSS local shadows: blocker-search
             // area in shadow-map UV. Spot scales by the shadow camera's
             // FOV ratio; omni uses the raw penumbra/resolution ratio.
             if (sceneLight->shadowType() == SHADOW_PCSS_32F) {
@@ -1383,7 +1381,7 @@ namespace visutwin::canvas
             int usedCube = 0;
         };
 
-        // Light cookies (upstream Light.cookie): the projected texture masking
+        // Light cookies: the projected texture masking
         // the light's color. Spot cookies need a world → cookie-UV matrix —
         // identical to the spot shadow VP, so shadow casters reuse theirs and
         // cookie-only lights evaluate it here. Omni cookies are sampled by
@@ -1415,8 +1413,8 @@ namespace visutwin::canvas
                 : (lightData.castShadows ? sceneLight->shadowViewProjection()
                                          : LightCamera::evalSpotCookieMatrix(*sceneLight));
             if (!isOmniCookie) {
-                // Upstream getCookie2DXform adds cookieOffset to the projected xy before
-                // its clip test; a translation by offset * w in front of the projection is
+                // The cookie offset is added to the projected xy before the
+                // clip test; a translation by offset * w in front of the projection is
                 // exactly that, so the offset needs no uniform of its own.
                 const Vector2& offset = sceneLight->cookieOffset();
                 if (offset.x != 0.0f || offset.y != 0.0f) {
@@ -1579,11 +1577,10 @@ namespace visutwin::canvas
             for (const auto& dispatchEntry : localLights) {
                 const auto& ld = dispatchEntry.light;
                 // Every spot and omni light is in the grid, shadowed from the atlas
-                // when it holds a slot for it and unshadowed otherwise, as upstream.
+                // when it holds a slot for it and unshadowed otherwise.
                 ClusterLightData lcd;
                 // A shaped light is an area light in the grid only with clustered area
-                // lights enabled; otherwise it shades as punctual (upstream's
-                // CLUSTER_AREALIGHTS).
+                // lights enabled; otherwise it shades as punctual.
                 if (clusteredAreaLights && ld.shape != 0u) {
                     lcd.shape = ld.shape;
                     lcd.areaHalfWidth = ld.areaHalfWidth;
@@ -1618,9 +1615,9 @@ namespace visutwin::canvas
                     // depth is crushed against 1.0 by a near clip of 0.01 against a
                     // range of 150, so the whole scene spans ~0.001 of depth while
                     // that bias is 0.08 — it lit every fragment and erased the
-                    // feature. Upstream biases these on render (hardware polygon
-                    // offset, which the atlas pass already applies) and offsets the
-                    // receiver along its normal in the shader instead.
+                    // feature. These are biased on render instead (hardware polygon
+                    // offset, which the atlas pass already applies), and the receiver
+                    // is offset along its normal in the shader.
                     lcd.shadowNormalBias = atlasLight->normalBias();
                     lcd.shadowIntensity = atlasLight->shadowIntensity();
                 }
@@ -1775,7 +1772,7 @@ namespace visutwin::canvas
             device.frameCounters().gsplats += static_cast<int>(gsplat.visibleCount());
 #ifndef NDEBUG
             // Splats blend into EVERY sample of a multisampled target, which makes
-            // them several times more expensive (upstream #9532, also Debug only).
+            // them several times more expensive (Debug only).
             if (view.activeTarget && view.activeTarget->samples() > 1) {
                 static std::set<std::string> warnedLayers;
                 if (warnedLayers.insert(ctx.layer.name()).second) {
@@ -1788,7 +1785,7 @@ namespace visutwin::canvas
 #endif
             // The output stage: a splat carries a GAMMA-space colour, so it owes
             // the target the fog, exposure, tone mapping and encode the forward
-            // tail applies to lit colour (upstream gsplatOutput). Decoding to linear
+            // tail applies to lit colour. Decoding to linear
             // and stopping is right only under a camera frame: on a gamma target the
             // splats would be written linear, untonemapped and unfogged beside
             // tonemapped meshes.
@@ -1837,9 +1834,8 @@ namespace visutwin::canvas
                 // Instance count comes from the GPU via indirect draw arguments.
                 device.setVertexBuffer(instData.compactedVertexBuffer, 5);
                 device.setIndirectDrawBuffer(instData.indirectArgsBuffer);
-                // Each instance is placed in its NODE's space (upstream
-                // transformInstancing: matrix_model * instance), so the node's world
-                // matrix goes up as the model matrix and the shaders compose the two.
+                // Each instance is placed in its NODE's space (model * instance),
+                // so the node's world matrix goes up as the model matrix and the shaders compose the two.
                 device.setTransformUniforms(view.viewProjection, nodeWorldTransform(meshInstance));
                 device.draw(entry.primitive, entry.indexBuffer, 0, instData.indirectSlot, true, true);
             } else if (instData.vertexBuffer && instData.count > 0) {
@@ -1877,13 +1873,13 @@ namespace visutwin::canvas
                 const Matrix4 modelMatrix = nodeWorldTransform(meshInstance);
                 particles->prepareRender(view.viewMatrix, view.projMatrix, modelMatrix,
                     static_cast<float>(view.viewport.w), static_cast<float>(view.viewport.h));
-                // Upstream particle_end: tone map and gamma-encode on a gamma target, leave
+                // Tone map and gamma-encode on a gamma target, leave
                 // both to compose on a camera frame's linear HDR scene.
                 particles->setOutput(ctx.scene ? ctx.scene->exposureFor(view.camera) : 1.0f, view.toneMapping, device.hdrPass());
                 if (particles->options().lighting) {
-                    // Upstream's LightCube: the scene ambient in every direction, plus each
+                    // The light cube: the scene ambient in every direction, plus each
                     // directional light weighted by how far the direction faces along it —
-                    // both as AUTHORED colours (upstream reads ambientLight and light._color).
+                    // both as AUTHORED colours.
                     static constexpr float kCubeDirections[6][3] = {
                         {-1, 0, 0}, {1, 0, 0}, {0, -1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}};
                     float cube[6][3];
@@ -2011,7 +2007,7 @@ namespace visutwin::canvas
                 const ShaderVariantInputs variant = shaderVariantInputs(meshInstance, boundMaterial);
 
                 device.setInstanceLightMap(instanceLightMap);
-                // Upstream's per-draw stencil (UI masks); null leaves the stencil off.
+                // Per-draw stencil (UI masks); null leaves the stencil off.
                 if (meshInstance) {
                     device.setStencilState(meshInstance->stencilFront(), meshInstance->stencilBack());
                 } else {
@@ -2044,24 +2040,23 @@ namespace visutwin::canvas
                 }
 
                 if (boundMaterial != lastCullMaterial) {
-                    counters.materialSwitches++;   // stats.frame.materials, upstream's prevMaterial test
+                    counters.materialSwitches++;   // stats.frame.materials
                     cachedCullMode = resolveMaterialCullMode(boundMaterial);
                     lastCullMaterial = boundMaterial;
                 }
                 auto cullMode = applyNodeScaleFlip(cachedCullMode, meshInstance ? meshInstance->node() : nullptr);
                 if (camera.lightmapBakeAccumulate()) {
                     // Ambient-occlusion virtual lights: each pass adds its own contribution
-                    // to the lightmap already in the target (upstream sums the virtual lights
-                    // the same way), so the draw blends additively and the camera does not
-                    // clear between passes.
+                    // to the lightmap already in the target, so the draw blends additively
+                    // and the camera does not clear between passes.
                     static const auto additive = std::make_shared<BlendState>(BlendState::additiveBlend());
                     device.setBlendState(additive);
                 }
                 if (camera.lightmapBakePass()) {
                     // UV-space bake: triangle winding follows the unwrap, not the surface —
                     // mirrored charts (and the v-flip that puts UV origin at the top) make
-                    // triangles face either way, so face culling would drop them. Upstream's
-                    // lightmapper likewise renders the bake double-sided.
+                    // triangles face either way, so face culling would drop them; the
+                    // bake renders double-sided.
                     cullMode = CullMode::CULLFACE_NONE;
                 }
                 device.setCullMode(cullMode);
@@ -2296,7 +2291,7 @@ namespace visutwin::canvas
 
         bindLayerEnvironment(*_device, _scene.get(), view);
 
-        // Upstream blueNoiseJitter: the opacity dither moves with the TAA jitter, one step
+        // The opacity dither moves with the TAA jitter, one step
         // a frame, and stands still for a camera that does not jitter.
         if (camera->jitter() > 0.0f) {
             if (_blueNoiseJitterVersion != _device->renderVersion()) {

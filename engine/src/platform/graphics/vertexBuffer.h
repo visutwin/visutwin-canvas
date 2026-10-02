@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 13.09.2025.
+// Created by Arnis Lektauers on 13.09.2025
 //
 #pragma once
 
@@ -63,8 +63,8 @@ namespace visutwin::canvas
 
         virtual void* nativeBuffer() const { return nullptr; }
 
-        /// Count this buffer as a STORAGE buffer in the device's VRAM statistics (upstream's
-        /// vram.sb) rather than a vertex buffer. Called wherever it is bound as storage; the
+        /// Count this buffer as a STORAGE buffer in the device's VRAM statistics
+        /// rather than a vertex buffer. Called wherever it is bound as storage; the
         /// first call moves its bytes from vb to sb, later ones do nothing.
         void markStorageUse();
         [[nodiscard]] bool storageUse() const { return _storageUse; }

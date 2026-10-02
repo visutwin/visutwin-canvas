@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 21.03.2026
+//
 #pragma once
 
 #include "buttonComponent.h"
@@ -14,8 +17,8 @@ namespace visutwin::canvas
     public:
         explicit ButtonComponentSystem(Engine* engine) : ComponentSystem(engine, "button")
         {
-            // Upstream's system updates every enabled button (its tint fade). The element
-            // bindings are refreshed here too, since nothing fires upstream's `element:add`.
+            // The system updates every enabled button (its tint fade). The element
+            // bindings are refreshed here too, since nothing fires `element:add`.
             if (engine && engine->systems()) {
                 engine->systems()->on("update", [engine](const float dt) {
                     // By index: a handler may add a button.

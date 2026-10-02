@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 12.07.2026.
+// Created by Arnis Lektauers on 12.07.2026
 //
 #pragma once
 
@@ -24,8 +24,7 @@ namespace visutwin::canvas
     class Texture;
 
     /**
-     * @brief Renders colored outlines around selected entities (port of upstream extras
-     * `OutlineRenderer`).
+     * @brief Renders colored outlines around selected entities.
      * @ingroup group_framework
      *
      * A dedicated layer + offscreen camera render flat-color silhouettes of the added

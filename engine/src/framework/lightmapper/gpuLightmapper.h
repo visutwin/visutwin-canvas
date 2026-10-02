@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 16.08.2026
+//
 #pragma once
 
 #include <cstdint>
@@ -26,7 +28,7 @@ namespace visutwin::canvas
     class Texture;
 
     /**
-     * GPU lightmap baker — upstream's approach (`framework/lightmapper`): each target
+     * GPU lightmap baker: each target
      * mesh is rendered **in UV space**, its unwrap rasterized across its own lightmap
      * render target while the fragment stage evaluates the ordinary lit pipeline at the
      * interpolated world position. Occlusion therefore comes from the engine's existing
@@ -38,17 +40,17 @@ namespace visutwin::canvas
      * its own render target, each rendering a private layer holding only that mesh. Every
      * later frame of the bake adds to the target (additive blending, no clear), which is
      * how the virtual lights accumulate. After the last frame the lightmaps are
-     * post-processed as upstream's `postprocessTextures` does (bilateral denoise when
+     * post-processed (bilateral denoise when
      * `lightmapFilterEnabled`, then dilate, ping-ponged through a temporary target) and
      * become the meshes' lightmaps.
      *
      * The frames, in order:
      *   - with `ambientBake`: the ambient light alone (the scene's ambient or environment
      *     irradiance at each texel); then `ambientBakeNumSamples` frames into a separate
-     *     occlusion target, each one of upstream's white virtual directional lights
+     *     occlusion target, each one of the white virtual directional lights
      *     (BakeLightAmbient) over the top `ambientBakeSpherePart` of the sphere, shadow
      *     mapped; the accumulated visibility is shaped by `ambientBakeOcclusionContrast` /
-     *     `Brightness`, saturated and multiplied into the ambient (upstream bakeLmEnd);
+     *     `Brightness`, saturated and multiplied into the ambient;
      *   - the scene's bake lights (with `ambientBake`, added on top; without it, together
      *     with the unoccluded ambient, which a lightmap REPLACES at runtime here);
      *   - `directionalBakeNumSamples` frames of soft directional shadows (BakeLightSimple).
@@ -63,19 +65,18 @@ namespace visutwin::canvas
      * DEVIATIONS from upstream: no BAKE_COLORDIR (the dominant-direction lightmap would
      * need a second bake output and a directional-lightmap path in both forward chunks);
      * the bake spreads over several rendered frames rather than one synchronous call;
-     * lightmaps are always RGBA16F linear (upstream's `lightmapHDR`), with baked texels
+     * lightmaps are always RGBA16F linear, with baked texels
      * marked by alpha (see lightmapFilterShaders.h). The CPU Lightmapper remains available
      * as a ray-traced reference.
      */
     class GpuLightmapper
     {
     public:
-        /// Upstream keeps these on the Scene; here they travel with the bake. Names and
-        /// defaults are upstream's unless marked.
+        /// These travel with the bake.
         struct Options
         {
-            /// Per-mesh resolution from world bounds (upstream lightmapSizeMultiplier).
-            /// NOT upstream: falls back to `lightmapSize` when zero.
+            /// Per-mesh resolution from world bounds.
+            /// Falls back to `lightmapSize` when zero.
             float lightmapSizeMultiplier = 1.0f;
             int lightmapMaxResolution = 2048;
             int lightmapSize = 256;
@@ -84,28 +85,26 @@ namespace visutwin::canvas
             /// starting from this id, so keep the range clear of the app's own layers.
             int baseLayerId = 200;
 
-            /// Soft baked shadows for directional lights (upstream Light.bakeNumSamples /
-            /// bakeArea, via BakeLightSimple): the light is baked as N virtual copies, each
+            /// Soft baked shadows for directional lights: the light is baked as N virtual copies, each
             /// rotated within a `directionalBakeArea`-degree cone and accumulated, which
             /// turns the single hard shadow map into a penumbra. One frame per sample.
-            /// Upstream sets these per light; here they apply to every directional light.
+            /// They apply to every directional light.
             int directionalBakeNumSamples = 1;
             float directionalBakeArea = 0.0f;
 
-            /// Ambient occlusion via virtual lights (upstream Scene.ambientBake and
-            /// BakeLightAmbient). One frame per sample.
+            /// Ambient occlusion via virtual lights. One frame per sample.
             bool ambientBake = false;
-            int ambientBakeNumSamples = 1;        // upstream clamps to 1..255
-            float ambientBakeSpherePart = 0.4f;   // upstream clamps to 0.001..1
+            int ambientBakeNumSamples = 1;        // clamped to 1..255
+            float ambientBakeSpherePart = 0.4f;   // clamped to 0.001..1
             float ambientBakeOcclusionContrast = 0.0f;
             float ambientBakeOcclusionBrightness = 0.0f;
 
-            /// Bilateral denoise before the dilate (upstream Scene.lightmapFilter*).
+            /// Bilateral denoise before the dilate.
             bool lightmapFilterEnabled = false;
             float lightmapFilterRange = 10.0f;
             float lightmapFilterSmoothness = 0.2f;
 
-            /// NOT upstream. The bake cameras are placed to look at this point from
+            /// The bake cameras are placed to look at this point from
             /// `bakeCameraDistance` away, which is what the directional shadows get fitted
             /// to. The UV-space vertex stage ignores the camera transform, so this only
             /// steers shadow fitting; leave it at the scene centre and a distance that
@@ -178,11 +177,10 @@ namespace visutwin::canvas
         // The offline quad passes (lightmapFilterShaders.h).
         /// lightmap = curve(occlusion) x ambient, through a temporary target.
         void applyAmbientOcclusion();
-        /// Upstream postprocessTextures: (denoise or dilate) into the temporary target,
+        /// (Denoise or dilate) into the temporary target,
         /// then dilate back into the lightmap.
         void postprocessLightmaps();
-        /// The temporary ping-pong target for one lightmap size (upstream keeps one per
-        /// size the same way).
+        /// The temporary ping-pong target for one lightmap size.
         const std::shared_ptr<RenderTarget>& tempTarget(int size);
 
         void destroyBakeNodes();
@@ -210,7 +208,7 @@ namespace visutwin::canvas
         // the bake restores — a light the app switched off stays off.
         std::vector<std::pair<LightComponent*, bool>> _lightEnabledBackup;
 
-        // The ambient-occlusion virtual light (upstream BakeLightAmbient).
+        // The ambient-occlusion virtual light.
         Entity* _ambientLightEntity = nullptr;
         LightComponent* _ambientLight = nullptr;
 

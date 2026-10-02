@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 05.09.2025.
+// Created by Arnis Lektauers on 05.09.2025
 //
 #pragma once
 
@@ -43,7 +43,7 @@ namespace visutwin::canvas
         const std::string& name() const { return _name; }
         void setName(const std::string& name) { _name = name; }
 
-        /// Upstream `GraphNode.tags`.
+        /// The node's tags.
         Tags& tags() { return _tags; }
         const Tags& tags() const { return _tags; }
 
@@ -53,7 +53,7 @@ namespace visutwin::canvas
 
         /**
          * Reorients the graph node so that its negative z-axis points towards the target in world
-         * space, matching upstream GraphNode::lookAt. The up vector defaults to world +Y and is
+         * space. The up vector defaults to world +Y and is
          * only used to resolve roll; if it is parallel to the view direction, a fallback axis is
          * chosen so the node still ends up facing the target.
          */
@@ -160,13 +160,12 @@ namespace visutwin::canvas
 
         /**
          * Set the enabled flag and propagate hierarchy state to children.
-         * Mirrors upstream `set enabled(value)`.
          */
         void setEnabled(bool value);
 
         /**
          * Directly set the _enabledInHierarchy flag. Used for root nodes that
-         * have no parent. Mirrors upstream `root._enabledInHierarchy = true`.
+         * have no parent.
          */
         void setEnabledInHierarchy(bool value) { _enabledInHierarchy = value; }
 

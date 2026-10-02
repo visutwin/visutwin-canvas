@@ -85,7 +85,7 @@
         color = mix(color, reflColor, reflGloss * reflIntensityParam);
     }
 
-    // Debug surface-quantity output (upstream debug-output.js). Replaces the
+    // Debug surface-quantity output. Replaces the
     // shaded result with one input to the lighting equation. DEBUGPASS_LIGHTING
     // is deliberately absent here — it is handled above by neutralizing albedo,
     // then falls through so it still gets fog and tonemapping.
@@ -152,7 +152,7 @@
         color = color * sheenScaling + sheenSpecularDirect + sheenSpecularIndirect;
     }
 
-    // Fog. The three curves are upstream's (fog.js): LINEAR over [start, end], EXP
+    // Fog. The three curves: LINEAR over [start, end], EXP
     // on density, EXP2 on density squared, chosen by the type uploaded in
     // fogStartEndType.z (0 is off).
     //

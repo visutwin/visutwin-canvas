@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 06.09.2026
+//
 // The pixel-format descriptor table (platform/graphics/constants.cpp) is a map the
 // enum does not enforce: an enumerator with no entry makes pixelFormatBytesPerPixel()
 // return 0, and the Vulkan upload path sizes its staging copy from that. There is no

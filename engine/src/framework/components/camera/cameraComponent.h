@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 05.09.2025.
+// Created by Arnis Lektauers on 05.09.2025
 //
 #pragma once
 
@@ -44,7 +44,7 @@ namespace visutwin::canvas
         float jitter = 1.0f;
     };
 
-    // SSAO settings matching upstream CameraFrame.ssao
+    // SSAO settings
     struct SsaoSettings
     {
         bool enabled = false;
@@ -62,7 +62,7 @@ namespace visutwin::canvas
         std::string_view type = "combine";
     };
 
-    // Volumetric fog settings matching upstream CameraFrame.volumetricFog.
+    // Volumetric fog settings.
     //
     // The fog is ray-marched at a reduced resolution: each pixel walks from the camera to the
     // scene surface accumulating in-scattered light from the directional light (Henyey-Greenstein
@@ -110,7 +110,7 @@ namespace visutwin::canvas
         // 0 = ignore shadows, 1 = fully shadowed fog (light shafts).
         float shadowIntensity = 1.0f;
 
-        // Upstream localOmniLights / localSpotLights: the clustered omni and spot lights
+        // Local omni and spot lights: the clustered omni and spot lights
         // scatter in the fog too, each through its own volume (needs clustered lighting;
         // a light opts out with LightComponent::setVolumetricScattering(0)).
         bool localOmniLights = false;
@@ -121,7 +121,7 @@ namespace visutwin::canvas
         int localSteps = 12;
     };
 
-    // Rendering settings matching upstream CameraFrame.rendering
+    // Rendering settings
     struct RenderingSettings
     {
         float renderTargetScale = 1.0f;
@@ -133,13 +133,12 @@ namespace visutwin::canvas
         // device maximum; changing it rebuilds the camera frame's render targets.
         int samples = 1;
 
-        // Number of downsample levels in the bloom chain (upstream CameraFrame.bloom.
-        // blurLevel). Fewer levels = tighter, sharper glow; the chain also stops early
+        // Number of downsample levels in the bloom chain. Fewer levels = tighter, sharper glow; the chain also stops early
         // once a mip would go below 2 px.
         int bloomBlurLevel = 16;
 
         // Brightness below which the scene does not contribute to bloom, with a soft
-        // knee of half the threshold (upstream CameraFrame.bloom.threshold). In the
+        // knee of half the threshold. In the
         // units the scene is rendered in, before exposure and tone mapping, so a scene
         // whose exposure is far from 1 needs it scaled to match. 0 = no threshold.
         float bloomThreshold = 0.0f;
@@ -150,8 +149,8 @@ namespace visutwin::canvas
         float vignetteOuter = 1.0f;
         float vignetteCurvature = 0.5f;
         float vignetteIntensity = 0.3f;
-        // Darkening colour (upstream CameraFrame vignette.color). Black is the
-        // usual choice; a tinted vignette is what upstream exposes it for.
+        // Darkening colour. Black is the usual choice; it exists for a tinted
+        // vignette.
         float vignetteColor[3] = {0.0f, 0.0f, 0.0f};
 
         // Fringing (chromatic aberration): user units 0..~100, 0 = disabled
@@ -194,7 +193,7 @@ namespace visutwin::canvas
 
         const Matrix4& projectionMatrix() const { return _camera->projectionMatrix(); }
 
-        // Per-camera tone mapping (upstream CameraComponent::toneMapping). Defaults to
+        // Per-camera tone mapping. Defaults to
         // TONEMAP_INHERIT, which keeps using Scene::toneMapping. Applies to the standard
         // forward path; the HDR camera-frame path is configured through
         // RenderingSettings::toneMapping instead.
@@ -234,11 +233,11 @@ namespace visutwin::canvas
                 ? const_cast<CameraComponent*>(this) : nullptr;
         }
 
-        /// Upstream CameraComponent.screenToWorld: Camera::screenToWorld on the engine's
+        /// Camera::screenToWorld on the engine's
         /// canvas (window points, the space mouse events arrive in).
         Vector3 screenToWorld(float x, float y, float z) const;
 
-        /// Upstream CameraComponent.worldToScreen: Camera::worldToScreen on the engine's
+        /// Camera::worldToScreen on the engine's
         /// canvas, so the result is in window points from the TOP-left, y down.
         Vector3 worldToScreen(const Vector3& worldCoord) const;
 
@@ -291,7 +290,7 @@ namespace visutwin::canvas
 
         /**
          * Render order across cameras: a SMALLER value renders first, and the
-         * default is 0 (upstream CameraComponent.priority).
+         * default is 0.
          *
          * Say ordering dependencies with a priority rather than relying on construction
          * order: a dynamic reflection probe's six face cameras must render before the

@@ -346,7 +346,7 @@ target_link_libraries(visutwin-primitive-geometry-tests PRIVATE visutwin-canvas)
 
 add_test(NAME primitive-geometry COMMAND visutwin-primitive-geometry-tests)
 
-# glTF animation binding: unnamed nodes take upstream's node_<index> identity and
+# glTF animation binding: unnamed nodes take a node_<index> identity and
 # targets are name PATHS, so duplicate names in different branches animate their
 # own entity. Builds a tinygltf model in memory, so it needs tinygltf's header.
 # Animation layer blending: a layer weight is a per-node contribution composed across

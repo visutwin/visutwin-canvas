@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 //
 //
 // Part of the multi-pass DOF pipeline (CoC -> Downsample -> Blur) that
@@ -27,9 +29,9 @@ namespace visutwin::canvas
         };
         static_assert(sizeof(DofBlurUniforms) == 32);
 
-        // Upstream's dofBlur chunk over Kernel.concentric, generated in the shader
+        // The blur over a concentric kernel, generated in the shader
         // rather than uploaded: a centre tap, then ring r of R at radius r / R with
-        // r * P points (upstream's arc spacing works out to exactly that), so the
+        // r * P points, so the
         // tap count is 1 + P * R * (R + 1) / 2. The step is in UV: the radius is a
         // fraction of a 540-row reference frame, corrected for the texture's aspect,
         // which is what makes the same blurRadius look the same at every resolution.
@@ -196,7 +198,7 @@ void main() {
 }
 #endif
 )";
-        // Concentric sample kernel equivalent to Kernel.concentric usage in the upstream engine.
+        // Concentric sample kernel.
         std::vector<float> makeConcentricKernel(const int rings, const int pointsPerRing)
         {
             std::vector<float> out;
@@ -282,7 +284,7 @@ void main() {
             return;
         }
 
-        // upstream RenderPassDofBlur: the authored radius is a fraction of a 540-row
+        // The authored radius is a fraction of a 540-row
         // reference frame, so it reads the same at any resolution.
         constexpr float referenceHeight = 540.0f;
         (void)width;

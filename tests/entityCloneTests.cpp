@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 24.09.2026
+//
 // Entity::clone copies an entity, its components and its Entity descendants, then
-// remaps every reference the source subtree held into itself onto the copy (upstream
-// `Entity#clone` + `resolveDuplicatedEntityReferenceProperties`). The failures these
+// remaps every reference the source subtree held into itself onto the copy. The failures these
 // catch: a component without a cloneFrom comes back default-constructed, a reference
 // left unremapped still points into the source, components cloned in hash-map order
 // vary per run, and a cloned primitive that borrows its mesh from the source loses it

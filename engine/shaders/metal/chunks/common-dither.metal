@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 // ---------------------------------------------------------------------------
-// Procedural Bayer matrix (upstream bayer.js, from shadertoy.com/view/Mlt3z8),
+// Procedural Bayer matrix (from shadertoy.com/view/Mlt3z8),
 // used by VT_FEATURE_OPACITY_DITHER for ordered-dither transparency.
 // ---------------------------------------------------------------------------
 
@@ -34,7 +34,7 @@ static inline float bayer16(float2 p) {
     return 4.0 * (4.0 * (4.0 * bayer2(p1) + bayer2(p2)) + bayer2(p4)) + bayer2(p8);
 }
 
-// Upstream blueNoiseTex32, G channel (core/math/blueNoise.h), row-major 32x32.
+// Blue noise, G channel (core/math/blueNoise.h), row-major 32x32.
 constant uchar kBlueNoise32[1024] = {
     227, 76, 207, 31, 192, 71, 128, 0, 237, 62, 135, 23, 246, 148, 61, 217, 19, 255, 57, 130, 109, 33, 250, 48, 25, 83, 146, 10, 127, 140, 35, 58,
     153, 2, 51, 111, 160, 212, 51, 184, 16, 96, 170, 116, 238, 104, 45, 193, 168, 118, 41, 170, 184, 79, 144, 97, 205, 127, 160, 243, 180, 18, 249, 98,
@@ -70,9 +70,8 @@ constant uchar kBlueNoise32[1024] = {
     113, 176, 133, 113, 147, 243, 28, 221, 171, 42, 205, 181, 82, 6, 159, 113, 92, 140, 230, 8, 219, 69, 123, 172, 213, 199, 57, 224, 199, 80, 215, 170,
 };
 
-// Dither threshold for a screen position under the given DitherMode (upstream
-// opacity-dither.js). `jitter` is upstream's blueNoiseJitter.xy: a per-frame offset while
-// the camera jitters for TAA, zero otherwise. The Bayer matrices are normalized by their
+// Dither threshold for a screen position under the given DitherMode. `jitter` is a
+// per-frame blue-noise offset while the camera jitters for TAA, zero otherwise. The Bayer matrices are normalized by their
 // cell count so the result stays in [0, 1); every pattern is then linearized, as it is
 // authored in perceptual (sRGB) space.
 static inline float ditherThreshold(uint ditherMode, float2 screenPos, float2 jitter) {
@@ -97,7 +96,7 @@ static inline float ditherThreshold(uint ditherMode, float2 screenPos, float2 ji
         }
         case VT_DITHER_IGNNOISE: {
             // Interleaved gradient noise (Jimenez, "Next Generation Post Processing in
-            // Call of Duty: Advanced Warfare"), as upstream.
+            // Call of Duty: Advanced Warfare").
             const float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
             noise = fract(magic.z * fract(dot(p, magic.xy)));
             break;

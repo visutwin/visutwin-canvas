@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// A text element's auto fit and max lines (upstream text-element.js; the cases of upstream's
+// Created by Arnis Lektauers on 30.09.2026
+//
+// A text element's auto fit and max lines (the cases of upstream's
 // text-element.test.mjs for autoFitWidth / autoFitHeight / minFontSize / maxFontSize and
 // maxLines), on the shipped Roboto font.
 //
-// Upstream's test font gives some of its expectations as literals (a 50-unit box fits 'ab\nab'
+// Those cases' test font gives some of their expectations as literals (a 50-unit box fits 'ab\nab'
 // at 24). Here those are held by what makes them right on ANY font: the fitted size is the
 // largest one the text fits at — at that size it fits, one size up it does not, measured by the
-// layout itself — and the width fit is upstream's own formula, floor(32 x width / text width).
+// layout itself — and the width fit is floor(32 x width / text width).
 
 #include <algorithm>
 #include <cmath>
@@ -67,7 +69,7 @@ namespace
     FontResource* font = nullptr;
     std::vector<std::unique_ptr<Entity>> owned;
 
-    /// A text element on no screen, with upstream's test setup: autoWidth and autoHeight off.
+    /// A text element on no screen, set up as those cases are: autoWidth and autoHeight off.
     ElementComponent* text()
     {
         owned.push_back(std::make_unique<Entity>());
@@ -81,7 +83,7 @@ namespace
         return element;
     }
 
-    /// The contents of each line, line breaks left out (upstream assertLineContents).
+    /// The contents of each line, line breaks left out.
     std::vector<std::string> lineContents(const ElementComponent* element)
     {
         std::vector<std::string> lines;

@@ -33,14 +33,14 @@ static inline float getShadowPCF3x3(depth2d<float> shadowMap, float2 shadowUv, f
     return sum * (1.0 / 16.0);
 }
 
-// Upstream shadowPCF1: one hardware comparison.
+// PCF1: one hardware comparison.
 static inline float getShadowPCF1x1(depth2d<float> shadowMap, float2 shadowUv, float depth) {
     constexpr sampler shadowCompSampler(coord::normalized, filter::linear,
                                         compare_func::less_equal, address::clamp_to_edge);
     return shadowMap.sample_compare(shadowCompSampler, shadowUv, depth, level(0));
 }
 
-// Upstream shadowPCF5 (_getShadowPCF5x5): a 5x5 kernel from nine bilinear
+// PCF5: a 5x5 kernel from nine bilinear
 // comparisons, "the witness" weights.
 static inline float getShadowPCF5x5(depth2d<float> shadowMap, float2 shadowUv, float depth, float resolution) {
     constexpr sampler shadowCompSampler(coord::normalized, filter::linear,
@@ -87,12 +87,12 @@ static inline float getShadowPCF5x5(depth2d<float> shadowMap, float2 shadowUv, f
 }
 
 // ── Clustered atlas: omni faces ─────────────────────────────────────────────
-// Upstream's getCubemapFaceCoordinates with its V term NEGATED: the dominant axis
+// Cubemap face coordinates with the V term NEGATED: the dominant axis
 // of the unnormalized light-to-fragment direction picks the face (+X, -X, +Y, -Y,
 // +Z, -Z — the order LightCamera::pointLightRotations renders them), the other two
 // axes map to a UV within it, and `tileOffset` is the face's column and row in the
-// slot's 3x3 tile grid. The faces are rendered by upstream's own camera rotations,
-// but into top-down storage where upstream's is bottom-up, so v runs the other way.
+// slot's 3x3 tile grid. The faces are rendered by the standard cube-face rotations,
+// but into top-down storage rather than bottom-up, so v runs the other way.
 // Mirrored in LightTextureAtlas::cubemapFaceCoordinates, which a test holds against
 // the face cameras' real projection — that test is what found the sign.
 static inline float2 getCubemapFaceCoordinates(float3 dir, thread float2& tileOffset)

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 13.09.2026
+//
 // COMPILED WITH -ffp-contract=off (engine/CMakeLists.txt). Without it the
 // compiler fuses the scalar dot product into FMA and the SIMD path no longer
 // matches it — see gsplatSortKeys.h.

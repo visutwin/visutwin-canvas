@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 24.09.2026
+//
 // A script may, from inside its own update, create another script on the same
 // component or destroy its own entity. Loops that range-iterate the script vector
 // let the first reallocate the vector under the loop and the second free the

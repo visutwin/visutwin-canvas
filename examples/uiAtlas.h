@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// The frames of upstream's UI kit atlas, assets/ui/ui-atlas.png, as upstream's
+// Created by Arnis Lektauers on 30.09.2026
+//
+// The frames of the UI kit atlas, assets/ui/ui-atlas.png, as upstream's
 // examples/assets/ui/ui-atlas.mjs lists them (46 frames, generated there by
 // generate-ui-atlas.mjs). Rects are x, y from the image BOTTOM, width, height; borders are left,
 // bottom, right, top; every pivot is the centre. Frames are drawn at 2 pixels per screen unit.

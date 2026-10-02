@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 25.09.2026
+//
 // Shader composition contracts that only ever broke silently:
 //
 //  - The Vulkan fragment shader exists twice: forward.frag #includes the chunks at build

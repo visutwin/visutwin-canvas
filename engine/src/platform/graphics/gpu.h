@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 22.09.2025.
+// Created by Arnis Lektauers on 22.09.2025
 //
 #pragma once
 
@@ -17,8 +17,6 @@ namespace visutwin::canvas
 namespace visutwin::canvas::gpu
 {
     /// The rectangle of one mip level and one face a readback covers.
-    /// Upstream's `Texture#read(x, y, width, height, {mipLevel, face})`, as a
-    /// struct rather than six positional arguments.
     struct TextureReadRegion
     {
         uint32_t x = 0;

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 11.09.2026
+//
 // Splitting a bucket of mesh instances into the lists that each become ONE batch.
 //
 // A batch is one draw with one vertex buffer, one material and one set of flags,

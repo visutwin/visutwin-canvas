@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 13.09.2026
+//
 // The CPU lightmapper's BVH answers one question per ray — is anything hit
 // within maxDist — and that answer must not depend on the tree. So the oracle is
 // brute force: the same ray/triangle test against every triangle. Any

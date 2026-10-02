@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Port of upstream compute/edge-detect.
 //
 // A chess board on its own layer renders through an orbiting camera into a 4x
@@ -117,7 +119,7 @@ void main()
 }
 )";
 
-    // Mirrors upstream's instantiateRenderEntity({ castShadows, receiveShadows, layers }).
+    // Applies shadow casting, shadow receiving and layers to every render component below.
     void applyRenderOptionsRecursive(GraphNode* node, const std::vector<int>& layers)
     {
         if (!node) {
@@ -148,8 +150,7 @@ public:
 protected:
     bool create() override
     {
-        // Create a layer for the render target, appended to the default composition
-        // as upstream's layers.push() does.
+        // Create a layer for the render target, appended to the default composition.
         _rtLayer = std::make_shared<Layer>("RTLayer", LAYERID_RT);
         scene()->layers()->pushOpaque(_rtLayer);
         scene()->layers()->pushTransparent(_rtLayer);
@@ -183,11 +184,11 @@ protected:
         applyRenderOptionsRecursive(boardEntity, {LAYERID_RT});
         root()->addChild(boardEntity);
 
-        // The board keeps its authored transform, exactly like upstream. The model is
+        // The board keeps its authored transform. The model is
         // ~340 units across, so the orbiting render-target camera at radius 100 sits
         // among the pieces — that close-up is the shot the example is built around.
 
-        // Directional light on the default WORLD layer, as upstream declares it. Note it
+        // Directional light on the default WORLD layer. Note it
         // therefore does NOT reach the board, which lives on the RT layer only — the board
         // is lit purely by the environment atlas. Putting the light on LAYERID_RT would
         // add a key light upstream does not have.
@@ -242,7 +243,7 @@ protected:
         _rtCameraEntity->lookAt(Vector3(0.0f, 0.0f, 0.0f));
 
         // Main camera: keeps its default layer set so the environment skybox fills the
-        // background behind the two display quads (upstream relies on the same default).
+        // background behind the two display quads.
         auto* mainCameraEntity = createCamera(Vector3(0.0f, 0.0f, 0.0f));
         if (auto* mainCamera = mainCameraEntity->findComponent<CameraComponent>();
             mainCamera && mainCamera->camera()) {
@@ -314,7 +315,7 @@ protected:
             device()->computeDispatch({_compute.get()}, "EdgeDetectDispatch");
         }
 
-        // Upstream's two draw() rectangles, as fractions of the window with a top-left
+        // The two display rectangles, as fractions of the window with a top-left
         // origin: (gap/2, 3gap/4) and (gap/2, 1/2 + gap/4), each (1 - gap) x (1/2 - gap).
         // The viewports are set before render(); the append passes draw at the end of
         // the frame graph.

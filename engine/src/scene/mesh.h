@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 08.11.2025.
+// Created by Arnis Lektauers on 08.11.2025
 //
 #pragma once
 
@@ -79,7 +79,7 @@ namespace visutwin::canvas
     class Mesh : public RefCountedObject
     {
     public:
-        /// Identity for ordering draws (upstream `mesh.id`): assigned from a
+        /// Identity for ordering draws: assigned from a
         /// process-wide counter in creation order, so two runs that build the same
         /// scene give its meshes the same ids. The forward sort key orders the draws
         /// of one material on it.

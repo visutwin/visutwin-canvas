@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 14.07.2026
+//
 // Depth-of-field showcase — port of upstream graphics/depth-of-field.
 //
 // An apartment interior lit purely by the helipad environment atlas, with an
@@ -172,7 +174,7 @@ protected:
         }
 
         if (_cameraComp) {
-            // Bokeh depth of field, upstream's defaults.
+            // Bokeh depth of field.
             auto dof = _cameraComp->dof();
             dof.enabled = true;
             dof.nearBlur = true;               // blur nearer-than-focus too
@@ -197,9 +199,9 @@ protected:
             _cameraComp->setRendering(rendering);
         }
 
-        // Upstream's orbit camera aims at the focus entity's AABB centre on initialize
-        // (its own lookAt(0, 0, 100) never survives), keeping the camera position and
-        // deriving the orbit distance from it — which is exactly what setFocusPoint does.
+        // The orbit camera aims at the focus entity's AABB centre, keeping the camera
+        // position and deriving the orbit distance from it — which is exactly what
+        // setFocusPoint does.
         const BoundingBox catBbox = entityAabb(catEntity);
         _focusPoint = catBbox.center();
         const float sceneRadius = std::max(catBbox.halfExtents().length(), 1.0f);

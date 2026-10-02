@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 12.09.2026
+//
 // The forward sort key decides what order opaque draws go out in, and every defect it
 // can have is invisible: the frame still renders, just with more state changes than it
 // needed, or with two materials' draws interleaved.

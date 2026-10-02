@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 //
 #pragma once
 
@@ -39,9 +41,8 @@ namespace visutwin::canvas
         bool stencil = false;
         int samples = 1;
         bool sceneColorMap = false;
-        // The post-opaque depth COPY screen-space reflections march against
-        // (upstream rendering.sceneDepthMap). Requested through
-        // CameraComponent::requestSceneDepthMap like the colour grab.
+        // The post-opaque depth COPY screen-space reflections march against.
+        // Requested through CameraComponent::requestSceneDepthMap like the colour grab.
         bool sceneDepthMap = false;
         int lastGrabLayerId = LAYERID_SKYBOX;
         bool lastGrabLayerIsTransparent = false;
@@ -109,8 +110,7 @@ namespace visutwin::canvas
         // Index of the last action in `actions` a pass stopping at (layer, transparent)
         // renders, searching from `fromIndex`: fromIndex - 1 when it renders none, or
         // kStopLayerNotInComposition. A stop layer with no action of its own (disabled)
-        // is placed by its POSITION in the composition, as upstream's addCameraLayers
-        // does. Static so tests/cameraFrameStopTests.cpp can drive it on a composition.
+        // is placed by its POSITION in the composition. Static so tests/cameraFrameStopTests.cpp can drive it on a composition.
         static constexpr int kStopLayerNotInComposition = -1000000;
         static int findActionIndex(const std::vector<RenderAction*>& actions, LayerComposition* composition,
             int targetLayerId, bool targetTransparent, int fromIndex);

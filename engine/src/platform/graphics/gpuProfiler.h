@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 17.09.2025.
+// Created by Arnis Lektauers on 17.09.2025
 //
 
 #pragma once
@@ -17,11 +17,10 @@ namespace visutwin::canvas
      * timestamps around every render pass and resolves them a few frames later
      * (results lag GPU execution by ~2 frames).
      *
-     * Mirrors upstream gpu-profiler.js; the Metal backend samples at stage
+     * The Metal backend samples at stage
      * boundaries with MTLCounterSampleBuffer, Vulkan brackets each pass with
      * timestamp queries. Both hand their raw samples to publishTimings(), which
-     * owns the one thing that makes the figure comparable with upstream's — see
-     * there.
+     * decides how each pass's time is measured — see there.
      */
     class GpuProfiler
     {

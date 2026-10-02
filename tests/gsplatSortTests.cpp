@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 03.09.2026
+//
 // The splat sorter orders by dot(localCentre, sortDirection). That has to agree
 // with the true world-space depth dot(model * localCentre, cameraForward) up to a
 // positive scale and a constant offset, or a transformed splat sorts wrongly
 // against the rest of the scene.
 //
 // Transforming the view direction by the inverse model matrix — the older form —
-// only satisfies that under a UNIFORM scale, which is what this checks
-// (upstream #9268).
+// only satisfies that under a UNIFORM scale, which is what this checks.
 //
 #include <cmath>
 #include <cstdio>

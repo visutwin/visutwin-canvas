@@ -24,7 +24,7 @@ vec2 directionUv(vec3 d) {
         0.5 - asin(clamp(d.y, -1.0, 1.0)) / PI);
 }
 // Octahedral unwrap: the sphere folded onto a square, +Y centre, -Y at the corners.
-// Matches the Metal pass and upstream's reproject chunk so atlases round-trip.
+// Matches the Metal pass so atlases round-trip.
 vec3 octahedralDirection(vec2 st) {
     vec2 f = st * 2.0 - 1.0;
     vec3 n = vec3(f.x, 1.0 - abs(f.x) - abs(f.y), f.y);

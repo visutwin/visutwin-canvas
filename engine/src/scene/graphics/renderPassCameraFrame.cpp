@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 //
 #include "renderPassCameraFrame.h"
 
@@ -120,8 +122,7 @@ namespace visutwin::canvas
         // Every effect that samples scene depth is a depth consumer. Under MSAA it gets
         // the depth from the PREPASS, the only producer there: the scene target's
         // multisampled depth is internal, discarded at the end of the pass and never
-        // resolved (upstream refuses in-scene depth with MSAA for the same reason).
-        // Resolving it as well would be a second copy of a texture the prepass has
+        // resolved. Resolving it as well would be a second copy of a texture the prepass has
         // already written. Single-sampled, the scene pass writes the shared
         // depth texture itself and a prepass renders only where prepassRenders() says.
         if (sanitized.taaEnabled || sanitized.ssaoType != SSAOTYPE_NONE || sanitized.dofEnabled ||
@@ -155,8 +156,7 @@ namespace visutwin::canvas
         options.ssaoBlurEnabled = ssao.blurEnabled;
 
         // The scene-colour grab is a camera-level REQUEST (requestSceneColorMap,
-        // reference counted so several effects can want it at once), where upstream
-        // reads it off CameraFrame.rendering.sceneColorMap. ForwardRenderer skips the
+        // reference counted so several effects can want it at once). ForwardRenderer skips the
         // standalone grab pass whenever a camera frame is active, because the scene
         // renders into this offscreen target rather than the back buffer, so without
         // this line the request would be silently dropped the moment any post-processing
@@ -368,9 +368,8 @@ namespace visutwin::canvas
             }
         }
 
-        // Upstream's addCameraLayers walks the composition's SUBLAYER list and stops at
-        // the requested slot whether or not that layer is enabled. Render actions exist
-        // only for enabled layers, so a DISABLED stop layer matched nothing here, and the
+        // The stop is a slot in the composition's SUBLAYER list, whether or not that
+        // layer is enabled. Render actions exist only for enabled layers, so a DISABLED stop layer matched nothing here, and the
         // callers fell back to every action. That is the ordinary case for the grab: the
         // stop layer is the skybox, and a scene lit only by its env atlas disables the
         // Skybox layer. The scene pass then drew the transparent layers BEFORE the colour
@@ -501,7 +500,7 @@ namespace visutwin::canvas
         // rendered into a multisampled buffer that is discarded at the end of the
         // pass, never stored, never resolved — the prepass (forced on for every
         // depth consumer in sanitizeOptions) has already written the sampleable
-        // depth, as upstream does. A user-supplied depth texture here would make
+        // depth. A user-supplied depth texture here would make
         // the pass store and resolve the multisampled depth every frame, for a
         // texture nobody needs.
         sceneTargetOptions.depth = true;
@@ -597,7 +596,7 @@ namespace visutwin::canvas
         // the lit shaders sample its texture as they render; run after, it describes the
         // previous frame. Applied by the COMPOSE pass instead, it is free to run after
         // the scene, where the depth it needs is the finished scene depth — which
-        // includes what the prepass cannot draw. Upstream splits it the same way.
+        // includes what the prepass cannot draw.
         const bool ssaoBeforeScene = _options.ssaoType == SSAOTYPE_LIGHTING;
 
         return {_prePass,
@@ -625,7 +624,7 @@ namespace visutwin::canvas
 
     void RenderPassCameraFrame::updateCameraUseFlags()
     {
-        // Upstream FramePassCameraFrame.updateCameraUseFlags: the camera's actions are
+        // The camera's actions are
         // split over the scene, transparent and after passes (the depth layer's is not
         // cloned at all), so the first and last action PER CAMERA across those passes,
         // in the order they run, carry the flags — prerender and postrender then fire
@@ -657,9 +656,8 @@ namespace visutwin::canvas
         }
     }
 
-    // Whether the depth consumers need a prepass to RENDER. The split is upstream's
-    // (sanitizeOptions: depth needed IN the scene, or depth needed after it where the
-    // scene's own depth cannot serve, which for both engines means MSAA):
+    // Whether the depth consumers need a prepass to RENDER: depth needed IN the scene,
+    // or depth needed after it where the scene's own depth cannot serve, which means MSAA:
     //  - under MSAA always, since nothing else produces a sampleable depth;
     //  - single-sampled only for lighting-mode SSAO, the one consumer that reads the
     //    depth BEFORE the scene pass. The scene pass clears the shared depth texture and
@@ -702,8 +700,7 @@ namespace visutwin::canvas
         const int lastLayerId = grabSplit ? options.lastGrabLayerId : options.lastSceneLayerId;
         const bool lastLayerTransparent = grabSplit ? options.lastGrabLayerIsTransparent : options.lastSceneLayerIsTransparent;
 
-        // Upstream's addCameraLayers walks the whole layer list and only BREAKS once it
-        // reaches the requested layer, so a composition that does not contain that layer
+        // The layer walk only BREAKS once it reaches the requested layer, so a composition that does not contain that layer
         // renders every layer rather than nothing. Do not return on a missing layer: the
         // scene pass would draw no actions at all, and the grab path stops at the SKYBOX,
         // which a camera with a custom layer set need not render.
@@ -764,8 +761,7 @@ namespace visutwin::canvas
                 _sceneRenderTarget, false /* firstLayerClears */);
             if (appended < transparentFromIndex) {
                 // Nothing left to draw after the grab - drop the pass rather than open a
-                // render pass that only reloads and stores the target (upstream does the
-                // same through RenderPassForward.rendersAnything).
+                // render pass that only reloads and stores the target.
                 _scenePassTransparent.reset();
             } else {
                 info.lastAddedIndex = appended;
@@ -814,8 +810,7 @@ namespace visutwin::canvas
 
     // Volumetric fog: a reduced-resolution ray-march followed by a depth-aware upsample blended
     // into the scene target. Placed after the scene passes (so the depth buffer is valid, same
-    // reason as SSAO) and before TAA/bloom/DOF, so those see the fogged scene - matching where
-    // upstream blends its combine pass.
+    // reason as SSAO) and before TAA/bloom/DOF, so those see the fogged scene.
     void RenderPassCameraFrame::setupVolumetricFogPass(const CameraFrameOptions& options)
     {
         (void)options;
@@ -905,7 +900,7 @@ namespace visutwin::canvas
     void RenderPassCameraFrame::setupDofPass(const CameraFrameOptions& options, Texture* inputTexture,
         Texture* inputTextureHalf)
     {
-        // Upstream's FramePassDof: a CoC pass from the scene depth, a far pass that
+        // A CoC pass from the scene depth, a far pass that
         // downsamples the scene premultiplied by the far CoC, and a bokeh blur over
         // both, all feeding the compose pass's applyDof. The orchestrator has no
         // target of its own and is never init()-ed, so the frame graph schedules its
@@ -936,8 +931,7 @@ namespace visutwin::canvas
         _composePass->setBloomTexture(_bloomPass ? _bloomPass->bloomTexture() : nullptr);
         _composePass->setBloomIntensity(options.bloomIntensity);
         _composePass->setTaaEnabled(options.taaEnabled);
-        // The multi-pass DOF textures (upstream: composePass.cocTexture / blurTexture /
-        // blurTextureUpscale). With no DOF pass the compose falls back to its
+        // The multi-pass DOF textures. With no DOF pass the compose falls back to its
         // single-pass depth blur, which has no near blur.
         _composePass->setCocTexture(_dofPass ? _dofPass->cocTexture() : nullptr);
         _composePass->setBlurTexture(_dofPass ? _dofPass->blurTexture() : nullptr);
@@ -981,7 +975,7 @@ namespace visutwin::canvas
         _composePass->setVignetteColor(options.vignetteColor[0],
             options.vignetteColor[1], options.vignetteColor[2]);
 
-        // Fringing: user value scaled to shader units (upstream: intensity / 1024).
+        // Fringing: user value scaled to shader units (intensity / 1024).
         _composePass->setFringingIntensity(options.fringingIntensity / 1024.0f);
 
         // Color grading + enhance (HDR, pre-tonemap).
@@ -1016,9 +1010,8 @@ namespace visutwin::canvas
         _afterPass->init(_targetRenderTarget);
 
         // the after-pass renders on top of the compose output
-        // so it must NOT clear the back buffer.  upstream achieves this by calling
-        // addLayers(... firstLayerClears=false ...) which only uses layer-level clear
-        // flags for the first action.  We replicate this by overriding camera-level
+        // so it must NOT clear the back buffer.  firstLayerClears=false uses only
+        // layer-level clear flags for the first action, by overriding camera-level
         // clears on the first cloned action.
         const int appended = appendActionsToPass(_afterPass, fromIndex, static_cast<int>(_sourceActions.size()) - 1, _targetRenderTarget,
             false /* firstLayerClears */);
@@ -1117,7 +1110,7 @@ namespace visutwin::canvas
                 _scenePassHalf->setSourceTexture(resolvedTexture);
             }
             // The high-quality depth of field's far pass reads the full-resolution scene; without
-            // this it blurred the raw, jittered frame under TAA (upstream #9591).
+            // this it blurred the raw, jittered frame under TAA.
             if (_dofPass) {
                 _dofPass->setSceneTexture(resolvedTexture);
             }

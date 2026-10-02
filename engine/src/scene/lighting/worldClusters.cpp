@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 //
 
 #include "worldClusters.h"
@@ -64,7 +66,7 @@ namespace visutwin::canvas
 
             LightEntry entry;
             entry.data = ld;
-            // Half-angles in degrees, as everywhere else (upstream convention).
+            // Half-angles in degrees, as everywhere else.
             entry.outerConeCos = std::cos(toRadians(std::max(ld.outerConeAngle, 0.0f)));
             entry.innerConeCos = std::cos(toRadians(std::max(ld.innerConeAngle, 0.0f)));
             if (entry.innerConeCos < entry.outerConeCos) {
@@ -91,8 +93,7 @@ namespace visutwin::canvas
             _boundsMin = Vector3(0.0f);
             _boundsMax = Vector3(1.0f);
         } else {
-            // The union of the LIGHT bounds and nothing else, as upstream's
-            // evaluateBounds does. Padding it around the camera would spend the cell
+            // The union of the LIGHT bounds and nothing else. Padding it around the camera would spend the cell
             // budget on space no light can reach, leaving the cells coarse and mostly
             // empty.
             //

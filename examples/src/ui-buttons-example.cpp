@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Port of upstream user-interface/buttons (as rebuilt in #9565).
+// Created by Arnis Lektauers on 29.09.2026
+//
+// Port of upstream user-interface/buttons.
 //
 // A game's main menu built from button components. Play and Continue tint as they are
 // hovered and pressed, and Continue stays inactive until there is a game to continue.
@@ -47,7 +49,7 @@ namespace
         return res && std::holds_alternative<FontResource*>(*res) ? std::get<FontResource*>(*res) : nullptr;
     }
 
-    /// Upstream's button component properties that this example sets.
+    /// The button component properties that this example sets.
     struct ButtonProps
     {
         ButtonTransitionMode transitionMode = ButtonTransitionMode::Tint;

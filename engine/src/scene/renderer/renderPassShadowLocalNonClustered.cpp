@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 06.12.2025.
+// Created by Arnis Lektauers on 06.12.2025
 //
 #include "renderPassShadowLocalNonClustered.h"
 
@@ -71,7 +71,7 @@ namespace visutwin::canvas
         // the face draws into all of it.
         DepthOnlyShaders shaders;
         // A VSM spot light's map holds EVSM moments of the distance to the light
-        // (upstream's spot VSM, which stores distance / range rather than depth).
+        // (distance / range rather than depth).
         const bool vsm = _applyVsm && _light->shadowType() == SHADOW_VSM_16F;
         if (!bindLocalShadowState(_graphicsDevice.get(), programLibrary.get(), _light, shaders, vsm)) {
             return;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 21.12.2025.
+// Created by Arnis Lektauers on 21.12.2025
 //
 #include "meshInstance.h"
 
@@ -91,8 +91,8 @@ namespace visutwin::canvas
             return;
         }
 
-        // Instance matrices place each instance in the NODE's space (upstream
-        // matrix_model * instance, which both vertex stages apply), so the union is a
+        // Instance matrices place each instance in the NODE's space (both vertex stages
+        // apply matrix_model * instance), so the union is a
         // LOCAL bound: aabb() carries it to world through the node every time, and it
         // follows the node when the node moves.
         BoundingBox localAabb;
@@ -270,7 +270,7 @@ namespace visutwin::canvas
                 }
 
                 // A morph moves vertices past the rest pose, so the local bounds grow by
-                // its delta bounds (upstream localAabb._expand(morph.aabb)). Culling, light
+                // its delta bounds. Culling, light
                 // culling and the shadow fit all read these; left at the rest pose, a
                 // mesh whose targets push it outward was culled while still on screen.
                 if (_morphInstance && _morphInstance->morph()) {

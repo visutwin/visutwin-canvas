@@ -67,8 +67,7 @@ static inline float3 iridescenceSensitivity(float opd, float3 shift)
     // CIE XYZ → sRGB (Rec.709). float3x3 takes COLUMNS, so these are the matrix's
     // columns — the rows read transposed on the page. Written as rows, the matrix
     // would be the transpose of the intended one and shift every iridescent hue;
-    // upstream (iridescenceDiffraction.js) has the layout below, and
-    // common-iridescence.glsl matches it.
+    // common-iridescence.glsl uses the same layout.
     const float3x3 XYZ_TO_REC709 = float3x3(
         float3( 3.2404542, -0.9692660,  0.0556434),
         float3(-1.5371385,  1.8760108, -0.2040259),

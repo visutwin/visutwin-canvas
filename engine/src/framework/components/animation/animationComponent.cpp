@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 21.03.2026
+//
 #include "animationComponent.h"
 
 #include "framework/anim/binder/defaultAnimBinder.h"
@@ -224,7 +227,7 @@ namespace visutwin::canvas
         if (!src) {
             return;
         }
-        // Upstream's property list plus the animation map. The clips are shared; the
+        // The component's properties plus the animation map. The clips are shared; the
         // playback (controller, skeletons, current clip) is the clone's own and starts
         // when it is enabled, as a fresh component's does.
         _activate = src->_activate;

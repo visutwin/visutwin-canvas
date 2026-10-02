@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 11.07.2026
+//
 // Port of the upstream "dithered-transparency" example.
 //
 // Two glass tables, both alpha-blended AND opacity-dithered, showing that the two
@@ -34,7 +36,7 @@
 
 using namespace visutwin::canvas;
 
-// Upstream's initial slider values.
+// The initial slider values.
 constexpr float INITIAL_OPACITY = 0.5f;
 constexpr float INITIAL_ALPHA_DITHER = 0.5f;
 constexpr bool INITIAL_TAA = false;
@@ -131,9 +133,9 @@ protected:
             if (cameraComponent->camera()) {
                 cameraComponent->camera()->setFov(70.0f);
             }
-            // Upstream's CameraFrame: ACES tone mapping, a scene color map, TAA jitter 1, and
+            // Camera frame: ACES tone mapping, a scene color map, TAA jitter 1, and
             // sharpening only while TAA is on.
-            cameraComponent->requestSceneColorMap(true);   // upstream: cameraFrame.rendering.sceneColorMap
+            cameraComponent->requestSceneColorMap(true);
             auto taa = cameraComponent->taa();
             taa.enabled = INITIAL_TAA;
             taa.jitter = 1.0f;

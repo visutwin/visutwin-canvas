@@ -31,7 +31,7 @@
                 // 5. Compute attenuation (reuse existing falloff functions from common.metal).
                 // A shaped light (areaHalfWidth.w, the LightShape; 0 punctual — the CPU
                 // leaves it 0 unless clustered area lights are enabled) takes only the
-                // range window, as upstream's clusteredLight with CLUSTER_AREALIGHTS.
+                // range window.
                 const uint clShape = uint(cl.areaHalfWidth.w + 0.5);
                 const float3 lightDirW = cl.positionRange.xyz - rd.worldPos;
                 float attenuation;
@@ -63,11 +63,11 @@
                 // already applied hardware polygon offset, and a shader bias on this
                 // projection is hopeless — a spot with near 0.01 and range 150 crushes
                 // the whole scene into ~0.001 of depth, which any bias worth the name
-                // swamps. Only the receiver's normal offset is applied, as upstream does.
+                // swamps. Only the receiver's normal offset is applied.
                 if (cl.shadowData.x > 0.5) {
                     const float res = float(clusterShadowAtlas.get_width());
                     if (cl.shadowData.w > 1.5) {
-                        // Omni receiver offset is upstream's normalOffsetPointShadow:
+                        // Omni receiver offset:
                         // the GEOMETRIC normal, scaled by normalBias, by how grazing
                         // the light is (1 - NdotL) and by the DISTANCE to the light.
                         // A torch mounted on its own wall lights that wall at ~90
@@ -87,8 +87,7 @@
                             attenuation *= mix(1.0, vis, cl.shadowData.z);
                         }
                     } else {
-                        // A spot's offset is the flat normalBias, as upstream's
-                        // getShadowCoordPerspZbufferNormalOffset.
+                        // A spot's offset is the flat normalBias.
                         const float3 shadowPosW = rd.worldPos + N * cl.shadowData.y;
                         const float4 sc = cl.shadowMatrix * float4(shadowPosW, 1.0);
                         const float sw = max(sc.w, 1e-6);
@@ -103,7 +102,7 @@
                     }
                 }
 
-                // Clustered cookie (upstream clusteredLightCookies): the light's cookie,
+                // Clustered cookie: the light's cookie,
                 // copied into its rect of the cookie atlas. params.w is 0 for none, else
                 // (CookieChannel + 1) * 2 + intensity. A spot reads it through the same
                 // projection its shadow uses (no clip, the atlas clamps); an omni picks the
@@ -184,7 +183,7 @@
                 clF = mix(clF, iridFresnel, iridIntensity);
 #endif
 
-                // Upstream: with area lights in the variant, a punctual light's diffuse
+                // With area lights in the variant, a punctual light's diffuse
                 // is scaled by (1 - specularity).
 #if VT_FEATURE_AREA_LIGHTS && !VT_FEATURE_NO_SPECULAR
                 const float3 clDiffuseScale = float3(1.0) - F0;

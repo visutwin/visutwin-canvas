@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 30.09.2026
+//
 #include "scrollbarComponent.h"
 
 #include <algorithm>
@@ -20,7 +23,7 @@ namespace visutwin::canvas
     ScrollbarComponent::~ScrollbarComponent()
     {
         _instanceList.remove(this);
-        // upstream onBeforeRemove: the elements may outlive the scrollbar.
+        // The elements may outlive the scrollbar.
         unbindTrackElement();
         unbindHandleElement();
         if (_handleEntityDestroyed) {

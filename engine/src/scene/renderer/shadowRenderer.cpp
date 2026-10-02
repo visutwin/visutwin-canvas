@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektayers on 11.09.2025.
+// Created by Arnis Lektauers on 11.09.2025
 //
 #include "shadowRenderer.h"
 
@@ -11,7 +11,7 @@
 namespace visutwin::canvas
 {
     bool ShadowRenderer::needsShadowRendering(const Light* light) const {
-        // PURE, as upstream 2.23 made it. It must not consume a SHADOWUPDATE_THISFRAME
+        // PURE. It must not consume a SHADOWUPDATE_THISFRAME
         // request: with lights culled, a one-shot request on a light no camera can reach
         // would be answered "no" and consumed in the same breath, and the shadow the
         // caller asked for never rendered. Renderer::consumeOneShotShadows does the

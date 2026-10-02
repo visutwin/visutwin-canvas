@@ -14,7 +14,7 @@ struct GSplatParams {
     float4 viewport;        // width, height, 1/width, 1/height
     uint splatCount;
     uint shBands;           // 0 = SH0 only; 1-3 = view-dependent SH color
-    uint cameraOrtho;       // 1: SH along the camera forward (upstream #9531)
+    uint cameraOrtho;       // 1: SH along the camera forward
     uint pad2;
     float4 fogColor;        // linear rgb
     float4 fogParams;       // start, end, density, type (0 = none, 1 linear, 2 exp, 3 exp2)
@@ -24,9 +24,9 @@ struct GSplatParams {
 // toneMap(color, exposure, mode) is the forward pass's own, from the common-tonemap
 // chunk, which GSplatResource splices in after the metal_stdlib prologue below.
 
-// Upstream gsplatOutput's prepareOutputFromGamma, with the port's targets: a camera
-// frame's scene pass is linear HDR with tone mapping deferred to compose (upstream's
-// GAMMA_NONE + TONEMAP_NONE there), anything else is a gamma target that the forward
+// Output stage for a gamma-space splat colour: a camera
+// frame's scene pass is linear HDR with tone mapping deferred to compose
+// (no gamma, no tone mapping there), anything else is a gamma target that the forward
 // tail tonemaps and encodes. `depth` is the view depth, as the forward fog uses.
 static inline float3 gsplatPrepareOutput(float3 gammaColor, float depth, constant GSplatParams& params)
 {
@@ -38,7 +38,7 @@ static inline float3 gsplatPrepareOutput(float3 gammaColor, float depth, constan
 
     float3 color = gammaColor;
     if (tonemap || linearTarget || fog) {
-        color = pow(max(color, float3(0.0)), float3(2.2));          // upstream decodeGamma
+        color = pow(max(color, float3(0.0)), float3(2.2));          // decode gamma
     }
     if (fog) {
         const float density = max(params.fogParams.z, 0.0);
@@ -58,7 +58,7 @@ static inline float3 gsplatPrepareOutput(float3 gammaColor, float depth, constan
         color = toneMap(color, max(params.output.x, 0.0), params.output.y);
     }
     if (tonemap || (!linearTarget && fog)) {
-        color = pow(max(color, float3(0.0)) + 0.0000001, float3(1.0 / 2.2)); // upstream gammaCorrectOutput
+        color = pow(max(color, float3(0.0)) + 0.0000001, float3(1.0 / 2.2)); // gamma-correct output
     }
     return color;
 }
@@ -69,7 +69,7 @@ struct GSplatVaryings {
     half4 color;
 };
 
-// Spherical-harmonics evaluation (upstream gsplatEvalSH.js). sh is the per-splat
+// Spherical-harmonics evaluation. sh is the per-splat
 // coefficient buffer; base = splatIndex*45; coefficients are coefficient-major
 // interleaved (sh[k] = rgb of coefficient k). Returns the view-dependent color
 // added to the DC term in display/gamma space (before the sRGB→linear decode).
@@ -149,11 +149,11 @@ vertex GSplatVaryings gsplatVS(uint vid [[vertex_id]],
                                   float3(covA.y, covB.x, covB.y),
                                   float3(covA.z, covB.y, covB.z));
 
-    // Perspective Jacobian at the splat center (upstream gsplatCorner.js). The focal
-    // length in pixels is taken PER AXIS (upstream #9486): one focal from the width
+    // Perspective Jacobian at the splat center. The focal
+    // length in pixels is taken PER AXIS: one focal from the width
     // for both axes squashes every splat when the viewport's pixel aspect differs
     // from the projection's (a manual aspect ratio, a side-by-side stereo target).
-    // Signs are kept (upstream #9490): the footprint is added to the centre in clip
+    // Signs are kept: the footprint is added to the centre in clip
     // space, so a projection that flips an axis must flip the footprint with it.
     const float2 focal = params.viewport.xy * float2(params.projection[0][0], params.projection[1][1]);
     const float3 v = view.xyz;
@@ -203,8 +203,8 @@ vertex GSplatVaryings gsplatVS(uint vid [[vertex_id]],
     // GL-style projection (NDC z in [-1,1]) to the [0,1] depth both backends use.
     clip.z = 0.5 * (clip.z + clip.w);
 
-    // Keep the splat off the near and far planes (upstream gsplatCenter.js, which
-    // clamps to [0, |w|] on the [0,1] depth convention this remap produces).
+    // Keep the splat off the near and far planes (clamped to [0, |w|] on the [0,1]
+    // depth convention this remap produces).
     //
     // A splat is a screen-space footprint built around ONE projected centre, so the
     // whole quad shares that centre's depth. Without this, a centre that crosses the
@@ -214,7 +214,7 @@ vertex GSplatVaryings gsplatVS(uint vid [[vertex_id]],
     // does the same on the way out.
     //
     // The cost is that a clamped splat depth-tests as though it sat ON the plane. That
-    // is upstream's trade and it is the cheaper error: splats blend back-to-front from
+    // is the cheaper error: splats blend back-to-front from
     // the order buffer, so their mutual order comes from the sort rather than from
     // depth, and only their occlusion against opaque geometry is affected.
     //
@@ -225,10 +225,10 @@ vertex GSplatVaryings gsplatVS(uint vid [[vertex_id]],
     float3 displayColor = float3(color.rgb);
 
     // View-dependent spherical harmonics (added in display/gamma space before the
-    // sRGB→linear decode, matching upstream). dir = model-space view direction.
+    // sRGB→linear decode). dir = model-space view direction.
     if (params.shBands > 0u) {
         // An orthographic camera's view rays all run along its forward, (0, 0, -1) in
-        // view space, rather than from its position to the splat (upstream #9531).
+        // view space, rather than from its position to the splat.
         const float3 viewPos = params.cameraOrtho != 0u ? float3(0.0, 0.0, -1.0) : view.xyz;
         const float3x3 mv3 = float3x3(params.modelView[0].xyz,
                                       params.modelView[1].xyz,
@@ -251,7 +251,7 @@ fragment half4 gsplatFS(GSplatVaryings in [[stage_in]])
     if (A > 1.0) {
         discard_fragment();
     }
-    // Normalized exponential falloff (upstream normExp): 1 at center, 0 at edge.
+    // Normalized exponential falloff: 1 at center, 0 at edge.
     const float EXP4 = 0.018315638889f;
     const float alpha = ((exp(-4.0f * A) - EXP4) / (1.0f - EXP4)) * float(in.color.a);
     return half4(half3(in.color.rgb) * half(alpha), half(alpha));

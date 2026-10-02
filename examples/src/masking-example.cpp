@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 30.09.2026
+//
 // Port of upstream user-interface/masking.
 //
 // A player profile card that uses masks three ways. The cover photo pans inside a rectangle
@@ -50,7 +52,7 @@ namespace
         return res && std::holds_alternative<Texture*>(*res) ? std::get<Texture*>(*res) : nullptr;
     }
 
-    /// Upstream's element properties that this example sets; centred on the parent unless
+    /// The element properties this example sets; centred on the parent unless
     /// they say otherwise.
     struct ElementProps
     {
@@ -114,7 +116,7 @@ protected:
         _screen->setScaleBlend(0.5f);
         root()->addChild(screenEntity);
 
-        // Frames of upstream's UI kit atlas (ui-atlas.mjs)
+        // Frames of the UI kit atlas
         auto atlas = std::make_shared<TextureAtlas>();
         atlas->setTexture(atlasTexture);
         const Vector2 centre(0.5f, 0.5f);

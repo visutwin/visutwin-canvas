@@ -5,7 +5,7 @@
 // Per-instance model matrix and diffuse color are delivered via [[stage_in]] vertex attributes
 // (instance_line1..4 + instanceColor) from vertex descriptor layout(5) with perInstance step function.
 // Normal matrix is derived from the upper-left 3x3 of the model matrix
-// (matches upstream getNormalMatrix() for instancing — valid for uniform scale).
+// (valid for uniform scale).
 vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
                                       constant SceneData &scene [[buffer(1)]],
                                       constant ModelData &model [[buffer(2)]],
@@ -13,7 +13,7 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
 {
     RasterizerData rd;
 
-    // Each instance is placed in its NODE's space: upstream transformInstancing's
+    // Each instance is placed in its NODE's space:
     // matrix_model * mat4(instance_line1..4). The renderer uploads the node's world
     // matrix as the model matrix; the Vulkan stage composes the same way.
     const float4x4 instanceModelMatrix = model.modelMatrix * float4x4(v.instance_line1, v.instance_line2,
@@ -123,7 +123,7 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
     applyMorph(localPos, localNormal, vid, morphDeltas, morphParams);
 #endif
 
-    // Matches upstream getSkinMatrix(): weighted sum of 4 bone matrices.
+    // Weighted sum of 4 bone matrices.
     const float4 w = v.blendWeights;
     const int4 j = int4(v.blendIndices);
     const float4x4 skinMatrix = w.x * palette[j.x] + w.y * palette[j.y] +
@@ -136,8 +136,8 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
     rd.position = clip;
     rd.worldPos = world.xyz;
 
-    // Skin the normal/tangent by the palette 3x3 (valid for uniform bone scale,
-    // matching upstream), then apply the node's normal matrix.
+    // Skin the normal/tangent by the palette 3x3 (valid for uniform bone scale),
+    // then apply the node's normal matrix.
     const float3x3 skinNormalMat = float3x3(skinMatrix[0].xyz,
                                              skinMatrix[1].xyz,
                                              skinMatrix[2].xyz);
@@ -208,7 +208,7 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
 
 #if VT_FEATURE_LIGHTMAP_BAKE
     // Lightmap bake: rasterize the mesh across its own UV1 unwrap instead of through
-    // the view projection (upstream's UV-space lightmapper render). The world position
+    // the view projection. The world position
     // and normal below are unchanged, so the fragment stage lights the real surface
     // point while the triangle covers the lightmap texels that belong to it.
     // UV origin is top-left, clip space is y-up, hence the flipped y.
@@ -216,9 +216,9 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
 #endif
 
 #if VT_FEATURE_SCREEN_SPACE
-    // Screen-space UI (upstream SCREENSPACE): the element's world transform already
+    // Screen-space UI: the element's world transform already
     // carries it into clip space through its screen's projection, so the camera's
-    // view-projection is skipped. Upstream writes z = 0, w = 1 in GL clip space; that is
+    // view-projection is skipped. z = 0, w = 1 in GL clip space is
     // depth 0.5 in this engine's [0, 1] convention.
     clip = float4(world.x, world.y, 0.5, 1.0);
 #endif
@@ -242,7 +242,7 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
 
 #if VT_FEATURE_VERTEX_COLORS
     // Pass vertex color to fragment shader. Apply sRGB → linear conversion
-    // in the vertex shader (once per vertex) following upstream convention.
+    // in the vertex shader (once per vertex).
     rd.vertexColor = float4(pow(max(v.color.rgb, float3(0.0)), float3(2.2)), v.color.a);
 #endif
 

@@ -52,8 +52,7 @@ vec3 decodeEnv(vec4 raw) {
     return srgbToLinear(raw.rgb);
 }
 
-// Environment atlas lookup along a world direction at a roughness: upstream's
-// calcReflection (reflectionEnv.js) - the unconvolved shiny rect at a screen-space
+// Environment atlas lookup along a world direction at a roughness: the unconvolved shiny rect at a screen-space
 // mip for a mirror, the prefiltered chain otherwise, blended toward the next
 // roughness level. Decoded, NOT scaled by the environment intensity. Uses screen
 // derivatives, so call it from uniform control flow only. The env-atlas

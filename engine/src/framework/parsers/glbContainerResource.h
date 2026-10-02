@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 20.12.2025.
+// Created by Arnis Lektauers on 20.12.2025
 //
 #pragma once
 #include <memory>
@@ -49,7 +49,7 @@ namespace visutwin::canvas
     {
         std::shared_ptr<Skin> skin;
         /// glTF joint node indices, resolved to instantiated entities (by index,
-        /// not by name — DEVIATION from upstream's findByName resolution).
+        /// not by name — DEVIATION from upstream, which resolves by name).
         std::vector<int> jointNodeIndices;
     };
 
@@ -93,7 +93,7 @@ namespace visutwin::canvas
         std::shared_ptr<VertexBuffer> instanceBuffer;
         int instanceCount = 0;
         // KHR_gaussian_splatting: the splat sets of the node's mesh. The first goes on
-        // the node's entity, each further one on a child entity (upstream's layout).
+        // the node's entity, each further one on a child entity.
         std::vector<std::shared_ptr<GSplatResource>> splats;
     };
 
@@ -121,7 +121,7 @@ namespace visutwin::canvas
             _meshPayloads.push_back(payload);
         }
 
-        /// KHR_materials_variants, upstream's container API. The variant names, in the
+        /// KHR_materials_variants. The variant names, in the
         /// file's order.
         const std::vector<std::string>& getMaterialVariants() const { return _variantNames; }
         void setMaterialVariants(std::vector<std::string> names) { _variantNames = std::move(names); }

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// A button (upstream framework/components/button/component.js): it turns the input events
+// Created by Arnis Lektauers on 21.03.2026
+//
+// A button: it turns the input events
 // its entity's element receives into a visual state — default, hover, pressed or inactive —
 // and shows that state on an IMAGE element, its `imageEntity`, by tinting it or by changing
 // its sprite.
@@ -44,7 +46,7 @@ namespace visutwin::canvas
     class Sprite;
     struct ElementInputEvent;
 
-    /// Upstream BUTTON_TRANSITION_MODE_TINT / _SPRITE_CHANGE.
+    /// How a button shows its state: by tint or by sprite change.
     enum class ButtonTransitionMode
     {
         Tint = 0,
@@ -74,9 +76,9 @@ namespace visutwin::canvas
 
         static const std::vector<ButtonComponent*>& instances() { return _instanceList.items(); }
 
-        /// Upstream `active`: an inactive button shows its inactive state and fires no
-        /// events. DEVIATION in name only: `active()` is Component's "enabled here and in
-        /// every parent", which this must not hide.
+        /// Whether the button is active: an inactive button shows its inactive state and
+        /// fires no events. DEVIATION in name only (upstream's `active`): `active()` is
+        /// Component's "enabled here and in every parent", which this must not hide.
         bool isActive() const { return _active; }
         void setActive(bool value);
 
@@ -101,7 +103,7 @@ namespace visutwin::canvas
         void setPressedTint(const Color& value) { setTint(_pressedTint, value); }
         const Color& inactiveTint() const { return _inactiveTint; }
         void setInactiveTint(const Color& value) { setTint(_inactiveTint, value); }
-        /// How long a tint change fades over, in MILLISECONDS as upstream; 0 is immediate.
+        /// How long a tint change fades over, in MILLISECONDS; 0 is immediate.
         float fadeDuration() const { return _fadeDuration; }
         void setFadeDuration(const float value) { _fadeDuration = std::max(value, 0.0f); }
 
@@ -120,10 +122,10 @@ namespace visutwin::canvas
 
         VisualState visualState() const { return _visualState; }
 
-        /// Advance a tint fade (upstream `onUpdate`); the button system calls it every update.
+        /// Advance a tint fade; the button system calls it every update.
         void update(float dt);
         /// Pick up an element added to this entity or to the image entity since the button
-        /// last looked (upstream listens for `element:add`, which nothing fires here). The
+        /// last looked (nothing fires `element:add` here). The
         /// system calls it every update; it costs nothing once both are bound.
         void refreshBindings();
 

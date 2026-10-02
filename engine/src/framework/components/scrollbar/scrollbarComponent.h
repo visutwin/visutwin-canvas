@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// A scrollbar (upstream framework/components/scrollbar/component.js): a track, its entity's
+// Created by Arnis Lektauers on 30.09.2026
+//
+// A scrollbar: a track, its entity's
 // element, and a handle, the element of `handleEntity`, that the scrollbar sizes to
 // `handleSize` of the track and places at `value` along it. Dragging the handle sets the
 // value, which it fires as `set:value`; with a handle smaller than the track it is a slider.

@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // OBJ + MTL file parser for VisuTwin Canvas.
 //
 // Loads Wavefront OBJ geometry and companion MTL materials using tinyobjloader,
 // producing a GlbContainerResource that plugs into the existing asset pipeline
 // (same instantiateRenderEntity() path as the GLB parser).
 //
-// Custom OBJ loader (not derived from upstream).
+// Custom OBJ loader.
 // This is a VisuTwin-specific addition for robot visualization.
 //
 #pragma once

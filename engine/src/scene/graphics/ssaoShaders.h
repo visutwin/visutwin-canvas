@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Scalable Ambient Obscurance (spiral-tap SAO from the depth buffer) in both
 // languages, driven through QuadRender — one implementation rather than a pass
 // class per backend. Texture: quad slot 0 = scene depth.
@@ -119,7 +121,7 @@ static inline float3 faceNormal(float3 dpdx, float3 dpdy)
 // Compute normals directly from the depth texture (full resolution normals)
 // Snap a UV to the centre of the depth texel it falls in, so the position
 // reconstructed from that texel's depth is the surface point the depth was
-// rendered at (upstream's snapToDepthTexelCenter). The depth is point-sampled,
+// rendered at. The depth is point-sampled,
 // so an unsnapped UV pairs a texel's depth with a position up to half a texel
 // away from it — a flat surface then reconstructs as a staircase and occludes
 // ITSELF: measured on ambient-occlusion's outer wall, the raw factor was 0.54
@@ -235,7 +237,7 @@ fragment float4 ssaoFragment(
     // DEVIATION: upstream reconstructs positions with negative Z (depth = -getLinearScreenDepth),
     // so cross(dpdx, dpdy) naturally yields normals pointing towards the camera (-Z).
     // Our Metal path uses positive depth (distance from camera), so the cross product
-    // produces normals pointing away (+Z).  Negate to match upstream convention.
+    // produces normals pointing away (+Z).  Negate so they face the camera.
     float3 normal = -computeViewSpaceNormal(origin, uv, uniforms.invResolution, uniforms.aspect,
         depthTexture, linearSampler, uniforms.cameraNear, uniforms.cameraFar);
 
@@ -269,7 +271,7 @@ void main() { vUv = vertexUv0; gl_Position = vec4(vertexPosition, 1.0); }
 layout(location = 0) in vec2 vUv;
 
 // Scalable Ambient Obscurance — port of metalSsaoPass.cpp ssaoFragment
-// (spiral-tap SAO from the depth buffer, upstream algorithm).
+// (spiral-tap SAO from the depth buffer).
 
 layout(set = 1, binding = 0) uniform sampler2D depthTex;
 
@@ -316,8 +318,8 @@ vec3 viewPosFromDepth(vec2 uv, float linearDepth, float aspect) {
 }
 
 // Snap to the centre of the depth texel read, so the reconstructed position is
-// the point the depth was rendered at (upstream's snapToDepthTexelCenter; see
-// the MSL twin above for what it fixes).
+// the point the depth was rendered at (see the MSL twin above for what it
+// fixes).
 vec2 snapToDepthTexelCenter(vec2 uv) {
     vec2 size = vec2(textureSize(depthTex, 0));
     return (floor(uv * size) + 0.5) / size;

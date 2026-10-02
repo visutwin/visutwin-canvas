@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 30.09.2026
+//
 #include "layoutCalculator.h"
 
 #include <algorithm>
@@ -11,8 +14,8 @@ namespace visutwin::canvas
 {
     namespace
     {
-        // Axis 0 is x / width, axis 1 is y / height. Upstream swizzles property names per
-        // orientation; here the primary axis `a` and the secondary `b` are indices.
+        // Axis 0 is x / width, axis 1 is y / height. The primary axis `a` and the secondary
+        // `b` are indices, chosen per orientation.
 
         struct Sizes
         {
@@ -85,7 +88,6 @@ namespace visutwin::canvas
                     placement.y = static_cast<float>(_positions[i][1]);
                 }
 
-                // upstream createLayoutInfo
                 const double xOffset = (_available[0] - _linesSize[0]) * _options.alignment.x + _options.padding.getX();
                 const double yOffset = (_available[1] - _linesSize[1]) * _options.alignment.y + _options.padding.getY();
                 result.bounds = Vector4(static_cast<float>(xOffset), static_cast<float>(yOffset),
@@ -94,7 +96,7 @@ namespace visutwin::canvas
             }
 
         private:
-            // upstream getElementSizeProperties: min >= 0, max >= min, size within them
+            // min >= 0, max >= min, size within them
             static Sizes sanitized(const LayoutItem& item)
             {
                 Sizes s;
@@ -184,7 +186,7 @@ namespace visutwin::canvas
                 return total + static_cast<double>(sizes.size() - 1) * _spacing[axis];
             }
 
-            // upstream getTraversalOrder: indices sorted (stably, as JS's sort) by a limit
+            // Indices sorted (stably) by a limit
             static std::vector<size_t> traversalOrder(const std::vector<Sizes*>& sizes, double (Sizes::* limit)[2],
                                                       const int axis, const bool descending)
             {
@@ -225,7 +227,7 @@ namespace visutwin::canvas
                 return inverted;
             }
 
-            // upstream createSumArray: the running sum from the end of the traversal order
+            // The running sum from the end of the traversal order
             static std::vector<double> sumArray(const std::vector<double>& values, const std::vector<size_t>& order)
             {
                 std::vector<double> sums(values.size(), 0.0);
@@ -319,7 +321,7 @@ namespace visutwin::canvas
 
             // Line heights follow each line's largest item; the largest items are fitted to the
             // group, and every other item to its line (or to the group when there is one line).
-            // The largest sizes ARE those items' sizes, as upstream shares the objects.
+            // The largest sizes ARE those items' sizes (the objects are shared).
             void calculateSizesOnAxisB()
             {
                 std::vector<Sizes*> largestSizes;

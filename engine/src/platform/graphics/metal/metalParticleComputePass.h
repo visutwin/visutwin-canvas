@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Metal compute pass for GPU particle advection.
 //
 // Advects millions of particles through a 3D velocity field entirely
@@ -21,8 +23,7 @@
 //   - Lazy resource creation
 //   - Friend access to MetalGraphicsDevice for command queue
 //
-// Custom shader — no upstream GLSL equivalent exists for GPU
-// particle advection.
+// Custom shader for GPU particle advection.
 //
 #pragma once
 

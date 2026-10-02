@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// The CPU halves of a batch of small upstream ports, each against upstream's own numbers:
+// Created by Arnis Lektauers on 02.10.2026
+//
+// The CPU halves of a batch of small ports, each against upstream's own numbers:
 //
 //  - Camera::worldToScreen inverts Camera::screenToWorld through the camera rect, y down.
-//  - Camera::physicalExposure is upstream's getExposure, and Scene::exposureFor takes it
+//  - Camera::physicalExposure is 1 / (1.2 * 2^EV100), and Scene::exposureFor takes it
 //    only under physical units.
-//  - BlendState::noBlend / DepthState::noDepth are upstream's NOBLEND / NODEPTH, shared.
+//  - BlendState::noBlend / DepthState::noDepth are shared no-blend / no-depth states.
 //  - AnimClip fires its track's events once each as playback passes them: forward,
 //    through a loop wrap inside one step, and backwards.
-//  - BlueNoise walks upstream's tile from the same seed to the same values.
+//  - BlueNoise walks its tile from a seed to the expected values.
 
 #include <cmath>
 #include <iostream>
@@ -61,7 +63,7 @@ namespace
     std::shared_ptr<AnimTrack> trackWithEvents()
     {
         auto track = std::make_shared<AnimTrack>("walk", 1.0f);
-        // Out of order on purpose: setEvents sorts them, as upstream's AnimEvents does.
+        // Out of order on purpose: setEvents sorts them.
         track->setEvents({{"c", 0.75f, {}}, {"a", 0.25f, {}}, {"b", 0.5f, {}}});
         return track;
     }

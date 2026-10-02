@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 18.12.2025.
+// Created by Arnis Lektauers on 18.12.2025
 //
 #include "cameraComponent.h"
 #include <algorithm>
@@ -95,7 +95,7 @@ namespace visutwin::canvas
         }
 
         _dof.enabled = enabled;
-        // Upstream camera-frame parity: DOF uses camera-frame owned scene/depth targets,
+        // DOF uses camera-frame owned scene/depth targets,
         // not legacy scene grab passes. Do NOT call requestSceneDepthMap() here — it would
         // cause the DEPTH layer to be treated as a grab pass, splitting the render block and
         // preventing WORLD actions from reaching the CameraFrame. See comment in setSsaoEnabled().
@@ -113,7 +113,7 @@ namespace visutwin::canvas
         }
 
         _taa.enabled = enabled;
-        // Upstream camera-frame parity: TAA uses camera-frame owned scene/depth targets,
+        // TAA uses camera-frame owned scene/depth targets,
         // not legacy scene grab passes.
 
         if (_camera) {
@@ -140,7 +140,7 @@ namespace visutwin::canvas
         }
 
         _ssao.enabled = enabled;
-        // Upstream camera-frame parity: SSAO uses camera-frame owned scene/depth targets,
+        // SSAO uses camera-frame owned scene/depth targets,
         // not legacy scene grab passes. Do NOT call requestSceneDepthMap() here — it would
         // cause the DEPTH layer to be treated as a grab pass, splitting the render block and
         // preventing WORLD actions from reaching the CameraFrame.
@@ -237,8 +237,7 @@ namespace visutwin::canvas
         if (!src) {
             return;
         }
-        // Upstream copies the camera's properties through the component; the Camera
-        // holds most of them here, so it copies itself.
+        // The Camera holds most of the camera's properties, so it copies itself.
         if (_camera && src->_camera) {
             _camera->copy(*src->_camera);
         }
@@ -249,7 +248,7 @@ namespace visutwin::canvas
         setTaa(src->_taa);
         _volumetricFog = src->_volumetricFog;
         _rendering = src->_rendering;
-        // renderSceneColorMap / renderSceneDepthMap are upstream properties whose
+        // renderSceneColorMap / renderSceneDepthMap are properties whose
         // setter makes ONE request; the source's count belongs to its own requesters.
         if (src->renderSceneColorMap()) {
             requestSceneColorMap(true);

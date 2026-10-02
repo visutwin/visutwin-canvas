@@ -14,7 +14,7 @@ layout(set=6,binding=3,std140) uniform Params {
 #define VT_TONEMAP_OPERATORS_ONLY
 #include "chunks/common-tonemap.glsl"
 
-// Upstream gsplatOutput's prepareOutputFromGamma; twin of gsplatPrepareOutput in
+// Output stage from gamma-space colour; twin of gsplatPrepareOutput in
 // gsplat-render.metal. A camera frame's scene pass is linear HDR with tone mapping
 // left to compose; any other target is gamma, tonemapped and encoded here. Exposure
 // scales before the curve and is skipped with it for NONE, as the Metal toneMap does.
@@ -87,7 +87,7 @@ void main() {
     uint base=index*10u; vec3 center=load3(base); vec3 ca=load3(base+4u), cb=load3(base+7u);
     vec4 view=params.modelView*vec4(center,1), clip=params.projection*view; if(clip.w<=0.0)return;
     mat3 covariance=mat3(ca.x,ca.y,ca.z, ca.y,cb.x,cb.y, ca.z,cb.y,cb.z);
-    // Per-axis, signed focal length (upstream #9486/#9490) — see gsplat-render.metal.
+    // Per-axis, signed focal length — see gsplat-render.metal.
     vec2 j=params.viewport.xy*vec2(params.projection[0][0],params.projection[1][1])/view.z;
     mat3 J=mat3(j.x,0,-j.x*view.x/view.z, 0,j.y,-j.y*view.y/view.z, 0,0,0);
     mat3 W=transpose(mat3(params.modelView)); mat3 T=W*J;
@@ -95,8 +95,8 @@ void main() {
     float d1=cov[0][0]+0.3, od=cov[0][1], d2=cov[1][1]+0.3;
     float mid=0.5*(d1+d2), radius=length(vec2(0.5*(d1-d2),od));
     float lambda1=mid+radius, lambda2=max(mid-radius,0.1);
-    // Limit the kernel to the smaller viewport dimension (upstream gsplatCorner.js,
-    // and the twin of the vmin clamp in gsplat-render.metal). Without it the
+    // Limit the kernel to the smaller viewport dimension (the twin of the vmin
+    // clamp in gsplat-render.metal). Without it the
     // perspective Jacobian, which divides by view.z, blows the footprint up without
     // bound as a splat centre approaches the camera. Clamping clip.z below keeps such
     // a splat instead of clipping its whole quad away, so the size clamp is what stops
@@ -105,23 +105,22 @@ void main() {
     float l1=2.0*min(sqrt(2.0*lambda1),vmin), l2=2.0*min(sqrt(2.0*lambda2),vmin);
     if(max(l1,l2)<0.5)return;
     vec2 c=clip.ww*params.viewport.zw;
-    // Cull against the frustum x/y planes, as Metal and upstream do.
+    // Cull against the frustum x/y planes, as Metal does.
     if(any(greaterThan(abs(clip.xy)-vec2(max(l1,l2))*c, clip.ww)))return;
     vec2 axis=normalize(vec2(od,lambda1-d1)+vec2(1e-8,0));
     vec2 corners[4]=vec2[](vec2(-1,-1),vec2(1,-1),vec2(-1,1),vec2(1,1));
     vec2 uv=corners[gl_VertexIndex];
     clip.xy+=(uv.x*l1*axis+uv.y*l2*vec2(axis.y,-axis.x))*c;
     // Remap GL's [-1,1] clip z onto the [0,1] convention, then keep the splat off the
-    // near and far planes — the twin of the clamp in gsplat-render.metal, and upstream's
-    // gsplatCenter.js. The whole quad shares its centre's depth, so an unclamped centre
+    // near and far planes — the twin of the clamp in gsplat-render.metal. The whole quad shares its centre's depth, so an unclamped centre
     // crossing the near plane clips the entire splat away while its footprint still
     // covers visible pixels. clip.w > 0 here, the behind-camera case having returned.
     clip.z=clamp(0.5*(clip.z+clip.w), 0.0, clip.w); gl_Position=clip; outUv=uv;
     vec4 color=unpackColor(splats.words[base+3u]); vec3 displayColor=color.rgb;
     if(params.shBands>0u) {
         // Model-space view direction. An orthographic camera's rays all run along its
-        // forward, (0, 0, -1) in view space, not from its position to the splat (upstream
-        // #9531); twin of the block in gsplat-render.metal.
+        // forward, (0, 0, -1) in view space, not from its position to the splat; twin of
+        // the block in gsplat-render.metal.
         vec3 viewDir=params.cameraOrtho!=0u ? vec3(0.0,0.0,-1.0) : view.xyz;
         vec3 direction=normalize(transpose(mat3(params.modelView))*viewDir);
         displayColor+=evaluateSH(index*45u,params.shBands,direction);

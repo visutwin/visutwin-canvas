@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers  on 18.10.2025.
+// Created by Arnis Lektauers on 18.10.2025
 //
 #pragma once
 
@@ -59,8 +59,8 @@ namespace visutwin::canvas
         [[nodiscard]] float axis(const std::string& name) const;
 
         /// Nothing to do per frame — the edge queries read the devices' own
-        /// previous-frame state, which Engine updates. Present because upstream has
-        /// it and because Engine drives every input object the same way.
+        /// previous-frame state, which Engine updates. Present because
+        /// Engine drives every input object the same way.
         void update() {}
 
     private:

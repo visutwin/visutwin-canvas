@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Upstream extras/gizmo/gizmo.js: the base of every gizmo.
+// Created by Arnis Lektauers on 02.10.2026
+//
+// The base of every gizmo.
 //
 // A gizmo is an interactive widget drawn over the scene in its own Layer —
 // `createLayer` makes one that clears depth and keeps collection order, and the
@@ -13,7 +15,7 @@
 // device (`mousedown` / `mousemove` / `mouseup`, window points), so it needs no event
 // forwarding either.
 //
-// Events, as upstream: `pointer:down`, `pointer:move`, `pointer:up` (float x, float y,
+// Events: `pointer:down`, `pointer:move`, `pointer:up` (float x, float y,
 // MeshInstance* — null off the gizmo), `position:update` (Vector3), `rotation:update`
 // (Vector3 Euler angles), `scale:update` (float), `nodes:attach`, `nodes:detach` and
 // `render:update`.
@@ -41,12 +43,12 @@ namespace visutwin::canvas
     class MeshInstance;
     class Shape;
 
-    /// Upstream Gizmo._updateScale: the world size that keeps a gizmo the same size on
+    /// The world size that keeps a gizmo the same size on
     /// screen. Perspective: tan(fov / 2) x the distance along the camera's forward x 0.3;
     /// orthographic: orthoHeight x 0.32; then times `size`, never below 1e-4.
     float gizmoViewportScale(bool perspective, float fovDegrees, float forwardDistance, float orthoHeight, float size);
 
-    /// Upstream Quat.getEulerAngles, in degrees.
+    /// The quaternion's Euler angles, in degrees.
     Vector3 gizmoEulerAngles(const Quaternion& q);
 
     class Gizmo : public EventHandler
@@ -62,7 +64,7 @@ namespace visutwin::canvas
         static constexpr const char* EVENT_NODESDETACH = "nodes:detach";
         static constexpr const char* EVENT_RENDERUPDATE = "render:update";
 
-        /// Upstream Gizmo.createLayer: a layer that clears depth and sorts nothing,
+        /// A layer that clears depth and sorts nothing,
         /// inserted into the scene's composition at `layerIndex` (the end by default).
         static std::shared_ptr<Layer> createLayer(Engine* engine, const std::string& layerName = "Gizmo",
                                                   int layerIndex = INT_MAX);
@@ -76,7 +78,7 @@ namespace visutwin::canvas
         bool enabled() const;
         void setEnabled(bool state);
 
-        /// Left, middle and right: which buttons interact (upstream `mouseButtons`).
+        /// Left, middle and right: which buttons interact.
         std::array<bool, 3>& mouseButtons() { return _mouseButtons; }
 
         const std::shared_ptr<Layer>& layer() const { return _layer; }
@@ -91,17 +93,17 @@ namespace visutwin::canvas
         float size() const { return _size; }
         void setSize(float value);
 
-        /// The world scale the size resolves to this frame (upstream `_scale`).
+        /// The world scale the size resolves to this frame.
         float worldScale() const { return _scale; }
 
         const std::vector<GraphNode*>& nodes() const { return _nodes; }
         Entity* root() const { return _root; }
         Engine* engine() const { return _engine; }
 
-        /// Upstream `preventDefault`. There is no DOM event to cancel; kept for the API.
+        /// There is no DOM event to cancel; kept for the API.
         bool preventDefault = true;
 
-        /// Upstream `attach(nodes)`. An empty list is ignored.
+        /// Attach the gizmo to nodes. An empty list is ignored.
         void attach(const std::vector<GraphNode*>& nodes);
         void attach(GraphNode* node);
         void detach();
@@ -109,18 +111,18 @@ namespace visutwin::canvas
         virtual void prerender() {}
         virtual void update();
 
-        /// Upstream `destroy()`: detaches and releases every entity, layer slot and
+        /// Detaches and releases every entity, layer slot and
         /// subscription. Called by the destructor, and by the engine's `destroy` event.
         virtual void destroy();
 
-        /// The pointer entry points the mouse device drives. `button` is upstream's
-        /// MouseEvent.button (0 left, 1 middle, 2 right). Public so an application
+        /// The pointer entry points the mouse device drives. `button` is
+        /// 0 left, 1 middle, 2 right. Public so an application
         /// with its own input, or a test, can drive the gizmo directly.
         void pointerDown(float x, float y, int button);
         void pointerMove(float x, float y);
         void pointerUp(float x, float y, int button);
 
-        /// Upstream `_getSelection`: the first mesh instance of the nearest (or highest
+        /// The first mesh instance of the nearest (or highest
         /// priority) shape under canvas point (x, y), or null.
         MeshInstance* getSelection(float x, float y) const;
 
@@ -132,7 +134,7 @@ namespace visutwin::canvas
         void updateRotation();
         void updateScale();
 
-        /// The axes of the root entity in world space (upstream `root.right / up / forward`).
+        /// The axes of the root entity in world space.
         Vector3 rootRight() const;
         Vector3 rootUp() const;
         Vector3 rootForward() const;

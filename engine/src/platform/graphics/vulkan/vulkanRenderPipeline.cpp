@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 
 #ifdef VISUTWIN_HAS_VULKAN
 
@@ -720,7 +722,7 @@ namespace visutwin::canvas
             depthStencil.depthTestEnable = VK_TRUE;
             depthStencil.depthWriteEnable = VK_TRUE;
         }
-        // Depth comparison follows the bound DepthState (upstream Material.depthFunc),
+        // Depth comparison follows the bound DepthState,
         // in depth-only passes too; LessEqual is the default. Do not force LessEqual on a
         // depth-only pass: the clustered shadow atlas's per-rect clear draws a depth-1
         // triangle under ALWAYS (clearDepthRect), and under LessEqual it would write only

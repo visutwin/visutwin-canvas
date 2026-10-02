@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 01.10.2026
+//
 // Port of upstream misc/annotations.
 //
 // A Mitsubishi F-2 fighter jet over a shadow catcher, under the Shanghai Riverside HDRI shown
 // as a sky dome, carries seven numbered hotspots. A hotspot faces the camera at a constant
 // size on screen, shows through the jet faintly where the jet hides it, turns orange under
 // the mouse, and a click on it opens its tooltip; a click anywhere else closes it. The panel
-// on the right is upstream's control panel: hotspot size, the two colours, and the opacity in
+// on the right is the control panel: hotspot size, the two colours, and the opacity in
 // front of and behind geometry.
 //
 // Model: "Mitsubishi F-2 - Fighter Jet - Free" by bohmerang, Sketchfab, CC BY 4.0.
@@ -295,7 +297,7 @@ private:
         return bar;
     }
 
-    /// Upstream's ColorPicker: a swatch of the colour, then a slider per channel.
+    /// A colour picker: a swatch of the colour, then a slider per channel.
     void colorPicker(const std::string& label, const Color& initial, std::function<void(const Color&)> onChange)
     {
         Entity* parent = row(label);

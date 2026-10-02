@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // See picker.h: an id buffer rendered with the pick variant and read back, and a bounds
 // fallback for a device that cannot.
 //
@@ -206,8 +208,7 @@ namespace visutwin::canvas
             draw.sourceMaterial != sourceMaterial || draw.sourceVersion != sourceVersion;
         if (stale) {
             // The source's material, cloned, so its alpha test, dither, cull mode and
-            // textures carry over; drawn opaque, as upstream's pick pass draws with no
-            // blending, so a transparent surface picks like an opaque one.
+            // textures carry over; drawn opaque, with no blending, so a transparent surface picks like an opaque one.
             draw.material = sourceMaterial ? sourceMaterial->clone() : std::make_shared<StandardMaterial>();
             if (draw.material->alphaMode() == AlphaMode::BLEND) {
                 draw.material->setAlphaMode(AlphaMode::OPAQUE);
@@ -327,7 +328,7 @@ namespace visutwin::canvas
             return boundsSelection(rect);
         }
 
-        // Every id under the rect, in the order the rows meet them (upstream's order).
+        // Every id under the rect, in the order the rows meet them.
         std::vector<MeshInstance*> selection;
         std::unordered_set<uint32_t> seen;
         for (int py = rect.y; py < rect.y + rect.height; ++py) {
@@ -362,7 +363,7 @@ namespace visutwin::canvas
             return std::nullopt;
         }
 
-        // Upstream: the depth under the pixel, unprojected through its CENTRE. A pixel
+        // The depth under the pixel, unprojected through its CENTRE. A pixel
         // at the far plane shows nothing.
         const Rect rect = sanitizeRect(x, y, 1, 1);
         const float depth = _depthPixels[static_cast<size_t>(rect.y) * static_cast<size_t>(_width) +
@@ -490,7 +491,7 @@ namespace visutwin::canvas
             return false;
         }
 
-        // Through the CENTRE of the pixel the pick reads (upstream 5cc6269d5), after
+        // Through the CENTRE of the pixel the pick reads, after
         // clamping it into the buffer. Through the integer coordinate the ray passed the
         // pixel's top-left corner, so a picked point sat half a pixel off the surface
         // point the pixel shows — two canvas pixels at a 0.25 pick scale.

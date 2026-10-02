@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// A texture divided into named frames (upstream scene/texture-atlas.js).
+// Created by Arnis Lektauers on 29.09.2026
+//
+// A texture divided into named frames.
 //
 // A frame's rect is in TEXTURE PIXELS, x from the left and y from the BOTTOM of the image
-// (upstream's convention, which its generated atlases follow: `ui-atlas.png`'s avatar
+// (the convention generated atlases follow: `ui-atlas.png`'s avatar
 // frames are empty read from the top and filled read from the bottom). The border is the
 // 9-slice inset in pixels: left, bottom, right, top. The pivot is the point of the frame a
 // sprite's position names, 0..1.
 //
 // DEVIATION: the texture is BORROWED, as a material's textures are, where upstream's
-// destroy() destroys it; whoever loaded it must outlive the atlas. Change listeners are a
+// destroys it; whoever loaded it must outlive the atlas. Change listeners are a
 // version counter rather than events: the image element compares it on each sync.
 //
 #pragma once

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 15.09.2026
+//
 // Port of upstream gizmos/transform-translate.
 //
 // A default white box at the origin, lit by a default directional light at euler
@@ -8,14 +10,14 @@
 // depth-cleared layer from Gizmo::createLayer, is attached to the box; its size is
 // 1024 / the canvas height, kept up to date as the window resizes, and the orbit camera
 // (focused on the origin, zoom 2..10, pitch +/-89.999) stops responding while the gizmo
-// holds the pointer (upstream's 'gizmo:pointer' app event).
+// holds the pointer (the 'gizmo:pointer' app event).
 //
 // DEVIATIONS:
 // - No controls panel: upstream's initial values apply (snap off, world space, the
 //   default theme, drag mode 'selected', perspective at 45 degrees).
 // - Upstream's Grid script is a pristine-grid shader on a blended plane. It is drawn
 //   here with a WideLineRenderer: opaque 1-pixel lines every unit over the scaled
-//   (4, 1, 4) extent in upstream's 0.7 grey, with the axis lines in its colorX and
+//   (4, 1, 4) extent in 0.7 grey, with the axis lines in its colorX and
 //   colorZ. The anti-aliased coverage alpha and the 0.1-unit HIGH resolution level
 //   are not reproduced, so the lines read brighter than upstream's.
 // - The example harness re-enables the camera controls at the top of every frame (for
@@ -43,7 +45,7 @@ protected:
     {
         scene()->setAmbientLight(0.2f, 0.2f, 0.2f);
 
-        // A box with the default material: upstream's is a default StandardMaterial.
+        // A box with a default StandardMaterial.
         _boxMaterial = std::make_shared<StandardMaterial>();
         auto* box = createPrimitive("box", _boxMaterial.get());
 
@@ -78,7 +80,7 @@ protected:
         root()->addChild(light);
         light->setLocalEulerAngles(0.0f, 0.0f, -60.0f);
 
-        // Upstream: 'gizmo:pointer' disables the camera controls while the gizmo holds
+        // 'gizmo:pointer' disables the camera controls while the gizmo holds
         // the pointer.
         engine()->on("gizmo:pointer", [this](const bool hasPointer) {
             _gizmoHasPointer = hasPointer;
@@ -122,7 +124,7 @@ protected:
     }
 
 private:
-    // Upstream: keep the gizmo size consistent to the canvas size (1024 / its height, or
+    // Keep the gizmo size consistent to the canvas size (1024 / its height, or
     // its width under a horizontal fov).
     void resize()
     {
@@ -135,7 +137,7 @@ private:
         }
     }
 
-    // Upstream Grid script on an entity scaled (sx, 1, sz): half extents sx/2, sz/2,
+    // A grid on an entity scaled (sx, 1, sz): half extents sx/2, sz/2,
     // unit lines in 0.7 grey, the x = 0 line in colorZ and the z = 0 line in colorX.
     void createGrid(const float scaleX, const float scaleZ)
     {

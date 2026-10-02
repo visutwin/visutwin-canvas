@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 23.09.2026
+//
 // A batch keeps raw pointers to its SOURCE mesh instances (and a dynamic batch to
 // their nodes, read every frame). If nothing tells the BatchManager when a source
 // goes away, destroying a batched entity leaves a batch pointing at freed mesh

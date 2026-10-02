@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Port of upstream's graphics/instancing-basic: hardware instancing with a
 // StandardMaterial — 1000 randomly placed, randomly scaled cylinders drawn in a
 // single call from per-instance model matrices, lit by the helipad env atlas
-// alone. The scene matches upstream value for value.
+// alone.
 //
 // The only deliberate difference is the fixed RNG seed, so the instance layout is
 // reproducible for screenshot comparison; upstream reseeds from Math.random().

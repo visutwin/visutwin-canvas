@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 11.09.2025.
+// Created by Arnis Lektauers on 11.09.2025
 //
 
 #pragma once
@@ -10,15 +10,15 @@
 
 namespace visutwin::canvas
 {
-    /// Scene-level clustered lighting settings (upstream `scene.lighting`).
+    /// Scene-level clustered lighting settings.
     struct LightingParams
     {
         bool shadowsEnabled = true;
 
         bool cookiesEnabled = false;
-        /// Upstream `lighting.areaLightsEnabled`: under clustered lighting a light with
+        /// Under clustered lighting a light with
         /// a non-punctual shape shades as an LTC area light only while this is set (off
-        /// by default, as upstream; outside clustered lighting shapes always apply).
+        /// by default; outside clustered lighting shapes always apply).
         bool areaLightsEnabled = false;
 
         /// The cluster grid: space is subdivided into this many cells and each holds
@@ -31,16 +31,16 @@ namespace visutwin::canvas
         int maxLightsPerCell = 48;
 
         /// Resolution of the packed local shadow atlas every clustered spot and omni
-        /// shadow renders into (upstream default 2048: 16 MB of 32-bit depth, whatever
+        /// shadow renders into (2048 by default: 16 MB of 32-bit depth, whatever
         /// the light count). Applied when the atlas is first created.
         int shadowAtlasResolution = 2048;
         /// How the atlas is split into slots. Empty (the default) splits it into as
         /// many equal squares as there are shadow-casting lights; otherwise
         /// `atlasSplit[0]` squares on a side, and `atlasSplit[1 + i * n + j]` may
-        /// split cell (i, j) again — upstream's scheme, for scenes that want a few
+        /// split cell (i, j) again, for scenes that want a few
         /// large slots and many small ones.
         std::vector<int> atlasSplit;
-        /// Resolution of the clustered cookie atlas (upstream default 2048), laid out
+        /// Resolution of the clustered cookie atlas (2048 by default), laid out
         /// like the shadow atlas; created only once a clustered light has a cookie and
         /// `cookiesEnabled` is set.
         int cookieAtlasResolution = 2048;

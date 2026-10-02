@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// The wide-line shader, in both languages (upstream extras/renderers/wide-line-renderer.js).
+// Created by Arnis Lektauers on 05.09.2026
+//
+// The wide-line shader, in both languages.
 //
 // One instance per SEGMENT. The template geometry is generated from the vertex id
 // rather than read from a vertex buffer, the way the engine's other storage draws

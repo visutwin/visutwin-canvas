@@ -13,18 +13,18 @@
         return;
     }
 
-    // Indirect lighting, split the way upstream and the Metal chunk split it:
+    // Indirect lighting, split the way the Metal chunk splits it:
     // the DIFFUSE irradiance comes from the first of SH light probes, the
     // environment atlas' ambient rect, or the flat ambient; the SPECULAR
     // reflection comes from the environment atlas whenever it is bound, whatever
     // supplied the diffuse. Do not put the probes and the atlas in ONE if/else-if:
     // a scene carrying both would lose every environment reflection the moment its
     // probes were enabled. Diffuse and specular are kept apart so ambient
-    // occlusion can treat them as upstream does (see the occlusion block below).
+    // occlusion can treat them separately (see the occlusion block below).
     vec3 ambientIrradiance;
     if (vtFeatureEnabled(VT_FEATURE_LIGHT_PROBES_BIT)) {
-        // 9-coefficient irradiance in the world normal direction (upstream
-        // AMBIENTSH basis, coefficients premultiplied).
+        // 9-coefficient irradiance in the world normal direction (coefficients
+        // premultiplied).
         vec3 shN = cubeMapRotate(N);
         ambientIrradiance = max(
             lighting.ambientSH[0].rgb +
@@ -47,7 +47,7 @@
     vec3 indirectSpecular = vec3(0.0);
     if (vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) &&
         lighting.envParams.y > 0.5 &&
-        // bit 18: useSkybox off — upstream's useSceneEnv, so this material keeps
+        // bit 18: useSkybox off, so this material keeps
         // the probe or flat ambient above and takes no scene reflection.
         (material.flags & (1u << 18)) == 0u) {
         float intensity = max(lighting.envParams.x, 0.0);
@@ -63,8 +63,8 @@
 
         // Specular: reflect, pick a mip, trilinear between levels. Twin of the
         // block in forward-fragment-ambient.metal, including its shiny path.
-        // Anisotropic materials bend the normal first (upstream reflDirAniso,
-        // common-brdf), as the Metal chunk does.
+        // Anisotropic materials bend the normal first (common-brdf), as the Metal
+        // chunk does.
         vec3 R = vtFeatureEnabled(VT_FEATURE_ANISOTROPY_BIT)
             ? getReflDirAniso(N, V, anisoB, 1.0 - roughness, anisoIntensity)
             : reflect(-V, N);
@@ -74,7 +74,7 @@
         float level = clamp(roughness * 5.0, 0.0, 5.0);
         float l0 = floor(level);
 
-        // Screen-space mip for the sharp rect (upstream shinyMipLevel). The second
+        // Screen-space mip for the sharp rect. The second
         // derivative pair is taken on fract(u + 0.5) so the azimuthal wrap, where u
         // jumps 1 -> 0 across one pixel, does not read as an enormous gradient and
         // force the blurriest mip along that seam.
@@ -139,21 +139,21 @@
     }
     // No kD on the irradiance: scaling it by (1 - Fr) * (1 - metallic) would apply
     // (1 - metallic) a SECOND time, because diffuseAlbedo already carries it, and
-    // neither the Metal chunk nor upstream does that. No specular floor without an
-    // atlas either: `ambient * F0` is not a term Metal or upstream has, and it would
+    // the Metal chunk does not do that. No specular floor without an
+    // atlas either: `ambient * F0` is not a term Metal has, and it would
     // light metals from nothing in scenes with no environment.
-    // upstream litForwardBackend.js, right after addAmbient: the ambient diffuse is
+    // Right after the ambient is added, the ambient diffuse is
     // scaled by (1 - specularity) per channel when the material renders specular
     // (twin of the block in forward-fragment-ambient.metal, which explains it).
     ambientIrradiance *= mix(vec3(1.0), vec3(1.0) - F0, specularOn);
-    // The material's ambient tint (upstream material_ambient / litArgs_ambient): the
+    // The material's ambient tint: the
     // bake accumulator above it keeps the untinted ambient, and a lightmap below
     // replaces the tinted term. Twin of the block in forward-fragment-ambient.metal.
     vec3 indirectDiffuse = ambientIrradiance * material.ambientTint.rgb * diffuseAlbedo;
     bakeDiffuseLight += ambientIrradiance;
     // Sheen image-based lighting: sample the atlas along the reflection at the
     // sheen roughness, scaled by the analytical directional albedo instead of the
-    // DFG lookup upstream samples. Twin of the block in
+    // DFG lookup. Twin of the block in
     // forward-fragment-ambient.metal. Without it a sheened surface lit only by an
     // environment shows no sheen.
     if (vtFeatureEnabled(VT_FEATURE_SHEEN_BIT) &&
@@ -177,28 +177,26 @@
             * sheenTint * sheenIBLApprox(max(dot(N, V), 0.001), sheenRoughness);
     }
 
-    // Ambient occlusion on the AMBIENT diffuse: upstream (litForwardBackend.js)
-    // runs occludeDiffuse before addLightMap and before the light loop, so the
+    // Ambient occlusion on the AMBIENT diffuse: it is occluded before the
+    // lightmap and before the light loop, so the
     // bake and the direct light are occluded only under occludeDirect — handled
     // in the occlusion block after the specular terms are final.
     indirectDiffuse *= ao;
     if (vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BIT)) {
-        // The bake REPLACES the ambient diffuse rather than adding to it — upstream
-        // gates the ambient behind `addAmbient = !lightMapEnabled` (lit-shader.js),
-        // so that a lightmapped surface is not lit twice by what the bake already
+        // The bake REPLACES the ambient diffuse rather than adding to it, so that a lightmapped surface is not lit twice by what the bake already
         // contains. Matches the Metal chunk (forward-fragment-tail).
         // Lightmaps store LINEAR light (see the bake output and Lightmapper's encoder).
         indirectDiffuse = max(texture(lightMap, fragUV1).rgb, vec3(0.0)) * diffuseAlbedo;
     }
     color += indirectDiffuse + indirectSpecular;
     if (vtFeatureEnabled(VT_FEATURE_REFLECTION_PROBE_BIT)) {
-        // Upstream samples every reflection source along the one (bent) dReflDirW.
+        // Every reflection source is sampled along the one (bent) reflection direction.
         vec3 reflectDir = vtFeatureEnabled(VT_FEATURE_ANISOTROPY_BIT)
             ? getReflDirAniso(N, V, anisoB, 1.0 - roughness, anisoIntensity)
             : reflect(-V, N);
         vec3 sampleDir = reflectDir;
 
-        // Box projection (upstream cubeMapProject BOX): intersect the reflection
+        // Box projection: intersect the reflection
         // ray with the probe box, then re-aim from the box CENTRE — that is what
         // makes a flat cubemap track a room's walls as the surface moves. Aiming
         // from the probe's own position instead, and leaving the result
@@ -344,11 +342,10 @@
     // replace indirectSpecular above). `color` already holds the direct and
     // indirect terms, so an occluded share is taken back out as `x * (f - 1)`,
     // which is exactly `x *= f` on the total. Parity with
-    // forward-fragment-ambient.metal and upstream's occludeDiffuse /
-    // occludeSpecular (aoSpecOcc.js).
+    // forward-fragment-ambient.metal.
     if ((material.flags & FLAG_OCCLUDE_DIRECT) != 0u) {
-        // occludeDirect: the direct diffuse, and the bake if there is one — upstream's
-        // second occludeDiffuse runs after addLightMap and the light loop.
+        // occludeDirect: the direct diffuse, and the bake if there is one — this
+        // second occlusion runs after the lightmap and the light loop.
         vec3 occludedDiffuse = directDiffuse;
         if (vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BIT)) {
             occludedDiffuse += indirectDiffuse;
@@ -376,8 +373,7 @@
         }
     }
     if (vtFeatureEnabled(VT_FEATURE_TRANSMISSION_BIT)) {
-        // The scalar maps modulate their factors per pixel (upstream thicknessMap /
-        // refractionMap), sampled once for both refraction paths, as on Metal.
+        // The scalar maps modulate their factors per pixel, sampled once for both refraction paths, as on Metal.
         float refractionFactor = material.transmissionFactor;
         float refractionThickness = material.thickness;
         if (material.mapChannelParams.w >= 0.0) {
@@ -388,7 +384,7 @@
         }
         if (vtFeatureEnabled(VT_FEATURE_DYNAMIC_REFRACTION_BIT) &&
             lighting.cameraNearFar.z > 0.5 && refractionFactor > 0.0) {
-            // Dynamic grab-pass refraction (upstream refractionDynamic.js):
+            // Dynamic grab-pass refraction:
             // sample the mid-frame scene colour grab at the screen position of
             // the refracted exit point instead of the environment atlas.
             float ior = max(material.refractionIndex, 1.001);
@@ -402,7 +398,7 @@
             int refrSamples = (dispersion > 0.0) ? 3 : 1;
 
             // Mip range of the grab chain; higher IOR and rougher surfaces read
-            // blurrier scene colour (upstream iorToRoughness).
+            // blurrier scene colour.
             float grabMips =
                 log2(max(float(textureSize(ssrSceneColor, 0).x), 2.0));
             float gloss = 1.0 - roughness;
@@ -414,7 +410,7 @@
                 vec3 refrDir = refract(-V, N, etaCh);
 
                 // Refraction vector scaled by volume thickness and the model's
-                // per-axis scale (upstream refractionDynamic); total internal
+                // per-axis scale; total internal
                 // reflection falls back to the unshifted surface point.
                 vec3 modelScale = vec3(length(vtDraw.model[0].xyz), length(vtDraw.model[1].xyz),
                                        length(vtDraw.model[2].xyz));
@@ -448,8 +444,8 @@
             }
 
             // Volume transmittance (KHR_materials_volume Beer's law); distance 0
-            // transmits everything. Then the diffuse albedo, ONCE, as upstream's
-            // combineColor applies it to the refraction mixed into dDiffuseLight - not
+            // transmits everything. Then the diffuse albedo, ONCE, applied to the
+            // refraction mixed into the diffuse light - not
             // baseColor^(thickness + 1), which darkened a tinted volume several times
             // over (see the Metal tail).
             if (material.attenuationParams.w > 0.0) {
@@ -471,7 +467,7 @@
         } else if (vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) &&
             lighting.envParams.y > 0.5 && (material.flags & (1u << 18)) == 0u &&
             refractionFactor > 0.0) {
-            // Env-atlas refraction (upstream refractionCube.js): the reflection lookup
+            // Env-atlas refraction: the reflection lookup
             // along the REFRACTED direction — not a mix toward this fragment's own
             // ambient (indirectDiffuse + indirectSpecular), which is not a refraction
             // at all and reads opaque at any transmission. Twin of the Metal tail's
@@ -485,10 +481,10 @@
                 refrColor *= pow(max(material.attenuationParams.rgb, vec3(1e-4)),
                     vec3(max(refractionThickness, 0.0) / material.attenuationParams.w));
             }
-            // The albedo TWICE, as upstream: refractionCube mixes refraction * albedo
-            // into dDiffuseLight and combineColor multiplies that by the albedo again.
-            // (The dynamic path applies it once, and so does upstream's.) No Fresnel
-            // weight either - upstream's cube path has none.
+            // The albedo TWICE, reproducing upstream: its cube path mixes refraction *
+            // albedo into the diffuse light and multiplies that by the albedo again.
+            // (The dynamic path applies it once.) No Fresnel weight either - the
+            // cube path has none.
             refrColor *= diffuseAlbedo * diffuseAlbedo;
             vec3 specPart = directSpecular + indirectSpecular;
             color = mix(color, refrColor + specPart,

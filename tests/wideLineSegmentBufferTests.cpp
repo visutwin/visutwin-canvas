@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 15.09.2026
+//
 // The WideLineRenderer's segment buffer across growing, shrinking and empty sets.
 //
 // A renderer that uploads exactly the live records into a buffer sized for the

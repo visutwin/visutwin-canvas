@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Upstream element/component.js and the layout half of element/system.js. Method names
-// follow upstream's (`_calculateSize` is calculateSize, `_sync` is syncTransform) so the two
-// can be read side by side; the arithmetic and its ORDER are upstream's, because several
-// setters feed each other through the entity's position.
+// Created by Arnis Lektauers on 21.03.2026
+//
+// The element component and the layout half of its system. The arithmetic and its ORDER
+// matter, because several setters feed each other through the entity's position.
 //
 #include "elementComponent.h"
 
@@ -38,7 +38,6 @@ namespace visutwin::canvas
     {
         _instanceList.add(this);
         if (_entity) {
-            // Upstream constructor: `entity.on('insert', ...)` and `_patch()`.
             _onInsertHandle = _entity->on("insert", [this](GraphNode* /*parent*/) { onInsert(); });
             _entity->setTransformHook(this);
         }
@@ -68,7 +67,7 @@ namespace visutwin::canvas
             }
         }
         if (_entity && _entity->transformHook() == this) {
-            _entity->setTransformHook(nullptr);   // upstream `_unpatch`
+            _entity->setTransformHook(nullptr);
         }
         if (auto* screen = screenComponent()) {
             screen->unbindElement(this);
@@ -83,7 +82,6 @@ namespace visutwin::canvas
 
     void ElementComponent::setup(const ElementDesc& desc)
     {
-        // Upstream ElementComponentSystem.initializeComponentData, layout part.
         if (desc.anchor) {
             _anchor = *desc.anchor;
         }
@@ -96,7 +94,7 @@ namespace visutwin::canvas
 
         // On an axis where the anchor is a point, the entity's position places the element,
         // so unless margins are given for that axis, derive them from the position, as
-        // setting a new size does. Do it FIRST (upstream #9525): applying the margins given
+        // setting a new size does. Do it FIRST: applying the margins given
         // for the other axis, or binding to a screen, places the element on both axes and
         // would move an entity already under a screen to wherever the default margins put it.
         const Vector3 position = _entity ? _entity->localPosition() : Vector3(0.0f, 0.0f, 0.0f);
@@ -482,7 +480,7 @@ namespace visutwin::canvas
         _screen = screen;
         if (auto* current = screenComponent()) {
             current->bindElement(this);
-            current->syncDrawOrder();   // upstream: every (re)bind re-derives the order
+            current->syncDrawOrder();   // every (re)bind re-derives the order
         }
 
         calculateSize(hasSplitAnchorsX(), hasSplitAnchorsY());
@@ -512,7 +510,7 @@ namespace visutwin::canvas
     void ElementComponent::onScreenRemove(ScreenComponent* screen)
     {
         // The screen component is going away: a stale pointer must not survive it
-        // (upstream #1151). Its entity may be going too, so nothing is recomputed against it.
+        // Its entity may be going too, so nothing is recomputed against it.
         // Compared by ENTITY: by the time a screen's destructor runs, its entity no longer
         // returns it from findComponent, so screenComponent() cannot recognise it.
         if (_screen && screen && _screen == screen->entity()) {
@@ -522,7 +520,7 @@ namespace visutwin::canvas
         }
     }
 
-    // ---- transform hook (upstream _sync / _setPosition / _setLocalPosition) --------------
+    // ---- transform hook ------------------------------------------------------------------
 
     void ElementComponent::setNodePosition(GraphNode& node, const Vector3& position)
     {
@@ -647,8 +645,8 @@ namespace visutwin::canvas
     const std::array<Vector3, 4>& ElementComponent::screenCorners()
     {
         // Sync FIRST: transforms here are lazy, and the sync is what marks the corners dirty.
-        // Upstream syncs the whole hierarchy every frame, so its corners are at most a frame old;
-        // here they would stay where the element was until something asked for a transform.
+        // Without it the corners would stay where the element was until something asked for
+        // a transform.
         // This also brings _screenTransform up to date.
         syncEntityTransform();
         ScreenComponent* screen = screenComponent();
@@ -694,7 +692,7 @@ namespace visutwin::canvas
             return _canvasCorners;
         }
         // The screen's resolution IS the canvas size in points for a screen-space screen, so
-        // upstream's clientWidth / width ratio is 1 here; only y turns over.
+        // only y turns over.
         const auto& corners = screenCorners();
         const float height = screen->resolution().y;
         for (size_t i = 0; i < 4; ++i) {
@@ -777,7 +775,6 @@ namespace visutwin::canvas
         if (!i18n) {
             return;
         }
-        // Upstream _onLocaleSet (less its font swap) and _onLocalizationData.
         _localeHandle = i18n->on("change", [this](const std::string& /*locale*/, const std::string& /*old*/) {
             if (!_i18nKey.empty()) {
                 resetLocalizedText();
@@ -819,8 +816,8 @@ namespace visutwin::canvas
 
     void ElementComponent::updateTextLayout()
     {
-        // Upstream lays text out as soon as an input changes, so a caller can read the
-        // element's size right after setting its text; so does this.
+        // Text is laid out as soon as an input changes, so a caller can read the
+        // element's size right after setting its text.
         if (_type != ElementType::Text || !_fontResource || _inTextLayout) {
             return;
         }
@@ -849,15 +846,15 @@ namespace visutwin::canvas
             perCodePoint.resize(_codePoints.size());
             _markupTags = std::move(perCodePoint);
         }
-        // A new layout draws the whole text again (upstream _updateText).
+        // A new layout draws the whole text again.
         _rangeStart = 0;
         _rangeEnd = static_cast<int>(_codePoints.size());
         ++_rangeVersion;
-        // Upstream's auto fit (text-element.js _updateMeshes): start at maxFontSize and lay out
+        // Auto fit: start at maxFontSize and lay out
         // again smaller while the text overflows — a width overflow scales the size by how far
         // it overflows (floored), a height overflow takes it down by one — within
-        // [minFontSize, maxFontSize]. Upstream tests the overflow glyph by glyph; the text's
-        // width grows linearly with the size, so testing the whole measure lands on the same size.
+        // [minFontSize, maxFontSize]. The text's width grows linearly with the size, so testing
+        // the whole measure lands on the same size as testing glyph by glyph.
         const int minFont = std::min(_minFontSize, _maxFontSize);
         const int maxFont = _maxFontSize;
         _fittedFontSize = shouldAutoFit() ? _maxFontSize : _fontSize;
@@ -879,7 +876,7 @@ namespace visutwin::canvas
         }
         _textWidth = measure.width;
         _textHeight = measure.height;
-        // Upstream's autoWidth / autoHeight setters, run after every layout: the element
+        // autoWidth / autoHeight, applied after every layout: the element
         // takes the text's size on an axis its anchors do not split.
         if (_autoWidth && !hasSplitAnchorsX()) {
             setWidth(_textWidth);
@@ -896,7 +893,7 @@ namespace visutwin::canvas
     {
         _texture = value;
         if (value) {
-            _sprite.reset();   // upstream: a texture clears the sprite
+            _sprite.reset();   // a texture clears the sprite
         }
         ++_imageVersion;
     }
@@ -965,7 +962,7 @@ namespace visutwin::canvas
 
     void ElementComponent::setDrawOrder(int value)
     {
-        // Upstream: the screen's priority lives in the top 8 bits, the order in the rest.
+        // The screen's priority lives in the top 8 bits, the order in the rest.
         const int priority = screenComponent() ? screenComponent()->priority() : 0;
         value = std::clamp(value, 0, 0xFFFFFF);
         _drawOrder = (priority << 24) + value;
@@ -979,8 +976,7 @@ namespace visutwin::canvas
         if (!src) {
             return;
         }
-        // Upstream cloneComponent passes width, height, anchor, pivot and margin through
-        // initializeComponentData.
+        // Width, height, anchor, pivot and margin go through setup(), as for a new element.
         ElementDesc desc;
         desc.type = src->_type;
         desc.width = src->_width;
@@ -1019,7 +1015,7 @@ namespace visutwin::canvas
         _shadowOffset = src->_shadowOffset;
         _layers = src->_layers;
         _texture = src->_texture;
-        _sprite = src->_sprite;   // shared, as upstream's clone shares the sprite asset
+        _sprite = src->_sprite;   // shared: a clone shares the sprite asset
         _spriteFrame = src->_spriteFrame;
         _rect = src->_rect;
         _pixelsPerUnit = src->_pixelsPerUnit;

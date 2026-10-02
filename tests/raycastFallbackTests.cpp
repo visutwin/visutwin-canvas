@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 24.09.2026
+//
 // With no PhysicsWorld supplied, RigidBodyComponentSystem::raycastFirst/raycastAll
 // sweep the collision bounds on the CPU. A sweep that tests the components' own
 // enabled() flags and never the entity still hits a collider on a DISABLED entity —

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 24.09.2026
+//
 // A glTF POINTS primitive is a point cloud: position plus COLOR_0, drawn unlit with
 // vertex colours, on every load path: the synchronous parse() and the two
 // asynchronous ones (createFromModel, and prepareFromModel + createFromPrepared,

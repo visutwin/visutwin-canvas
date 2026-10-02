@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 19.09.2026
+//
 // glTF animation binding: node IDENTITY has to survive from the parser to the
 // instantiated entity and into the evaluator.
 //
 // Two holes this pins:
 //   - an UNNAMED animated node. A parser that skips its channels ("can't bind
 //     unnamed nodes"), or a container that instantiates it with an empty name,
-//     leaves it never moving. Upstream names such a node `node_<index>` in both places.
+//     leaves it never moving. Such a node is named `node_<index>` in both places.
 //   - two nodes with the SAME name in different branches (a left and a right
 //     "Wheel"). Bound by bare name, both channels resolve to whichever
 //     findByName meets first, so one entity takes both animations and the other
-//     none. Upstream binds a PATH of names from the root down.
+//     none. The binder walks a PATH of names from the root down.
 //
 // The model is built in memory with tinygltf: no meshes, so the stub device
 // creates nothing, and the only outputs are node payloads and one animation.

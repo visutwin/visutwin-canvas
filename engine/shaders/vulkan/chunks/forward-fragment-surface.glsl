@@ -126,20 +126,20 @@ void main() {
         ? texture(baseColorMap, uvBase) : vec4(1.0);
     // fragColor is vec4(1) except for the vertex-color / point-cloud vertex
     // variants, which feed the mesh's per-vertex color through.
-    // Upstream splits this into `diffuseVertexColor` / `emissiveVertexColor`:
+    // Two lanes, diffuse and emissive vertex colour:
     // flag bit 28 takes the color OFF the diffuse lane (so a zero flags word keeps
     // it on the diffuse) and bit 23 routes it to emissive instead. Alpha always
     // modulates opacity.
     bool diffuseVertexColorOff = (material.flags & (1u << 28)) != 0u;
     vec4 vertexTint = diffuseVertexColorOff ? vec4(1.0, 1.0, 1.0, fragColor.a) : fragColor;
-    // Material colours are authored in gamma space (upstream's convention), so the
+    // Material colours are authored in gamma space, so the
     // factor AND the texture sample are decoded to linear before lighting, as Metal
     // does; skipping either leaves every surface brighter and less saturated.
     vec3 baseLinear = srgbToLinear(material.baseColor.rgb) * srgbToLinear(baseSample.rgb);
     vec4 albedo = vec4(baseLinear * vertexTint.rgb,
         material.baseColor.a * baseSample.a * vertexTint.a);
 
-    // Opacity map (upstream opacityMap, alpha channel), flags bit 19, with the base
+    // Opacity map (alpha channel), flags bit 19, with the base
     // colour's UV, as the Metal chunk and the shadow frontend read it.
     if ((material.flags & (1u << 19)) != 0u) {
         vec2 uvOpacity = ((material.flags & (1u << 4)) != 0u) ? fragUV1 : fragUV0;
@@ -147,7 +147,7 @@ void main() {
         albedo.a *= texture(opacityMap, uvOpacity).a;
     }
 
-    // DEBUGPASS_LIGHTING (upstream debug-process-frontend.js): neutralize albedo
+    // DEBUGPASS_LIGHTING: neutralize albedo
     // before it feeds diffuseAlbedo/F0 so the lit result shows the lighting
     // alone rather than the texture. Unlike every other debug mode this one does
     // NOT replace the output — it falls through to the normal lit path, and so
@@ -162,14 +162,14 @@ void main() {
         discard;
     }
 
-    // Opacity dithering (upstream opacity-dither.js): screen-space ordered
+    // Opacity dithering: screen-space ordered
     // dither turns partial opacity into a discard pattern so transparency
     // renders in the opaque pass with correct depth. The matrix is chosen per
     // material via flags bits 25-27 (DitherMode) — a runtime value, not a shader
     // variant, so switching matrices needs no recompile. The pattern moves
     // per frame while the camera jitters for TAA (lighting.ditherJitter).
     if (vtFeatureEnabled(VT_FEATURE_OPACITY_DITHER_BIT)) {
-        // Upstream's alphaDither decouples the two strengths: opacity keeps driving the
+        // The alpha dither decouples the two strengths: opacity keeps driving the
         // alpha blend while this value alone drives the dither density. Negative means
         // unset, which falls back to the coupled behaviour (opacity drives both).
         float ditherStrength = material.dispersionParams.y;
@@ -182,14 +182,14 @@ void main() {
         }
 
         // Coupled (legacy) use is an opaque-pass technique, so forcing alpha keeps the
-        // target's alpha channel clean. Decoupled use is upstream's blend-AND-dither case,
+        // target's alpha channel clean. Decoupled use is the blend-AND-dither case,
         // where alpha must survive to drive the blend.
         if (!hasAlphaDither) {
             albedo.a = 1.0;
         }
     }
 
-    // Picker id pass (upstream SHADER_PICK): after the alpha test and dither, write
+    // Picker id pass: after the alpha test and dither, write
     // the mesh instance's id, packed by the picker into the base colour's rgb.
     if (vtFeatureEnabled(VT_FEATURE_PICK_BIT)) {
         outColor = vec4(material.baseColor.rgb, 1.0);
@@ -201,9 +201,9 @@ void main() {
     // gamma on the tinted color (mirrors Metal's unlit point shader).
     if (vtFeatureEnabled(VT_FEATURE_UNLIT_BIT) ||
         dot(fragWorldNormal, fragWorldNormal) < 1e-6) {
-        // Emissive still contributes here: upstream reaches this path through
-        // `useLighting = false`, which drops the lights but keeps the emissive
-        // lane (that is how its decal material draws at all).
+        // Emissive still contributes here: an unlit material drops the lights
+        // but keeps the emissive lane (that is how a decal material draws at
+        // all).
         vec3 unlitEmissive = material.emissiveColor.rgb;
         if (vtFeatureEnabled(VT_FEATURE_EMISSIVE_MAP_BIT)) {
             // Decoded as the lit path and Metal's unlit path decode it; read as raw sRGB
@@ -217,7 +217,7 @@ void main() {
         // on the tail and the sky paths; applying them here too clipped an HDR emissive.
         bool linearHdrTarget = (lighting.flagsAndPad[0] & (1u << 5)) != 0u;
         if (vtFeatureEnabled(VT_FEATURE_MSDF_BIT)) {
-            // Upstream applyMsdf, as the Metal chunk: fill, outline and shadow composited
+            // MSDF, as the Metal chunk: fill, outline and shadow composited
             // premultiplied in linear, the straight colour encoded at the end. The fill
             // is tone mapped unless compose owes it that; outline and shadow are not.
             vec3 unlitColor = max(albedo.rgb + unlitEmissive, vec3(0.0));
@@ -268,20 +268,19 @@ void main() {
         roughness = 1.0 - material.specGlossParams.w;
     }
     roughness = clamp(roughness, 0.04, 1.0);
-    // Gloss map (upstream getGlossiness): one channel scales the gloss FACTOR, and the
+    // Gloss map: one channel scales the gloss FACTOR, and the
     // result replaces the roughness above, as the Metal chunk does.
     if (material.mapChannelParams.y >= 0.0) {
         vec4 glossSample = texture(glossMap, fragUV0);
         float glossValue = material.mapChannelParams.x * glossSample[int(material.mapChannelParams.y)];
         roughness = clamp(1.0 - glossValue, 0.04, 1.0);
     }
-    // Anisotropic GGX frame (upstream anisotropy.js + lightSpecularAnisoGGX.js),
-    // mirrored from forward-fragment-surface.metal; the math is in common-brdf. The
-    // direction is upstream's material_anisotropyRotation: (cos, sin) turning the
+    // Anisotropic GGX frame, mirrored from forward-fragment-surface.metal; the math
+    // is in common-brdf. The direction is the material's anisotropy rotation: (cos, sin) turning the
     // vertex tangent toward the vertex BITANGENT; the CPU folds the deprecated
     // negative strength in as rotation + 90 and uploads the magnitude. B is
-    // cross(geometric normal, T), as upstream builds it from the TBN's own normal
-    // rather than the normal-mapped one.
+    // cross(geometric normal, T), built from the TBN's own normal rather than the
+    // normal-mapped one.
     float anisoIntensity = 0.0;
     vec2 anisoAlpha = vec2(1.0);
     vec3 anisoT = vec3(1.0, 0.0, 0.0);
@@ -299,8 +298,8 @@ void main() {
             vec3 Bv = normalize(cross(Ng, Tv)) * fragWorldTangent.w;
             anisoT = material.anisotropyParams.x * Tv + material.anisotropyParams.y * Bv;
         } else {
-            // No tangent stream. Upstream derives one from screen-space
-            // derivatives; this port has no such fallback, so take any tangent.
+            // No tangent stream and no derivative-based fallback, so take any
+            // tangent.
             vec3 up = abs(Ng.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
             anisoT = normalize(cross(up, Ng));
         }
@@ -339,7 +338,7 @@ void main() {
         vec3 tn = vec3(0.0, 0.0, 1.0);
         if (haveNormalMap) {
             tn = texture(normalMap, uvNormal).xyz * 2.0 - 1.0;
-            // normalScale (upstream's material_bumpiness) blends the sampled
+            // normalScale blends the sampled
             // normal TOWARD FLAT, it does not scale xy. The two are only equal at
             // 0 and 1: scaling xy leaves z alone, so it steepens the normal's
             // slope where the mix flattens it, and a normal-mapped surface lit at
@@ -349,7 +348,7 @@ void main() {
         if (haveDetailNormal) {
             // Detail normal overlay. detailNormalScale blends the DETAIL map toward
             // flat, exactly as normalScale does for the base map, and the two normals
-            // are then combined with upstream's reoriented ("detail oriented") blend
+            // are then combined with a reoriented ("detail oriented") blend
             // rather than by adding their xy. Adding xy treats the detail's
             // slope as if the base were flat, so the combined slope is wrong wherever
             // the base is not; the reoriented blend rotates the detail into the base
@@ -369,13 +368,13 @@ void main() {
         // zero vector is NaN, which would poison the shading normal and the whole
         // pixel — so skip normal mapping and keep the geometric normal, which is
         // what the Metal chunk does. This port has no derivative-based TBN
-        // fallback (upstream's TBN.js), so there is nothing else to fall back to.
+        // fallback, so there is nothing else to fall back to.
         vec3 T = fragWorldTangent.xyz;
         if (dot(T, T) >= 1e-6) {
             T = normalize(T);
             // Bitangent from the geometric normal with the handedness sign carried
-            // in tangent.w. Upstream normalizes the interpolated tangent and
-            // binormal and does nothing else, so no Gram-Schmidt here either — it
+            // in tangent.w. The interpolated tangent and binormal are only
+            // normalized, with no Gram-Schmidt — it
             // would move the shading normal (on Vulkan alone) wherever the
             // interpolated tangent leaves the surface plane.
             vec3 B = normalize(cross(N, T)) * fragWorldTangent.w;
@@ -399,13 +398,13 @@ void main() {
     vec3 V = normalize(lighting.cameraPosExposure.xyz - fragWorldPos);
     float NdotV = max(dot(N, V), 1e-4);
 
-    // The non-metal F0 in the metalness workflow is upstream's getSpecularModulate,
-    // computed on the CPU: f0(IOR) x the metalness specular colour x the specularity
+    // The non-metal F0 in the metalness workflow is computed on the CPU:
+    // f0(IOR) x the metalness specular colour x the specularity
     // factor (KHR_materials_specular); 0.04 for the defaults.
     vec3 dielectricF0 = vtFeatureEnabled(VT_FEATURE_SPEC_GLOSS_BIT)
         ? material.specGlossParams.rgb : material.metalnessSpecular.rgb;
     vec3 F0 = mix(dielectricF0, albedo.rgb, metallic);
-    // Upstream's useSpecular false (VT_FEATURE_NO_SPECULAR): the material renders no
+    // VT_FEATURE_NO_SPECULAR: the material renders no
     // specular at all. A black F0 is not enough — the gloss-aware Fresnel still
     // reflects at grazing angles — so every specular term below is multiplied by
     // this. It is a specialization constant, so the zero folds away.
@@ -418,8 +417,8 @@ void main() {
     // dimmed by what the coat reflects), never added straight into the colour.
     float ccSpecularity = material.clearCoatFactor;
     float ccGlossiness = 1.0 - clamp(material.clearCoatRoughness, 0.0, 1.0);
-    // Clearcoat intensity and gloss maps read their GREEN channel, upstream's
-    // convention, at the base-colour UV. Both are gated on their flag bit, never
+    // Clearcoat intensity and gloss maps read their GREEN channel,
+    // at the base-colour UV. Both are gated on their flag bit, never
     // on the binding: an unbound slot holds the white fallback here, but the same
     // gate is what keeps the two backends on one rule.
     if ((material.flags & (1u << 14)) != 0u) {

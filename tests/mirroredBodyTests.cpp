@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 24.09.2026
+//
 // A dynamic body on an entity with a negative scale, or under a mirrored ancestor,
-// must keep the entity's orientation across physics steps (upstream #9500). The
+// must keep the entity's orientation across physics steps. The
 // rotation read from a mirrored world transform is NOT the entity's rotation:
 // Quaternion::fromMatrix4 negates the X axis of a mirrored basis to make it a rotation,
 // and a pair of negative scale factors reads as a 180-degree turn. The body is created
@@ -184,7 +186,7 @@ int main()
         auto* collision = static_cast<CollisionComponent*>(child->addComponent<CollisionComponent>());
         collision->setType("box");
         auto* body = static_cast<RigidBodyComponent*>(child->addComponent<RigidBodyComponent>());
-        body->setType(RigidBodyType::Dynamic);   // static by default, as upstream
+        body->setType(RigidBodyType::Dynamic);   // static by default
 
         const Matrix4 before = child->worldTransform();
         world->turn = Quaternion(0.0f, 0.0f, 0.0f, 1.0f);

@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 15.09.2026
+//
 // Texture orientation of the built-in primitives. A texture's row 0 is the TOP of
 // the image on both backends (loaded images are stored unflipped, render targets
 // have a top origin), so v = 0 must sit where the top of the picture belongs.
-// Upstream writes `(u, 1 - v)` for every primitive and gets that; a plane that
+// Every primitive writes `(u, 1 - v)` to get that; a plane that
 // writes plain `v` puts every image on it — and render-to-texture's tv — upside
 // down. A checkerboard cannot show this, and neither can a render of
 // the plane lying flat unless the image is asymmetric, so the convention is held
@@ -12,8 +14,8 @@
 //
 // Also pinned, for EVERY primitive: the tangent points along +u, and the bitangent,
 // cross(n, t) * w as the forward shaders build it, toward decreasing v — the image's
-// top row, which is where a normal map's green channel points. That is upstream's
-// derivative TBN (it negates the dP/dv axis), the frame every upstream primitive is
+// top row, which is where a normal map's green channel points. That is the
+// derivative TBN's frame (it negates the dP/dv axis), the one upstream's primitives are
 // actually shaded with. Hand-written frames fail it: a box with (1, 0, 0) on every
 // face (parallel to the normal on +/-X), or sphere and capsule caps with tangent and
 // bitangent both reversed.
@@ -91,7 +93,7 @@ int main()
 {
     std::cout << "primitive geometry: image top row at the top of each primitive\n";
 
-    // PLANE. Upstream: z = +0.5 carries v = 1, z = -0.5 carries v = 0, u runs +X.
+    // PLANE: z = +0.5 carries v = 1, z = -0.5 carries v = 0, u runs +X.
     {
         const PrimitiveGeometry plane = createPlaneGeometry();
         bool farTop = true, nearBottom = true, uAlongX = true, frame = true;
@@ -151,7 +153,7 @@ int main()
     // TANGENT FRAMES, every primitive. The forward shaders build the bitangent as
     // cross(n, t) * w, so for a normal map to light the same way on every face the
     // tangent has to follow +u and that bitangent +v. The reference is each
-    // triangle's own UV gradient (dP/du, dP/dv — the quantity upstream's
+    // triangle's own UV gradient (dP/du, dP/dv — the quantity
     // calculateTangents accumulates), projected into the vertex's tangent plane.
     std::cout << "primitive geometry: tangent frames follow the UVs\n";
     struct Named { const char* name; PrimitiveGeometry geometry; };
@@ -238,7 +240,7 @@ int main()
         check(badV == 0, (prefix + "cross(n, t) * w points along +v (" + std::to_string(badV) + " bad)").c_str());
     }
 
-    // UV1 is the LIGHTMAP unwrap. The box, cylinder, cone and capsule carry upstream's
+    // UV1 is the LIGHTMAP unwrap. The box, cylinder, cone and capsule carry one
     // (every face or part in its own padded cell). A primitive that copies UV0 into
     // UV1 bakes all six faces of a box into one square, and each face shows a blend of
     // them. A part's cell must lie inside [0, 1] and overlap no other part's cell, or
@@ -300,12 +302,12 @@ int main()
                 (std::string(name) + ": carries its own UV1, inside [0, 1]").c_str());
         }
 
-        // Upstream's plane and sphere use UV0 as UV1; an empty uvs1 says so.
+        // The plane and sphere use UV0 as UV1; an empty uvs1 says so.
         check(createPlaneGeometry().uvs1.empty(), "plane: UV1 is its UV0 (no unwrap of its own)");
         check(createSphereGeometry().uvs1.empty(), "sphere: UV1 is its UV0 (no unwrap of its own)");
     }
 
-    // Upstream #9597 (procedural-geometry.test.mjs): the triangles that collapse to a line at a
+    // The triangles that collapse to a line at a
     // sphere or capsule pole and at a cone tip are gone, each pole or tip vertex has its u centred
     // on the one triangle that uses it, and every index names a vertex that exists, also where the
     // body or a cap is skipped.

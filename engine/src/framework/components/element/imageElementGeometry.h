@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// The geometry an image element draws (upstream image-element.js `_updateMesh`), in the
+// Created by Arnis Lektauers on 29.09.2026
+//
+// The geometry an image element draws, in the
 // element's LOCAL space: the origin at its pivot, x right, y up, in screen units.
 //
-// SIMPLE: one quad over the element's rectangle — after the fit mode, as upstream, which
+// SIMPLE: one quad over the element's rectangle — after the fit mode, which
 // shrinks the quad about the pivot rather than centring it in the box — with UVs from the
 // element's rect or the sprite frame.
 //
@@ -34,7 +36,7 @@ namespace visutwin::canvas
 {
     struct TextureAtlasFrame;
 
-    /// Upstream FITMODE_STRETCH / CONTAIN / COVER.
+    /// How an image fits its element: stretch, contain or cover.
     enum class ElementFitMode
     {
         Stretch,
@@ -73,8 +75,8 @@ namespace visutwin::canvas
     /// TILED: the same grid, with the centre and the four edge strips REPEATING the frame's
     /// inner region at its natural size (inner pixels over pixelsPerUnit) instead of
     /// stretching it — the centre on both axes, an edge strip along its length — starting at
-    /// the inner region's left and bottom edges, the last tile cut short (upstream
-    /// startNineSlicedTiled, which does this per fragment; DEVIATION: one quad per tile here).
+    /// the inner region's left and bottom edges, the last tile cut short (DEVIATION:
+    /// upstream does this per fragment; one quad per tile here).
     ImageGeometry buildTiledImageGeometry(const Vector2& size, const Vector2& pivot, const TextureAtlasFrame& frame,
                                           float textureWidth, float textureHeight, float pixelsPerUnit);
 }

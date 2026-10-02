@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 09.10.2025.
+// Created by Arnis Lektauers on 09.10.2025
 //
 #include "scene.h"
 
@@ -128,7 +128,7 @@ namespace visutwin::canvas
         }
         _prefilteredCubemaps = cubemaps;
 
-        // Upstream Scene.prefilteredCubemaps: six complete cubemaps build the env atlas the
+        // Six complete cubemaps build the env atlas the
         // scene then lights with; anything less clears it.
         const bool complete = cubemaps.size() == 6 &&
             std::all_of(cubemaps.begin(), cubemaps.end(), [](const Texture* t) { return t != nullptr; });

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 09.02.2026.
+// Created by Arnis Lektauers on 09.02.2026
 //
 #include "renderPassForward.h"
 
@@ -141,7 +141,7 @@ namespace visutwin::canvas
             _scene->fire("prerender:layer", renderAction->camera, layer, renderAction->transparent);
         }
 
-        // Upstream: a render action that is not the first of its pass executes its clears
+        // A render action that is not the first of its pass executes its clears
         // here, in the middle of the pass (the pass itself cleared only for the first).
         // DEVIATION: only a LAYER's depth clear is performed mid-pass (a gizmo layer, the
         // layers example's front layer). A colour or stencil clear, and a camera's own clear

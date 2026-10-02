@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 10.02.2026.
+// Created by Arnis Lektauers on 10.02.2026
 //
 #include "lightComponent.h"
 
@@ -43,8 +43,7 @@ namespace visutwin::canvas
 
     void LightComponent::onEnable()
     {
-        // Upstream's LightComponent adds its light to the layers here and removes it
-        // in onDisable. This port has no per-layer light list — every consumer
+        // There is no per-layer light list to add the light to here — every consumer
         // sweeps LightComponent::instances() and tests active() — so the hooks exist
         // to keep the backing scene Light in step the moment the state changes,
         // rather than at whatever later point something calls light().
@@ -93,7 +92,7 @@ namespace visutwin::canvas
         _light->setCookieChannel(_cookieChannel);
         _light->setCookieFalloff(_cookieFalloff);
         {
-            // Upstream LightComponent's cookieAngle / cookieScale setters: the 2x2 that
+            // From cookieAngle / cookieScale: the 2x2 that
             // the shader applies about the cookie's centre, (c/sx, -s/sx, s/sy, c/sy).
             Vector4 transform(1.0f, 0.0f, 0.0f, 1.0f);
             if (_cookieAngle != 0.0f || _cookieScale) {
@@ -140,7 +139,7 @@ namespace visutwin::canvas
         case LightType::LIGHTTYPE_POINT:
             return 4.0f * std::numbers::pi_v<float>;
         default:
-            // Directional (lux); an area light has no conversion upstream either.
+            // Directional (lux); an area light has no conversion.
             return 1.0f;
         }
     }

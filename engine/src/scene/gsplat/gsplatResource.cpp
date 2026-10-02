@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 11.07.2026.
+// Created by Arnis Lektauers on 11.07.2026
 //
 #include "gsplatResource.h"
 
@@ -27,9 +27,8 @@ namespace visutwin::canvas
 {
     namespace
     {
-        // Standalone Metal shader for Gaussian splats. Line-faithful port of the
-        // EWA screen-space covariance projection in upstream gsplatCorner.js and
-        // the normalized-exponential falloff in the gsplat fragment chunk.
+        // Standalone Metal shader for Gaussian splats: the EWA screen-space
+        // covariance projection and the normalized-exponential falloff.
         // DEVIATION: self-contained source (not composed from the chunk registry) —
         // the splat pipeline shares no code with the forward PBR mega-chunks.
         // GSPLAT_SHADER_SOURCE is embedded from shaders/metal/embedded/gsplat-render.metal at build

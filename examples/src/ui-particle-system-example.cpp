@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 30.09.2026
+//
 // Port of upstream user-interface/particle-system.
 //
 // A daily reward card with a sparkling chest. Its particle systems are in screen space and on

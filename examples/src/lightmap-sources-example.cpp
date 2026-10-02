@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 23.09.2026
+//
 // Port of upstream test/lightmap-sources (a hidden test example, added with the
 // change that gave a mesh instance its own lightmap slot).
 //
@@ -93,8 +95,7 @@ protected:
         createGroup("material\n(assigned texture)", 0.0f, _withLightmap.get(), false);
         createGroup("both\n(instance wins)", 3.6f, _withLightmap.get(), true);
 
-        // A baked light: it affects lightmapped objects only (MASK_BAKE, upstream's
-        // affectDynamic false / affectLightmapped true / bake true), and its area
+        // A baked light: it affects lightmapped objects only (MASK_BAKE), and its area
         // spreads the shadow it bakes.
         auto* lightEntity = new Entity();
         lightEntity->setName("baked light");
@@ -167,8 +168,7 @@ private:
             if (!render) {
                 return;
             }
-            // Upstream's castShadows false / castShadowsLightmap: there is no realtime
-            // light here, so casting is only ever into the bake.
+            // There is no realtime light here, so casting is only ever into the bake.
             render->setCastShadows(castsIntoBake);
             if (lightmapped) {
                 for (auto* meshInstance : render->meshInstances()) {
@@ -185,7 +185,7 @@ private:
     void createLabel(const std::string& message, const Vector3& position)
     {
         constexpr int kFontSize = 64;
-        constexpr float kFontSizeWorld = 0.16f;     // upstream fontSize 0.16
+        constexpr float kFontSizeWorld = 0.16f;
         const float scale = kFontSizeWorld / static_cast<float>(kFontSize);
 
         FontResource* fontResource = nullptr;

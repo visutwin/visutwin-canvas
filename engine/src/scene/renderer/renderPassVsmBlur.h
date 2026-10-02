@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 25.04.2026
+//
 // Render pass running one direction of the separable VSM gaussian blur.
 // Two passes per shadow update: source = shadow map → temp (horizontal),
 // then source = temp → shadow map (vertical).

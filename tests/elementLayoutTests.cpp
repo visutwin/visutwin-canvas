@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 29.09.2026
+//
 // UI element layout and screens, as upstream's element component.test.mjs has them (the
-// constructor defaults, screen binding, and every `position` case of #9525), plus the
-// screen's scale and projection and a few anchor cases the upstream suite leaves implicit.
+// constructor defaults, screen binding, and every `position` case), plus the
+// screen's scale and projection and a few anchor cases that suite leaves implicit.
 //
 // An ElementComponent that stores anchor, pivot and margins without anything reading them
 // fails every placement case here.
@@ -167,7 +169,7 @@ int main()
         auto ownedScreen = screenEntity->remove();
     }
     {
-        // upstream #1151: reparented after its screen was destroyed
+        // reparented after its screen was destroyed
         Entity* screenEntity = screenSpaceScreen();
         Entity* e = addTo(screenEntity, newEntity());
         auto* el = addElement(e);
@@ -297,7 +299,7 @@ int main()
         resizeCanvas(300, 150);
     }
     {
-        // Scale: blend, in log space, as upstream.
+        // Scale: blend, in log space.
         Entity* s = addTo(engine->root(), newEntity("scaled"));
         auto* sc = addScreen(s, true);
         sc->setScaleMode(ScreenScaleMode::Blend);

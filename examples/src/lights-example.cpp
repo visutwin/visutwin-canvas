@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 14.07.2026
+//
 // Lights example — port of upstream graphics/lights. A statue on a large grey
 // ground box, lit by one of each local light type plus a directional key light,
 // every one of them animated:
@@ -9,7 +11,7 @@
 //   * OMNI (yellow)     — orbits low and fast, casts cubemap shadows, and projects
 //                         a christmas cubemap COOKIE that spins with the light.
 //   * DIRECTIONAL (cyan)— the key light, sweeping its yaw, casting cascaded shadows.
-// Keys 1/2/3 toggle omni/spot/directional (upstream's key order); orbit camera.
+// Keys 1/2/3 toggle omni/spot/directional; orbit camera.
 //
 #include <array>
 #include <cmath>
@@ -64,7 +66,7 @@ protected:
             spdlog::warn("heart.png failed to load — the spot light keeps a plain beam");
         }
 
-        // The omni cookie: upstream's 'cubemap' asset of six face images.
+        // The omni cookie: a 'cubemap' asset of six face images.
         AssetData xmasData{.mipmaps = true};
         for (size_t i = 0; i < xmasFaceFiles.size(); ++i) {
             xmasData.faces[i] = assetPath("cubemaps/xmas_faces/" + std::string(xmasFaceFiles[i]) + ".png");
@@ -120,7 +122,7 @@ protected:
         _groundMaterial = std::make_shared<StandardMaterial>();
         _groundMaterial->setName("ground");
         _groundMaterial->setDiffuse(Color(0.5f, 0.5f, 0.5f, 1.0f));
-        _groundMaterial->setAmbient(Color(0.5f, 0.5f, 0.5f, 1.0f));   // upstream Color.GRAY
+        _groundMaterial->setAmbient(Color(0.5f, 0.5f, 0.5f, 1.0f));
         _groundMaterial->setUseMetalness(true);
         _groundMaterial->setMetalness(0.5f);
         _groundMaterial->setGloss(0.5f);
@@ -188,7 +190,7 @@ protected:
             _omniComp->setCookieChannel(CookieChannel::COOKIE_CHANNEL_RGB);
             _omniComp->setCookieIntensity(1.0f);
         }
-        // Upstream puts the marker sphere on the light entity itself.
+        // The marker sphere sits on the light entity itself.
         _omniMarkerMaterial = std::make_shared<StandardMaterial>();
         _omniMarkerMaterial->setName("omni-marker");
         _omniMarkerMaterial->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
@@ -259,8 +261,8 @@ protected:
         // projected cubemap cookie sweeps across the scene.
         _omniLight->setLocalPosition(5.0f * std::sin(-2.0f * _angleRad), 10.0f,
                                      5.0f * std::cos(-2.0f * _angleRad));
-        // Upstream uses the world-space rotate(); the light is a root child with
-        // no parent rotation, so a local rotation is the same thing.
+        // The light is a root child with no parent rotation, so a local rotation
+        // is the same as a world-space one.
         _omniLight->rotateLocal(0.0f, 50.0f * dt, 0.0f);
 
         _dirLight->setLocalEulerAngles(45.0f, -60.0f * _angleRad, 0.0f);

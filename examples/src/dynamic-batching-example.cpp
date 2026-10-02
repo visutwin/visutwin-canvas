@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 14.07.2026
+//
 // Dynamic batching example — port of upstream graphics/batching-dynamic.
 //
 // 500 procedural primitives orbit the origin in a spiral, sharing a pair of
@@ -39,7 +41,7 @@ protected:
     {
         spdlog::info("*** Dynamic Batching Example Started ***");
 
-        // Upstream leaves every scene default in place: no environment atlas, black
+        // Every scene default stays in place: no environment atlas, black
         // ambient, linear tone mapping. The single directional light below (parented to
         // the camera) is the only illumination, which is what gives the primitives their
         // strong shaded/unshaded contrast against the flat clear colour.
@@ -104,8 +106,8 @@ protected:
 
         // -----------------------------------------------------------------------
         // Ground box — NOT batched (its own draw), gives the moving meshes context.
-        // Left as a caster, like upstream (RenderComponent::castShadows defaults to
-        // true on both engines). The directional shadow camera fits its depth range
+        // Left as a caster (RenderComponent::castShadows defaults to
+        // true). The directional shadow camera fits its depth range
         // to CASTERS, so a receiver-only ground would sit outside that range and
         // catch no shadows at all.
         // -----------------------------------------------------------------------

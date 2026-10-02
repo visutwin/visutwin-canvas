@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Upstream extras/gizmo/transform-gizmo.js: what the translate, rotate and scale gizmos
+// Created by Arnis Lektauers on 21.03.2026
+//
+// What the translate, rotate and scale gizmos
 // share — coloured X, Y and Z handles with plane and centre shapes, hover colouring by
 // theme, a drag that fires `transform:start` (Vector3 point, float x, float y),
 // `transform:move` (the same) and `transform:end`, snapping, the drag mode, and the
@@ -48,7 +50,7 @@ namespace visutwin::canvas
         const GizmoTheme& theme() const { return _theme; }
         void setTheme(const GizmoThemePartial& partial);
 
-        /// Upstream `enableShape(axis, enabled)`, keyed as the shapes are ('x', 'yz', 'xyz',
+        /// Enables or disables a shape, keyed as the shapes are ('x', 'yz', 'xyz',
         /// 'f' ...).
         void enableShape(GizmoAxis shapeAxis, bool enabled);
         bool isShapeEnabled(GizmoAxis shapeAxis) const;
@@ -69,7 +71,7 @@ namespace visutwin::canvas
         void destroy() override;
 
     protected:
-        /// Upstream `_screenToPoint`: where the pointer ray meets the drag plane.
+        /// Where the pointer ray meets the drag plane.
         virtual Vector3 screenToPoint(float x, float y);
 
         Ray createRay(const Vector3& mouseWPos) const;
@@ -81,7 +83,7 @@ namespace visutwin::canvas
                                     bool activeIsPlane);
         void drawSpanLine(const Vector3& pos, const Quaternion& rot, GizmoAxis axis);
 
-        /// Upstream `_createTransform`: parents every shape under the root and makes it
+        /// Parents every shape under the root and makes it
         /// pickable. Shapes are added in their key order, which is their draw order.
         void createTransform();
 
@@ -108,7 +110,7 @@ namespace visutwin::canvas
         bool _selectedIsPlane = false;
         Vector3 _selectionStartPoint = Vector3(0.0f);
 
-        /// Upstream's module-level `point`: a plane the ray misses leaves the previous value.
+        /// The last drag-plane hit: a plane the ray misses leaves the previous value.
         Vector3 _point = Vector3(0.0f);
 
     private:

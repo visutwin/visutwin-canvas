@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 16.09.2026
+//
 // The clustered shadow atlas is one packed texture: a slot per light, an omni
 // light's six faces in a 3x2 grid of tiles inside its slot, and a shader that picks
 // the face and UV from the light-to-fragment direction. A layout error here does

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 21.12.2025.
+// Created by Arnis Lektauers on 21.12.2025
 //
 #pragma once
 
@@ -87,13 +87,12 @@ namespace visutwin::canvas
         /// sort callback, batch group), the same shared ownership, and a NEW morph
         /// instance holding the same weights and a NEW skin instance on the same
         /// bones — the entity clone remaps those bones into the cloned subtree.
-        /// Per-instance data that belongs to where the source sits is left out, as
-        /// upstream leaves it out: the baked lightmap, instancing buffers, a custom
+        /// Per-instance data that belongs to where the source sits is left out: the baked lightmap, instancing buffers, a custom
         /// (world-space) AABB and batch membership.
         [[nodiscard]] std::unique_ptr<MeshInstance> cloneFor(GraphNode* node) const;
 
         /**
-         * Replaces the material of this instance (upstream `meshInstance.material = ...`),
+         * Replaces the material of this instance,
          * e.g. to render a loaded model with a custom ShaderMaterial. Drops any
          * shared ownership taken from the source container — the caller owns the
          * new material and must keep it alive.
@@ -123,9 +122,8 @@ namespace visutwin::canvas
         bool receiveShadow() const { return _receiveShadow; }
         void setReceiveShadow(const bool value) { _receiveShadow = value; }
 
-        // A lightmap of this mesh instance's own, which is what a lightmapper bakes
-        // (upstream MeshInstance's instance_lightMap, 0cd268478). It takes PRIORITY
-        // over the material's lightMap, and binds in the same slot, so meshes that
+        // A lightmap of this mesh instance's own, which is what a lightmapper bakes.
+        // It takes PRIORITY over the material's lightMap, and binds in the same slot, so meshes that
         // share one material each show their own bake (a bake written into the shared
         // material would show the last one on every such mesh).
         // Owned here: the texture must outlive every draw that samples it.
@@ -136,7 +134,7 @@ namespace visutwin::canvas
         void setCull(const bool value) { _cull = value; }
 
         /**
-         * Upstream `MeshInstance.screenSpace`: the node's world transform already carries
+         * The node's world transform already carries
          * the vertices into CLIP space (a screen-space UI element, through its screen's
          * projection), so the vertex stage skips the camera's view-projection
          * (VT_FEATURE_SCREEN_SPACE) and ANY camera that renders the layer draws it where
@@ -157,14 +155,14 @@ namespace visutwin::canvas
         void setVisibleThisFrame(const bool value) { _visibleThisFrame = value; }
 
         /**
-         * Application-authored order, used only by SORTMODE_MANUAL. Upstream's
-         * MeshInstance.drawOrder. Lower draws first.
+         * Application-authored order, used only by SORTMODE_MANUAL.
+         * Lower draws first.
          */
         double drawOrder() const { return _drawOrder; }
-        /// A double, as upstream's number: an unmask draw sits BETWEEN two elements' orders.
+        /// A double: an unmask draw sits BETWEEN two elements' orders.
         void setDrawOrder(const double value) { _drawOrder = value; }
 
-        /// Upstream `stencilFront` / `stencilBack`: the stencil test and write this draw
+        /// The stencil test and write this draw
         /// uses (a UI mask writes the stencil, the elements under it test it); null draws
         /// with the stencil off. Shared, so one parameter set can serve a whole mask level.
         const std::shared_ptr<StencilParameters>& stencilFront() const { return _stencilFront; }
@@ -178,7 +176,7 @@ namespace visutwin::canvas
         /**
          * Coarse priority, the HIGHEST-priority field of the material sort key, so a
          * bucket is drawn entirely before the next whatever their materials are.
-         * Upstream's MeshInstance.drawBucket, 8 bits. Default 0.
+         * 8 bits. Default 0.
          *
          * This is what a caller reaches for when something must precede everything
          * else in its sublayer — a stencil mask, a depth primer — without splitting
@@ -260,8 +258,8 @@ namespace visutwin::canvas
         SkinInstance* skinInstance() const { return _skinInstance.get(); }
 
         /// Shared ownership of the skin, so a second MeshInstance can render the same
-        /// mesh in the same animated pose (upstream shares meshInstance.skinInstance
-        /// directly — e.g. an x-ray duplicate of a character in another layer).
+        /// mesh in the same animated pose (e.g. an x-ray duplicate of a character in
+        /// another layer).
         const std::shared_ptr<SkinInstance>& skinInstanceShared() const { return _skinInstance; }
 
         /**
@@ -350,8 +348,8 @@ namespace visutwin::canvas
         void setDynamicBatch(bool v) { _dynamicBatch = v; }
 
         /**
-         * Optional override of the distance the forward pass sorts this instance on
-         * (upstream MeshInstance.calculateSortDistance). The default is the signed
+         * Optional override of the distance the forward pass sorts this instance on.
+         * The default is the signed
          * depth of the world AABB centre along the camera forward vector; a particle
          * system or a large transparent sheet can supply something better.
          */

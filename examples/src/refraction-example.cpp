@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 11.07.2026
+//
 // Port of the upstream "materials/material-refraction" example.
 //
 // Two refractive capsules stand in a ring of small ones over a textured ground,
 // with the camera orbiting them. Refraction is driven by the material's
 // refraction/thickness properties and can be resolved two ways, toggled at
-// runtime: the env-atlas fallback (default) or the mid-frame scene-colour grab
-// (upstream's useDynamicRefraction). The metalness workflow toggles too —
+// runtime: the env-atlas fallback (default) or the mid-frame scene-colour grab.
+// The metalness workflow toggles too —
 // refraction works in both, but without metalness the Fresnel comes from the
 // material's specular colour, which is black by default.
 //
@@ -113,9 +115,9 @@ protected:
         _material->setGlossMap(otherTex);
         _material->setGlossMapChannel(MapChannel::MAP_CHANNEL_G);
         _material->setUseMetalness(true);
-        _material->setTransmissionFactor(0.8f);           // upstream: refraction
+        _material->setTransmissionFactor(0.8f);
         _material->setRefractionIndex(1.33f);             // water (an IOR here; upstream: eta 1 / 1.33)
-        _material->setTransparent(true);                  // upstream: BLEND_NORMAL
+        _material->setTransparent(true);
         _material->setThickness(0.4f);
         _material->setThicknessMap(otherTex);
         _materials.push_back(_material);
@@ -167,7 +169,7 @@ protected:
             _cycleTimer += dt;
             if (_cycleTimer >= 4.0f) {
                 _cycleTimer = 0.0f;
-                // Walk the four combinations of the two upstream toggles.
+                // Walk the four combinations of the two toggles.
                 _phase = (_phase + 1) % 4;
                 _dynamic = (_phase & 1) != 0;
                 _metalness = (_phase & 2) == 0;
@@ -257,9 +259,9 @@ private:
 
     float _time = 0.0f;
     bool _autoCycle = true;
-    bool _dynamic = false;    // upstream initial UI value
+    bool _dynamic = false;    // initial value
     bool _sceneColorMapRequested = false;   // what the camera was last asked for
-    bool _metalness = true;   // upstream initial UI value
+    bool _metalness = true;   // initial value
     int _phase = 0;
     float _cycleTimer = 0.0f;
 };

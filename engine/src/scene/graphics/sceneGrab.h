@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 03.09.2026
+//
 // Destination management for the scene grabs. The device only offers the
 // generic `copyRenderTarget` / `generateMipmaps` operations, so deciding WHAT
 // to copy into — allocating the texture, resizing it when the target changes,

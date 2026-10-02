@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 02.10.2026
+//
 #include "rotateGizmo.h"
 
 #include <cmath>
@@ -30,7 +33,7 @@ namespace visutwin::canvas
                 std::abs(a.getZ() - b.getZ()) < epsilon;
         }
 
-        /// Upstream GraphNode.setEulerAngles / setRotation in WORLD space for a child of `parent`.
+        /// Sets a WORLD-space rotation on a child of `parent`.
         void setWorldRotation(Entity* entity, Entity* parent, const Quaternion& rotation)
         {
             entity->setLocalRotation(parent ? parent->rotation().invert() * rotation : rotation);
@@ -236,7 +239,7 @@ namespace visutwin::canvas
             const float azim = std::atan2(-dir.getX(), -dir.getZ()) * RAD_TO_DEG;
             setWorldRotation(_face->entity(), _root, Quaternion::fromEulerAngles(-elev + 90.0f, azim, 0.0f));
         } else {
-            // upstream: setEulerAngles(camera Euler angles), then rotateLocal(-90, 0, 0)
+            // the camera's Euler angles, then rotateLocal(-90, 0, 0)
             setWorldRotation(_face->entity(), _root, cameraRotation() * Quaternion::fromEulerAngles(-90.0f, 0.0f, 0.0f));
         }
 

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Upstream extras/gizmo/shape/shape.js: one interactive part of a gizmo — an entity
+// Created by Arnis Lektauers on 02.10.2026
+//
+// One interactive part of a gizmo — an entity
 // with render components drawing unit primitives through a GizmoMaterial, plus the
 // TriData it is picked against.
 //
@@ -28,8 +30,8 @@ namespace visutwin::canvas
     class MeshInstance;
     struct PrimitiveGeometry;
 
-    /// Upstream ShapeArgs. The colours are POINTERS into a gizmo theme (upstream passes the
-    /// theme's Color objects by reference), so a theme change reaches the shape.
+    /// Shape construction arguments. The colours are POINTERS into a gizmo theme, so a theme
+    /// change reaches the shape.
     struct ShapeArgs
     {
         GizmoAxis axis = GizmoAxis::X;
@@ -58,7 +60,7 @@ namespace visutwin::canvas
 
         GizmoAxis axis() const { return _axis; }
 
-        /// Upstream identifies a plane by its entity name ('plane:x'); here the shape says so.
+        /// Whether this shape is a plane handle.
         virtual bool isPlane() const { return false; }
 
         /// The shape's root entity. The shape OWNS it until `takeEntity()` hands it to a
@@ -94,7 +96,7 @@ namespace visutwin::canvas
 
         TriData* addTriData(const PrimitiveGeometry& geometry, int priority = 0);
 
-        /// Upstream `_update`: places the entity from the stored transform.
+        /// Places the entity from the stored transform.
         virtual void update();
 
         /// A new child entity of `parent` named `name`.

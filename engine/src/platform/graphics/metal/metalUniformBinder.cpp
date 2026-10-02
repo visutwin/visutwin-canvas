@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Uniform packing, ring-buffer allocation, and per-pass deduplication.
 // Extracted from MetalGraphicsDevice for single-responsibility decomposition.
 //
@@ -74,8 +76,8 @@ namespace visutwin::canvas
         //
         // Dividing by the SIGNED determinant is what makes this the inverse
         // transpose rather than a cofactor matrix, and a mirrored mesh depends on
-        // that sign: its normals flip with its surface, as upstream's matrix_normal
-        // does, and the renderer flips which of its faces is culled to match.
+        // that sign: its normals flip with its surface, and the renderer flips
+        // which of its faces is culled to match.
         // A near-singular 3x3 (|det| <= 1e-8) uploads a zero normal matrix.
         const ModelData modelData{
             toSimdMatrix(model),
@@ -279,7 +281,7 @@ namespace visutwin::canvas
             columns[i] = {c.getX(), c.getY(), c.getZ(), 0.0f};
         }
         // w of the first column says "rotated", so an unrotated sky skips the multiply
-        // and renders bit-identically (upstream compiles CUBEMAP_ROTATION only then).
+        // and renders bit-identically.
         const bool identity = columns[0].x == 1.0f && columns[1].y == 1.0f && columns[2].z == 1.0f;
         columns[0].w = identity ? 0.0f : 1.0f;
         if (std::memcmp(columns, &_lightingUniforms.skyboxRotation0, sizeof(columns)) == 0) {

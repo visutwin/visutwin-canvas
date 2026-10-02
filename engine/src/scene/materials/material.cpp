@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 11.10.2025.
+// Created by Arnis Lektauers on 11.10.2025
 //
 #include <cstring>
 
@@ -147,8 +147,7 @@ namespace visutwin::canvas
 
     }
 
-    // Pre-computes the 3x2 affine matrix from tiling, offset and rotation, as upstream's
-    // defineUniform() does for texture_*MapTransform0/1.
+    // Pre-computes the 3x2 affine matrix from tiling, offset and rotation.
     void Material::packTextureTransform(const TextureTransform& t, float row0[4], float row1[4])
     {
         constexpr float degToRad = 3.14159265358979323846f / 180.0f;
@@ -302,8 +301,8 @@ namespace visutwin::canvas
         uniforms.baseColor[1] = _baseColorFactor.g;
         uniforms.baseColor[2] = _baseColorFactor.b;
         uniforms.baseColor[3] = _baseColorFactor.a;
-        // Emissive is authored in sRGB (convention matches upstream material.emissive and the
-        // .gamma() conversion the glTF parser applies to glTF's linear emissiveFactor). The GPU
+        // Emissive is authored in sRGB (hence the .gamma() conversion the glTF parser applies
+        // to glTF's linear emissiveFactor). The GPU
         // wants linear HDR, and a StandardMaterial subclass may multiply by emissiveIntensity > 1.
         // Linearize FIRST here so the intensity scaling (applied by StandardMaterial::updateUniforms
         // below) happens in linear space — applying pow() to intensity-scaled sRGB blows up to
@@ -321,7 +320,7 @@ namespace visutwin::canvas
         uniforms.occludeSpecularIntensity = _occludeSpecularIntensity;
         uniforms.flags = 0u;
 
-        // Allow custom parameter overrides (upstream and short alias names alike).
+        // Allow custom parameter overrides (`material_*` and short alias names alike).
         applyParameterOverrides(uniforms);
 
         // Flag bits — matches MaterialData.flags layout in common.metal.

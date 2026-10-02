@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 02.10.2026
+//
 // The CPU half of the GPU lightmapper's post-processing and ambient bake
 // (framework/lightmapper/lightmapFilters.h), held to upstream's numbers:
 //
@@ -9,10 +11,10 @@
 //   filterSmoothness), and the block laid out as the GLSL std140 / MSL struct expects —
 //   a float array in std140 strides 16 bytes per element, which is why the kernel is
 //   four vec4s and why its offset is checked;
-// - the ambient virtual lights (bake-light-ambient.js): upstream's sphere distribution
+// - the ambient virtual lights (bake-light-ambient.js): the sphere distribution
 //   and the LINEAR intensity its Light ends up shading with, in both of the branches
 //   Light._updateLinearColor takes;
-// - bakeLmEnd's occlusion curve, at the values upstream's lights-baked-a-o example uses.
+// - bakeLmEnd's occlusion curve, at the values the lights-baked-a-o example uses.
 //
 // The shaders themselves run in the lightmap-bake example on both backends.
 
@@ -43,7 +45,7 @@ namespace
         return std::abs(a - b) <= tolerance * std::max(1.0, std::abs(b));
     }
 
-    // Upstream's normpdf, in double, as the independent reference.
+    // normpdf, in double, as the independent reference.
     double referenceNormpdf(const double x, const double sigma)
     {
         return 0.39894 * std::exp(-0.5 * x * x / (sigma * sigma)) / sigma;
@@ -62,12 +64,12 @@ namespace
         check(u.kernel[15] == 0.0f, "the 16th kernel float is padding");
         check(near(u.bZnorm, 1.0 / referenceNormpdf(0.0, 0.2)), "bZnorm = 1 / normpdf(0, smoothness)");
 
-        // Upstream's lightmap-sources test example: range 5, smoothness 0.1.
+        // The lightmap-sources example's values: range 5, smoothness 0.1.
         prepareDenoise(u, 5.0f, 0.1f);
         check(near(u.kernel[0], referenceNormpdf(7.0, 5.0)), "outer tap at range 5");
         check(near(u.bZnorm, 1.0 / referenceNormpdf(0.0, 0.1)), "bZnorm at smoothness 0.1");
 
-        // A zero range would divide by zero; upstream's scene setter keeps it above 0.001.
+        // A zero range would divide by zero; prepareDenoise keeps it above 0.001.
         prepareDenoise(u, 0.0f, 0.0f);
         check(std::isfinite(u.kernel[7]) && std::isfinite(u.bZnorm), "degenerate sigmas stay finite");
 
@@ -88,7 +90,7 @@ namespace
         check(sizeof(LightmapFilterUniforms) == 96, "block is 96 bytes");
     }
 
-    // Upstream: intensity = (pow(2 pi part, 2.2) / N) ^ (1 / 2.2), shaded as intensity when
+    // intensity = (pow(2 pi part, 2.2) / N) ^ (1 / 2.2), shaded as intensity when
     // it is >= 1 and as intensity ^ 2.2 below that.
     double referenceAmbientLinear(const int n, const double part)
     {
@@ -105,7 +107,7 @@ namespace
         check(near(linear20, referenceAmbientLinear(20, 0.4), 1e-4), "20 samples, part 0.4");
         check(near(linear20 * 20.0, std::pow(2.0 * 3.14159265358979 * 0.4, 2.2), 1e-4),
             "below 1 the virtual lights sum to the full linear intensity");
-        // One sample (upstream's default ambientBakeNumSamples): the >= 1 branch.
+        // One sample (the default ambientBakeNumSamples): the >= 1 branch.
         const float linear1 = ambientVirtualLightIntensity(1, 0.4f);
         check(near(linear1, referenceAmbientLinear(1, 0.4), 1e-4), "1 sample, part 0.4");
         check(near(linear1, 2.0 * 3.14159265358979 * 0.4, 1e-4), "one light shades with 2 pi part");

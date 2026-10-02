@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 05.09.2026
+//
 // Port of upstream materials/parallax-mapping.
 //
 // A closed brick room with a brick sphere resting on the floor, lit by a warm spot
@@ -8,8 +10,8 @@
 // the height map, so it holds up on the flat walls and on the curved sphere alike,
 // and the effect is strongest where the surface is seen at a grazing angle.
 //
-// The room is six inward-facing planes rather than a box seen from inside, which is
-// upstream's own note: a tangent frame is mirrored on a back face, and two-sided
+// The room is six inward-facing planes rather than a box seen from inside: a
+// tangent frame is mirrored on a back face, and two-sided
 // lighting flips only the normal and not the tangents, so the marched relief on
 // those faces comes out inside out. Every face front-facing avoids that.
 //
@@ -176,7 +178,7 @@ private:
         material->setMetalness(0.0f);
         material->setGloss(0.35f);
 
-        // Upstream's tuned values: a relief 0.4 deep, pivoting around mid-grey.
+        // Tuned values: a relief 0.4 deep, pivoting around mid-grey.
         material->setHeightMapFactor(0.4f);
         material->setHeightMapBase(0.5f);
 

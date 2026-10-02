@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Assimp-based multi-format 3D model parser for VisuTwin Canvas.
 //
 // Loads Collada (.dae), FBX (.fbx), 3DS, PLY, and other Assimp-supported
@@ -10,7 +12,7 @@
 // Collada files with Phong/Lambert materials are automatically converted
 // to PBR via shininess-to-roughness and specular-to-metalness heuristics.
 //
-// Custom Assimp loader (not derived from upstream).
+// Custom Assimp loader.
 // This is a VisuTwin-specific addition for robot/CAD visualization.
 //
 #pragma once

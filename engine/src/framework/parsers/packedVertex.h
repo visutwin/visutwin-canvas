@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 25.09.2026
+//
 // The parsers' interleaved static vertex: position, normal, uv0, tangent (+ handedness)
 // and uv1, 14 floats. ONE definition: the glTF, OBJ, STL and Assimp parsers write it and
 // BatchManager merges by reinterpreting a source vertex buffer as it

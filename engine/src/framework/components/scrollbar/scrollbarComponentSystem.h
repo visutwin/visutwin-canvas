@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 30.09.2026
+//
 #pragma once
 
 #include "scrollbarComponent.h"
@@ -14,7 +17,7 @@ namespace visutwin::canvas
     public:
         explicit ScrollbarComponentSystem(Engine* engine) : ComponentSystem(engine, "scrollbar")
         {
-            // Nothing fires upstream's `element:add`, so the bindings are refreshed here.
+            // Nothing fires an `element:add` event, so the bindings are refreshed here.
             if (engine && engine->systems()) {
                 engine->systems()->on("update", [engine](float) {
                     const auto& scrollbars = ScrollbarComponent::instances();

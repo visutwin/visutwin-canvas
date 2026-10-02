@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 30.07.2026
+//
 #pragma once
 
 #include <array>
@@ -17,11 +19,11 @@ namespace visutwin::canvas
     class ImGuiOverlay;
 
     /**
-     * A small realtime performance overlay (upstream extras/mini-stats).
+     * A small realtime performance overlay.
      *
-     * The default COMPACT view is upstream's first size, row for row: draw calls, frame time,
+     * The default COMPACT view shows, row for row: draw calls, frame time,
      * CPU time, GPU time and VRAM, no graphs, anchored to the bottom-left corner of the window,
-     * each figure the mean over the last half second (upstream's `textRefreshRate`). Clicking
+     * each figure the mean over the last half second. Clicking
      * the panel switches to the DETAILED view, which adds the frame-rate line, the rolling
      * graphs, the draw-call and texture breakdowns and the per-pass GPU timings resolved by
      * GraphicsDevice::gpuProfiler(); clicking again returns to compact.
@@ -52,8 +54,7 @@ namespace visutwin::canvas
         bool enabled() const { return _enabled; }
 
         /// Compact is the five-row default; detailed adds the graphs, the breakdowns and the
-        /// per-pass GPU timings. A click on the panel toggles it, as a click cycles upstream's
-        /// sizes.
+        /// per-pass GPU timings. A click on the panel toggles it.
         void setDetailed(const bool value) { _detailed = value; }
         bool detailed() const { return _detailed; }
         void toggleDetailed() { _detailed = !_detailed; }
@@ -97,7 +98,7 @@ namespace visutwin::canvas
             }
         };
 
-        // Upstream's Graph keeps two things per stat: the per-frame history its graph draws, and
+        // Two things are kept per stat: the per-frame history its graph draws, and
         // a text figure rewritten every `textRefreshRate` milliseconds as the MEAN of the frames
         // since the last rewrite. The text is what the compact rows show, and the refresh is what
         // keeps them readable — a figure rewritten at 60 Hz is a blur.

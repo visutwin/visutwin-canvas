@@ -4,10 +4,10 @@
 // A shading edit has to land in this file and its Metal twin together; anything
 // that only touches one of the two is a backend divergence by construction.
 //
-// Convention, matching Metal and upstream: `roughness` is LINEAR roughness
+// Convention, matching Metal: `roughness` is LINEAR roughness
 // (1 - gloss). The distribution squares it twice (alpha = roughness^4) and the
-// visibility squares that again (roughness^8) — upstream's own non-standard extra
-// squaring, kept deliberately so the two backends agree.
+// visibility squares that again (roughness^8) — a non-standard extra squaring
+// reproduced from upstream, kept deliberately so the two backends agree.
 
 // GGX normal distribution.
 float distributionGGX(float NdotH, float roughness) {
@@ -53,21 +53,21 @@ float getFresnelCC(float cosTheta) {
 }
 
 // Kelemen visibility for clearcoat — simpler than Smith-GGX because a coat is
-// typically smooth. V = 0.25 / LdotH^2. Used by Filament and upstream.
+// typically smooth. V = 0.25 / LdotH^2. Used by Filament.
 float getVisibilityKelemen(float LdotH) {
     return 0.25 / max(LdotH * LdotH, 1e-5);
 }
 
-// ── Anisotropic GGX (upstream lightSpecularAnisoGGX + reflDirAniso) ──
+// ── Anisotropic GGX ──
 //
 // `anisotropy` is the INTENSITY in [0, 1]; the engine's signed value only picks the
 // direction (tangent or bitangent), which the surface chunk resolves into T and B.
 //
-// (at, ab) exactly as upstream: alpha = ((1 - gloss)^2)^2, stretched toward 1 along
+// (at, ab): alpha = ((1 - gloss)^2)^2, stretched toward 1 along
 // the tangent by intensity SQUARED. Note that this alpha is one squaring beyond the
 // isotropic distribution's (whose GGX alpha is (1 - gloss)^2), so the highlight
-// narrows as soon as a material turns anisotropy on. That is upstream's own
-// formulation, kept so both backends and upstream agree; the lambda terms line up
+// narrows as soon as a material turns anisotropy on. That formulation is
+// upstream's, kept so both backends agree with it; the lambda terms line up
 // with the isotropic visibility's extra squaring.
 vec2 getAnisotropicAlpha(float gloss, float anisotropy) {
     float r = max((1.0 - gloss) * (1.0 - gloss), 0.001);

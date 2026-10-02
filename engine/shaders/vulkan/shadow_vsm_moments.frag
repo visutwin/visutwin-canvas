@@ -20,7 +20,7 @@ layout(push_constant) uniform PushConstants {
 } vtDraw;
 
 // Twin of shadowDistanceRatio in common-shadow-vsm.metal: a VSM spot light's pass
-// stores distance / range, as upstream's spot VSM does, recovering the light (the
+// stores distance / range, recovering the light (the
 // projection centre, where clip x, y and w vanish) and the far plane (from row 2 of
 // the GL-style projection) from the view-projection. False for an orthographic pass.
 bool shadowDistanceRatio(mat4 vp, vec3 worldPos, out float ratio) {

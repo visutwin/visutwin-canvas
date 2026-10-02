@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 25.09.2026
+//
 // Where a camera frame's scene pass stops (RenderPassCameraFrame::findActionIndex).
 //
 // The scene pass renders up to the grab layer — the Skybox — then grabs the colour, and
@@ -10,7 +12,7 @@
 // alone matches nothing there, the caller falls back to EVERY action, the grab runs
 // after the transparent layers, and a refractive surface samples itself from the
 // previous frame, which reads as dark, opaque refraction. A disabled stop layer is
-// placed by its POSITION in the composition instead, as upstream's addCameraLayers does.
+// placed by its POSITION in the composition instead.
 //
 // And when the frame's depth prepass renders (RenderPassCameraFrame::prepassRenders).
 // Single-sampled, the scene pass clears and rewrites the depth texture a prepass wrote,

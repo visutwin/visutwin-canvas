@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 05.09.2026
+//
 // Port of upstream graphics/clustered-spot-shadows.
 //
 // Ten cookie-projecting spot lights circle a field of tumbled cubes, every one of

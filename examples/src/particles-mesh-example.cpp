@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 02.10.2026
+//
 // Port of upstream graphics/particles-mesh.
 //
 // 150 opaque mesh particles — tori, textured with the clouds image through the mesh's own
@@ -86,7 +88,7 @@ protected:
 
         createDirectionalLight(Vector3(25.0f, 0.0f, -80.0f), Color(1.0f, 1.0f, 1.0f, 1.0f), 1.0f, false);
 
-        // The particle mesh: the torus of upstream's torus.glb.
+        // The particle mesh: a generated torus (see the DEVIATION above).
         _torus = createMeshFromGeometry(device(), createTorusGeometry(0.25f, 1.0f, 360.0f, 30, 20));
 
         auto* entity = new Entity();

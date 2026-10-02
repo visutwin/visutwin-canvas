@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 22.08.2026
+//
 // Common host for the example applications.
 //
 // ExampleApp owns what every example would otherwise repeat: SDL init, window,
@@ -224,8 +226,7 @@ namespace visutwin::canvas
 
         CameraControls* _cameraControls = nullptr;
 
-        // The performance HUD every example shows, as upstream's example harness
-        // adds its own to all of them. Owned by the host rather than by each
+        // The performance HUD every example shows. Owned by the host rather than by each
         // example, so all 46 get it without carrying a line for it.
         std::unique_ptr<ImGuiOverlay> _overlay;
         std::unique_ptr<MiniStats> _miniStats;

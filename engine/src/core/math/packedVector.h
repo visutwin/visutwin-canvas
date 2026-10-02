@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 14.07.2026
+//
 // Tightly-packed 4-component POD vectors for GPU uniform/vertex layouts.
 //
 // Unlike Vector4 (which is alignas(16) and carries a SIMD union + user-provided

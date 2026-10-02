@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 13.10.2025.
+// Created by Arnis Lektauers on 13.10.2025
 //
 #pragma once
 
@@ -48,11 +48,10 @@ namespace visutwin::canvas
             float outerConeCos = 0.8f;              // spot
             bool castShadows = true;
 
-            // Soft baked shadows (upstream Light.bakeNumSamples / Light.bakeArea).
-            // Upstream bakes N *virtual* copies of the light, each rotated within a
-            // bakeArea-degree cone; the ray tracer here jitters the shadow ray over
-            // the same cone and averages visibility, which is equivalent and cheaper.
-            // DIRECTIONAL ONLY, matching upstream (BakeLightSimple::numVirtualLights).
+            // Soft baked shadows. Rather than baking N *virtual* copies of the light,
+            // each rotated within a bakeArea-degree cone, the ray tracer here jitters
+            // the shadow ray over the same cone and averages visibility, which is
+            // equivalent and cheaper. DIRECTIONAL ONLY.
             int bakeNumSamples = 1;
             float bakeArea = 0.0f;                  // degrees of spread, 0 = hard shadows
         };
@@ -67,18 +66,17 @@ namespace visutwin::canvas
             Color skyColor{0.0f, 0.0f, 0.0f, 1.0f}; // color added by unoccluded AO rays
             int dilatePixels = 4;                   // seam-fill iterations
 
-            // Automatic per-mesh resolution from the target's world-space bounds
-            // (upstream Scene.lightmapSizeMultiplier / lightmapMaxResolution). When
-            // sizeMultiplier > 0 it replaces lightmapSize, using upstream's formula:
+            // Automatic per-mesh resolution from the target's world-space bounds.
+            // When sizeMultiplier > 0 it replaces lightmapSize, using the formula:
             // nextPow2(sqrt(sum of the three face areas) * multiplier), capped.
             float sizeMultiplier = 0.0f;
             int maxResolution = 1024;
 
-            // Ambient bake (upstream Scene.ambientBake*). Instead of scaling a flat
+            // Ambient bake. Instead of scaling a flat
             // sky colour by an AO fraction, this distributes ambientBakeNumSamples
-            // rays over the top ambientBakeSpherePart of the sphere (upstream's
-            // Fibonacci spherePointDeterministic distribution), weights them by N·L,
-            // and shapes the resulting occlusion with upstream's bakeLmEnd curve:
+            // rays over the top ambientBakeSpherePart of the sphere (a Fibonacci
+            // distribution), weights them by N·L, and shapes the resulting occlusion
+            // with the curve:
             //   ao = saturate(((ao - 0.5) * max(contrast + 1, 0)) + 0.5 + brightness)
             bool ambientBake = false;
             int ambientBakeNumSamples = 20;
@@ -86,7 +84,7 @@ namespace visutwin::canvas
             float ambientBakeOcclusionContrast = 0.0f;
             float ambientBakeOcclusionBrightness = 0.0f;
 
-            // Bilateral denoise over the baked texels (upstream Scene.lightmapFilter*).
+            // Bilateral denoise over the baked texels.
             // range is the spatial sigma in texels, smoothness the intensity sigma.
             bool filterEnabled = false;
             float filterRange = 10.0f;

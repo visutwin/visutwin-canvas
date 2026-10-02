@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 29.09.2026
+//
 // Port of upstream user-interface/world-ui.
 //
 // A hangar: a floor, a back wall, and a front wall with an opening that a door slides up
@@ -45,7 +47,7 @@ namespace
     const Color LIGHT(0.95f, 0.96f, 0.98f, 1.0f);
     const Color MUTED(0.6f, 0.64f, 0.72f, 1.0f);
 
-    /// Upstream's createElement properties that this example sets.
+    /// The element properties this example sets.
     struct ElementProps
     {
         ElementType type = ElementType::Image;
@@ -205,8 +207,7 @@ private:
         return entity;
     }
 
-    /// An element on `parent`, centred on it unless `props` says otherwise (upstream's
-    /// createElement).
+    /// An element on `parent`, centred on it unless `props` says otherwise.
     ElementComponent* createElement(Entity* parent, const ElementProps& props) const
     {
         auto* entity = new Entity();

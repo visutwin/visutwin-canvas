@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 30.09.2026
+//
 // Port of upstream user-interface/anchors.
 //
 // An in-game chat window laid out with anchors. Its title bar, message log and input row are
@@ -53,7 +55,7 @@ namespace
         return res && std::holds_alternative<Texture*>(*res) ? std::get<Texture*>(*res) : nullptr;
     }
 
-    /// Upstream's element properties that this example sets. Without an anchor and a pivot, an
+    /// The element properties that this example sets. Without an anchor and a pivot, an
     /// element is attached to the bottom-left corner of its parent, so the example passes both.
     struct ElementProps
     {

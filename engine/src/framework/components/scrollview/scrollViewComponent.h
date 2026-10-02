@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// A scroll view (upstream framework/components/scroll-view/component.js): a content element,
+// Created by Arnis Lektauers on 30.09.2026
+//
+// A scroll view: a content element,
 // larger than its viewport element, that the user drags or scrolls with the mouse wheel,
 // with optional scrollbars that follow and drive the position. The viewport is usually a
 // mask, so the content shows only inside it.
@@ -50,7 +52,7 @@ namespace visutwin::canvas
     class ScrollbarComponent;
     struct ElementInputEvent;
 
-    /// Upstream SCROLL_MODE_*: what happens past an end of the content.
+    /// What happens past an end of the content.
     enum class ScrollMode
     {
         /// Stops at the ends.
@@ -61,7 +63,7 @@ namespace visutwin::canvas
         Infinite = 2
     };
 
-    /// Upstream SCROLLBAR_VISIBILITY_*.
+    /// When a scrollbar is shown.
     enum class ScrollbarVisibility
     {
         ShowAlways = 0,
@@ -123,7 +125,7 @@ namespace visutwin::canvas
         const Vector2& scroll() const { return _scroll; }
         void setScroll(const Vector2& value) { onSetScroll(value.x, value.y, true); }
 
-        /// The fling and bounce, and the scrollbars' visibility (upstream `onUpdate`).
+        /// The fling and bounce, and the scrollbars' visibility.
         void update();
         /// Pick up elements and scrollbars added since the last look; the system calls it
         /// after each update, and it costs nothing once everything is bound.

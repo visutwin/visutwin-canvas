@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 21.03.2026
+//
 #pragma once
 
 #include <optional>
@@ -48,9 +51,8 @@ namespace visutwin::canvas
 
         /// Every hit along the segment, NEAREST FIRST. Both the physics-world path and
         /// the CPU fallback sort, so the order does not depend on whether a world was
-        /// supplied — it used to, which made the order a configuration detail. (Upstream
-        /// leaves them unordered unless asked; a single contract is cheaper to reason
-        /// about than a flag, and the caller that wants raw order can stop sorting here.)
+        /// supplied — it used to, which made the order a configuration detail. (A single
+        /// contract is cheaper to reason about than an ordering flag, and the caller that wants raw order can stop sorting here.)
         std::vector<RaycastResult> raycastAll(const Vector3& start, const Vector3& end) const;
 
         /// Advance the simulation by `dt` seconds and write body transforms back to

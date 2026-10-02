@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 06.09.2026
+//
 // Entity lifecycle ordering. None of these is visible in a rendered frame, which
 // is why they need a test:
 //

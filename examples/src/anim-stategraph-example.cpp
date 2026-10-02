@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Anim state-graph example — mirrors upstream's `locomotion` example. The
 // skinned bitmoji character is driven through an AnimComponent state graph:
 // an "Idle" state transitions into a 1D "Locomotion" blend tree (Walk <-> Run)
@@ -150,7 +152,7 @@ protected:
                 renderComps, meshInsts);
         }
 
-        // Build the anim state graph (mirrors upstream locomotion):
+        // Build the anim state graph:
         //
         //   START ──► Idle ──(speed >= 0.5)──► Locomotion (1D blend: Walk@1 .. Run@2)
         //              ▲                            │
@@ -201,7 +203,7 @@ protected:
         spdlog::info("State graph loaded: states [Idle, Locomotion(Walk|Run)] — keys 1/2/3/4 set speed");
 
         // -----------------------------------------------------------------------
-        // Ground plane (playcanvas-grey texture, like the upstream locomotion demo)
+        // Ground plane (playcanvas-grey texture)
         // -----------------------------------------------------------------------
         _groundMaterial = std::make_shared<StandardMaterial>();
         if (const auto groundTexRes = _groundTexAsset->resource();
@@ -230,7 +232,7 @@ protected:
             Color(1.0f, 0.97f, 0.92f), 1.5f, true);
         if (auto* keyLightComp = keyLight->findComponent<LightComponent>()) {
             keyLightComp->setShadowResolution(2048);
-            // Upstream's shadowDistance 16, shadowBias 0.2, normalOffsetBias 0.05.
+            // Shadow distance 16, bias 0.2, normal offset bias 0.05.
             // The one cascade spans the camera frustum out to the shadow distance, so
             // at 100 m the texel would be 10 cm on a 1.8 m character — a smeared
             // shadow whose limbs pop in and out as it moves, which reads as flicker.
@@ -238,7 +240,7 @@ protected:
             keyLightComp->setShadowDistance(16.0f);
             keyLightComp->setShadowBias(0.2f);
             keyLightComp->setShadowNormalBias(0.05f);
-            // One cascade, as upstream. A second would make the character's shadow
+            // One cascade. A second would make the character's shadow
             // SOFTER: two cascades split the 2048 atlas into 1024 quadrants, and with
             // distribution 0.5 the split lands at 4 m, so the character at 5 m falls
             // into the far cascade with a 3 cm texel against the single cascade's

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 29.09.2026
+//
 // Port of upstream user-interface/screen-scaling.
 //
 // A mobile game's HUD designed at a 1280 x 720 reference resolution: health and coins along
@@ -53,7 +55,7 @@ namespace
     const Vector4 CENTRE_ANCHOR(0.5f, 0.5f, 0.5f, 0.5f);
     const Vector2 CENTRE_PIVOT(0.5f, 0.5f);
 
-    /// Upstream's element properties that this example sets.
+    /// The element properties that this example sets.
     struct ElementProps
     {
         ElementType type = ElementType::Image;
@@ -113,7 +115,7 @@ protected:
         auto* camera = createCamera(Vector3(0.0f, 0.0f, 0.0f));
         camera->findComponent<CameraComponent>()->camera()->setClearColor(Color(0.2f, 0.3f, 0.26f, 1.0f));
 
-        // Frames of upstream's UI kit atlas (ui-atlas.mjs)
+        // Frames of the UI kit atlas
         auto atlas = std::make_shared<TextureAtlas>();
         atlas->setTexture(atlasTexture);
         const Vector4 border32(32.0f, 32.0f, 32.0f, 32.0f);

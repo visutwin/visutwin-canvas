@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// A container's animation tracks, in the FILE's order (upstream `container.animations`, an array),
+// Created by Arnis Lektauers on 30.09.2026
+//
+// A container's animation tracks, in the FILE's order,
 // with a lookup by name. Not an unordered_map: iterating them, or taking `begin()` as "the"
 // animation as several examples do, has to follow the file, not hash order.
 //
@@ -46,7 +48,7 @@ namespace visutwin::canvas
         [[nodiscard]] const_iterator end() const { return _entries.end(); }
         [[nodiscard]] size_t size() const { return _entries.size(); }
         [[nodiscard]] bool empty() const { return _entries.empty(); }
-        /// The i-th track in file order (upstream `container.animations[i]`).
+        /// The i-th track in file order.
         [[nodiscard]] const Entry& operator[](const size_t index) const { return _entries[index]; }
 
     private:

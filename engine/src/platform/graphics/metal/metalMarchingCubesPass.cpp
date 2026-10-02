@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Metal compute pass for GPU Marching Cubes -- implementation.
 //
 // Contains the embedded MSL compute kernels (classifyCells + generateVertices)
 // and CPU-side dispatch logic for the two-pass atomic pipeline.
 //
-// Custom shader -- no upstream GLSL equivalent exists.
+// Custom shader -- no GLSL equivalent exists.
 //
 #include "metalMarchingCubesPass.h"
 

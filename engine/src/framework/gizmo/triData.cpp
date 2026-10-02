@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 02.10.2026
+//
 #include "triData.h"
 
 #include "core/math/vector4.h"

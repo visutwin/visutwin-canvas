@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 04.10.2025.
+// Created by Arnis Lektauers on 04.10.2025
 //
 #include "lightCamera.h"
 
@@ -33,9 +33,8 @@ namespace visutwin::canvas
         }
 
         // A camera at the light, looking down the beam. The camera looks along its
-        // -Z while a spot light emits along -Y, hence the local -90° X rotation
-        // (upstream evalSpotCookieMatrix does the same rotateLocal(-90, 0, 0)).
-        // Cached like upstream's _spotCookieCamera — this runs per cookie light
+        // -Z while a spot light emits along -Y, hence the local -90° X rotation.
+        // Cached — this runs per cookie light
         // per frame and the camera holds no per-light state between calls.
         static const std::unique_ptr<Camera> cookieCamera = [] {
             auto camera = std::unique_ptr<Camera>(create("SpotCookieCamera", LightType::LIGHTTYPE_SPOT));

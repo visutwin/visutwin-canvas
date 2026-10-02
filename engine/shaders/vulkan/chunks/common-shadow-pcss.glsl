@@ -64,13 +64,13 @@ float pcf3x3Directional(int slot, vec2 uv, float receiver) {
     return sum / 9.0;
 }
 
-// PCF1 over a directional slot's map: one comparison (upstream shadowPCF1).
+// PCF1 over a directional slot's map: one comparison.
 float pcf1Directional(int slot, vec2 uv, float receiver) {
     return (receiver <= directionalShadowDepth(slot, uv)) ? 1.0 : 0.0;
 }
 
 // PCF5 over a directional slot's map. DEVIATION, the same as pcf3x3's: Metal
-// takes upstream's nine bilinear hardware comparisons; with no comparison
+// takes nine bilinear hardware comparisons; with no comparison
 // sampler bound here the 5x5 texels are compared directly, uniformly weighted.
 float pcf5x5Directional(int slot, vec2 uv, float receiver) {
     vec2 texel = 1.0 / directionalShadowSize(slot);
@@ -183,7 +183,7 @@ float pcssCubeStoredToLinear(float stored, float nearClip, float farClip) {
     return d / farClip;
 }
 
-// Vogel sphere (upstream vogelSphere: radius = weight = i/count).
+// Vogel sphere (radius = weight = i/count).
 vec3 pcssVogelSphere(int sampleIndex, int count, float phi) {
     const float GOLDEN_ANGLE = 2.4;
     float theta = float(sampleIndex) * GOLDEN_ANGLE + phi;
@@ -216,7 +216,7 @@ float getShadowPCSSSpot(sampler2D tex, vec2 uv, float receiverZ,
     }
     float avgBlockerDepth = blockerSum / float(numBlockers);
 
-    // upstream: filterRadius = (receiver - avgBlocker) / 3 * searchArea
+    // filterRadius = (receiver - avgBlocker) / 3 * searchArea
     float filterRadius = ((receiverDepth - avgBlockerDepth) / 3.0) * searchArea;
 
     float sum = 0.0;
@@ -255,7 +255,7 @@ float getShadowPCSSOmni(samplerCube tex, vec3 lightDir, float searchArea,
     }
     float avgBlockerDepth = blockerSum / float(numBlockers);
 
-    // upstream: filterRadius = (receiver - blocker) / blocker * searchArea
+    // filterRadius = (receiver - blocker) / blocker * searchArea
     float filterRadius =
         ((receiverDepth - avgBlockerDepth) / max(avgBlockerDepth, 1e-4)) * searchArea;
 

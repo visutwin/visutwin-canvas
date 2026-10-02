@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 11.07.2026
+// Created by Arnis Lektauers on 11.07.2026
 //
 #include "animComponent.h"
 #include "framework/entity.h"
@@ -113,7 +113,7 @@ namespace visutwin::canvas
         const std::string& layerName, const std::optional<float> speed, const std::optional<bool> loop)
     {
         // With no state graph, a plain state name makes one: a Base layer that plays that state
-        // from the start (upstream's default graph).
+        // from the start.
         if (_layers.empty() && path.find('.') == std::string::npos) {
             AnimStateGraph stateGraph;
             auto& layer = stateGraph.addLayer("Base");
@@ -294,14 +294,14 @@ namespace visutwin::canvas
     void AnimComponent::update(const float dt)
     {
         clearContributions();
-        // Every layer advances, whatever its weight (upstream updates them all); a
+        // Every layer advances, whatever its weight; a
         // weight of 0 contributes nothing in composeTargets but keeps the layer's time
         // moving, so fading it back in resumes where it would have been.
         for (const auto& layer : _layers) {
             layer->update(dt * _speed);
         }
         composeTargets();
-        // Reset triggers consumed by transitions this frame (upstream consumes at frame end).
+        // Reset triggers consumed by transitions this frame, at frame end.
         for (const auto& name : _consumedTriggers) {
             resetTrigger(name);
         }
@@ -323,10 +323,9 @@ namespace visutwin::canvas
         }
     }
 
-    // Upstream AnimTargetValue.updateValue, run once per node per update over the
-    // layers that drove it, in layer order. Off normalisation the value starts at the
+    // Run once per node per update over the layers that drove it, in layer order. Off normalisation the value starts at the
     // node's rest pose; on it, at identity, and only the topmost OVERWRITE layer and
-    // the layers above it take part (upstream zeroes the masks beneath it).
+    // the layers above it take part (the masks beneath it are zeroed).
     void AnimComponent::writeTarget(TargetValue& target)
     {
         if (target.nodeVersion != _binder->version()) {
@@ -406,7 +405,7 @@ namespace visutwin::canvas
             base.hasWeights = true;
         }
 
-        // Start value: rest pose, or identity when normalising (upstream). Kept across
+        // Start value: rest pose, or identity when normalising. Kept across
         // calls so its weights vector keeps its storage.
         AnimTransform& value = _composeScratch;
         if (_normalizeWeights) {

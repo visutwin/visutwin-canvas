@@ -5,13 +5,13 @@
 
         // The source's shape (LightShape; 0 punctual): an area light keeps its type's
         // cone, cookie and shadow, takes only the range window as distance falloff, and
-        // is shaded with LTC below (upstream lightFunctionLight, LIGHT{i}SHAPE).
+        // is shaded with LTC below.
         uint lightShape = vtFeatureEnabled(VT_FEATURE_AREA_LIGHTS_BIT)
             ? uint(light.areaRightHalfWidth.w + 0.5) : 0u;
         vec3 L;
         float atten = 1.0;
         // Light cookie: the projected texture masking this light's color. Folded
-        // into the radiance below, BEFORE any falloff (upstream lightFunctionLight.js).
+        // into the radiance below, BEFORE any falloff.
         vec3 cookieMask = vec3(1.0);
         if (type == 0u) {
             L = normalize(-light.directionType.xyz);
@@ -63,7 +63,7 @@
                     cookieMask = getCookie2D(cookieSlot, fragWorldPos, cookieChannel, !cookieFalloff);
                     cookieReplacesConeFalloff = !cookieFalloff;
                 } else if (type == 1u && vtFeatureEnabled(VT_FEATURE_COOKIE_CUBE_BIT)) {
-                    // Upstream samples by the light→fragment direction, the
+                    // The cube is sampled by the light→fragment direction, the
                     // opposite of our L.
                     cookieMask = getCookieCube(cookieSlot, -L, cookieChannel);
                 }
@@ -144,9 +144,9 @@
             Vis = 1.0;
         }
         // Directional lights take the gloss-aware Fresnel; punctual lights take bare
-        // specularity, as upstream's lightFunctionLight.js gates it and the Metal
-        // chunk does. Applying the Fresnel to every light type over-brightened the
-        // rim of everything lit by a point or spot light on this backend.
+        // specularity, as the Metal chunk does. Applying the Fresnel to every light
+        // type over-brightened the rim of everything lit by a point or spot light on
+        // this backend.
         vec3 F = (type == 0u) ? getFresnel(VdotH, 1.0 - roughness, F0) : F0;
         if (vtFeatureEnabled(VT_FEATURE_IRIDESCENCE_BIT)) {
             F = mix(F, iridFresnel, iridIntensity);
@@ -167,12 +167,12 @@
             diffuseTerm = onA + onB * sTerm / tTerm;
         }
         // Direct diffuse is albedo * radiance * NdotL — no 1/PI and no
-        // energy-conservation factor. Upstream's lightDiffuseLambert is a bare
-        // NdotL and its combine multiplies by albedo, and the Metal chunk matches
+        // energy-conservation factor: the Lambert term is a bare
+        // NdotL, the combine multiplies by albedo, and the Metal chunk matches
         // it. Dividing by PI and multiplying by kD = (1 - F)(1 - metallic) would make
         // every direct light about a third of Metal's, and kD would apply
         // (1 - metallic) a second time, since diffuseAlbedo carries it.
-        // Upstream: with area lights in the variant, a punctual light's diffuse is
+        // With area lights in the variant, a punctual light's diffuse is
         // scaled by (1 - specularity) (the LTC lights take (1 - their Fresnel)).
         vec3 punctualDiffuseScale = (vtFeatureEnabled(VT_FEATURE_AREA_LIGHTS_BIT) && specularOn > 0.0)
             ? vec3(1.0) - F0 : vec3(1.0);

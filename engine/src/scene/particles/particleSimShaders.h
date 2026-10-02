@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 14.07.2026
+//
 // The GPU particle simulation kernel, authored once per language and dispatched
 // through the generic Compute seam rather than a GraphicsDevice virtual.
 //
@@ -15,20 +17,19 @@
 // includes the running time loses precision the longer an emitter runs.
 // The per-life seed is kept in motion.w as a float holding 24 bits, which is exact.
 //
-// The particle clock is upstream's (particleUpdaterStart / Respawn / NoRespawn / OnStop):
-// a life <= 0 is unborn and re-spawned every step; reaching the lifetime wraps the life
+// The particle clock: a life <= 0 is unborn and re-spawned every step; reaching the lifetime wraps the life
 // back by the emission period, max(lifetime, numParticles * rate), which shows the
 // particle again when the emitter loops and hides it when it does not; stopping hides
 // every particle not yet born. A hidden particle keeps its clock running, so playing
-// again brings it back at its next wrap, as upstream.
+// again brings it back at its next wrap.
 //
 // Velocity is our integrated initial velocity with gravity and damping (a DEVIATION)
-// PLUS upstream's velocity graphs: the local graph turned
+// PLUS the velocity graphs: the local graph turned
 // by the emitter, and the world graph, each a random point between graph and graph2 per
 // particle life, and the radial speed graph (velocityLut.w / velocityLut2.w), along the
 // direction from the emitter's centre. The graph speed of rotation is integrated into the
 // angle. A wrap takes the emission period of a random rate between rate and rate2
-// (graphParams.w is (rate2 - rate)), as upstream's particleUpdaterRespawn.
+// (graphParams.w is (rate2 - rate)).
 //
 // The uniform block IS `GpuParticleSimParams` — two mat4s, eight vec4s and four
 // 16-sample lookup tables, 1280 bytes, which its own static_assert pins. Both kernels declare that member list; changing

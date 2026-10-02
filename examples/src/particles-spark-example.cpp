@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 30.09.2026
+//
 // Port of upstream graphics/particles-spark.
 //
 // A fountain of sparks: each spark flies out in a random direction between two local velocity
@@ -80,7 +82,7 @@ protected:
         // Make particles move in different directions
         o.localVelocityGraph = CurveSet({{0.0f, 0.0f, 1.0f, 8.0f}, {0.0f, 0.0f, 1.0f, 6.0f}, {0.0f, 0.0f, 1.0f, 0.0f}});
         o.localVelocityGraph2 = CurveSet({{0.0f, 0.0f, 1.0f, -8.0f}, {0.0f, 0.0f, 1.0f, -6.0f}, {0.0f, 0.0f, 1.0f, 0.0f}});
-        // The default initialVelocity of upstream's box emitter, see the header
+        // The box emitter's default initialVelocity, see the header
         o.initialVelocity = Vector3(0.0f, 0.0f, -1.0f);
         particles->apply();
         return true;

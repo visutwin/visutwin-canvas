@@ -3,7 +3,7 @@
     // ambient diffuse (no energy conservation).
 #if VT_FEATURE_LIGHT_PROBES
     // Ambient SH light probes: 9-coefficient irradiance evaluated in the world
-    // normal direction (upstream AMBIENTSH basis, coefficients premultiplied).
+    // normal direction (coefficients premultiplied).
     const float3 shN = cubeMapRotate(N, lighting);
     float3 indirectDiffuse = max(
         lighting.ambientSH[0].xyz +
@@ -21,7 +21,7 @@
 #endif
     float3 indirectSpecular = float3(0.0);
 #if VT_FEATURE_ENV_ATLAS
-    // bit 18: useSkybox off (upstream's useSceneEnv) — the flat ambient above stays.
+    // bit 18: useSkybox off — the flat ambient above stays.
     if (envAtlasTexture.get_width() > 0 && envAtlasTexture.get_height() > 0 &&
         (material.flags & (1u << 18)) == 0u) {
 #if !VT_FEATURE_LIGHT_PROBES
@@ -41,7 +41,7 @@
         // Glossy (level==0): sample from shiny atlas sub-region with screen-space MIP.
         // Rough (level>0): trilinearly interpolate between adjacent roughness MIP levels.
 #if VT_FEATURE_ANISOTROPY
-        // Upstream reflDirAniso (common-brdf). Do not bend the normal straight onto
+        // Anisotropic reflection direction (common-brdf). Do not bend the normal straight onto
         // the bitangent by the raw signed value: at full anisotropy that reflects
         // along B whatever the surface normal is.
         const float3 R = getReflDirAniso(N, V, anisoB, gloss, anisoIntensity);
@@ -68,7 +68,7 @@
         const float ilevel2 = floor(level2);
 
         // Specular IBL: sampled through `envAtlasSampler` (non-anisotropic,
-        // see common.metal). The upstream `shinyMipLevel` uses a
+        // see common.metal). The `shinyMipLevel` above uses a
         // second-derivative trick (dFdx/dFdy on fract(u+0.5)) above to pick
         // the correct screen-space MIP across the wrap.
         float3 linear0, linear1;
@@ -155,14 +155,14 @@
     // align to the probe's volume. Overrides the global env-atlas specular.
     if (reflectionProbeCube.get_width() > 0) {
 #if VT_FEATURE_ANISOTROPY
-        // Upstream samples every reflection source along the one (bent) dReflDirW.
+        // Every reflection source is sampled along the one (bent) reflection direction.
         const float3 Rp = getReflDirAniso(N, V, anisoB, gloss, anisoIntensity);
 #else
         const float3 Rp = reflect(-V, N);
 #endif
         float3 sampleDir = Rp;
 
-        // Box projection (upstream cubeMapProject BOX): intersect the reflection
+        // Box projection: intersect the reflection
         // ray with the probe box and re-aim from the box center — this is what
         // makes a flat cubemap track a room's walls as the surface moves.
         if (lighting.reflectionProbeParams.x > 0.5) {
@@ -180,7 +180,7 @@
 
         // Engine cube convention flips X (matches the skybox cube sampling).
         const float3 cubeDir = float3(-sampleDir.x, sampleDir.y, sampleDir.z);
-        // Roughness → mip LOD. DEVIATION: upstream's reflectionCube samples the cube
+        // Roughness → mip LOD. DEVIATION: upstream samples the reflection cube
         // unfiltered whatever the gloss; a rough surface here reads a coarser mip.
         const float probeLod = saturate(1.0 - gloss) * lighting.reflectionProbeParams.z;
         float3 probeSpec = reflectionProbeCube.sample(reflectionProbeSampler, cubeDir, level(probeLod)).rgb;
@@ -324,32 +324,30 @@
 #endif
 
 #if !VT_FEATURE_NO_SPECULAR
-    // upstream litForwardBackend.js, right after addAmbient: the ambient DIFFUSE is
+    // Right after the ambient is added, the ambient DIFFUSE is
     // scaled by (1 - specularity), per channel, whenever the material renders
     // specular — energy the surface reflects specularly is not also scattered
     // diffusely. `specularity` is F0 in both workflows (the metalness workflow's
     // mix(0.04, albedo, metalness), the specular workflow's specular colour). Only
     // the ambient irradiance: the lightmap that may replace it in the tail is added
-    // unscaled upstream too, and the direct light has its own energy terms. A
+    // unscaled, and the direct light has its own energy terms. A
     // dielectric floor lit by its environment reads 4% darker for this.
     indirectDiffuse *= float3(1.0) - F0;
 #endif
 
 #if !VT_FEATURE_LIGHTMAP_BAKE
-    // The material's ambient tint (upstream material_ambient, applied through
-    // litArgs_ambient since #9538): right after the ambient is added and scaled,
+    // The material's ambient tint: right after the ambient is added and scaled,
     // before occlusion, and never on a lightmap, which replaces this term in the
     // tail. A bake keeps its ambient untinted, as the Vulkan bake accumulator does.
     indirectDiffuse *= material.ambientTint.xyz;
 #endif
 
-    // Diffuse occlusion. Upstream (litForwardBackend.js) runs occludeDiffuse on the
-    // AMBIENT term unconditionally — before addLightMap and before the light loop —
-    // and only under occludeDirect (flag bit 13) runs it again after the loop, over
-    // everything. The two diffuse accumulators are still separate here, so the same
-    // split holds: the ambient is always occluded, the direct only when asked. A
+    // Diffuse occlusion applies to the AMBIENT term unconditionally — before the
+    // lightmap and before the light loop — and only under occludeDirect (flag bit 13)
+    // again after the loop, over everything. The two diffuse accumulators are
+    // separate here, so the ambient is always occluded, the direct only when asked. A
     // lightmap replaces indirectDiffuse in the tail, after this point, so the bake
-    // is occluded only under occludeDirect, as upstream. The ambient multiply is what
+    // is occluded only under occludeDirect. The ambient multiply is what
     // lets an AO map (or lighting-mode SSAO) affect diffuse light with the default
     // material.
     indirectDiffuse *= ao;

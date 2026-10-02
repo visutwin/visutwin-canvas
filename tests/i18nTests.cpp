@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 30.09.2026
+//
 // Localization: upstream's i18n.test.mjs, case for case (less its asset cases — localization
-// assets are not ported), then a text element's `key` (upstream text-element.js): its text
+// assets are not ported), then a text element's `key`: its text
 // follows the locale and data added later, setText clears it, a clone keeps it, and the
 // text-localization example's data resolves fr-CA through fr-FR with Polish plural forms.
 
@@ -43,7 +45,7 @@ namespace
         check(actual == expected, what + " -> '" + actual + "' (expected '" + expected + "')");
     }
 
-    // Upstream createTranslation: one key's translations as a whole data file. `value` is JSON.
+    // One key's translations as a whole data file. `value` is JSON.
     std::string translation(const std::string& locale, const std::string& key, const std::string& value)
     {
         return R"({"header": {"version": 1}, "data": [{"info": {"locale": ")" + locale +
@@ -57,7 +59,7 @@ namespace
         return data;
     }
 
-    // Upstream's getPluralText(key) with no number passes undefined, which no rule matches.
+    // getPluralText(key) with no number matches no rule.
     const double kNoNumber = std::numeric_limits<double>::quiet_NaN();
 
     const std::vector<std::pair<std::string, std::string>> kFallbacks = {
@@ -245,7 +247,7 @@ namespace
               {200, "other"}, {202, "other"}, {500, "other"}, {502, "other"}, {600, "other"}, {1000, "other"},
               {10000, "other"}, {0.1, "other"}, {10.1, "other"}},
              "ar");
-        // Polish is not in upstream's test; its rule, from the CLDR chart it cites.
+        // Polish is not in the ported test; its rule, from the CLDR chart.
         rule({"pl-PL"}, R"(["one", "few", "many", "other"])",
              {{1, "one"}, {2, "few"}, {4, "few"}, {22, "few"}, {0, "many"}, {5, "many"}, {11, "many"},
               {12, "many"}, {14, "many"}, {21, "many"}, {112, "many"}, {1.5, "other"}},
@@ -460,7 +462,7 @@ namespace
         i18n->setLocale("en-US");
         check(title->key().empty() && title->text() == "Plain", "setText clears the key; the text stays put");
 
-        // The example's purse: Polish takes the few and many forms upstream's data carries.
+        // The example's purse: Polish takes the few and many forms its data carries.
         const auto coins = [&](const double n) { return i18n->getPluralText("coins", n, "pl-PL"); };
         expectEq(coins(1), "Masz {number} monetę", "pl one");
         expectEq(coins(3), "Masz {number} monety", "pl few");

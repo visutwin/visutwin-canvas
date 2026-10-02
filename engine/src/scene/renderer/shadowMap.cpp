@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 02.10.2025.
+// Created by Arnis Lektauers on 02.10.2025
 //
 #include "shadowMap.h"
 
@@ -41,9 +41,9 @@ namespace visutwin::canvas
 
         const bool isOmni = (light->type() == LightType::LIGHTTYPE_OMNI);
 
-        // Upstream clamps the authored resolution to the device limit in the Light
-        // setter; the Light a LightComponent owns may still be built without a
-        // device, so the allocation clamps too — it is the last point where an
+        // The Light setter clamps the authored resolution to the device limit; the
+        // Light a LightComponent owns may still be built without a device, so the
+        // allocation clamps too — it is the last point where an
         // oversized request can be caught before the driver refuses the texture.
         const int limit = isOmni ? device->maxCubeMapSize() : device->maxTextureSize();
         const int resolution = std::min(light->shadowResolution(), limit);

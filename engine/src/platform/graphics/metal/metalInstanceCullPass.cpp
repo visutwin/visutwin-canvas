@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Metal compute pass for GPU frustum culling -- implementation.
 //
 // Contains the embedded MSL compute kernels (instanceCull + writeIndirectArgs)
 // and CPU-side dispatch logic for the two-kernel pipeline.
-//
-// Custom shader -- no upstream GLSL equivalent exists.
 //
 #include "metalInstanceCullPass.h"
 

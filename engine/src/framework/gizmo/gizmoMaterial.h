@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Upstream extras/gizmo/shaders.js (`unlitShader`) and the ShaderMaterial every gizmo
-// shape and mesh line draws with.
+// Created by Arnis Lektauers on 02.10.2026
 //
-// The shader is upstream's, in MSL and GLSL: position only, a flat colour (`uColor`),
+// The unlit shader and material every gizmo shape and mesh line draws with.
+//
+// The shader, in MSL and GLSL: position only, a flat colour (`uColor`),
 // discard below 1/255 alpha, clip z clamped into [-w, w] so a shape is never cut by
 // the near or far plane, and — when `depth` is 0 or more — the fragment depth
-// replaced by that constant (upstream's DEPTH_WRITE define with `uDepth`): the plane
+// replaced by that constant (`uDepth`): the plane
 // handles draw at depth 1, behind every other shape of the gizmo, and the rotate
 // gizmo's angle guide lines at depth 0, in front of all of them.
 //
-// The colour is written as given. Upstream writes `gammaCorrectOutput(decodeGamma(c))`,
-// which is `c` on a gamma target, the only kind the gizmo layer draws to here.
+// The colour is written as given, which is right on a gamma target, the only kind the
+// gizmo layer draws to here.
 // DEVIATION: under a camera frame (linear HDR scene target) upstream would write the
 // decoded colour and let compose encode it; this material does not see that pass state.
 //

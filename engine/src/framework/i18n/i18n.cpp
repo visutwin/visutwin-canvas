@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis  on 12.10.2025.
+// Created by Arnis Lektauers on 12.10.2025
 //
 
 #include "i18n.h"
@@ -18,7 +18,7 @@ namespace visutwin::canvas
 {
     namespace
     {
-        // Upstream DEFAULT_LOCALE_FALLBACKS: the locale to use for a locale, or a language,
+        // Default locale fallbacks: the locale to use for a locale, or a language,
         // that has no messages of its own.
         const std::map<std::string, std::string>& defaultLocaleFallbacks()
         {
@@ -64,7 +64,7 @@ namespace visutwin::canvas
         return index != std::string::npos ? lang + locale.substr(index) : lang;
     }
 
-    // Upstream utils.js PLURALS, from the CLDR plural rules.
+    // Plural forms, from the CLDR plural rules.
     int I18n::pluralIndex(const std::string& lang, const double n)
     {
         static const std::vector<std::string> otherOnly = {"ja", "ko", "th", "vi", "zh", "id"};
@@ -140,7 +140,7 @@ namespace visutwin::canvas
             }
             return 5;   // other
         }
-        // The listed "one, other" languages, and en's rule (upstream DEFAULT_PLURAL_FN) for any other.
+        // The listed "one, other" languages, and en's rule for any other.
         return n == 1.0 ? 0 : 1;
     }
 
@@ -248,8 +248,8 @@ namespace visutwin::canvas
         return key;
     }
 
-    // Upstream I18nParser: the validation it runs in debug builds, here always, since a
-    // malformed file otherwise fails later and further from its cause.
+    // Validation runs always, not only in debug builds, since a malformed file otherwise
+    // fails later and further from its cause.
     bool I18n::parse(const std::string& json, const char* caller, std::vector<ParsedEntry>& out)
     {
         const nlohmann::json root = nlohmann::json::parse(json, nullptr, false);

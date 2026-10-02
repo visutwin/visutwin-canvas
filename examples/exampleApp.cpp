@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 22.08.2026
+//
 // This is the metal-cpp *_PRIVATE_IMPLEMENTATION translation unit for every
 // example. metal-cpp declares its class and selector constants `extern` unless a
 // TU defines these macros before including the headers, and the engine library
@@ -94,7 +96,7 @@ namespace visutwin::canvas
         // VISUTWIN_SSR_FLOOR=y,size[,ssr[,pole[,gloss]]] lays a mirror-like metal plane of that size at
         // height y under any example and asks every camera for the scene colour and
         // depth grabs, with screen-space reflections on the plane unless the third
-        // field is 0. No upstream example drives SSR, so this is how the path is
+        // field is 0. No example drives SSR, so this is how the path is
         // exercised: the same scene with the third field 0 is the control, and the
         // difference between the two frames is the reflection alone.
         if (const char* floor = std::getenv("VISUTWIN_SSR_FLOOR"); floor && *floor) {
@@ -147,7 +149,7 @@ namespace visutwin::canvas
         }
 
         // VISUTWIN_BLOOM_THRESHOLD=t sets the bloom threshold (soft knee t/2) on every
-        // camera. Upstream's examples never set one, so this is how the high pass is
+        // camera. The examples never set one, so this is how the high pass is
         // exercised: t=0 must be bit-identical to not setting it (no high-pass variant
         // is compiled), and a threshold above the scene's peak removes the bloom.
         if (const char* bloom = std::getenv("VISUTWIN_BLOOM_THRESHOLD"); bloom && *bloom) {
@@ -210,7 +212,7 @@ namespace visutwin::canvas
         }
 
         // VISUTWIN_LOCAL_SHADOW_TYPE=n does the same for every shadow-casting SPOT and
-        // OMNI light. No upstream example shadows a spot with VSM; this is how that path
+        // OMNI light. No example shadows a spot with VSM; this is how that path
         // is driven (an omni light asking for VSM falls back to PCF3).
         if (const char* type = std::getenv("VISUTWIN_LOCAL_SHADOW_TYPE"); type && *type) {
             int value = -1;
@@ -342,8 +344,8 @@ namespace visutwin::canvas
             _elapsed += dt;
 
             // A click on the HUD is the HUD's (it switches its view) and must not also
-            // orbit the camera. Upstream's panel is a DOM element over the canvas, so a
-            // pointer on it never reaches the canvas at all; this is that rule scoped to
+            // orbit the camera. A pointer on the panel should never reach the scene;
+            // this is that rule scoped to
             // the camera controls, the one consumer of a bare click. Consulted only while
             // the HUD draws: ImGui refreshes its answer in NewFrame, and a hidden HUD would
             // leave the last answer standing.
@@ -488,9 +490,9 @@ namespace visutwin::canvas
         _engine->init(appOptions);
         _engine->setCanvasFillMode(FillMode::FILLMODE_FILL_WINDOW);
         _engine->setCanvasResolution(ResolutionMode::RESOLUTION_AUTO);
-        // Upstream's examples: `device.maxPixelRatio = Math.min(window.devicePixelRatio, 2)`.
-        // VISUTWIN_MAX_PIXEL_RATIO overrides it (1 renders a Retina window at upstream's default
-        // browser density, the way to compare GPU time with upstream at matched pixels).
+        // The examples cap the pixel ratio at min(devicePixelRatio, 2).
+        // VISUTWIN_MAX_PIXEL_RATIO overrides it (1 renders a Retina window at one pixel per
+        // point, the way to compare GPU time at matched pixels).
         if (auto* gd = _engine->graphicsDevice().get()) {
             float cap = std::min(gd->devicePixelRatio(), 2.0f);
             if (const char* env = std::getenv("VISUTWIN_MAX_PIXEL_RATIO")) {
@@ -506,7 +508,7 @@ namespace visutwin::canvas
             spdlog::info("Back buffer pixel ratio {} ({}x{} points)", gd->pixelRatio(), pw, ph);
         }
 
-        // The performance HUD. Upstream's example harness puts ministats on every
+        // The performance HUD. It is on every
         // example, so it belongs to the host here rather than to any one scene —
         // and MiniStats hooks "postrender", which is the only place either backend
         // can still reach the back buffer.
@@ -514,7 +516,7 @@ namespace visutwin::canvas
         // Suppressed while VISUTWIN_SCREENSHOT is armed. The capture happens inside
         // frameEnd, AFTER the hook the HUD draws on, so every parity screenshot
         // would otherwise carry a translucent window over the top-left of the frame
-        // — exactly the region the upstream comparisons sample.
+        // — exactly the region the parity comparisons sample.
         // VISUTWIN_MINISTATS=0/1 overrides that either way — which is also the only
         // way to capture a screenshot WITH the HUD in it, since the capture and the
         // suppression key off the same variable. VISUTWIN_MINISTATS=detailed opens
@@ -543,8 +545,8 @@ namespace visutwin::canvas
         // NOT start() here: the engine's initialize phase runs from start(), and
         // create() has not built the scene yet, so anything it registers would be
         // initialized before it exists — and the first tick would render an empty
-        // frame. run() starts the engine once create() has returned, which is the
-        // order upstream uses (build the scene, then app.start()).
+        // frame. run() starts the engine once create() has returned: build the
+        // scene, then start.
         return true;
     }
 

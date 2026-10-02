@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 30.09.2026
+//
 #pragma once
 
 #include "scrollViewComponent.h"
@@ -14,8 +17,8 @@ namespace visutwin::canvas
     public:
         explicit ScrollViewComponentSystem(Engine* engine) : ComponentSystem(engine, "scrollview")
         {
-            // Upstream updates every enabled scroll view; the bindings are refreshed here too,
-            // since nothing fires upstream's `element:add` or `scrollbar:add`.
+            // Every enabled scroll view is updated; the bindings are refreshed here too,
+            // since nothing fires `element:add` or `scrollbar:add`.
             if (engine && engine->systems()) {
                 engine->systems()->on("update", [engine](float) {
                     const auto& views = ScrollViewComponent::instances();

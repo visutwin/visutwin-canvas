@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 30.09.2026
+//
 // The lighting block's semantic derivation (see lightingDerivation.h).
 //
 #include "lightingDerivation.h"

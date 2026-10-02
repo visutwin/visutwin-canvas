@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Metal compute pass for GPU frustum culling of instanced draws.
 //
 // Two-kernel pipeline:
@@ -14,9 +16,6 @@
 //   - Embedded MSL source as string literal
 //   - Lazy resource creation
 //   - Friend access to MetalGraphicsDevice for command queue
-//
-// Custom shader -- no upstream GLSL equivalent exists for GPU instance culling.
-// Upstream GPU culling is GSplat-specific; this is a general-purpose extension.
 //
 #pragma once
 

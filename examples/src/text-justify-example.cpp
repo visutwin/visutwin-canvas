@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 29.09.2026
+//
 // Port of upstream user-interface/text-justify.
 //
 // A page of a codex with reader settings. Justify stretches every wrapped line to both edges
@@ -97,7 +99,7 @@ protected:
         root()->addChild(screenEntity);
         _screenEntity = screenEntity;
 
-        // Frames of upstream's UI kit atlas (ui-atlas.mjs), 2 pixels per unit
+        // Frames of the UI kit atlas, 2 pixels per unit
         auto atlas = std::make_shared<TextureAtlas>();
         atlas->setTexture(atlasTexture);
         const Vector4 border32(32.0f, 32.0f, 32.0f, 32.0f);
@@ -122,7 +124,7 @@ protected:
         // kept at the top of the element, so that it doesn't move as the number of lines changes
         _chapter = createElement(_page->entity(), ElementType::Text, Vector4(0.5f, 1.0f, 0.5f, 1.0f),
                                  Vector2(0.5f, 1.0f));
-        // Upstream applies every property before laying the text out
+        // Apply every property before laying the text out
         _chapter->setAutoWidth(false);
         _chapter->setAutoHeight(false);
         _chapter->setWrapLines(true);

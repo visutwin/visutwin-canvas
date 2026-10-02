@@ -47,11 +47,11 @@ float sampleCascadeVisibility(int slot, vec3 coord, int cascade) {
     return pcf3x3Directional(slot, coord.xy, coord.z - params.z);
 }
 
-// Upstream ditherShadowCascadeIndex (shadowCascades.js): over the stretch of a
+// Over the stretch of a
 // cascade from blendFactor x its end distance to its end, move a growing,
 // pseudo-randomly dithered share of the fragments to the NEXT cascade, so the
 // seam between two shadow resolutions dissolves instead of drawing a line.
-// Twin of common-falloff.metal; the hash is upstream's.
+// Twin of common-falloff.metal.
 int ditherShadowCascadeIndex(vec4 distances, int cascadeIndex, int cascadeCount, float blendFactor, float depth) {
     if (cascadeIndex < cascadeCount - 1) {
         float currentRangeEnd = distances[cascadeIndex];
@@ -77,8 +77,7 @@ float sampleDirectionalShadow(int slot, vec3 worldPos, float viewDepth, vec3 N, 
     vec4 distances = directionalShadowDistances(slot);
     vec2 params2 = directionalShadowParams2(slot);
 
-    // Beyond the shadow distance the fragment is lit, and nothing is sampled
-    // (upstream a59f9ef29).
+    // Beyond the shadow distance the fragment is lit, and nothing is sampled.
     float shadowDistance = distances[cascadeCount - 1];
     if (viewDepth > shadowDistance) {
         return 1.0;
@@ -91,7 +90,7 @@ float sampleDirectionalShadow(int slot, vec3 worldPos, float viewDepth, vec3 N, 
             cascade = i + 1;
         }
     }
-    // cascadeBlend is a FRACTION (upstream): it dithers the cascade pick across
+    // cascadeBlend is a FRACTION: it dithers the cascade pick across
     // the end of each cascade and fades the shadow out toward the shadow
     // distance, and 0 turns both off. Twin of forward-fragment-lights.metal.
     float cascadeBlend = params2.y;
@@ -112,8 +111,7 @@ float sampleDirectionalShadow(int slot, vec3 worldPos, float viewDepth, vec3 N, 
         return 1.0;
     }
     vec3 coord = sc.xyz / sc.w;
-    // The receiver's depth is SATURATED, not range-tested (upstream's
-    // getShadowSampleCoord for an ortho light; twin of the block in
+    // The receiver's depth is SATURATED, not range-tested (twin of the block in
     // forward-fragment-lights.metal). The shadow camera's near and far are
     // fitted to the CASTERS each frame, so a receiver that is not itself a
     // caster — a ground plane, or anything further along the light than the
@@ -140,10 +138,10 @@ float sampleDirectionalShadow(int slot, vec3 worldPos, float viewDepth, vec3 N, 
     float visible = sampleCascadeVisibility(slot, coord, cascade);
     float shadowFactor = mix(1.0, visible, params.w);
 
-    // Fade to fully lit at the shadow distance without sampling another cascade
-    // (upstream 0b30839ea); the intensity mix above commutes with it. NOTE: this
-    // is upstream's CODE, which starts the fade at cascadeBlend x the distance, so
-    // 0.1 fades over the last 90%; upstream's JSDoc says "the last 10%".
+    // Fade to fully lit at the shadow distance without sampling another cascade;
+    // the intensity mix above commutes with it. NOTE: this starts the fade at
+    // cascadeBlend x the distance, so 0.1 fades over the last 90%, as upstream's
+    // shader does although its JSDoc says "the last 10%".
     if (cascadeBlend > 0.0) {
         shadowFactor = mix(shadowFactor, 1.0,
             smoothstep(cascadeBlend * shadowDistance, shadowDistance, viewDepth));
@@ -151,7 +149,7 @@ float sampleDirectionalShadow(int slot, vec3 worldPos, float viewDepth, vec3 N, 
     return shadowFactor;
 }
 
-// EVSM visibility from a VSM spot light's moments (upstream getShadowSpotVSM16): the
+// EVSM visibility from a VSM spot light's moments: the
 // receiver is its distance over the range, the map's own sampler filters linearly.
 float sampleSpotShadowVSM16(sampler2D moments, vec2 uv, float receiverZ, float vsmBias) {
     const float VSM_EXPONENT = 5.54;
@@ -169,7 +167,7 @@ float sampleSpotShadow(int slot, vec3 worldPos, vec3 N, vec3 L, float lightDista
     mat4 m  = (slot == 0) ? lighting.localShadowMatrix0 : lighting.localShadowMatrix1;
     vec4 sp = (slot == 0) ? lighting.localShadowParams0 : lighting.localShadowParams1;
     vec4 pc = (slot == 0) ? lighting.localShadowPcss0 : lighting.localShadowPcss1;
-    // A VSM spot (pcss.w): no normal offset, as upstream's VSM path takes none.
+    // A VSM spot (pcss.w): no normal offset.
     bool vsm = pc.w > 0.5;
 
     // World-space normal bias, scaled by grazing angle (matches Metal).
@@ -238,8 +236,7 @@ float sampleOmniShadow(int slot, vec3 worldPos, vec3 lightPos) {
         float denom = (farV - nearV) * dBiased;
         float compareValue = farV * (dBiased - nearV) / max(denom, 1e-6);
 
-        // Four diagonal taps around the sample direction (upstream shadowPCF3's
-        // omni form). Metal gets bilinear filtering for free from a hardware
+        // Four diagonal taps around the sample direction. Metal gets bilinear filtering for free from a hardware
         // sample_compare; a plain texture().r fetch here does not, so a single tap
         // left point-light shadows visibly stair-stepped on this backend alone.
         vec3 t0 = normalize(dir);

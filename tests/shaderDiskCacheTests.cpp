@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 01.10.2026
+//
 // ShaderDiskCache keeps compiled shader products between runs (the SPIR-V the Vulkan
 // backend compiles from GLSL at run time, and its pipeline cache). The one thing it may
 // never do is hand back a payload made from something else: an entry is found by a HASH

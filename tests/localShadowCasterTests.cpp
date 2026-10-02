@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 01.10.2026
+//
 // The caster lists of shadowed LOCAL lights. The scene's casters are collected and put
 // through the caster rules once per frame for every local light together
 // (collectLightIndependentShadowCasters), each light's faces then keep the ones inside

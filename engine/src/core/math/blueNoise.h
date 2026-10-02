@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 02.10.2026
+//
 // The 32x32 RGBA8 tile LDR_RGBA_53, each channel a separate blue noise stream.
 // The forward shaders carry the G channel as a constant table
 // (the dither's blueNoiseTex32 lookup, nearest and repeating).

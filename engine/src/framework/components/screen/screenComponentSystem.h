@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 21.03.2026
+//
 #pragma once
 
 #include "framework/components/componentSystem.h"
@@ -14,10 +17,9 @@ namespace visutwin::canvas
     public:
         explicit ScreenComponentSystem(Engine* engine) : ComponentSystem(engine, "screen")
         {
-            // Upstream screens listen to the device's `resizecanvas`; nothing here fires
-            // one, so the canvas size is polled once an update and a change is handed to
-            // every screen-space screen. The queued draw-order syncs are resolved here too,
-            // as upstream's system does on update.
+            // Nothing here fires a device `resizecanvas` event, so the canvas size is
+            // polled once an update and a change is handed to every screen-space screen.
+            // The queued draw-order syncs are resolved here too.
             if (engine && engine->systems()) {
                 engine->systems()->on("update", [engine](const float /*dt*/) {
                     const auto [w, h] = engine->canvasSize();

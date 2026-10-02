@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 // ---------------------------------------------------------------------------
-// PCSS directional shadows (upstream shadowSoft.js PCSSDirectional): Vogel-disk
+// PCSS directional shadows: Vogel-disk
 // blocker search + filter with world-space contact-hardening penumbra.
 // DEVIATION: samples the standard hardware depth map raw (non-comparison
 // sampler) instead of upstream's dedicated R32F linear-depth map — the ortho
@@ -107,7 +107,7 @@ static inline float getShadowPCSSDirectional(depth2d<float> shadowMap, float3 sh
 
 
 // ---------------------------------------------------------------------------
-// Local light PCSS (upstream shadowPCSS.js): contact-hardening shadows for
+// Local light PCSS: contact-hardening shadows for
 // spot (2D perspective map) and omni (cubemap) lights. DEVIATION: samples the
 // standard hardware depth maps raw and linearizes per tap instead of
 // upstream's dedicated R32F linear-depth targets.
@@ -128,8 +128,7 @@ static inline float pcssCubeStoredToLinear(float stored, float nearClip, float f
     return d / farClip;
 }
 
-// Vogel sphere sample (upstream vogelSphere + vogelSpherePrecalculationSamples:
-// radius = weight = i/count).
+// Vogel sphere sample (radius = weight = i/count).
 static inline float3 pcssVogelSphere(int sampleIndex, int count, float phi)
 {
     const float GOLDEN_ANGLE = 2.4;
@@ -165,7 +164,7 @@ static inline float getShadowPCSSSpot(depth2d<float> shadowMap, float3 shadowCoo
     }
     const float avgBlockerDepth = blockerSum / float(numBlockers);
 
-    // upstream: filterRadius = (receiverDepth - avgBlocker) / 3.0 * searchArea
+    // filterRadius = (receiverDepth - avgBlocker) / 3.0 * searchArea
     const float filterRadius = ((receiverDepth - avgBlockerDepth) / 3.0) * searchArea;
 
     pcssPrepareDisk(diskData, PCSS_LOCAL_SAMPLE_COUNT, randomSeed);
@@ -180,7 +179,7 @@ static inline float getShadowPCSSSpot(depth2d<float> shadowMap, float3 shadowCoo
 }
 
 // Omni light PCSS: Vogel-sphere direction perturbation on the cubemap, blocker
-// search + filter in normalized linear distance (upstream PCSSCube).
+// search + filter in normalized linear distance.
 // lightDir = fragment - light position (world, unnormalized).
 static inline float getShadowPCSSOmni(depthcube<float> shadowMap, float3 lightDir,
     float searchArea, float nearClip, float farClip, float bias, float2 fragCoord)
@@ -206,7 +205,7 @@ static inline float getShadowPCSSOmni(depthcube<float> shadowMap, float3 lightDi
     }
     const float avgBlockerDepth = blockerSum / float(numBlockers);
 
-    // upstream: filterRadius = (receiver - blocker) / blocker * searchArea
+    // filterRadius = (receiver - blocker) / blocker * searchArea
     const float filterRadius =
         ((receiverDepth - avgBlockerDepth) / max(avgBlockerDepth, 1e-4)) * searchArea;
 
@@ -239,12 +238,12 @@ static inline float evaluateDirectionalShadow(VT_DIRECTIONAL_SHADOW_MAP shadowMa
     float shadowFactor = 1.0;
     const int cascadeCount = max(int(cascadeParams.x), 1);
     // Beyond the shadow distance the fragment is lit, and nothing is
-    // sampled (upstream a59f9ef29).
+    // sampled.
     const float shadowDistance = cascadeDistances[cascadeCount - 1];
     if (linearDepth > shadowDistance) {
         return shadowFactor;
     }
-    // cascadeBlend is a FRACTION (upstream): it dithers the cascade pick
+    // cascadeBlend is a FRACTION: it dithers the cascade pick
     // across the end of each cascade and fades the shadow out toward the
     // shadow distance, and 0 turns both off.
     const float cascadeBlend = cascadeParams.y;
@@ -270,8 +269,7 @@ static inline float evaluateDirectionalShadow(VT_DIRECTIONAL_SHADOW_MAP shadowMa
     const float3 shadowCoord = shadowClip.xyz / shadowW;
 
     const float2 shadowUv = shadowCoord.xy;
-    // The receiver's depth is SATURATED, not range-tested (upstream's
-    // getShadowSampleCoord for an ortho light). The shadow camera's near
+    // The receiver's depth is SATURATED, not range-tested. The shadow camera's near
     // and far are fitted to the CASTERS each frame, so a receiver that is
     // not itself a caster — a ground plane, or any surface further along
     // the light than the last caster — projects to z > 1. Rejecting it
@@ -308,7 +306,7 @@ static inline float evaluateDirectionalShadow(VT_DIRECTIONAL_SHADOW_MAP shadowMa
         const float receiverDepth = shadowDepth - biasNormalStrength.x;
         const float visible = getShadowPCF1x1(shadowMap, shadowUv, receiverDepth);
 #elif VT_FEATURE_PCF5_SHADOWS
-        // PCF5_32F — upstream's 5x5 from nine bilinear comparisons.
+        // PCF5_32F — 5x5 from nine bilinear comparisons.
         const float receiverDepth = shadowDepth - biasNormalStrength.x;
         const float visible = getShadowPCF5x5(shadowMap, shadowUv, receiverDepth, resolution);
 #else
@@ -320,11 +318,11 @@ static inline float evaluateDirectionalShadow(VT_DIRECTIONAL_SHADOW_MAP shadowMa
     }
 
     // Fade to fully lit at the shadow distance without sampling another
-    // cascade (upstream 0b30839ea). The shadow intensity is already folded
+    // cascade. The shadow intensity is already folded
     // into shadowFactor, which commutes with this mix.
-    // NOTE: this is upstream's CODE, which starts the fade at cascadeBlend x
-    // the distance, so 0.1 fades over the last 90%; upstream's JSDoc says
-    // "the last 10%". The shader is what upstream renders.
+    // NOTE: this follows upstream's CODE, which starts the fade at cascadeBlend x
+    // the distance, so 0.1 fades over the last 90%; its JSDoc says
+    // "the last 10%".
     if (cascadeBlend > 0.0) {
         shadowFactor = mix(shadowFactor, 1.0,
             smoothstep(cascadeBlend * shadowDistance, shadowDistance, linearDepth));

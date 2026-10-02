@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 11.07.2026.
+// Created by Arnis Lektauers on 11.07.2026
 //
 #include "gsplatData.h"
 
@@ -503,8 +503,7 @@ namespace visutwin::canvas
         const float extentY = 2.0f * std::sqrt(std::max(s.covB[0], 0.0f));
         const float extentZ = 2.0f * std::sqrt(std::max(s.covB[2], 0.0f));
 
-        // Skip a non-finite splat rather than let it poison the bounds, as upstream
-        // does. The splat itself is kept — it is the renderer's business, and one
+        // Skip a non-finite splat rather than let it poison the bounds. The splat itself is kept — it is the renderer's business, and one
         // bad record should not move the box every other splat is culled by.
         if (!std::isfinite(s.center[0]) || !std::isfinite(s.center[1]) ||
             !std::isfinite(s.center[2]) || !std::isfinite(extentX) ||

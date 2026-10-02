@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 09.11.2025.
+// Created by Arnis Lektauers on 09.11.2025
 //
 #pragma once
 
@@ -100,8 +100,8 @@ namespace visutwin::canvas
         // Additive blending: src*srcAlpha + dst*ONE (particles glow and accumulate)
         static BlendState additiveBlend();
 
-        /// Upstream `BlendState.NOBLEND`: one shared instance with blending off and every
-        /// channel written. Upstream freezes it; here it is SHARED, so never mutate it —
+        /// One shared instance with blending off and every channel written. It is
+        /// SHARED, so never mutate it —
         /// make a BlendState of your own instead.
         static const std::shared_ptr<BlendState>& noBlend();
 

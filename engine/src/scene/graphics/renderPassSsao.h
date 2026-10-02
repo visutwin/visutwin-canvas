@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 //
 #pragma once
 
@@ -26,7 +28,7 @@ namespace visutwin::canvas
             CameraComponent* cameraComponent, bool blurEnabled);
         ~RenderPassSsao();
 
-        // SSAO parameters (matching upstream RenderPassSsao)
+        // SSAO parameters
         float radius() const { return _radius; }
         void setRadius(const float value) { _radius = value; }
 

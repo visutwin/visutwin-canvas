@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 21.03.2026
+//
 #pragma once
 
 #include <cstdint>
@@ -24,13 +27,13 @@ namespace visutwin::canvas
         float xadvance = 0.0f;
         float xoffset = 0.0f;
         float yoffset = 0.0f;
-        /// The atlas page (upstream `map`) the glyph's rect is in.
+        /// The atlas page the glyph's rect is in.
         int page = 0;
-        /// Upstream `scale`: the atlas cell's size over the glyph's font units.
+        /// The atlas cell's size over the glyph's font units.
         float scale = 1.0f;
     };
 
-    /// A font in upstream's JSON format: glyph metrics plus one atlas image per page
+    /// A font in the JSON font format: glyph metrics plus one atlas image per page
     /// (`<name>.png`, then `<name>1.png`, ...). An MSDF font (its glyphs carry a `range`)
     /// keeps its distance field and is drawn by the MSDF shader path; a plain bitmap font
     /// gets its coverage in alpha at load.
@@ -55,14 +58,14 @@ namespace visutwin::canvas
         Texture* texture = nullptr;
         int atlasWidth = 0;
         int atlasHeight = 0;
-        /// True for a multi-channel signed distance field font (upstream's fonts are).
+        /// True for a multi-channel signed distance field font.
         bool msdf = false;
-        /// Texels of distance-field spread (upstream `font_pxrange`: scale x range).
+        /// Texels of distance-field spread (scale x range).
         float pxRange = 2.0f;
-        /// Upstream `font_sdfIntensity`: 0 draws the glyph at its edge, 1 fattens it most.
+        /// 0 draws the glyph at its edge, 1 fattens it most.
         float intensity = 0.0f;
         /// The lowest glyph bottom and highest glyph top over every glyph's `bounds`,
-        /// relative to the baseline, in font units (upstream `_fontMinY` / `_fontMaxY`):
+        /// relative to the baseline, in font units:
         /// the extent a line of text is aligned by.
         float minY = 0.0f;
         float maxY = 0.0f;

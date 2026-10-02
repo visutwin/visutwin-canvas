@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Port of upstream scripts/esm/annotations.mjs (AnnotationManager).
+// Created by Arnis Lektauers on 21.03.2026
 //
-// Each annotation is drawn as upstream draws it: a camera-facing quad of the hotspot
+// AnnotationManager: clickable hotspots with tooltips on scene entities.
+//
+// Each annotation is drawn as a camera-facing quad of the hotspot
 // texture (a dark disc, a light ring and the label), twice — once depth-tested in a layer
 // after World's opaque sublayer, once on top of everything at `behindOpacity` in a layer
 // after World's transparent one — sized every frame to `hotspotSize` pixels.
@@ -25,7 +27,7 @@
 // - the quads hang under a child node of the annotation's entity, which takes the camera
 //   rotation and the per-frame scale; upstream turns and scales the annotation entity
 //   itself, so anything else parented to it turned and scaled too.
-// - no near/far depth clamp of the quad's vertices (upstream's `litUserMainEndVS` chunk):
+// - no near/far depth clamp of the quad's vertices (upstream does it in a vertex chunk):
 //   the forward vertex stage has no chunked form on Vulkan. A hotspot nearer than the near
 //   plane is clipped.
 //
@@ -105,7 +107,7 @@ namespace visutwin::canvas
 
         void initialize() override;
 
-        /// Runs the tooltip's fade and upstream's 200 ms hide timeout.
+        /// Runs the tooltip's fade and the 200 ms hide timeout.
         void update(float dt) override;
 
     private:
@@ -168,14 +170,14 @@ namespace visutwin::canvas
         std::shared_ptr<Sprite> _panelSprite;
 
         // Tooltip fade: `_fade` runs 0..1 toward the target over 0.2 s; the opacity is
-        // its ease-in-out. `_hideTimer` > 0 counts down upstream's setTimeout(200).
+        // its ease-in-out. `_hideTimer` > 0 counts down the 200 ms hide delay.
         bool _tooltipShown = false;
         float _fade = 0.0f;
         float _appliedFade = -1.0f;
         float _hideTimer = 0.0f;
         Annotation* _hidePending = nullptr;
 
-        // Registration order, which upstream's Map iterates in.
+        // In registration order.
         std::vector<std::unique_ptr<Resources>> _annotationResources;
 
         Annotation* _activeAnnotation = nullptr;

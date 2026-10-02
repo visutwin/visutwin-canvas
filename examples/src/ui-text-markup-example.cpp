@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 29.09.2026
+//
 // Port of upstream user-interface/text-markup.
 //
-// An "Adventure Log" on a sliced panel from upstream's UI atlas: a Roboto Bold heading, then
+// An "Adventure Log" on a sliced panel from the UI atlas: a Roboto Bold heading, then
 // lines of Roboto Regular with markup turned on — coloured names and items, an outlined
 // damage number, a critical hit with a shadow around coloured text, and an escaped bracket
 // (`\[AFK]`). One line never closes its colour tag, which is a markup error: it is drawn as
@@ -93,7 +95,7 @@ protected:
         _screen->setScaleBlend(0.5f);
         root()->addChild(screenEntity);
 
-        // The panel frame of upstream's UI kit atlas (ui-atlas.mjs), 2 pixels per unit.
+        // The panel frame of the UI kit atlas, 2 pixels per unit.
         auto atlas = std::make_shared<TextureAtlas>();
         atlas->setTexture(atlasTexture);
         atlas->setFrame("panel", {.rect = Vector4(548.0f, 660.0f, 128.0f, 128.0f), .pivot = Vector2(0.5f, 0.5f),
@@ -145,7 +147,7 @@ private:
         auto* line = static_cast<ElementComponent*>(entity->addComponent<ElementComponent>());
         line->setup({.type = ElementType::Text, .anchor = Vector4(0.0f, 1.0f, 0.0f, 1.0f),
                      .pivot = Vector2(0.0f, 1.0f)});
-        // Upstream applies every property before laying the text out.
+        // Every property is applied before the text is laid out.
         line->setAutoWidth(false);
         line->setWrapLines(true);
         line->setHorizontalAlign(ElementHorizontalAlign::Left);

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Shared Metal utility functions and enum converters.
 // Extracted from MetalGraphicsDevice to enable reuse across Metal backend classes.
 //
@@ -65,8 +67,8 @@ namespace visutwin::canvas::metal
     }
 
     /// Create a Depth32Float texture for the back buffer depth attachment.
-    /// The back buffer's depth: with a STENCIL, which UI masks write and test (upstream's
-    /// back buffer is depth-stencil too). backBufferDepthFormat() reports it, so a depth grab
+    /// The back buffer's depth: with a STENCIL, which UI masks write and test.
+    /// backBufferDepthFormat() reports it, so a depth grab
     /// from the back buffer copies into the same format, as a blit requires.
     inline constexpr MTL::PixelFormat kBackBufferDepthFormat = MTL::PixelFormatDepth32Float_Stencil8;
 

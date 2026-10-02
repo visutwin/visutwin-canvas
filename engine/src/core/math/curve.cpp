@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 #include "curve.h"
 
 #include <algorithm>
@@ -104,9 +106,9 @@ namespace visutwin::canvas
 
         // A time before or after the curve is closest to the key at that end. Clamp it
         // first: far enough out, and always at infinity, every key is the same distance
-        // away and the tie-break would pick the last one (upstream #9544). The search has
+        // away and the tie-break would pick the last one. The search has
         // no distance limit — starting at 2 would answer with the first key whenever it
-        // sits more than 2 from the time, whatever the others are (upstream #9543).
+        // sits more than 2 from the time, whatever the others are.
         const float t = std::min(std::max(time, keys.front().first), keys.back().first);
 
         float min = std::numeric_limits<float>::infinity();

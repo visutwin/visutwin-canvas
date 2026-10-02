@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 #include "defaultAnimBinder.h"
 
 #include <spdlog/spdlog.h>
@@ -36,8 +38,8 @@ namespace visutwin::canvas
             }
         }
 
-        // Follow parts[start..] down through direct children by name, upstream's
-        // GraphNode.findByPath. Null as soon as one segment has no such child.
+        // Follow parts[start..] down through direct children by name. Null as soon as
+        // one segment has no such child.
         GraphNode* walkPath(GraphNode* from, const std::vector<std::string>& parts, const size_t start)
         {
             GraphNode* current = from;
@@ -58,9 +60,8 @@ namespace visutwin::canvas
     // A target is a PATH of node names from the model's root down ("Root/Arm/Hand",
     // what the GLB parser writes) or a bare name (anything hand-authored). A path
     // is walked, not searched, so two nodes sharing a name in different branches
-    // resolve to their own entity — upstream's DefaultAnimBinder does the same
-    // (findByPath, then findByPath from the root's own children, then the leaf
-    // name). The bound entity may be the model's root itself (a single-root scene
+    // resolve to their own entity, and the leaf name is searched only when no
+    // walk matches. The bound entity may be the model's root itself (a single-root scene
     // instantiates as its root), a wrapper holding the roots, or an app entity the
     // model was parented under at any depth, so the walk is tried from each.
     GraphNode* DefaultAnimBinder::resolve(const std::string& path)

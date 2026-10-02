@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 13.10.2025.
+// Created by Arnis Lektauers on 13.10.2025
 //
 #pragma once
 
@@ -55,7 +55,7 @@ namespace visutwin::canvas
         [[nodiscard]] float wheelDelta() const { return _wheelDelta; }
 
         /// Relative mouse mode: the cursor is hidden and locked in place while
-        /// movement keeps arriving as deltas. Upstream's pointer lock. Needs the
+        /// movement keeps arriving as deltas (pointer lock). Needs the
         /// window, which the application owns.
         void setRelativeMode(SDL_Window* window, bool enabled);
         [[nodiscard]] bool relativeMode() const { return _relativeMode; }

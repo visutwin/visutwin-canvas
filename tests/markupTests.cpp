@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 29.09.2026
+//
 // Text markup (framework/components/element/markup.h), upstream's markup.test.mjs cases
-// that are not about JavaScript's prototype chain, plus the grammar the upstream
+// that are not about JavaScript's prototype chain, plus the grammar the
 // text-markup example leans on: attributes, nesting, escapes and the error path.
 
 #include <iostream>

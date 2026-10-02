@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 21.03.2026
+//
 #include "transformGizmo.h"
 
 #include <algorithm>
@@ -172,7 +175,6 @@ namespace visutwin::canvas
 
     GizmoAxis TransformGizmo::axisOf(const MeshInstance* meshInstance) const
     {
-        // Upstream reads it from the node name ('arrow:x', 'plane:x', ...).
         const Shape* s = shapeOf(meshInstance);
         return s ? s->axis() : GizmoAxis::None;
     }
@@ -301,7 +303,7 @@ namespace visutwin::canvas
 
     Vector3 TransformGizmo::projectToAxis(const Vector3& point, const GizmoAxis axis)
     {
-        // project onto the axis, then zero the other components (upstream's float fix)
+        // project onto the axis, then zero the other components
         const int index = gizmoAxisIndex(axis);
         if (index < 0) {
             return Vector3(0.0f);
@@ -375,7 +377,7 @@ namespace visutwin::canvas
         }
         if (!_baseRenderer) {
             // created on first use, so their render components follow the shapes' in the
-            // gizmo layer's collection order, as upstream's immediate lines do
+            // gizmo layer's collection order
             _baseRenderer = std::make_unique<WideLineRenderer>(_engine, _engine->graphicsDevice());
             _baseRenderer->setLayers({LAYERID_IMMEDIATE});
             _occludedRenderer = std::make_unique<WideLineRenderer>(_engine, _engine->graphicsDevice());
@@ -485,7 +487,7 @@ namespace visutwin::canvas
         // disabled
         copyIfSet(_theme.disabled, partial.disabled);
 
-        // update shapes (upstream: every shape takes the hover state of ANY hovered axis)
+        // update shapes (every shape takes the hover state of ANY hovered axis)
         for (auto& [key, s] : _shapes) {
             s->hover(_hoverAxis != GizmoAxis::None);
         }

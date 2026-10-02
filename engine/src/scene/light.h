@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 10.09.2025.
+// Created by Arnis Lektauers on 10.09.2025
 //
 #pragma once
 
@@ -97,7 +97,7 @@ namespace visutwin::canvas
         void setAtlasVersion(const int value) { _atlasVersion = value; }
 
         // The largest fraction of any camera's viewport this light's bounds cover
-        // this frame (upstream `maxScreenSize`); reset with visibility, raised by
+        // this frame; reset with visibility, raised by
         // Renderer::cullLights. Ranks lights for atlas slots and main-array slots.
         float maxScreenSize() const { return _maxScreenSize; }
         void setMaxScreenSize(const float value) { _maxScreenSize = value; }
@@ -105,7 +105,7 @@ namespace visutwin::canvas
         bool enabled() const { return _enabled; }
         void setEnabled(const bool value) { _enabled = value; }
 
-        // Light cookie (upstream Light.cookie): a texture projected by the light,
+        // Light cookie: a texture projected by the light,
         // masking its color. 2D for spot lights, cubemap for omni. Non-owning —
         // the app owns the texture (asset or manually built cubemap).
         Texture* cookie() const { return _cookie; }
@@ -118,12 +118,12 @@ namespace visutwin::canvas
         CookieChannel cookieChannel() const { return _cookieChannel; }
         void setCookieChannel(const CookieChannel value) { _cookieChannel = value; }
 
-        // Spot only. When false (upstream's non-default), the cone angle falloff is
+        // Spot only. When false (not the default), the cone angle falloff is
         // skipped and the cookie's own projection clip defines the beam shape.
         bool cookieFalloff() const { return _cookieFalloff; }
         void setCookieFalloff(const bool value) { _cookieFalloff = value; }
 
-        // Spot only (upstream cookieTransform / cookieOffset): the 2x2 that turns and
+        // Spot only: the 2x2 that turns and
         // scales the cookie about its centre, as mat2 COLUMNS (x, y) and (z, w), and the
         // offset added to the projected position before it. Identity and zero = none.
         const Vector4& cookieTransform() const { return _cookieTransform; }
@@ -132,15 +132,15 @@ namespace visutwin::canvas
         void setCookieOffset(const Vector2& value) { _cookieOffset = value; }
 
         // World → cookie-UV projection for spot cookies. Equal to the shadow VP
-        // when the light casts shadows; otherwise evaluated separately (upstream
-        // LightCamera.evalSpotCookieMatrix). Omni cookies use the light's world
+        // when the light casts shadows; otherwise evaluated separately
+        // (LightCamera::evalSpotCookieMatrix). Omni cookies use the light's world
         // transform instead and ignore this.
         const Matrix4& cookieMatrix() const { return _cookieMatrix; }
         void setCookieMatrix(const Matrix4& value) { _cookieMatrix = value; }
 
         /**
          * True when some camera's frustum reached this light in the frame being
-         * built. A UNION over every camera, as upstream's is, so it answers "does
+         * built. A UNION over every camera, so it answers "does
          * anything need this light's per-frame work" — its shadow map and its
          * cookie — rather than "does this camera see it". A per-camera decision
          * has to be made per camera; see the local-light cull in
@@ -155,14 +155,14 @@ namespace visutwin::canvas
 
         /**
          * World-space sphere bounding this light's influence, for culling. Omni is
-         * the range sphere; a SPOT is upstream's bound of its cone, which is the
+         * the range sphere; a SPOT is bounded by its cone, which is the
          * range sphere only for a very wide cone and much smaller for a narrow one.
          * Meaningless for a directional light, which is never culled.
          */
         BoundingSphere boundingSphere() const;
 
         LightType type() const { return _type; }
-        // Re-resolves the shadow type for the new light type, as upstream's setter does.
+        // Re-resolves the shadow type for the new light type.
         void setType(LightType value);
 
         bool castShadows() const;
@@ -186,7 +186,7 @@ namespace visutwin::canvas
         void setCascadeBlend(const float value) { _cascadeBlend = value; }
 
         const std::array<Vector4, 4>& cascadeViewports() const { return _cascadeViewports; }
-        /// The atlas rects of `numCascades` directional cascades (upstream's layout).
+        /// The atlas rects of `numCascades` directional cascades.
         static const std::array<Vector4, 4>& directionalCascadeLayout(int numCascades);
         const std::array<float, 64>& shadowMatrixPalette() const { return _shadowMatrixPalette; }
         float* shadowMatrixPaletteData() { return _shadowMatrixPalette.data(); }
@@ -209,7 +209,7 @@ namespace visutwin::canvas
         /// The shadow type this light will actually render, which is not always
         /// the one that was asked for: a VSM_16F request on a device without
         /// half-float colour attachments has nowhere to write its moments and
-        /// falls back to PCF3, upstream's documented fallback. `requestedShadowType`
+        /// falls back to PCF3. `requestedShadowType`
         /// is what the caller set, kept so a per-frame replay of the same value
         /// does not re-resolve and drop the shadow map every frame.
         ShadowType shadowType() const { return _shadowType; }
@@ -235,7 +235,7 @@ namespace visutwin::canvas
 
         // VSM-only: bias scale used for the minVariance floor in Chebyshev's
         // inequality (depth ambiguity at thin / silhouette edges). Default
-        // mirrors upstream SHADOW_VSM_16F: 0.01 * 0.25 = 0.0025.
+        // for VSM_16F: 0.01 * 0.25 = 0.0025.
         float vsmBias() const { return _vsmBias; }
         void setVsmBias(const float value) { _vsmBias = std::max(value, 0.0f); }
 
@@ -259,7 +259,7 @@ namespace visutwin::canvas
         float shadowIntensity() const { return _shadowIntensity; }
         void setShadowIntensity(const float value) { _shadowIntensity = value; }
 
-        // PCSS tap counts (upstream shadowSamples / shadowBlockerSamples, 16 each).
+        // PCSS tap counts (16 each).
         int shadowSamples() const { return _shadowSamples; }
         void setShadowSamples(const int value) { _shadowSamples = value; }
         int shadowBlockerSamples() const { return _shadowBlockerSamples; }
@@ -281,8 +281,7 @@ namespace visutwin::canvas
     private:
         // Drops the shadow map so the next frame reallocates it, and re-arms a
         // light whose shadow was already considered rendered — a map nothing
-        // renders into is worse than the stale one it replaced. Upstream's
-        // `_destroyShadowMap`.
+        // renders into is worse than the stale one it replaced.
         void destroyShadowMap();
 
         // Maps a requested shadow type onto one this device can actually render.
@@ -332,17 +331,17 @@ namespace visutwin::canvas
 
         ShadowUpdateType _shadowUpdateMode = ShadowUpdateType::SHADOWUPDATE_NONE;
 
-        // ONE cascade by default, as upstream (light.js `numCascades = 1`). With more,
+        // ONE cascade by default. With more,
         // a one-shot directional shadow breaks the moment the camera moves: the cascade
         // a fragment samples is picked by its VIEW depth, so zooming in carries the
         // scene into near cascades whose maps were fitted once to the empty near slices
         // of the original view.
         int _numCascades = 1;
         float _cascadeDistribution = 0.5f;   // 0=linear splits, 1=logarithmic, 0.5=practical blend
-        float _cascadeBlend = 0.0f;          // fraction: 0 = off, else dither + far fade (upstream)
+        float _cascadeBlend = 0.0f;          // fraction: 0 = off, else dither + far fade
 
         // Viewport rects per cascade (normalized 0..1 within shadow texture).
-        // Layout matches upstream directionalCascades:
+        // Layout:
         //   1 cascade: full texture
         //   2 cascades: 2×1 vertical strip
         //   4 cascades: 2×2 grid
@@ -368,13 +367,13 @@ namespace visutwin::canvas
 
         float _shadowDistance = 40.0f;
 
-        int _shadowResolution = 1024; // upstream's default
+        int _shadowResolution = 1024;
         int _vsmBlurSize = 11;
         float _vsmBias = 0.0025f;
         float _penumbraSize = 1.0f;
         float _penumbraFalloff = 1.0f;
 
-        //_shadowBias (-0.0005 default in the upstream engine).
+        //_shadowBias (-0.0005 default).
         float _shadowBias = -0.0005f;
 
         //_normalOffsetBias.

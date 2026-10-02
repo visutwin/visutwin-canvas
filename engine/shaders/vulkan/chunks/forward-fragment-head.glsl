@@ -27,7 +27,7 @@ layout(set = 1, binding = 19) uniform sampler2D lightMap;        // 19
 layout(set = 1, binding = 17) uniform texture2D heightMapImage;   // 17 (parallax)
 layout(set = 1, binding = 23) uniform texture2D detailNormalImage;// 23
 layout(set = 1, binding = 24) uniform sampler materialExtraSampler;
-// Clearcoat maps (upstream's clearCoatMap / clearCoatGlossMap / clearCoatNormalMap),
+// Clearcoat maps (intensity, gloss, normal),
 // on the same slots as the Metal chunks (7/13/14) and gated on flag bits 14/15/16.
 layout(set = 1, binding = 7) uniform texture2D clearCoatImage;        // 7  intensity (clearCoatMapChannels.x)
 layout(set = 1, binding = 13) uniform texture2D clearCoatGlossImage;  // 13 gloss (clearCoatMapChannels.y)
@@ -37,7 +37,7 @@ layout(set = 1, binding = 14) uniform texture2D clearCoatNormalImage; // 14 norm
 #define clearCoatMap    sampler2D(clearCoatImage, materialExtraSampler)
 #define clearCoatGloss  sampler2D(clearCoatGlossImage, materialExtraSampler)
 #define clearCoatNormal sampler2D(clearCoatNormalImage, materialExtraSampler)
-// The scalar maps (upstream glossMap / thicknessMap / refractionMap, one channel each,
+// The scalar maps (gloss, thickness, refraction, one channel each,
 // chosen by material.mapChannelParams) and the opacity map (flags bit 19), on the
 // Metal chunks' slots 31-34: separate images through the same shared sampler.
 layout(set = 1, binding = 31) uniform texture2D glossMapImage;
@@ -132,23 +132,23 @@ layout(set = 2, binding = 0) uniform LightingData {
     vec4 dirShadow1PcssCascadeRadii;
     vec4 dirShadow1PcssCascadeDepthRanges;
     // Scene::skyboxRotation, one column per vec4: environment samples read along
-    // R * dir (upstream cubeMapRotate). Identity unless the scene turns its sky.
+    // R * dir (cubeMapRotate). Identity unless the scene turns its sky.
     vec4 skyboxRotation[3];
-    // Spot cookie 2x2 per 2D cookie slot (upstream cookieTransform), mat2 columns xy, zw.
+    // Spot cookie 2x2 per 2D cookie slot, mat2 columns xy, zw.
     vec4 cookieTransform2D[2];
-    // Upstream blueNoiseJitter: xy offset the opacity dither per frame while the camera
+    // xy offset the opacity dither per frame while the camera
     // jitters (TAA), zero otherwise.
     vec4 ditherJitter;
 } lighting;
 
 // The vertex stage's push constants, read here for the model matrix (dynamic
-// refraction scales its offset by the model's per-axis scale, as upstream).
+// refraction scales its offset by the model's per-axis scale).
 layout(push_constant) uniform PushConstants {
     mat4 viewProjection;
     mat4 model;
 } vtDraw;
 
-// Upstream cubeMapRotate: the direction an environment sample (sky, env atlas, SH)
+// The direction an environment sample (sky, env atlas, SH)
 // reads along under Scene::skyboxRotation. Column 0's w flags a rotation at all.
 vec3 cubeMapRotate(vec3 dir) {
     if (lighting.skyboxRotation[0].w < 0.5) {

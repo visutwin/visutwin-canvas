@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 19.10.2025.
+// Created by Arnis Lektauers on 19.10.2025
 //
 #pragma once
 
@@ -23,7 +23,7 @@ namespace visutwin::canvas
      * A representation of a compute shader with the associated resources, that can be executed on the
      * GPU.
      *
-     * Three parameter kinds are supported, mirroring upstream's simplified compute syntax:
+     * Three parameter kinds are supported:
      * storage buffers, textures, and loose scalar uniforms.
      *
      * DEVIATION: upstream reflects the resources out of the WGSL source and builds the bind group
@@ -100,7 +100,7 @@ namespace visutwin::canvas
         /// The packed uniform block, empty when no scalar parameters were set.
         std::vector<uint8_t> uniformData() const;
 
-        // Matches upstream setupDispatch() semantics: workgroup group counts.
+        // Workgroup group counts.
         void setupDispatch(uint32_t x, uint32_t y, uint32_t z);
         uint32_t dispatchX() const { return _dispatchX; }
         uint32_t dispatchY() const { return _dispatchY; }

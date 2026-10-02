@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 09.02.2026.
+// Created by Arnis Lektauers on 09.02.2026
 //
 #define TINYGLTF_IMPLEMENTATION
 #define TINYGLTF_NO_STB_IMAGE
@@ -162,8 +162,8 @@ namespace visutwin::canvas
         // will touch — offset + (count-1)*stride + elementSize — fits inside the
         // buffer. A malformed/hostile GLB with an inflated count or byteStride
         // must fail here rather than read out of bounds.
-        // A glTF node's identity when it has no name: upstream's `node_<index>`
-        // (glb-parser createNode). The SAME string has to come out of every place
+        // A glTF node's identity when it has no name: `node_<index>`.
+        // The SAME string has to come out of every place
         // that names a node — the entity the container instantiates, the animation
         // target, the skin's bone list — or an unnamed node exists under one name
         // and is animated under another. Unnamed animated nodes are common in
@@ -191,7 +191,7 @@ namespace visutwin::canvas
         }
 
         // The animation target as a PATH of node names from the node's glTF root
-        // down to it, joined with '/', upstream's constructNodePath. A bare name
+        // down to it, joined with '/'. A bare name
         // cannot tell two nodes apart that share it in different branches — a
         // left and a right "Wheel", or a skeleton exported twice — and every such
         // scene would animate only whichever findByName met first. DefaultAnimBinder
@@ -667,7 +667,7 @@ namespace visutwin::canvas
                             // A morphed skin: each vertex can also move by its morph deltas, so
                             // the bone boxes take the vertex's reach under every target at once
                             // — the negative deltas summed toward the min, the positive toward
-                            // the max, per axis — as upstream's _initBoneAabbs does. Without it
+                            // the max, per axis. Without it
                             // a skinned mesh whose targets push it outward could be culled on screen.
                             const auto morphTargets = readMorphTargets(model, primitive, vertexCount);
                             for (size_t v = 0; v < vertexCount; ++v) {
@@ -757,7 +757,7 @@ namespace visutwin::canvas
                         continue;
                     }
 
-                    // Map glTF target path to upstream property path.
+                    // Map glTF target path to the animation property path.
                     std::string propertyPath;
                     int outputComponents = 0;
                     if (channel.target_path == "translation") {
@@ -1311,7 +1311,7 @@ namespace visutwin::canvas
             const float sz = col2.length();
             if (sx <= 0.0f) sx = 1.0f;
 
-            // Match upstream / Quat.setFromMat4 convention for mirrored transforms:
+            // Match Quaternion::fromMatrix4's convention for mirrored transforms:
             // keep rotation right-handed and encode mirror sign into X scale.
             const float det = col0.dot(col1.cross(col2));
             if (det < 0.0f) {
@@ -1339,11 +1339,11 @@ namespace visutwin::canvas
      * StandardMaterial. Volume attenuation feeds the Beer-law transmittance;
      * dispersion feeds the per-channel refraction in the dynamic grab path.
      *
-     * As upstream's extension handlers do, a material carrying transmission OR volume
+     * A material carrying transmission OR volume
      * is made blended and switched to dynamic (grab-pass) refraction: without both it
-     * renders in the opaque pass and refracts only the environment. Upstream's
-     * BLEND_NORMAL is setTransparent(true), NOT setAlphaMode(BLEND), which would also
-     * turn depth writes off where upstream keeps them.
+     * renders in the opaque pass and refracts only the environment. Blending
+     * is setTransparent(true), NOT setAlphaMode(BLEND), which would also
+     * turn depth writes off.
      *
      * DEVIATIONS: `ior` is stored as an IOR where upstream stores 1 / ior (see
      * StandardMaterial::refractionIndex). The attenuation colour is stored LINEAR, as
@@ -1430,7 +1430,7 @@ namespace visutwin::canvas
      * usual case is one cosmetic extension on an otherwise usable file, and the
      * name in the log is what turns an hour of bisecting into a one-line answer.
      */
-    // EXT_mesh_gpu_instancing (upstream createInstancing): the node's TRANSLATION,
+    // EXT_mesh_gpu_instancing: the node's TRANSLATION,
     // ROTATION and SCALE accessors become one column-major TRS matrix per instance, in
     // the node's local space, packed as the 64-byte default instancing format. The
     // count is the first attribute's; an attribute that is absent is identity. Every
@@ -1483,7 +1483,7 @@ namespace visutwin::canvas
         return matrices;
     }
 
-    // A glTF camera as upstream's createCamera reads it: perspective yfov in radians
+    // A glTF camera: perspective yfov in radians
     // to degrees, orthographic ymag as the half height, a manual aspect only where
     // the file gives one (perspective aspectRatio, orthographic xmag / ymag), and the
     // far plane only when present — glTF's infinite perspective has none.
@@ -1516,14 +1516,14 @@ namespace visutwin::canvas
         return payload;
     }
 
-    // A KHR_lights_punctual light as upstream's createLight reads it. "point" is an
+    // A KHR_lights_punctual light. "point" is an
     // omni light, cone angles go from radians to degrees (defaults 0 and 45), an
     // absent range becomes 9999 (infinity would poison the bounds), the falloff is
     // inverse-squared. The file's intensity is photometric (candela, lux), so it is
     // stored twice: as the LUMINANCE, times the unit conversion, which a scene with
     // physical units shines with (luminance / conversion gives the file's value
     // back), and CLAMPED to [0, 2] as the intensity everything else uses. The colour
-    // is taken as the file gives it, as upstream's `new Color(gltfLight.color)` does.
+    // is taken as the file gives it.
     // DEVIATION: an intensity the file leaves out is its spec default of 1, where
     // upstream leaves the luminance at 0 — tinygltf does not say which it was.
     static GlbLightPayload gltfLightPayload(const tinygltf::Light& light)
@@ -1626,7 +1626,7 @@ namespace visutwin::canvas
      * read separately: base colour, metallic-roughness, normal, occlusion and
      * emissive, which are the five StandardMaterial can transform.
      *
-     * DEVIATION from upstream's `extractTextureTransform`, which cannot be copied
+     * DEVIATION from upstream's texture-transform code, which cannot be copied
      * literally: upstream feeds its shader the glTF UVs unchanged, while this
      * parser flips V into the vertex (v = 1 - v) — so the transform is composed
      * with a flip on both sides and the constants come out different.
@@ -1651,8 +1651,7 @@ namespace visutwin::canvas
      * written there directly is overwritten before it reaches the GPU — the same
      * trap as setDiffuse versus setBaseColorFactor.
      *
-     * DEVIATION: the extension's own `texCoord` override is ignored, as upstream
-     * ignores it. The texture info's texCoord still selects the UV set.
+     * DEVIATION: the extension's own `texCoord` override is ignored. The texture info's texCoord still selects the UV set.
      */
     static void applyTextureTransforms(const tinygltf::Material& srcMaterial, StandardMaterial* material)
     {
@@ -1734,8 +1733,7 @@ namespace visutwin::canvas
      * Apply KHR_materials_clearcoat to a StandardMaterial. glTF stores coat
      * roughness while the material stores gloss, so the factor routes through
      * setClearCoatGloss + setClearCoatGlossInvert(true). The intensity map is
-     * read from R and the roughness map from G, as the extension stores them and
-     * upstream's khr-materials-clearcoat sets the channels.
+     * read from R and the roughness map from G, as the extension stores them.
      */
     static void applyClearcoat(
         const tinygltf::Material& srcMaterial,
@@ -1839,7 +1837,7 @@ namespace visutwin::canvas
     }
 
     /**
-     * KHR_materials_sheen, as upstream's extension reads it: the colour factor is
+     * KHR_materials_sheen: the colour factor is
      * linear in the file and stored gamma-encoded (both shaders decode it), the
      * roughness factor is the sheen roughness. DEVIATION: an absent colour factor is
      * the spec's default of BLACK — no sheen — where upstream substitutes white.
@@ -1858,9 +1856,9 @@ namespace visutwin::canvas
     }
 
     /**
-     * KHR_materials_specular, as upstream's extension reads it, for a metallic-rough
-     * material: the colour factor tints the non-metal F0 (stored gamma-encoded, as
-     * upstream's `specular.gamma()`), the factor scales it; metals are untouched.
+     * KHR_materials_specular, for a metallic-rough
+     * material: the colour factor tints the non-metal F0 (stored gamma-encoded),
+     * the factor scales it; metals are untouched.
      */
     static void applySpecularExtension(const tinygltf::Material& srcMaterial, StandardMaterial* material)
     {
@@ -1895,7 +1893,7 @@ namespace visutwin::canvas
 
     /**
      * KHR_materials_anisotropy: the strength and the rotation (radians in the file,
-     * degrees on the material, from the tangent toward the bitangent), as upstream.
+     * degrees on the material, from the tangent toward the bitangent).
      */
     static void applyAnisotropyExtension(const tinygltf::Material& srcMaterial, StandardMaterial* material)
     {
@@ -1979,8 +1977,8 @@ namespace visutwin::canvas
             spdlog::info("    specGloss: no diffuseTexture field");
         }
 
-        // The specular workflow, as upstream's KHR_materials_pbrSpecularGlossiness
-        // extension sets it up: useMetalness off, `specular` stored in sRGB (the factor
+        // The specular workflow of the KHR_materials_pbrSpecularGlossiness
+        // extension: useMetalness off, `specular` stored in sRGB (the factor
         // is linear, so it is gamma-encoded here and linearised again on upload), and
         // the extension's defaults — white specular, glossiness 1 — when a factor is
         // absent. Leaving the specular black would render no specular at all.
@@ -2101,7 +2099,7 @@ namespace visutwin::canvas
         // StandardMaterial convention: gloss = 1 - roughness (glossInvert=false).
         material->setMetalness(metallicFactor);
         material->setGloss(1.0f - roughnessFactor);
-        // glTF metallic-roughness: upstream createMaterial sets useMetalness for every glTF material.
+        // glTF metallic-roughness: useMetalness is set for every glTF material.
         material->setUseMetalness(true);
 
         if (!srcMaterial.alphaMode.empty()) {
@@ -2233,13 +2231,13 @@ namespace visutwin::canvas
             return primitive.extensions.contains("KHR_gaussian_splatting");
         }
 
-        // KHR_gaussian_splatting (upstream createGSplatData): the splat attributes of a
+        // KHR_gaussian_splatting: the splat attributes of a
         // POINTS primitive, read through readElement so every component type the file
         // may use is de-quantised. The values are ACTIVATED — linear scale, post-sigmoid
         // opacity. Null, with an error, when a required attribute is missing or its
-        // count does not match POSITION's. SH bands count only while complete, as
-        // upstream counts them. The extension's sortingMethod and projection are
-        // ignored, as upstream ignores them; an unsupported kernel or a linear colour
+        // count does not match POSITION's. SH bands count only while complete.
+        // The extension's sortingMethod and projection are
+        // ignored; an unsupported kernel or a linear colour
         // space is warned about and rendered as the default.
         std::unique_ptr<GSplatData> gaussianSplatData(const tinygltf::Model& model,
             const tinygltf::Primitive& primitive, const std::string& source)
@@ -2550,7 +2548,7 @@ namespace visutwin::canvas
             return pd;
         }
 
-        // KHR_materials_variants on a primitive (upstream registerMeshVariants): each
+        // KHR_materials_variants on a primitive: each
         // mapping gives one material to a list of variant indices.
         std::vector<std::pair<int, int>> primitiveVariantMaterials(const tinygltf::Primitive& primitive)
         {
@@ -3123,7 +3121,7 @@ namespace visutwin::canvas
             }
         }
 
-        // KHR_materials_variants: the variant names, by index (upstream createVariants).
+        // KHR_materials_variants: the variant names, by index.
         if (const auto ext = model.extensions.find("KHR_materials_variants");
             ext != model.extensions.end() && ext->second.IsObject() && ext->second.Has("variants")) {
             std::vector<std::string> names;

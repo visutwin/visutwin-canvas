@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// The key the forward pass orders opaque draws on (upstream MeshInstance.updateKey).
+// Created by Arnis Lektauers on 12.09.2026
+//
+// The key the forward pass orders opaque draws on.
 //
 // Kept as a free function over plain inputs so a unit test can hold the bit layout
 // without a renderer or a material — a field that silently overlaps its neighbour is

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Makes an element draggable (upstream framework/components/element/element-drag-helper.js):
+// Created by Arnis Lektauers on 30.09.2026
+//
+// Makes an element draggable:
 // a mouse press or touch on the element starts a drag, and each move after it sets the
 // element entity's local position to where it started plus how far the pointer has moved,
 // measured in the plane of the element and in the units of its parent. An axis constrains
@@ -29,7 +31,7 @@ namespace visutwin::canvas
     class ElementComponent;
     struct ElementInputEvent;
 
-    /// The axis a drag is constrained to (upstream's `axis`, 'x', 'y' or null).
+    /// The axis a drag is constrained to: x, y or none.
     enum class DragAxis
     {
         None,

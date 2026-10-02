@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 13.07.2026.
+// Created by Arnis Lektauers on 13.07.2026
 //
 #include "particleSystemComponent.h"
 
@@ -77,7 +77,7 @@ namespace visutwin::canvas
         }
         _meshInstance = render->addMeshInstance(std::move(meshInstance));
 
-        // Upstream: a system that does not auto play is built paused and hidden.
+        // A system that does not auto play is built paused and hidden.
         if (!_options.autoPlay) {
             _emitter->setPlaying(false);
             _meshInstance->setVisible(false);
@@ -142,12 +142,12 @@ namespace visutwin::canvas
         if (!_emitter || !_entity) {
             return false;
         }
-        // The emitter runs a pending pre-warm even while paused, as upstream's reset does.
+        // The emitter runs a pending pre-warm even while paused.
         const bool playing = _emitter->playing();
         const Matrix4& transform = _entity->worldTransform();
         _emitter->update(dt, transform);
 
-        // Sorting, for the camera upstream would hand the emitter.
+        // Sorting.
         // DEVIATION: upstream sorts for the camera that renders the emitter; this sorts once
         // a step, for the active camera that renders first (the lowest priority).
         if (_options.sort != ParticleSort::NONE) {

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 30.09.2026
+//
 // Layout groups, the element drag helper, scrollbars and scroll views (upstream
 // layout-group, element-drag-helper, scrollbar and scroll-view component tests, the cases
 // that apply here, plus the port's own contracts): a real engine on a stub device, driven
@@ -255,7 +257,7 @@ int main()
               "the inner group lays out at the width the outer one gave it, in one update");
 
         // A group whose handler changes its own size every time never settles; the system
-        // gives up after upstream's 100 passes.
+        // gives up after 100 passes.
         int reflows = 0;
         outerGroup->on("reflow", [&]() { outer->setWidth(outer->width() + 1.0f); ++reflows; });
         outer->setWidth(201.0f);

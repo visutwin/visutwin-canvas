@@ -54,8 +54,7 @@ vec3 iridescenceSensitivity(float opd, vec3 shift) {
     xyz /= vec3(1.0685e-07);
 
     // CIE XYZ -> Rec.709. Written COLUMN-major, which is what both GLSL and MSL
-    // constructors take, so the rows below read transposed on the page. Upstream
-    // (iridescenceDiffraction.js) has the same layout.
+    // constructors take, so the rows below read transposed on the page.
     const mat3 XYZ_TO_REC709 = mat3(
          3.2404542, -0.9692660,  0.0556434,
         -1.5371385,  1.8760108, -0.2040259,

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 05.09.2026
+//
 // Port of upstream graphics/particles-anim-index.
 //
 // Four particle systems at the corners of the view, all sharing one 4x4 sprite

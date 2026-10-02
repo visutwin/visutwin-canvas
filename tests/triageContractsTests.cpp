@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 25.09.2026
+//
 // Small contracts, each invisible in a render:
 //
 //  - N6   StandardMaterial::setDiffuseMap(nullptr) (and the normal, metalness and

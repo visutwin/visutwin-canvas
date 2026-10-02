@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 11.07.2026.
+// Created by Arnis Lektauers on 11.07.2026
 //
 #include "gsplatSorter.h"
 #include "gsplatSortKeys.h"
@@ -21,8 +21,7 @@ namespace visutwin::canvas
     GSplatSorter::GSplatSorter(std::vector<float> centers)
         : _centers(std::move(centers))
     {
-        // Precompute per-chunk bounding spheres + overall bounds (upstream computes
-        // these in the worker when no chunk data is provided).
+        // Precompute per-chunk bounding spheres + overall bounds.
         const size_t numVertices = _centers.size() / 3;
         const size_t numChunks = (numVertices + CHUNK_SIZE - 1) / CHUNK_SIZE;
         _chunks.resize(numChunks * 4);
@@ -101,7 +100,7 @@ namespace visutwin::canvas
                 _requestPending = false;
             }
 
-            // Skip when the camera barely moved (upstream epsilon check). Per component
+            // Skip when the camera barely moved (epsilon check). Per component
             // rather than through maxComponent(), which reduces with std::max and would
             // drop a NaN lane: a NaN camera position must still reach the sort, as it did
             // when this was three explicit comparisons.

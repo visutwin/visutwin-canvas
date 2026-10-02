@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 11.07.2026.
+// Created by Arnis Lektauers on 11.07.2026
 //
 #pragma once
 
@@ -55,8 +55,7 @@ namespace visutwin::canvas
         static std::unique_ptr<GSplatData> loadPly(const std::string& path);
 
         /// Splats whose values are already ACTIVATED — linear scale, post-sigmoid
-        /// opacity — as KHR_gaussian_splatting stores them (upstream marks its
-        /// GSplatData `activated`). Per splat: position xyz, rotation xyzw, scale xyz,
+        /// opacity — as KHR_gaussian_splatting stores them. Per splat: position xyz, rotation xyzw, scale xyz,
         /// opacity, SH degree-0 rgb, and for `shBands` 1-3 the higher coefficients
         /// coefficient-major interleaved ([c0.r, c0.g, c0.b, c1.r, ...], 3/8/15 of them).
         struct ActivatedSplats

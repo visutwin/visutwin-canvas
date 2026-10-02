@@ -30,14 +30,14 @@ void main() {
     vec4 texel=vec4(1);
     if(inHasMap>0.5){
         texel=texture(colorMap,inUv);
-        // The colour map is sRGB-authored (upstream loads every one with srgb: true).
+        // The colour map is sRGB-authored.
         texel.rgb=pow(max(texel.rgb,vec3(0)),vec3(2.2));
     }
     else { float a=clamp(1.0-length(fract(inUv)*2.0-1.0),0.0,1.0); texel.a=a*a; }
     float alpha=texel.a*inColor.a;
     vec3 rgb=inColor.rgb*texel.rgb;
 
-    // Upstream particle_soft.
+    // Soft particles: fade where the particle meets the scene depth.
     if(params.softParams.w>0.5){
         float near=params.softParams.y, far=params.softParams.z;
         float raw=texelFetch(sampler2D(sceneDepthGrabImage,nearestClampSampler),ivec2(gl_FragCoord.xy),0).r;
@@ -45,7 +45,7 @@ void main() {
         alpha*=clamp(abs(inViewDepth-depth)*params.softParams.x,0.0,1.0);
     }
 
-    // Upstream particle_lighting: the light cube, by Lambert or half Lambert.
+    // The light cube, by Lambert or half Lambert.
     if(params.lightCube[0].w>0.5){
         vec3 normal=normalize(inNormal);
         if(params.lightCube[2].w>0.5){
@@ -64,7 +64,7 @@ void main() {
              negNormal.z*params.lightCube[4].xyz+posNormal.z*params.lightCube[5].xyz;
     }
 
-    // Upstream particle_end: the colour is linear; a gamma target tone-maps it with the
+    // The colour is linear; a gamma target tone-maps it with the
     // scene's exposure and encodes it, a camera frame's linear HDR scene leaves both to compose.
     if(inOutput.z<0.5){
         rgb=toneMapExposed(rgb,inOutput.x,int(inOutput.y+0.5));

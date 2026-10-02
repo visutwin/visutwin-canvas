@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 14.07.2026
+//
 // Port of upstream graphics/post-processing.
 //
 // A baked sci-fi platform stage lit by a warm directional light, with the
@@ -10,8 +12,7 @@
 // is disabled; the helipad atlas only provides IBL and the camera clears to a
 // bright HDR tint of the light colour. Two text labels sit on the screen.
 //
-// Initial settings are upstream's `data.set('data', ...)` defaults, value for
-// value: render scale 1.8, background 6, emissive 200, ACES, bloom on at
+// Initial settings: render scale 1.8, background 6, emissive 200, ACES, bloom on at
 // intensity 5 (-> 0.005) with blur level 16, and grading, colour enhance,
 // vignette, fringing and TAA all off.
 //
@@ -37,9 +38,8 @@
 //    switches every compose setting off (scale 1, no bloom, no TAA) so the
 //    camera falls back to the plain forward path, which is what upstream's
 //    disabled CameraFrame renders.
-//  - Upstream's orbit camera script is CameraControls in orbit mode, aimed at the
-//    mosquito's bounds centre (what upstream's script does on initialize), with
-//    the zoom range capped at upstream's distanceMax of 190.
+//  - The orbit camera script is CameraControls in orbit mode, aimed at the
+//    mosquito's bounds centre, with the zoom range capped at a distanceMax of 190.
 //
 #include <algorithm>
 #include <array>
@@ -69,7 +69,7 @@ namespace
 {
     constexpr float kPi = 3.14159265358979f;
 
-    // Upstream's panel values (data.set('data', ...)).
+    // The panel's initial values.
     struct Settings
     {
         bool enabled = true;
@@ -353,11 +353,11 @@ private:
                     .anchor = Vector4(x, y, 0.5f, 0.5f),
                     .pivot = Vector2(0.5f, 0.1f)});
                 element->setText(text);
-                // Very bright colour to affect the bloom (upstream's comment: not correct,
-                // as sRGB is valid only in 0..1, but UI exposes no emissive intensity)
+                // Very bright colour to affect the bloom (not correct, as sRGB is valid
+                // only in 0..1, but UI exposes no emissive intensity)
                 element->setColor(Color(18.0f, 15.0f, 5.0f, 1.0f));
                 element->setFontSize(28);
-                // Upstream alignment Vec2.ZERO: the line at the box's bottom left.
+                // Alignment zero: the line at the box's bottom left.
                 element->setHorizontalAlign(ElementHorizontalAlign::Left);
                 element->setVerticalAlign(0.0f);
                 element->setWrapLines(false);
@@ -404,7 +404,7 @@ private:
         taa.enabled = s.enabled && s.taaEnabled;
         taa.jitter = s.taaJitter;
 
-        // Bloom: upstream lerp(0, 0.1, intensity / 100)
+        // Bloom: lerp(0, 0.1, intensity / 100)
         rendering.bloomIntensity = (s.enabled && s.bloomEnabled) ? 0.1f * (s.bloomIntensity / 100.0f) : 0.0f;
         rendering.bloomBlurLevel = s.bloomBlurLevel;
 
@@ -422,7 +422,7 @@ private:
         rendering.colorEnhanceVibrance = enhance ? s.colorEnhanceVibrance : 0.0f;
         rendering.colorEnhanceDehaze = enhance ? s.colorEnhanceDehaze : 0.0f;
 
-        // Vignette: upstream sets intensity 0 when disabled
+        // Vignette: intensity 0 when disabled
         rendering.vignetteEnabled = s.enabled && s.vignetteEnabled;
         rendering.vignetteInner = s.vignetteInner;
         rendering.vignetteOuter = s.vignetteOuter;

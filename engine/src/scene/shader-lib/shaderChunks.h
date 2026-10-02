@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 13.07.2026.
+// Created by Arnis Lektauers on 13.07.2026
 //
 #pragma once
 
@@ -16,8 +16,7 @@
 namespace visutwin::canvas
 {
     /**
-     * @brief Registry of named shader chunks with user overrides (port of
-     * upstream `ShaderChunks`).
+     * @brief Registry of named shader chunks with user overrides.
      * @ingroup group_scene_shaderlib
      *
      * Holds the engine's default chunk sources (loaded once per process per
@@ -25,14 +24,12 @@ namespace visutwin::canvas
      * keyed by file stem) plus a per-instance override map. `get()` resolves override-over-default. `hash()`
      * fingerprints the override set and is folded into shader variant cache keys, so
      * changing a chunk at runtime invalidates affected cached programs instead of
-     * silently reusing stale binaries (upstream cache-invalidation hashing).
+     * silently reusing stale binaries.
      *
-     * One instance lives on each ProgramLibrary — i.e. per graphics device, matching
-     * upstream's per-device DeviceCache of ShaderChunks. Per-material overrides layer
+     * One instance lives on each ProgramLibrary — i.e. per graphics device. Per-material overrides layer
      * on top via `Material::setShaderChunk` and are resolved at composition time.
      *
-     * Chunk NAMES are shared across languages, mirroring upstream's parallel
-     * GLSL/WGSL chunk trees: `common-tonemap` addresses the tonemap chunk on both
+     * Chunk NAMES are shared across languages: `common-tonemap` addresses the tonemap chunk on both
      * backends, so an application overrides one name and supplies source in the
      * language its device speaks (`GraphicsDevice::shaderLanguage()`). The Vulkan
      * tree covers the fragment stage — its vertex stage is a family of prebuilt

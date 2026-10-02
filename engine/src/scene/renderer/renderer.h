@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 11.09.2025.
+// Created by Arnis Lektauers on 11.09.2025
 //
 #pragma once
 
@@ -72,14 +72,13 @@ namespace visutwin::canvas
         void resetLightVisibility();
 
         /**
-         * Marks the lights this camera's frustum reaches, as upstream's
-         * Culler.cullLights does. Must run for every camera before the frame graph
+         * Marks the lights this camera's frustum reaches. Must run for every camera before the frame graph
          * is built, because the shadow and cookie passes are built from the result:
          * culling after them would spend a frame's shadow maps on the PREVIOUS
          * frame's answer, which is worse than not culling at all.
          *
          * Directional lights are always marked — their influence has no bounds.
-         * Local lights are tested as spheres. One exception, upstream's: outside
+         * Local lights are tested as spheres. One exception: outside
          * clustered lighting a shadow caster with no map yet is marked anyway, so
          * the map gets allocated rather than waiting for the light to be looked at.
          */
@@ -118,8 +117,8 @@ namespace visutwin::canvas
         };
 
         /**
-         * Registers a (camera, layer) pair to be culled this frame, de-duplicated,
-         * as upstream's Culler.requestMeshInstanceCull. The frame graph asks for the
+         * Registers a (camera, layer) pair to be culled this frame, de-duplicated.
+         * The frame graph asks for the
          * pairs it will actually render, rather than every combination the layer
          * composition allows.
          */
@@ -127,8 +126,8 @@ namespace visutwin::canvas
 
         /**
          * Culls everything requested this frame and clears the requests. Per camera:
-         * "precull", then each requested layer, then "postcull" — upstream's order,
-         * and precull comes before the frustum is built so a listener can still move
+         * "precull", then each requested layer, then "postcull";
+         * precull comes before the frustum is built so a listener can still move
          * the camera.
          */
         void executeMeshInstanceCull();
@@ -217,7 +216,7 @@ namespace visutwin::canvas
 
         std::unique_ptr<ShadowRenderer> _shadowRenderer;
 
-        // Upstream renderer's blueNoise (seed 123) and blueNoiseJitter: advanced once per
+        // Blue noise (seed 123) and its jitter: advanced once per
         // frame while a camera jitters, and held otherwise.
         BlueNoise _blueNoise{123};
         Vector4 _blueNoiseJitter = Vector4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -235,8 +234,8 @@ namespace visutwin::canvas
          * whose lights differ another layer's grid, and leave one with no clustered
          * lights lit by the previous layer's buffers.
          *
-         * Upstream's WorldClustersAllocator keys grids on a hash of the layer's light
-         * ids and shares one between layers that agree, which is what this does. The
+         * Grids are keyed on a hash of the layer's light ids and shared between
+         * layers that agree. The
          * pool owns them across frames, because a grid holds sizeable cell and light
          * buffers and reallocating per frame would churn; the map is per frame.
          */

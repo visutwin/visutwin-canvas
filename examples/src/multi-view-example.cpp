@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Multi-view — port of upstream graphics/multi-view. One chess board rendered by
 // three cameras into three viewports of the same back buffer:
 //   * TOP (full width, upper half) — perspective, World layer, directional light.
@@ -82,7 +84,7 @@ BoundingBox calcEntityAABB(Entity* entity)
     return bbox;
 }
 
-// Debug shader passes on the top viewport, matching where upstream demonstrates them.
+// Debug shader passes on the top viewport.
 // Switching costs no shader recompile — the mode is a runtime uniform.
 struct DebugPassEntry
 {
@@ -160,7 +162,7 @@ protected:
         }
         scene()->setLayers(composition);
 
-        // Load the chess-board GLB once. Like upstream, it belongs to BOTH lighting
+        // Load the chess-board GLB once. It belongs to BOTH lighting
         // layers, so the world (left/top) cameras light it with the directional light
         // and the spotlight (right) camera lights it with the spot light.
         _boardAsset = std::make_unique<Asset>(
@@ -182,7 +184,7 @@ protected:
         // light. The board keeps its authored size (~337 units across) — the camera
         // distances and ortho heights below are all framed against that, so scaling it
         // down to a "tidy" 100 units, as this port used to, pushed every viewport out
-        // to a distant wide shot instead of upstream's close-ups.
+        // to a distant wide shot instead of close-ups.
         setRenderLayersRecursive(boardEntity, {LAYERID_WORLD, LAYERID_SPOTLIGHT});
         setRenderShadowsRecursive(boardEntity, true, true);
         root()->addChild(boardEntity);
@@ -285,7 +287,7 @@ protected:
             spotLight->setShadowBias(0.2f);
             spotLight->setShadowNormalBias(0.05f);
         }
-        // Left unrotated on purpose, as upstream does: the beam points straight down
+        // Left unrotated on purpose: the beam points straight down
         // its own -Y and the light simply slides around above the board.
         _spotLightEntity->setLocalPosition(40.0f, 60.0f, 40.0f);
         root()->addChild(_spotLightEntity);
@@ -371,7 +373,7 @@ private:
 
     void applyDebugPass() const
     {
-        // Upstream's HUD drives the top and right cameras together; the left one
+        // The top and right cameras are driven together; the left one
         // stays on the forward pass as a reference.
         if (_topCam && _topCam->camera()) {
             _topCam->camera()->setDebugShaderPass(debugPasses[_debugPassIndex].pass);

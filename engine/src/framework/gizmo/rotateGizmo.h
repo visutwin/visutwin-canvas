@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Upstream extras/gizmo/rotate-gizmo.js: a half ring per axis (the half facing the
+// Created by Arnis Lektauers on 02.10.2026
+//
+// Rotate gizmo: a half ring per axis (the half facing the
 // camera, a full ring while dragging), a ring in the view plane, and a sphere that
 // orbits freely. While a ring is dragged, two angle guide lines run from the centre to
 // where the drag started and to where it is now.
@@ -65,7 +67,7 @@ namespace visutwin::canvas
         void drawGuideLines(const Vector3& pos, const Quaternion& rot, GizmoAxis activeAxis,
                             bool activeIsPlane) override;
 
-        /// Upstream `_calculateArcAngle`, in degrees.
+        /// The arc angle the drag has turned through, in degrees.
         float calculateArcAngle(const Vector3& point, float x, float y) const;
 
     private:

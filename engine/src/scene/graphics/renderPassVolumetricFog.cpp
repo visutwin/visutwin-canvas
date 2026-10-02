@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 30.07.2026
+//
 #include "renderPassVolumetricFog.h"
 
 #include <algorithm>
@@ -103,8 +105,8 @@ namespace visutwin::canvas
             return shader;
         }
 
-        // The directional light the fog scatters. Upstream picks the first enabled, casting
-        // directional light; mirror that.
+        // The directional light the fog scatters: the first enabled, casting
+        // directional light.
         LightComponent* findDirectionalLight()
         {
             for (auto* component : LightComponent::instances()) {
@@ -357,7 +359,7 @@ namespace visutwin::canvas
         const float projScaleX, const float projScaleY, const float exposure, const float noiseOffset)
     {
         // Local lights live in the clustered lighting, whose atlases hold their shadows and
-        // cookies; upstream ignores them without it.
+        // cookies; without it they are ignored.
         const auto gd = device();
         Engine* engine = _cameraComponent->entity() ? _cameraComponent->entity()->engine() : nullptr;
         if (!_scene || !_scene->clusteredLightingEnabled() || !engine || !engine->renderer()) {
@@ -377,7 +379,7 @@ namespace visutwin::canvas
         }
 
         // In-scattered light adds to the fog texture; the transmittance the march stored in
-        // alpha is kept (upstream's ONE/ONE colour, ZERO/ONE alpha).
+        // alpha is kept (ONE/ONE colour, ZERO/ONE alpha).
         static const auto additive = [] {
             auto blend = std::make_shared<BlendState>();
             blend->setEnabled(true);
@@ -435,7 +437,7 @@ namespace visutwin::canvas
                 continue;
             }
 
-            // The screen bounds of the light's volume (upstream _evalLightRect): the view
+            // The screen bounds of the light's volume: the view
             // space box of its bounding sphere, projected. A volume crossing the near plane
             // takes the whole screen.
             const BoundingSphere sphere = light->boundingSphere();

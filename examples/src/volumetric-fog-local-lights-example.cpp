@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 02.10.2026
+//
 // Port of upstream graphics/volumetric-fog-local-lights.
 //
 // The low-poly terrain (scaled 30x) at dusk under a dim helipad sky, with its clouds
@@ -133,7 +135,7 @@ protected:
         pillar->setLocalPosition(180.0f, 50.0f, 110.0f);
         root()->addChild(pillar);
 
-        // The camera, orbiting a tree in the middle of the valley at upstream's first-frame
+        // The camera, orbiting a tree in the middle of the valley at the first-frame
         // pose: distance 470, yaw 304, pitch -6.
         Vector3 focusPoint(0.0f, 0.0f, 0.0f);
         if (auto* tree = dynamic_cast<Entity*>(terrain->findByName("Arbol 2.002"))) {
@@ -304,7 +306,7 @@ protected:
     }
 
 private:
-    // Upstream's applySettings, from its control panel's defaults.
+    // The settings, from the control panel's defaults.
     void applySettings()
     {
         if (!_cameraComponent) {

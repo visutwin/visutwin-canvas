@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 30.09.2026
+//
 #pragma once
 
 #include <algorithm>
@@ -32,8 +35,8 @@ namespace visutwin::canvas
         }
 
         /// Reflow every active group whose inputs changed, outermost first so a nested group
-        /// sees the size its parent gave it, and again until no group changes (upstream
-        /// `_processReflowQueue`, with the same limit of 100 passes).
+        /// sees the size its parent gave it, and again until no group changes (at most
+        /// 100 passes).
         void processReflows()
         {
             constexpr int kMaxIterations = 100;

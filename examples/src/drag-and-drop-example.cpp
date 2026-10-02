@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 30.09.2026
+//
 // Port of upstream user-interface/drag-and-drop.
 //
 // Equipping gear by drag and drop. An ElementDragHelper makes each item follow the pointer, and

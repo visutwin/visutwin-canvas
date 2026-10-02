@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 10.09.2025.
+// Created by Arnis Lektauers on 10.09.2025
 //
 #pragma once
 
@@ -39,7 +39,7 @@ namespace visutwin::canvas
             return static_cast<T*>(create(T::scriptName()));
         }
 
-        /// The script of that name on this component, or null (upstream `get`).
+        /// The script of that name on this component, or null.
         Script* get(const std::string& name) const
         {
             const auto it = _scriptsIndex.find(name);

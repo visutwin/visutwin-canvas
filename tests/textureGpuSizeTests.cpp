@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 16.09.2026
+//
 // Texture VRAM accounting is a running total: Texture's constructor adds
 // TextureUtils::calcGpuSize and its destructor subtracts it, so an error here does
 // not read as a wrong number once — it makes the total DRIFT, and only while

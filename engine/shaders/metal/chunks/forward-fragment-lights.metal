@@ -13,18 +13,18 @@
 
         // The source's shape (LightShape; 0 punctual): an area light keeps its type's
         // cone, cookie and shadow, takes only the range window as distance falloff, and
-        // is shaded with LTC below (upstream lightFunctionLight, LIGHT{i}SHAPE).
+        // is shaded with LTC below.
         const uint lightShape = uint(light.areaHalfWidth.w + 0.5);
         float3 L = float3(0.0, 1.0, 0.0);
         float attenuation = 1.0;
         float3 lightDirW = float3(0.0);
-        // Light cookie (upstream lightFunctionLight.js): a projected texture that
+        // Light cookie: a projected texture that
         // masks the light color. Multiplied into the radiance below, BEFORE any
         // falloff — the two are independent.
         float3 cookieMask = float3(1.0);
         // A cookie with cookieFalloff disabled replaces the cone falloff entirely:
-        // the projection's own clip bounds the beam instead (upstream skips
-        // getSpotEffect in exactly that case).
+        // the projection's own clip bounds the beam instead (getSpotEffect is
+        // skipped in exactly that case).
         bool cookieReplacesConeFalloff = false;
         if (lightType == 0u) {
             const float3 lightDir = light.directionCone.xyz;
@@ -70,8 +70,8 @@
                         ? lighting.cookieMatrixCube0 : lighting.cookieMatrixCube1;
                     const float4 cookieParams = (cookieIdx == 0u)
                         ? lighting.cookieParamsCube0 : lighting.cookieParamsCube1;
-                    // Upstream samples by dLightDirNormW, which points from the
-                    // light to the fragment — the opposite of our L.
+                    // The cube is sampled by the direction from the light to the
+                    // fragment — the opposite of our L.
                     cookieMask = (cookieIdx == 0u)
                         ? getCookieCube(cookieTextureCube0, cookieXform, -dLightDirNormW,
                                         cookieParams.x, cookieChannel)
@@ -120,7 +120,7 @@
             const float4x4 shadowMatrix = (shadowIdx == 0u) ? lighting.localShadowMatrix0 : lighting.localShadowMatrix1;
             const float4 shadowParamsLocal = (shadowIdx == 0u) ? lighting.localShadowParams0 : lighting.localShadowParams1;
             const float4 pcssLocal = (shadowIdx == 0u) ? lighting.localShadowPcss0 : lighting.localShadowPcss1;
-            // A VSM spot (pcss.w): no normal offset, as upstream's VSM path takes none.
+            // A VSM spot (pcss.w): no normal offset.
             const bool localVsm = pcssLocal.w > 0.5;
 
             // Apply normal bias in world space, scaled by sin(angle) between
@@ -142,7 +142,7 @@
                 // shadows — runtime uniform branch, no extra shader variant.
                 float visible = 1.0;
                 if (localVsm) {
-                    // Upstream getShadowSpotVSM16: the receiver is its distance over the
+                    // The receiver is its distance over the
                     // range (pcss.z, the shadow camera's far), less the 0.0002 bias, and
                     // params.y is the Chebyshev variance bias.
                     const float receiverRatio = length(lightDirW) / pcssLocal.z - shadowParamsLocal.x;
@@ -281,17 +281,15 @@
 
 #if VT_FEATURE_AREA_LIGHTS
         if (lightShape != 0u) {
-            // Area light — LTC (linearly transformed cosines), upstream ltc.js and
-            // lightFunctionLight's non-punctual path. The world half axes are the
-            // light's scaled X and Z (upstream light_halfWidth / light_halfHeight).
+            // Area light — LTC (linearly transformed cosines). The world half axes
+            // are the light's scaled X and Z.
             const float3 lightPos = light.positionRange.xyz;
             const LtcAreaLight area = ltcAreaLight(lightShape, lightPos, light.areaHalfWidth.xyz,
                 light.areaHalfHeight.xyz, N, cameraPosition);
             const float3 areaRadiance = lightColor * cookieMask * lightIntensity * attenuation * shadowFactor;
             const float3 ltcSpecFres = ltcSpecularFresnel(N, V, gloss, F0, areaLightsLutTex2);
 
-            // A directional source keeps plain Lambert (upstream: "a better approximation
-            // perhaps using wrap lighting could be implemented here"); a local one
+            // A directional source keeps plain Lambert; a local one
             // integrates its shape. LTC lights do not mix diffuse into the specular.
             const float ltcDiffuse = (lightType == 0u)
                 ? max(dot(N, L), 0.0)
@@ -338,7 +336,7 @@
         F = mix(F, iridFresnel, iridIntensity);
 #endif
         // With area lights in the variant, a punctual light's diffuse is scaled by
-        // (1 - specularity), as upstream does under AREA_LIGHTS (the LTC lights take
+        // (1 - specularity) (the LTC lights take
         // (1 - their Fresnel) the same way).
 #if VT_FEATURE_AREA_LIGHTS && !VT_FEATURE_NO_SPECULAR
         const float3 punctualDiffuseScale = float3(1.0) - F0;

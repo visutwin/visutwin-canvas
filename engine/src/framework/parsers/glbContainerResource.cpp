@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 20.12.2025.
+// Created by Arnis Lektauers on 20.12.2025
 //
 #include "glbContainerResource.h"
 
@@ -49,7 +49,7 @@ namespace visutwin::canvas
         }
 
         // A camera goes on the node itself: glTF and this engine both look down -Z.
-        // Imported DISABLED, as upstream's createCamera does — a model does not
+        // Imported DISABLED — a model does not
         // get to take over the view; the app enables the one it wants.
         void addNodeCamera(Entity* nodeEntity, const GlbCameraPayload& payload)
         {
@@ -72,8 +72,8 @@ namespace visutwin::canvas
         }
 
         // A light goes on a CHILD turned 90 degrees about X: a glTF light shines down
-        // its node's -Z, a light here down -Y (upstream adds the same extra entity,
-        // named after the node). Imported DISABLED, as upstream's createLight does.
+        // its node's -Z, a light here down -Y (the extra entity is
+        // named after the node). Imported DISABLED.
         void addNodeLight(Entity* nodeEntity, const GlbLightPayload& payload)
         {
             auto* lightEntity = new Entity();
@@ -94,7 +94,7 @@ namespace visutwin::canvas
         }
 
         // KHR_gaussian_splatting: the first splat set on the node's entity, each
-        // further one on a child named after it (upstream's layout).
+        // further one on a child named after it.
         void addNodeSplats(Entity* nodeEntity, const std::vector<std::shared_ptr<GSplatResource>>& splats)
         {
             for (size_t splat = 0; splat < splats.size(); ++splat) {
@@ -141,9 +141,9 @@ namespace visutwin::canvas
         const std::vector<Entity*> sceneRoots = collectSceneRoots(nodeEntities);
 
         // A scene with a single root node IS the returned hierarchy root — no wrapper
-        // entity (upstream glb-parser.js `createScenes`). This matters to callers:
-        // setLocalScale() on the result then REPLACES the root node's own scale the way
-        // it does upstream, instead of multiplying with it. Only multi-root scenes (and
+        // entity. This matters to callers:
+        // setLocalScale() on the result then REPLACES the root node's own scale,
+        // instead of multiplying with it. Only multi-root scenes (and
         // the node-less fallback above) get a wrapper.
         Entity* root = sceneRoots.size() == 1 ? sceneRoots.front() : new Entity();
 

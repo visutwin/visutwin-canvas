@@ -1,4 +1,4 @@
-// ── Light cookies (upstream cookie.js; mirrors common-cookie.metal) ──
+// ── Light cookies (mirrors common-cookie.metal) ──
 // Every cookie sample below uses textureLod(..., 0.0). The samples sit inside the
 // per-light loop, behind fragment-varying `continue`s, so screen-space derivatives
 // there are undefined — and an undefined LOD reads a fully averaged mip, which
@@ -6,12 +6,12 @@
 // DEVIATION: upstream samples cookies with mipmapping.
 // A texture the light projects onto the scene, masking its color: a 2D texture
 // projected through a spot's beam, a cubemap sampled by direction for an omni.
-// Upstream's getCookie2DXform: the offset rides the projection matrix (the
+// The 2D cookie transform: the offset rides the projection matrix (the
 // renderer pre-multiplies it); the 2x2 transform is applied about the cookie
-// centre after the clip test, as upstream orders them.
+// centre after the clip test.
 
-// Upstream's cookieChannel is a 3-character swizzle ('rgb', or a single channel
-// repeated, e.g. 'a' → 'aaa'). CookieChannel carries the same five options.
+// A cookie channel is a 3-character swizzle ('rgb', or a single channel
+// repeated, e.g. 'a' → 'aaa'). CookieChannel carries those five options.
 vec3 cookieChannelValue(vec4 texel, uint channel) {
     if (channel == 1u) return vec3(texel.r);
     if (channel == 2u) return vec3(texel.g);
@@ -20,7 +20,7 @@ vec3 cookieChannelValue(vec4 texel, uint channel) {
     return texel.rgb;
 }
 
-// Spot cookie. `clip` mirrors upstream's getCookie2DClip, used when the cone
+// Spot cookie. `clip` is used when the cone
 // falloff is disabled and the projection alone must bound the beam.
 vec3 getCookie2D(int slot, vec3 worldPos, uint channel, bool clip) {
     mat4 transform = (slot == 0) ? lighting.cookieMatrix2D0 : lighting.cookieMatrix2D1;
@@ -45,8 +45,8 @@ vec3 getCookie2D(int slot, vec3 worldPos, uint channel, bool clip) {
 }
 
 // Omni cookie. The light's world transform rotates the world-space
-// light→fragment direction into cookie cube space (upstream's
-// `dLightDirNormW * mat3(transform)` — the inverse rotation for an orthonormal
+// light→fragment direction into cookie cube space (multiplying by
+// `mat3(transform)` on the right — the inverse rotation for an orthonormal
 // basis). The X flip matches the cube convention used elsewhere in the engine.
 vec3 getCookieCube(int slot, vec3 lightToFrag, uint channel) {
     mat4 transform = (slot == 0) ? lighting.cookieMatrixCube0 : lighting.cookieMatrixCube1;

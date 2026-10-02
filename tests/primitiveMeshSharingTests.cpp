@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Every render component of one primitive type shares ONE mesh per device (upstream's
-// getShapePrimitive). A component that built its own geometry and GPU buffers would give
+// Created by Arnis Lektauers on 30.09.2026
+//
+// Every render component of one primitive type shares ONE mesh per device. A component that built its own geometry and GPU buffers would give
 // ten thousand boxes ten thousand box meshes, and a setMaterial that rebuilt the
 // primitive would build it twice in the usual setType-then-setMaterial order. None of
 // that shows in a frame: a shared mesh and a private copy render the same pixels. So the
 // buffers are counted here, on a device whose buffers count themselves:
 //
 //  - components of one type share a mesh, and a different type has its own;
-//  - setMaterial swaps the instance's material in place, as upstream: no rebuild, and
+//  - setMaterial swaps the instance's material in place: no rebuild, and
 //    the instance keeps what was set on it;
 //  - the cache holds meshes WEAKLY (a deviation): the last component to go frees the
 //    mesh, and the next one builds it again;

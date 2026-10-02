@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 01.10.2025.
+// Created by Arnis Lektauers on 01.10.2025
 //
 
 #include "light.h"
@@ -30,7 +30,7 @@ namespace visutwin::canvas
 
     const std::array<Vector4, 4>& Light::directionalCascadeLayout(const int numCascades)
     {
-        // Directional cascades layout (upstream directionalCascades):
+        // Directional cascades layout:
         //   1 cascade: full texture [(0,0,1,1)]
         //   2 cascades: 2×1 vertical strip [(0,0,0.5,0.5), (0,0.5,0.5,0.5)]
         //   3 cascades: 3 of 4 quadrants
@@ -116,7 +116,7 @@ namespace visutwin::canvas
     void Light::setShadowResolution(int value)
     {
         value = std::max(value, 1);
-        // Upstream's clamp, against the limits the device publishes. A Light
+        // Clamp against the limits the device publishes. A Light
         // built without a device (nothing does today, but the constructor still
         // takes a null one) keeps the authored value and is caught by the same
         // clamp in ShadowMap::create instead.
@@ -149,15 +149,15 @@ namespace visutwin::canvas
     {
         // VSM renders its EVSM moments into an RGBA16F COLOUR attachment, which is
         // an optional capability. Without it the type cannot be rendered at all, so
-        // fall back to PCF3 rather than hand the backend a target it will refuse —
-        // upstream's `light.js` fallback, keyed on textureHalfFloatRenderable().
+        // fall back to PCF3 rather than hand the backend a target it will refuse,
+        // keyed on textureHalfFloatRenderable().
         if (requested == SHADOW_VSM_16F && _device && !_device->textureHalfFloatRenderable()) {
             spdlog::warn("Light: VSM_16F needs half-float render targets, which this "
                 "device lacks — falling back to PCF3");
             return SHADOW_PCF3_32F;
         }
         // VSM is rendered and sampled for directional and spot lights. An omni light
-        // falls back to PCF3, as upstream's (`light.js`: VSM is not supported for omni).
+        // falls back to PCF3 (VSM is not supported for omni).
         if (requested == SHADOW_VSM_16F && _type == LightType::LIGHTTYPE_OMNI) {
             static bool warned = false;
             if (!warned) {
@@ -178,7 +178,7 @@ namespace visutwin::canvas
         _type = value;
         // The shadow type a request resolves to depends on the light type (VSM is not
         // supported for omni), and the map's shape does too (a cube for omni), so the
-        // render data and the map are rebuilt, as upstream's type setter does.
+        // render data and the map are rebuilt.
         _shadowType = resolveShadowType(_requestedShadowType);
         _renderData.clear();
         destroyShadowMap();
@@ -239,8 +239,7 @@ namespace visutwin::canvas
             return BoundingSphere(position, _range);
         }
 
-        // Upstream's cone bound (light.js getBoundingSphere, after Bart Wronski's
-        // "cull that cone"). A spot's range SPHERE is a poor bound for anything but
+        // The cone bound (after Bart Wronski's "cull that cone"). A spot's range SPHERE is a poor bound for anything but
         // a very wide cone: at 20 degrees the cone occupies about 3% of it, so
         // bounding by the sphere leaves a narrow spot lighting — and re-rendering
         // its shadow map — from most of the places it cannot reach.
@@ -250,9 +249,7 @@ namespace visutwin::canvas
         // that passes through the apex and the rim, which has radius
         // range / (2 cos) and is centred that far along the axis.
         //
-        // The light shines along its node's NEGATIVE Y (LightComponent::direction),
-        // which is upstream's convention too — upstream spells the same arithmetic
-        // with the node's up vector and a negated scale.
+        // The light shines along its node's NEGATIVE Y (LightComponent::direction).
         Vector3 axis = Vector3(world.getColumn(1)) * -1.0f;
         if (axis.lengthSquared() < 1e-8f) {
             axis = Vector3(0.0f, -1.0f, 0.0f);

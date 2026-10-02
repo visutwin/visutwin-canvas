@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 13.07.2026.
+// Created by Arnis Lektauers on 13.07.2026
 //
 #include "particleEmitter.h"
 #include "particleSimShaders.h"
@@ -72,7 +72,7 @@ namespace visutwin::canvas
 
     ParticleEmitterOptions::ParticleEmitterOptions()
     {
-        // Upstream's defaults (default1Curve / default1Curve3): constant scale 1, white, opaque.
+        // The defaults: constant scale 1, white, opaque.
         scaleGraph.add(0.0f, 1.0f);
         colorGraph.curves.resize(3);
         colorGraph.curves[0].add(0.0f, 1.0f);
@@ -161,7 +161,7 @@ namespace visutwin::canvas
         // texture path.
         _material->setBaseColorTexture(_options.colorMap);
         _material->setHasBaseColorTexture(_options.colorMap != nullptr);
-        // A lit particle's normal map, at the material's normal slot (upstream binds it only
+        // A lit particle's normal map, at the material's normal slot (bound only
         // with lighting on).
         Texture* normalMap = _options.lighting ? _options.normalMap : nullptr;
         _material->setNormalTexture(normalMap);
@@ -216,7 +216,7 @@ namespace visutwin::canvas
         auto scale = _options.scaleGraph.quantize(kCurveSamples);
         auto alpha = _options.alphaGraph.quantize(kCurveSamples);
         auto color = _options.colorGraph.quantize(kCurveSamples);
-        // graph2: an unset one is the graph itself (upstream's default).
+        // graph2: an unset one is the graph itself.
         auto scale2 = _options.scaleGraph2.length() > 0 ? _options.scaleGraph2.quantize(kCurveSamples) : scale;
         auto alpha2 = _options.alphaGraph2.length() > 0 ? _options.alphaGraph2.quantize(kCurveSamples) : alpha;
         const size_t colorChannels = _options.colorGraph.curves.size();
@@ -237,7 +237,7 @@ namespace visutwin::canvas
         }
 
         // The velocity and rotation-speed graphs go to the simulation. A missing graph2 is
-        // the graph itself (upstream), and a missing graph contributes zero. "Missing" means
+        // the graph itself, and a missing graph contributes zero. "Missing" means
         // no curve has a key: a default CurveSet holds one EMPTY curve, and reading that as a
         // zero graph2 halved every velocity graph on average (a random point between it and 0).
         const auto quantizeSet = [](CurveSet& graph, float (*lut)[4]) {
@@ -315,7 +315,7 @@ namespace visutwin::canvas
 
     void ParticleEmitter::reset()
     {
-        // Upstream's start times: particle i is born at i * rate, so rate 0 is a burst.
+        // Start times: particle i is born at i * rate, so rate 0 is a burst.
         // A life <= 0 is unborn; the kernel places the particle when it is born.
         const float rate = std::max(_options.rate, 0.0f);
         std::vector<GpuParticle> particles(_options.numParticles);
@@ -344,7 +344,7 @@ namespace visutwin::canvas
     void ParticleEmitter::update(const float dt, const Matrix4& emitterTransform)
     {
         if (_prewarmPending) {
-            // Upstream prewarm(lifetime): the simulation runs one lifetime in 32 steps.
+            // Prewarm: the simulation runs one lifetime in 32 steps.
             _prewarmPending = false;
             constexpr int kPrewarmSteps = 32;
             const float lifetime = std::max(std::max(_options.lifetime, _options.lifetime2), 1e-4f);
@@ -446,7 +446,7 @@ namespace visutwin::canvas
         const Matrix4& model, const float viewportWidth, const float viewportHeight)
     {
         if (_options.screenSpace) {
-            // Screen space (upstream SCREEN_SPACE): the node's world transform lands in clip
+            // Screen space: the node's world transform lands in clip
             // space already, so neither the camera's view nor its projection applies.
             _renderParams.modelView = _options.localSpace ? model : Matrix4::identity();
             _renderParams.projection = Matrix4::identity();
@@ -467,13 +467,13 @@ namespace visutwin::canvas
         _renderParams.motionParams[0] = _options.alignToMotion ? 1.0f : 0.0f;
         _renderParams.motionParams[1] = std::max(_options.stretch, 0.0f);
         _renderParams.motionParams[2] = _options.screenSpace ? 1.0f : 0.0f;
-        // Upstream #9570: a screen-space quad's x is scaled by height / width to stay square.
+        // A screen-space quad's x is scaled by height / width to stay square.
         _renderParams.motionParams[3] = viewportWidth > 0.0f && viewportHeight > 0.0f
             ? viewportHeight / viewportWidth : 1.0f;
         _renderParams.view = view;
         _renderParams.outputParams[3] = orderBuffer() ? 1.0f : 0.0f;
 
-        // Upstream _compParticleFaceParams: a WORLD or EMITTER oriented quad lies in the
+        // A WORLD or EMITTER oriented quad lies in the
         // plane of particleNormal (turned by the emitter for EMITTER).
         const bool useMesh = meshVertexBuffer() != nullptr;
         if (_options.orientation != ParticleOrientation::SCREEN && !_options.screenSpace) {
@@ -496,7 +496,7 @@ namespace visutwin::canvas
         }
         _renderParams.faceBinorm[3] = useMesh ? 1.0f : 0.0f;
 
-        // Upstream wrap: GPU, world-space particles only, around the emitter's position.
+        // Wrap: GPU, world-space particles only, around the emitter's position.
         const bool wrap = _options.wrap && !_options.localSpace && !_options.screenSpace &&
             _options.wrapBounds.getX() > 0.0f && _options.wrapBounds.getY() > 0.0f && _options.wrapBounds.getZ() > 0.0f;
         _options.wrapBounds.store(_renderParams.wrapParams);
@@ -520,7 +520,7 @@ namespace visutwin::canvas
 
     void ParticleEmitter::setSoftening(const float cameraNear, const float cameraFar, const bool sceneDepthAvailable)
     {
-        // Upstream remaps the softening "to more perceptually linear": 1 / (s^2 * 100).
+        // The softening is remapped to be more perceptually linear: 1 / (s^2 * 100).
         const float s = _options.depthSoftening;
         _renderParams.softParams[0] = s > 0.0f ? 1.0f / (s * s * 100.0f) : 0.0f;
         _renderParams.softParams[1] = cameraNear;
@@ -614,7 +614,7 @@ namespace visutwin::canvas
 
     std::unique_ptr<MeshInstance> ParticleEmitter::createMeshInstance(GraphNode* node)
     {
-        // A mesh emitter draws its mesh once per particle (upstream useMesh); its vertices are
+        // A mesh emitter draws its mesh once per particle; its vertices are
         // also read as storage, by index.
         const bool useMesh = meshVertexBuffer() != nullptr;
         if (_options.mesh && !useMesh) {

@@ -38,7 +38,7 @@ namespace visutwin::canvas
      * These methods are entirely optional but provide a useful way to manage the lifecycle of a
      * script and perform any necessary setup and cleanup.
      *
-     * A script fires upstream's lifecycle events on itself:
+     * A script fires lifecycle events on itself:
      * - `enable` / `disable` - when enabled() changes: its own flag, its component's, or its
      *   entity's (or an ancestor's) hierarchy state. A script disabled by its entity being
      *   destroyed fires `disable` first.
@@ -81,25 +81,25 @@ namespace visutwin::canvas
 
         /*
          * Called on a script that Entity::clone created, before it initializes, with the
-         * source entity's script of the same name. It stands in for upstream's copy of
-         * script ATTRIBUTES, which this port does not have: copy whatever configuration
+         * source entity's script of the same name. It stands in for a copy of
+         * script ATTRIBUTES, which scripts here do not have: copy whatever configuration
          * the clone should share. The default copies nothing, so a clone starts from the
          * script's defaults.
          */
         virtual void cloneFrom(const Script& /*source*/) {}
 
         /*
-         * Called once the whole cloned subtree exists (upstream remaps entity-typed
-         * attributes here): point a reference into the source subtree at its copy with
+         * Called once the whole cloned subtree exists: point a reference into the
+         * source subtree at its copy with
          * Component::remapCloned(pointer, map).
          */
         virtual void resolveClonedReferences(const Script& /*source*/, const CloneNodeMap& /*map*/) {}
 
-        /// The script's own flag AND its component's active state (upstream `enabled`).
+        /// The script's own flag AND its component's active state.
         bool enabled() const;
 
         /// The script's own flag. Enabling a script that has not initialized initializes it
-        /// once its component is active, as upstream's setter does; a change of enabled()
+        /// once its component is active; a change of enabled()
         /// fires `enable` or `disable`, then `state`.
         void setEnabled(bool value);
 
@@ -114,8 +114,7 @@ namespace visutwin::canvas
 
         /// The phases T OVERRIDES — itself or through a base between it and Script —
         /// decided at compile time: `&T::update` names Script's own member exactly when
-        /// nothing overrode it. A script is only visited in a phase it implements, as
-        /// upstream keeps a script out of its update list when it defines no `update`;
+        /// nothing overrode it. A script is only visited in a phase it implements:
         /// calling every script in all three phases is three sweeps of every script in
         /// the application for scripts that mostly implement one. Where the member
         /// cannot be named (it is overloaded, or not accessible) the phase counts as
@@ -156,8 +155,8 @@ namespace visutwin::canvas
         friend class ScriptComponent;
 
         // Fires `enable` / `disable` and `state` when the effective state, the script's
-        // own flag AND `componentActive`, differs from the last one reported (upstream
-        // `_enabledOld`). Passed in rather than read, because a component is told it is
+        // own flag AND `componentActive`, differs from the last one reported. Passed
+        // in rather than read, because a component is told it is
         // disabled while its entity still reads as enabled (Entity::destroy).
         void syncState(bool componentActive);
 

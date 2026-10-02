@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 //
 #include "renderPassDof.h"
 
@@ -76,7 +78,7 @@ namespace visutwin::canvas
         }
 
         if (_blurPass) {
-            // upstream FramePassDof.frameUpdate: one radius for both; the quality
+            // One radius for both; the quality
             // level changes the textures' resolution, not the radius.
             _blurPass->setBlurRadiusNear(_blurRadius);
             _blurPass->setBlurRadiusFar(_blurRadius);

@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 25.09.2026
+//
 // These glTF extensions, checked through BOTH halves of the load pipeline on a model
 // built in memory:
 //
 //  - KHR_materials_sheen / _specular / _iridescence / _anisotropy land on the
 //    StandardMaterial, and the two uniforms they feed pack as the shaders expect:
-//    the metalness workflow's non-metal F0 (upstream getSpecularModulate) and the
+//    the metalness workflow's non-metal F0 and the
 //    anisotropy direction (cos, sin). The defaults must pack to EXACTLY 0.04 and
 //    (1, 0), the constants they stand in for, or every frame without them moves.
 //  - EXT_mesh_gpu_instancing: one TRS matrix per instance, in the NODE's space, so

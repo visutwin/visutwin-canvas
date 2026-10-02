@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 29.09.2026
+//
 #include "textLayout.h"
 
 #include <algorithm>
@@ -11,7 +14,7 @@ namespace visutwin::canvas
     namespace
     {
         bool isWhitespace(const char32_t c) { return c == U' ' || c == U'\t'; }
-        // Upstream LINE_BREAK_CHAR: '\r' breaks a line as '\n' does (so "\r\n" is two breaks).
+        // '\r' breaks a line as '\n' does (so "\r\n" is two breaks).
         bool isLineBreak(const char32_t c) { return c == U'\n' || c == U'\r'; }
 
         /// The glyph drawn for `code`: the character itself, else the space.
@@ -34,8 +37,8 @@ namespace visutwin::canvas
             int prev = -1;
             for (size_t i = begin; i < end; ++i) {
                 const int code = static_cast<int>(symbols[i]);
-                // A line break inside a line (the last of `maxLines`) takes no space, as upstream
-                // skips it before any advance.
+                // A line break inside a line (the last of `maxLines`) takes no space: it is
+                // skipped before any advance.
                 if (isLineBreak(symbols[i])) {
                     prev = code;
                     continue;
@@ -109,7 +112,7 @@ namespace visutwin::canvas
         const auto pushLine = [&](const size_t begin, const size_t end, const int gaps = 0) {
             m.lines.push_back({begin, end, rangeWidth(font, symbols, begin, end, m.scale, m.spacing), gaps});
         };
-        // Upstream's gap count: a whitespace run followed by a visible symbol, after the line's
+        // Gap count: a whitespace run followed by a visible symbol, after the line's
         // first visible symbol. Trailing whitespace is no gap.
         const auto interiorGaps = [&symbols](const size_t begin, const size_t end) {
             int gaps = 0;
@@ -131,7 +134,7 @@ namespace visutwin::canvas
 
         size_t start = 0;
         size_t lastBreak = 0;   // the first symbol after the latest whitespace; 0 = none on this line
-        // Upstream `maxLines`: on the last line allowed nothing breaks any more, so the rest of
+        // `maxLines`: on the last line allowed nothing breaks any more, so the rest of
         // the text runs on in it, past the width, line breaks included (and drawn as nothing).
         const auto mayBreak = [&m, maxLines]() {
             return maxLines < 0 || static_cast<int>(m.lines.size()) + 1 < maxLines;
@@ -166,7 +169,7 @@ namespace visutwin::canvas
         }
         pushLine(start, symbols.size());
 
-        // Upstream grows its width and height glyph by glyph, so an empty text measures
+        // Width and height grow glyph by glyph, so an empty text measures
         // 0 x 0 and the height ends at the last line that HAS a glyph (a trailing line
         // break adds nothing).
         int lastLineWithGlyph = -1;
@@ -191,7 +194,7 @@ namespace visutwin::canvas
         std::vector<PlacedGlyph> glyphs;
         glyphs.reserve(symbols.size());
 
-        // Upstream's vertical placement: the first line's pen at 0 and each next one a line
+        // Vertical placement: the first line's pen at 0 and each next one a line
         // step lower, the block placed by the alignment:
         //   voffset = (1 - pivot.y) H - fontMaxY - (1 - align.y) (H - height)
         // The box may be INVERTED (a split axis whose margins cross); the formula holds.
@@ -200,7 +203,7 @@ namespace visutwin::canvas
         for (size_t li = 0; li < m.lines.size(); ++li) {
             const TextLine& line = m.lines[li];
             // A justified line is flush with both edges, and spreads what it has left over
-            // evenly between its words instead of aligning (upstream _updateMeshes).
+            // evenly between its words instead of aligning.
             const float slack = boxWidth - line.width;
             const bool justified = justify && line.gaps > 0 && slack > 0.0f;
             const float gapWidth = justified ? slack / static_cast<float>(line.gaps) : 0.0f;
@@ -236,7 +239,7 @@ namespace visutwin::canvas
                 const float kerning = prev >= 0 ? font.kerningValue(prev, code) : 0.0f;
                 const float gapShift = gapWidth * static_cast<float>(gapIndex);
 
-                // Glyph placement mirrors upstream text-element.js exactly:
+                // Glyph placement:
                 //
                 //   left   = pen - (xoffset - kerning) * scale
                 //   bottom = penY - yoffset * scale

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Compose post-processing pass implementation.
 // Extracted from MetalGraphicsDevice.
 //
@@ -53,7 +55,7 @@ namespace visutwin::canvas
 
         if (!_vertexBuffer && _vertexFormat) {
             // DEVIATION: Metal/WebGPU texture UV origin is top-left (V=0 at top).
-            // Upstream handles this via getImageEffectUV() Y-flip in shader.
+            // Upstream flips Y in its shader.
             // We flip UV.y here: clip Y=-1 (bottom) -> UV.y=1 (bottom of texture),
             // clip Y=+1 (top) -> UV.y=0 (top of texture).
             constexpr float vertexData[3 * 14] = {

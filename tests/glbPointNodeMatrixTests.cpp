@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 22.09.2026
+//
 // glTF node MATRIX on the merged point-cloud path.
 //
 // GlbParser::parse bakes every static POINTS primitive into one world-space

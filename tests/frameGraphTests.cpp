@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 25.09.2026
+//
 // FrameGraph::compile on a stub device: the load/store contract it derives between
 // passes that share a target, pass merging, before-pass ordering, and that its edits
 // to a PERSISTENT pass's attachment flags last one frame.

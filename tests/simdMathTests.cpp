@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 06.09.2026
+//
 // Contracts the four SIMD math backends (scalar, SSE, Apple, NEON) must all satisfy.
 // Each was chosen because one backend broke it while the others did not, which is
 // exactly the kind of defect no single-architecture test run catches:

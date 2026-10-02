@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 02.10.2026
+//
 #include "gizmo.h"
 
 #include <algorithm>
@@ -25,7 +28,7 @@ namespace visutwin::canvas
 {
     namespace
     {
-        // upstream constants
+        // gizmo constants
         constexpr float MIN_SCALE = 1e-4f;
         constexpr float PERS_SCALE_RATIO = 0.3f;
         constexpr float ORTHO_SCALE_RATIO = 0.32f;
@@ -353,7 +356,7 @@ namespace visutwin::canvas
         }
         MeshInstance* selection = getSelection(x, y);
 
-        // Capture the pointer during the drag (upstream setPointerCapture), so a drag that
+        // Capture the pointer during the drag, so a drag that
         // leaves the window keeps reporting.
         if (!_captured) {
             _captured = SDL_CaptureMouse(true);
@@ -490,7 +493,7 @@ namespace visutwin::canvas
         if (selection.empty()) {
             return nullptr;
         }
-        // Upstream sorts the hits with this comparator and takes the first: two prioritised
+        // The hits order by this comparator and the first is taken: two prioritised
         // hits order by priority, any other pair by distance. It is not a strict weak order
         // (a sort may not be handed it), so the first is found by a scan that replaces the
         // best only on "less".

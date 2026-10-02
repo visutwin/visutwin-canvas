@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 11.09.2025.
+// Created by Arnis Lektauers on 11.09.2025
 //
 #pragma once
 
@@ -54,7 +54,7 @@ namespace visutwin::canvas
 
         /**
          * How this layer orders its opaque and its transparent draws. The defaults
-         * are upstream's and are what the renderer always did: group the opaque pass
+         * are what the renderer always did: group the opaque pass
          * by material to keep state changes down, and draw the transparent pass
          * farthest-first so it composites.
          */

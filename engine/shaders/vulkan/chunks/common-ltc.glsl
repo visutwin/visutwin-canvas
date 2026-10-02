@@ -13,9 +13,9 @@ vec2 ltcUv(vec3 N, vec3 V, float perceptualRoughness) {
     return uv * ((LTC_LUT_SIZE - 1.0) / LTC_LUT_SIZE) + (0.5 / LTC_LUT_SIZE);
 }
 
-// Range window only (upstream getFalloffWindow): a non-punctual light gets its
+// Range window only: a non-punctual light gets its
 // physical distance falloff from the LTC form factor, so only the artist-set
-// range is applied here. Range 0 is clamped, as upstream and the Metal chunk do,
+// range is applied here. Range 0 is clamped, as the Metal chunk does,
 // so it extinguishes the light rather than lifting the range limit (the renderer
 // never uploads less than 1e-4 anyway).
 float ltcFalloffWindow(float range, vec3 toLight) {
@@ -77,7 +77,7 @@ float ltcEvaluateRect(vec3 N, vec3 V, vec3 P, mat3 mInv,
 }
 
 // Extended cubic solver from "How to solve a cubic equation, revisited"
-// (http://momentsingraphics.de/?p=105) — upstream SolveCubic.
+// (http://momentsingraphics.de/?p=105).
 vec3 ltcSolveCubic(vec4 coefficient) {
     const float pi = 3.14159;
     coefficient.xyz /= coefficient.w;
@@ -140,8 +140,8 @@ vec3 ltcSolveCubic(vec4 coefficient) {
     return root;
 }
 
-// LTC integral of a disk light inscribed in the quad p0/p1/p2 (upstream
-// LTC_EvaluateDisk). LUT2's w channel holds the horizon-clipped sphere scale.
+// LTC integral of a disk light inscribed in the quad p0/p1/p2.
+// LUT2's w channel holds the horizon-clipped sphere scale.
 float ltcEvaluateDisk(vec3 N, vec3 V, vec3 P, mat3 mInv,
                       vec3 p0, vec3 p1, vec3 p2) {
     // orthonormal basis around N
@@ -235,7 +235,7 @@ float ltcEvaluateDisk(vec3 N, vec3 V, vec3 P, mat3 mInv,
     float scale = textureLod(areaLightLut2, uv, 0.0).w;
     float result = formFactor * scale;
 
-    // upstream FixNan: the disk evaluator rarely produces NaNs; zero them
+    // FixNan: the disk evaluator rarely produces NaNs; zero them
     // before they spread through bloom/DOF blurs.
     return isnan(result) ? 0.0 : result;
 }
@@ -243,8 +243,7 @@ float ltcEvaluateDisk(vec3 N, vec3 V, vec3 P, mat3 mInv,
 
 // ── A light with a non-punctual shape (LightShape 1 rect, 2 disk, 3 sphere), as both
 // the main light loop and the cluster loop evaluate it. Twin of the helpers at the end
-// of common-ltc.metal (upstream calc{Rect,Disk,Sphere}LightValues, get*LightDiffuse and
-// get*LightSpecular). The corners come back through p0..p3.
+// of common-ltc.metal. The corners come back through p0..p3.
 float ltcAreaLight(uint shape, vec3 lightPos, vec3 halfWidth, vec3 halfHeight, vec3 N,
                    vec3 cameraPosition, out vec3 p0, out vec3 p1, out vec3 p2, out vec3 p3) {
     float sphereRadius = max(length(halfWidth), length(halfHeight));
@@ -271,7 +270,7 @@ float ltcAreaDiffuse(uint shape, float sphereRadius, vec3 lightPos, vec3 N, vec3
         return ltcEvaluateDisk(N, V, P, mat3(1.0), p0, p1, p2) * 16.0;
     }
     if (shape == 3u) {
-        // Punctual Lambert with a radius-based falloff (upstream getSphereLightDiffuse).
+        // Punctual Lambert with a radius-based falloff.
         vec3 toLight = lightPos - P;
         float falloff = sphereRadius / (dot(toLight, toLight) + sphereRadius);
         return max(dot(N, normalize(toLight)), 0.0) * falloff * 16.0;
@@ -279,7 +278,7 @@ float ltcAreaDiffuse(uint shape, float sphereRadius, vec3 lightPos, vec3 N, vec3
     return ltcEvaluateRect(N, V, P, mat3(1.0), p0, p1, p2, p3) * 16.0;
 }
 
-// Upstream dLTCSpecFres: Fresnel magnitude and geometric attenuation from LUT2.
+// Fresnel magnitude and geometric attenuation from LUT2.
 vec3 ltcSpecularFresnel(vec3 N, vec3 V, float perceptualRoughness, vec3 F0) {
     vec4 t2 = textureLod(areaLightLut2, ltcUv(N, V, perceptualRoughness), 0.0);
     return F0 * t2.x + (vec3(1.0) - F0) * t2.y;

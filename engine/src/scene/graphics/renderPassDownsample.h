@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 //
 #pragma once
 
@@ -17,9 +19,9 @@ namespace visutwin::canvas
             Texture* premultiplyTexture = nullptr;
             char premultiplySrcChannel = 'x';
             bool removeInvalid = false;
-            // Soft-knee high pass on the output (upstream's PREFILTER), for the first
+            // Soft-knee high pass on the output, for the first
             // bloom downsample. A separate shader variant, so leave it off at threshold 0.
-            // Applies to the Karis filter only, as upstream's bloom uses it.
+            // Applies to the Karis filter only.
             bool prefilter = false;
         };
 

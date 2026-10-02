@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 15.09.2026
+//
 // Sizing and upload of the WideLineRenderer's per-segment instance buffer.
 //
 // Kept apart from the renderer so it can be tested against a stub device: the

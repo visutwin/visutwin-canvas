@@ -81,7 +81,7 @@
     }
 #endif
 
-    // Opacity map (upstream opacityMap, alpha channel), slot 34, flagged by bit 19.
+    // Opacity map (alpha channel), slot 34, flagged by bit 19.
     // Gated on the flag AND the runtime size: an unbound Metal texture reports a
     // nonzero width and samples zero, which would make the whole surface vanish.
     // Its UV is computed the way the shadow frontend computes it, so the forward
@@ -94,9 +94,9 @@
 
 #if VT_FEATURE_VERTEX_COLORS
     // Modulate base color by interpolated vertex color (already linearized in VS).
-    // upstream convention: RGB modulates diffuse, A modulates opacity.
-    // Upstream splits this across `diffuseVertexColor` and `emissiveVertexColor`;
-    // here the diffuse lane is on by default (bit 28 turns it OFF, so existing
+    // RGB modulates diffuse, A modulates opacity.
+    // Diffuse and emissive vertex colour are separate lanes;
+    // the diffuse lane is on by default (bit 28 turns it OFF, so existing
     // materials keep their behaviour) and bit 23 routes the color to emissive
     // instead — see forward-fragment-emissive.
     if ((material.flags & (1u << 28)) == 0u) {
@@ -106,7 +106,7 @@
 #endif
 
 #if VT_FEATURE_DEBUG_PASS
-    // DEBUGPASS_LIGHTING (upstream debug-process-frontend.js): neutralize albedo before it feeds
+    // DEBUGPASS_LIGHTING: neutralize albedo before it feeds
     // diffuseColor/F0, so the lit output below shows the lighting alone rather than the texture.
     // Unlike the other debug modes this one does not replace the output — it falls through to the
     // regular lit path in the tail chunk.
@@ -122,13 +122,13 @@
 #endif
 
 #if VT_FEATURE_OPACITY_DITHER
-    // Opacity dithering (upstream opacity-dither.js): screen-space ordered dither turns partial
+    // Opacity dithering: screen-space ordered dither turns partial
     // opacity into a discard pattern so transparency renders in the opaque pass with correct
     // depth. The matrix is chosen per material via flags bits 25-27 (DitherMode), a runtime value
     // rather than a shader variant. The pattern moves per frame while the camera jitters for
-    // TAA (lighting.ditherJitter, upstream blueNoiseJitter).
+    // TAA (lighting.ditherJitter).
     {
-        // Upstream's alphaDither decouples the two strengths: opacity keeps driving the alpha
+        // alphaDither decouples the two strengths: opacity keeps driving the alpha
         // blend while this value alone drives the dither density. Negative means unset, which
         // restores the coupled behaviour every material had before.
         const float ditherStrength = material.dispersionParams.y;
@@ -142,7 +142,7 @@
 
         // Coupled (legacy) use is an opaque-pass technique: the surviving fragments are fully
         // opaque, and forcing alpha keeps the target's alpha channel clean. Decoupled use is
-        // upstream's blend-AND-dither case, where alpha must survive to drive the blend.
+        // the blend-AND-dither case, where alpha must survive to drive the blend.
         if (!hasAlphaDither) {
             alpha = 1.0;
         }
@@ -150,7 +150,7 @@
 #endif
 
 #if VT_FEATURE_PICK
-    // Picker id pass (upstream SHADER_PICK): after the alpha test and dither have
+    // Picker id pass: after the alpha test and dither have
     // discarded what is not there, write the mesh instance's id, packed by the picker
     // into the base colour's rgb as exact 8-bit values. Nothing below runs.
     return float4(material.baseColor.rgb, 1.0);
@@ -159,10 +159,9 @@
 #if VT_FEATURE_UNLIT
     // KHR_materials_unlit: output base color directly, skip all PBR lighting.
     {
-        // Emissive still contributes — upstream reaches this path through
-        // `useLighting = false`, which drops the lights but keeps the emissive
-        // lane (that is how its decal material draws at all: black diffuse plus a
-        // bright emissive map). Recomputed here rather than deferred to
+        // Emissive still contributes: this path drops the lights but keeps the
+        // emissive lane (that is how a decal material draws at all: black
+        // diffuse plus a bright emissive map). Recomputed here rather than deferred to
         // forward-fragment-emissive, which this early return never reaches.
         float3 unlitEmissive = max(material.emissiveColor.rgb, float3(0.0));
 #if VT_FEATURE_EMISSIVE_MAP
@@ -181,11 +180,11 @@
         const float tonemapMode = lighting.skyboxMipAndPad.z;
 #if VT_FEATURE_MSDF
         {
-            // Upstream applyMsdf (common/frag/msdf.js), which runs on the tone-mapped
+            // MSDF compositing runs on the tone-mapped
             // output: fill, outline and shadow are composited PREMULTIPLIED in linear,
             // then the straight colour is encoded. The fill is this path's colour, tone
             // mapped unless compose owes it that; outline and shadow colours arrive
-            // linear and are not tone mapped, as upstream's are not.
+            // linear and are not tone mapped.
             const float3 fill = linearHdrTarget ? max(unlitColor, float3(0.0))
                                                 : toneMap(max(unlitColor, float3(0.0)), exposure, tonemapMode);
             const float4 color = float4(fill * alpha, alpha);
@@ -197,7 +196,7 @@
             const float sigDistShdw = max(min(ssample.r, ssample.g), min(max(ssample.r, ssample.g), ssample.b));
             const float edge = 0.5 - 0.5 * material.msdfParams.y;
             // The transition width in screen pixels from the UV magnification and the
-            // atlas spread, floored at 2.5 as upstream (a lower floor hazes small text).
+            // atlas spread, floored at 2.5 (a lower floor hazes small text).
             const float2 unitRange = float2(material.msdfParams.x) / max(material.msdfParams.zw, float2(1.0));
             const float screenPxRange = max(0.5 * dot(unitRange, 1.0 / max(fwidth(uv), float2(1e-6))), 2.5);
             const float thickness = material.msdfOutlineShadow.x;
@@ -210,8 +209,7 @@
             tcolor = mix(tcolor, color, inside);
             const float4 scolor = (shadow > outline) ? shadow * float4(sc.a * sc.rgb, sc.a) : tcolor;
             tcolor = mix(scolor, tcolor, outline);
-            // Straight colour out: the blend state is straight alpha (upstream encodes
-            // the straight colour and re-premultiplies for its premultiplied blend).
+            // Straight colour out: the blend state is straight alpha.
             const float3 straight = tcolor.rgb / max(tcolor.a, 0.0001);
             return float4(linearHdrTarget ? straight : linearToSrgb(straight), tcolor.a);
         }
@@ -242,7 +240,7 @@
             normalSample = normalTexture.sample(defaultSampler, uvNormal).xyz * 2.0 - 1.0;
             // blend toward flat (0,0,1) by bumpiness/normalScale.
             // At normalScale=1.0 → full normal map; at 0.0 → geometric surface normal.
-            // NOT normalized here, as upstream: the TBN product is normalized
+            // NOT normalized here: the TBN product is normalized
             // below, which makes a normalize on this line a no-op on its own and a
             // silent reweighting of the detail overlay added after it.
             normalSample = mix(float3(0.0, 0.0, 1.0), normalSample, material.normalScale);
@@ -252,7 +250,7 @@
 #if VT_FEATURE_DETAIL_NORMALS
         // Detail normal overlay. detailNormalScale blends the DETAIL map toward
         // flat, exactly as normalScale does for the base map, and the two normals
-        // are then combined with upstream's reoriented ("detail oriented") blend
+        // are then combined with a reoriented ("detail oriented") blend
         // rather than by adding their xy. Adding xy treats the detail's
         // slope as if the base were flat, so the combined slope is wrong wherever
         // the base is not; the reoriented blend rotates the detail into the base
@@ -295,8 +293,8 @@
     const float metallic = 0.0;
     float roughness = clamp(1.0 - glossiness, 0.04, 1.0);  // non-const: a gloss map may replace it below
     // No (1 - max(specular)) on the diffuse. The extension suggests one, but this is
-    // now upstream's specular workflow for every material that is not metalness, and
-    // upstream's combine adds albedo * diffuseLight unscaled; Vulkan never applied it.
+    // now the specular workflow for every material that is not metalness, and
+    // the combine adds albedo * diffuseLight unscaled; Vulkan never applied it.
     const float3 diffuseColor = baseLinear;
     const float3 F0 = specularColor;
 #else
@@ -311,14 +309,14 @@
 #endif
 
     const float3 diffuseColor = baseLinear * (1.0 - metallic);
-    // The non-metal F0 is upstream's getSpecularModulate, computed on the CPU:
+    // The non-metal F0 is computed on the CPU:
     // f0(IOR) x the metalness specular colour x the specularity factor
     // (KHR_materials_specular); 0.04 for the defaults.
     const float3 F0 = mix(material.metalnessSpecular.rgb, baseLinear, metallic);
 #endif
 
-    // Gloss map (upstream getGlossiness): one channel scales the gloss FACTOR, and
-    // the result replaces the roughness derived above — upstream's gloss and the
+    // Gloss map: one channel scales the gloss FACTOR, and
+    // the result replaces the roughness derived above — the gloss and the
     // metal-rough map's roughness are alternative sources, not multiplied together.
     if (material.mapChannelParams.y >= 0.0) {
         const float4 glossSample = glossMap.sample(defaultSampler, rd.uv0);
@@ -336,7 +334,7 @@
     float ccGlossiness = 1.0 - clamp(material.clearCoatRoughness, 0.0, 1.0);
 
     // Clearcoat intensity and gloss maps, each from the channel the material names
-    // (upstream clearCoatMapChannel / clearCoatGlossMapChannel, default g).
+    // (clearCoatMapChannel / clearCoatGlossMapChannel, default g).
     if ((material.flags & (1u << 14)) != 0u && clearCoatTexture.get_width() > 0) {
         ccSpecularity *= clearCoatTexture.sample(defaultSampler, uvBase)[int(material.clearCoatMapChannels.x)];
     }
@@ -400,7 +398,7 @@
     const float roughnessSq = max((1.0 - gloss) * (1.0 - gloss), 0.001);
     const float alpha2 = roughnessSq * roughnessSq;
     // DEVIATION (upstream parity): the Smith-GGX height-correlated visibility
-    // term in upstream lightSpecularGGX.js feeds `alpha2 = alpha * alpha`
+    // term in upstream feeds `alpha2 = alpha * alpha`
     // into the Heitz lambda formula, which is one squaring beyond Heitz's
     // textbook form. Mathematically non-standard, but it widens G and makes
     // direct specular highlights pop more — particularly at grazing angles
@@ -413,11 +411,11 @@
 #endif
 
 #if VT_FEATURE_ANISOTROPY
-    // Anisotropic GGX frame (upstream anisotropy.js + lightSpecularAnisoGGX.js). The
-    // direction is upstream's material_anisotropyRotation: (cos, sin) turning the
+    // Anisotropic GGX frame. The
+    // direction is the material's anisotropy rotation: (cos, sin) turning the
     // vertex tangent toward the vertex BITANGENT, `tbn * vec3(direction, 0)`; the
     // CPU folds the deprecated negative strength in as rotation + 90 and uploads the
-    // magnitude. B is cross(geometric normal, T), as upstream builds it from the
+    // magnitude. B is cross(geometric normal, T), built from the
     // TBN's own normal rather than the normal-mapped one. The math is in common-brdf
     // and is the twin of the GLSL; this frame is mirrored in forward-fragment-surface.glsl.
     const float anisoIntensity = saturate(material.anisotropy);
@@ -437,8 +435,8 @@
             const float3 Bv = normalize(cross(Ng, Tv)) * rd.worldTangent.w;
             anisoT = material.anisotropyParams.x * Tv + material.anisotropyParams.y * Bv;
         } else {
-            // No tangent stream. Upstream derives one from screen-space
-            // derivatives; this port has no such fallback, so take any tangent.
+            // No tangent stream. There is no screen-space derivative
+            // fallback, so take any tangent.
             const float3 up = abs(Ng.y) < 0.999 ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
             anisoT = normalize(cross(up, Ng));
         }

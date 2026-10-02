@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 14.07.2026
+//
 // Port of the upstream "Compute - Particles" example.
 //
 // A million particles fall through three collision spheres. Everything about them
@@ -48,15 +50,15 @@
 
 using namespace visutwin::canvas;
 
-// Upstream's particle count. 1M records x 48 bytes = 48 MB of storage.
+// Particle count. 1M records x 48 bytes = 48 MB of storage.
 constexpr uint32_t NUM_PARTICLES = 1024u * 1024u;
 constexpr uint32_t WORKGROUP_SIZE = 64u;
 constexpr uint32_t NUM_SPHERES = 3u;
 
 
-// The particle record, laid out to match the struct both shaders declare. Upstream's
-// WGSL Particle is 12 floats with padding after positionOld and originalVelocity; the
-// same 48-byte layout falls out of MSL packed_float3 and GLSL std430 vec3.
+// The particle record, laid out to match the struct both shaders declare: 12 floats
+// with padding after positionOld and originalVelocity, the 48-byte layout that falls
+// out of MSL packed_float3 and GLSL std430 vec3.
 struct GpuParticleRecord
 {
     float position[3];
@@ -69,7 +71,7 @@ struct GpuParticleRecord
 static_assert(sizeof(GpuParticleRecord) == 48, "particle record must match the shader struct");
 
 // Per-draw parameters for the render shader (Metal vertex slot 11 / Vulkan set 6
-// binding 3). Upstream bakes both of these in as shader constants.
+// binding 3).
 struct alignas(16) ParticleRenderParams
 {
     float particleSize = 0.04f;
@@ -204,7 +206,7 @@ void main()
 
 // ---------------------------------------------------------------------------
 // Render shader. One instance per particle; the camera's right/up axes come out of
-// the view-projection matrix exactly as upstream's vertex shader extracts them.
+// the view-projection matrix.
 // ---------------------------------------------------------------------------
 static const char* kRenderSourceMsl = R"MSL(
 #include <metal_stdlib>
@@ -363,7 +365,7 @@ protected:
             spdlog::error("This device reports no compute support — the particles will not move.");
         }
 
-        // General scene rendering properties (upstream: skyboxMip 2, intensity 0.2).
+        // General scene rendering properties.
         scene()->setSkyboxMip(2);
         scene()->setSkyboxIntensity(0.2f);
 
@@ -389,7 +391,7 @@ protected:
         _sphereMaterial = std::make_shared<StandardMaterial>();
         _sphereMaterial->setGloss(0.6f);
         _sphereMaterial->setMetalness(0.4f);
-        _sphereMaterial->setUseMetalness(true);  // upstream sets useMetalness = true here
+        _sphereMaterial->setUseMetalness(true);
 
         struct SphereDesc { float x, y, z, radius; };
         constexpr SphereDesc sphereDescs[NUM_SPHERES] = {
@@ -411,7 +413,7 @@ protected:
         }
 
         // -----------------------------------------------------------------------
-        // Camera. Upstream places it here and focuses the orbit on the middle sphere.
+        // Camera, with the orbit focused on the middle sphere.
         // -----------------------------------------------------------------------
         const Vector3 focusPoint(sphereDescs[1].x, sphereDescs[1].y, sphereDescs[1].z);
 
@@ -515,8 +517,8 @@ protected:
         return true;
     }
 
-    // Advance the simulation before the frame's render encoding. Upstream
-    // dispatches 1024/64 x 1024 workgroups; the kernel folds those two axes
+    // Advance the simulation before the frame's render encoding. The dispatch is
+    // 1024/64 x 1024 workgroups; the kernel folds those two axes
     // back into one particle index.
     void preRender() override
     {

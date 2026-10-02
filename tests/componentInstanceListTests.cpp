@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 30.09.2026
+//
 // A component type's instance list (ComponentInstanceList, behind T::instances()).
 //
 // Its ORDER is a contract — creation order is the order draws of equal sort key keep,

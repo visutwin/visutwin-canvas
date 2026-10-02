@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 11.10.2025.
+// Created by Arnis Lektauers on 11.10.2025
 //
 #include "programLibrary.h"
 
@@ -132,7 +132,7 @@ namespace visutwin::canvas
           _serial(nextProgramLibrarySerial()),
           _chunks(device ? device->shaderLanguage() : ShaderLanguage::Msl)
     {
-        // Mirrors upstream program registration model (program -> ordered chunk keys).
+        // Program registration model (program -> ordered chunk keys).
         // Chunks are named micro-sections; any of them can be overridden globally via
         // chunks().set() or per material via Material::setShaderChunk().
         //
@@ -347,10 +347,10 @@ namespace visutwin::canvas
         // material cannot see whether the mesh even carries a color stream — but asking
         // for emissiveVertexColor is that opt-in, and would otherwise silently do nothing.
         options.vertexColors = stdMat.emissiveVertexColor();
-        // The specular workflow (useMetalness false, upstream's default) runs through
+        // The specular workflow (useMetalness false, the default) runs through
         // the spec-gloss variant: F0 from the specular colour, gloss from `gloss`.
         options.specGloss = stdMat.usesSpecularWorkflow() || stdMat.specGlossMap() != nullptr;
-        // Upstream's useSpecular: a default StandardMaterial renders no specular at all.
+        // A default StandardMaterial renders no specular at all.
         options.noSpecular = !stdMat.rendersSpecular();
         options.orenNayar = stdMat.useOrenNayar();
         options.detailNormals = stdMat.detailNormalMap() != nullptr;
@@ -427,7 +427,7 @@ namespace visutwin::canvas
         const bool instancingColor, const bool instanceLightmap)
     {
         // A mesh instance's own lightmap needs the path whatever the material says;
-        // the device binds it over the material's (upstream useInstanceLightMap).
+        // the device binds it over the material's.
         options.lightmap = options.lightmap || instanceLightmap;
         // Skinning/morphing are per-draw flags set by the renderer from
         // MeshInstance::skinInstance()/morphInstance(); the variant-key bits
@@ -435,8 +435,7 @@ namespace visutwin::canvas
         options.skinning = skinning || variantBit(variantBits, 22);
         options.morphing = morphing || variantBit(variantBits, 23);
         // Instancing follows the draw: a mesh instance with a per-instance buffer gets the
-        // instanced vertex stage (upstream infers it from MeshInstance::setInstancing the same
-        // way). Variant bit 33 is honoured so materials that opt in explicitly keep working;
+        // instanced vertex stage. Variant bit 33 is honoured so materials that opt in explicitly keep working;
         // for those the per-instance color is assumed, since such materials expect the
         // 80-byte layout, which carries one.
         const bool materialInstancing = variantBit(variantBits, 33);
@@ -755,7 +754,7 @@ namespace visutwin::canvas
         source += fragmentEntry;
         source += "\n\n";
 
-        // Chunk resolution order mirrors upstream: per-material override, then the
+        // Chunk resolution order: per-material override, then the
         // device registry override, then the default source.
         const auto* materialChunks = material ? &material->shaderChunkOverrides() : nullptr;
         for (const auto& chunkName : programChunks->second) {
@@ -1034,8 +1033,8 @@ namespace visutwin::canvas
         ShaderVariantOptions options{};
         options.skybox = false;
         options.transparentPass = false;
-        // The shadow pass runs the material's opacity frontend before writing depth,
-        // as upstream's litShadowMain does. Without it a masked material — foliage,
+        // The shadow pass runs the material's opacity frontend before writing depth.
+        // Without it a masked material — foliage,
         // a chain-link fence, a cut-out sign — writes depth over its whole quad and
         // throws a solid shadow.
         options.alphaTest = material && material->alphaMode() == AlphaMode::MASK;

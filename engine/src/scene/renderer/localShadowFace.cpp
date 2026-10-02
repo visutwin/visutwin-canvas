@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 16.09.2026
+//
 #include "localShadowFace.h"
 
 #include <memory>
@@ -144,11 +146,10 @@ void main() {}
 
         // Hardware polygon-offset depth bias during shadow rendering. See
         // renderPassShadowDirectional: the internal bias is negative, so this is a
-        // positive (acne-removing) polygon offset. Upstream skips the hardware offset
-        // for omni lights (they store distance, not depth; this port stores
-        // perspective depth and applies a RELATIVE bias in the forward shader), for
-        // PCSS, which biases in the shader, and for VSM, whose moments carry no
-        // depth-buffer bias (upstream offsets only PCF depth).
+        // positive (acne-removing) polygon offset. The hardware offset is skipped
+        // for omni lights (this port stores perspective depth and applies a
+        // RELATIVE bias in the forward shader), for PCSS, which biases in the
+        // shader, and for VSM, whose moments carry no depth-buffer bias.
         const bool skipHardwareBias = light->shadowType() == SHADOW_PCSS_32F || vsm ||
             light->type() == LightType::LIGHTTYPE_OMNI;
         const float bias = skipHardwareBias ? 0.0f : light->shadowBias() * -1000.0f;

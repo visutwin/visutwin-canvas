@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 18.07.2025.
+// Created by Arnis Lektauers on 18.07.2025
 //
 #pragma once
 
@@ -108,13 +108,12 @@ namespace visutwin::canvas
 
         /**
          * The canvas size in the units a screen-space UI and the mouse use: the window's
-         * size in POINTS when there is a window, otherwise the device's size. Upstream's
-         * canvas pixels are CSS pixels at a pixel ratio of 1, which is what window points
-         * are; the drawable is twice that on a Retina display.
+         * size in POINTS when there is a window, otherwise the device's size. The drawable
+         * is twice that on a Retina display.
          */
         std::pair<int, int> canvasSize() const;
 
-        /// Localization (upstream `app.i18n`): the locale, its messages and plural forms.
+        /// Localization: the locale, its messages and plural forms.
         I18n* i18n() const { return _i18n.get(); }
 
         /**batcher accessor. */

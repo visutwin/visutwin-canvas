@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 14.07.2026
+//
 // Anisotropic specular demo (mirrors upstream materials/material-anisotropic).
 //
 // An 11 x 6 grid of metallic procedural spheres lit by the helipad env atlas plus
-// a single directional light, matching upstream's sweeps exactly:
+// a single directional light:
 //   * X axis (columns): anisotropy 0 -> 1 (x / (NUM_SPHERES_X - 1)). At 0 the
 //     highlight is a round GGX blob; as it grows the highlight stretches into a
 //     brushed-metal streak.
@@ -14,7 +16,7 @@
 // Upstream also sets material.enableGGXSpecular; this engine has no equivalent
 // flag because the anisotropic path is gated automatically on a non-zero
 // anisotropy value (programLibrary.cpp: options.anisotropy = anisotropy() != 0),
-// so the leftmost column renders isotropic exactly as upstream's does.
+// so the leftmost column renders isotropic.
 //
 // The two axis labels ("Anisotropy", "Roughness") lie flat on the ground plane as
 // WORLD-SPACE text: a Text element with no ScreenComponent ancestor is parented to
@@ -23,7 +25,7 @@
 // (64) and scaled down on the entity; the element's HEIGHT must equal fontSize or
 // the line is parked half a box-height above the origin.
 //
-// Orbit camera (CameraControls) starts at the upstream camera pose.
+// Orbit camera (CameraControls).
 //
 #include <algorithm>
 #include <memory>
@@ -41,7 +43,7 @@
 
 using namespace visutwin::canvas;
 
-// Grid dimensions and spacing match upstream material-anisotropic exactly.
+// Grid dimensions and spacing.
 constexpr int NUM_SPHERES_X = 11;  // anisotropy 0 .. 1
 constexpr int NUM_SPHERES_Z = 6;   // gloss 0 .. 1
 constexpr float SPACING = 1.0f;
@@ -61,7 +63,7 @@ protected:
 
     bool create() override
     {
-        // Upstream sets only these — no ambient, no exposure or skybox-intensity
+        // Only these are set — no ambient, no exposure or skybox-intensity
         // overrides — so the env atlas alone lights the spheres.
         scene()->setToneMapping(TONEMAP_ACES);
         scene()->setSkyboxMip(1);
@@ -83,19 +85,19 @@ protected:
         }
         scene()->setEnvAtlas(std::get<Texture*>(*helipadResource));
 
-        // Single directional light (as upstream: base euler +90 X, -75 Y).
+        // Single directional light (base euler +90 X, -75 Y).
         createDirectionalLight(Vector3(90.0f, -75.0f, 0.0f));
 
         _materials.reserve(NUM_SPHERES_X * NUM_SPHERES_Z);
 
         for (int iz = 0; iz < NUM_SPHERES_Z; ++iz) {
-            // gloss = z / (NUM_SPHERES_Z - 1), i.e. 0 .. 1 (upstream's "Roughness" axis).
+            // gloss = z / (NUM_SPHERES_Z - 1), i.e. 0 .. 1 (the "Roughness" axis).
             const float gloss = NUM_SPHERES_Z > 1
                 ? static_cast<float>(iz) / static_cast<float>(NUM_SPHERES_Z - 1)
                 : 0.0f;
 
             for (int ix = 0; ix < NUM_SPHERES_X; ++ix) {
-                // anisotropy = x / (NUM_SPHERES_X - 1), i.e. 0 .. 1 (upstream's sweep).
+                // anisotropy = x / (NUM_SPHERES_X - 1), i.e. 0 .. 1.
                 const float aniso = NUM_SPHERES_X > 1
                     ? static_cast<float>(ix) / static_cast<float>(NUM_SPHERES_X - 1)
                     : 0.0f;
@@ -125,10 +127,10 @@ protected:
 
         createAxisLabels();
 
-        // Camera pose copied from upstream: translate(0, 9, 9) + rotate(-48, 0, 0).
+        // Camera pose: translate(0, 9, 9) + rotate(-48, 0, 0).
         // CameraControls derives its orbit state FROM this pose rather than moving
         // the camera, so the default framing matches while orbiting still works.
-        // (Upstream's -48 deg pitch is ~3 deg off looking straight at the origin;
+        // (The -48 deg pitch is ~3 deg off looking straight at the origin;
         // the controls settle on the exact look-at, which is visually identical.)
         auto* camera = createCamera(Vector3(0.0f, 9.0f, 9.0f), Vector3(-48.0f, 0.0f, 0.0f));
 
@@ -157,12 +159,12 @@ protected:
     }
 
 private:
-    // Upstream's two axis labels, lying flat on the ground plane. These are
+    // The two axis labels, lying flat on the ground plane. These are
     // WORLD-SPACE text: the entities have no ScreenComponent ancestor, so the
     // element system parents the glyph mesh to the entity and renders it on the
     // world layer with depth testing, following the entity's full transform.
     //
-    // setFontSize takes an int (min 1), so upstream's 0.5 em is expressed as
+    // setFontSize takes an int (min 1), so a 0.5 em is expressed as
     // fontSize 1 on an entity scaled by 0.5 — the same size in world units.
     // Text is laid out from `yTop = (1 - pivot.y) * height` and flows DOWN, so a
     // single line is centred on the entity origin only when height == fontSize.
@@ -171,15 +173,14 @@ private:
     // to -lineWidth/2 regardless, and wrapping is off.
     //
     // fontSize is an int, so size is set coarsely and scaled down: 64 mesh units
-    // per em on a 0.5/64-scaled entity gives upstream's 0.5 world units per em.
+    // per em on a 0.5/64-scaled entity gives 0.5 world units per em.
     void createAxisLabels()
     {
         constexpr int LABEL_FONT_SIZE = 64;
         constexpr float LABEL_EM_WORLD = 0.5f;
         constexpr float LABEL_SCALE = LABEL_EM_WORLD / static_cast<float>(LABEL_FONT_SIZE);
 
-        // MSDF font for the two world-space axis labels: Roboto Regular, as upstream
-        // (#9577 replaced its Arial).
+        // MSDF font for the two world-space axis labels: Roboto Regular.
         _labelFont = std::make_unique<Asset>(
             "label-font",
             AssetType::FONT,

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 02.01.2026
+// Created by Arnis Lektauers on 02.01.2026
 //
 #include "scriptComponent.h"
 #include <framework/entity.h>
@@ -12,7 +12,7 @@ namespace visutwin::canvas
 {
     ScriptComponent::~ScriptComponent()
     {
-        // Upstream fires `destroy` on each script as its component removes it. The entity
+        // `destroy` fires on each script as its component removes it. The entity
         // is alive; this component is not, which is why it is said here and not later.
         for (const auto& entry : _scripts) {
             if (entry.instance) {
@@ -126,8 +126,7 @@ namespace visutwin::canvas
         if (!src) {
             return;
         }
-        // Each script by NAME, in the source's order and with its enabled flag, as
-        // upstream's cloneComponent does. The clone is not in a hierarchy yet, so none
+        // Each script by NAME, in the source's order and with its enabled flag. The clone is not in a hierarchy yet, so none
         // of them initializes here: that waits for the clone to be enabled, after
         // Script::cloneFrom has copied what the script chooses to share.
         _executionOrder = src->_executionOrder;
@@ -170,13 +169,13 @@ namespace visutwin::canvas
     {
         // A script created while this component was inactive — disabled, or on a
         // disabled entity — has not initialized yet. Becoming active is when it
-        // does, which is upstream's _checkState.
+        // does.
         //
         // This lives in the lifecycle hook rather than in setEnabled because the
         // component becomes active two ways: its own flag, and its ENTITY's. The
         // hook fires for both; setEnabled saw only the first, so a script on an
         // entity that was enabled later never initialized at all.
-        // `enable` before initialize, as upstream's script setter orders them.
+        // `enable` before initialize.
         forEachScript([this](Script* script) {
             script->syncState(true);
             initializeScriptInstance(script);

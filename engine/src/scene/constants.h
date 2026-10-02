@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 12.09.2025.
+// Created by Arnis Lektauers on 12.09.2025
 //
 #pragma once
 
@@ -28,7 +28,7 @@ namespace visutwin::canvas
 
     // Light mask bits.
     /**
-     * How a layer orders the draws of one sublayer (upstream SORTMODE_*).
+     * How a layer orders the draws of one sublayer.
      *
      * Sorting decides two different things and they pull against each other: how
      * many GPU state changes the pass costs, and whether transparency composites
@@ -81,9 +81,9 @@ namespace visutwin::canvas
         LIGHTTYPE_SPOT         // Spot (local) light source
     };
 
-    // The shape of a light's source (upstream LIGHTSHAPE_*), for any light type. A
+    // The shape of a light's source, for any light type. A
     // non-punctual light is an LTC area light the size of its entity: the world X axis
-    // is the width and the Z axis the height (upstream's (-0.5, 0, 0) and (0, 0, 0.5)
+    // is the width and the Z axis the height (the (-0.5, 0, 0) and (0, 0, 0.5)
     // half axes through the world matrix); a disk is inscribed in that quad and a
     // sphere takes the longer half axis as its radius. It keeps its type's cone,
     // cookie and shadow, with only the range window as distance falloff.
@@ -95,14 +95,13 @@ namespace visutwin::canvas
         LIGHTSHAPE_SPHERE = 3
     };
 
-    // Light cookie channel (upstream Light.cookieChannel, which is a swizzle
+    // Light cookie channel, which a light describes as a swizzle
     // string — 'rgb', 'r', 'g', 'b', 'a'; shorter strings are padded by
     // repeating the last character, so 'a' means 'aaa'). The enum carries the
     // same five options as a value the shader can branch on.
     /**
      * Which channel of a scalar map (gloss, thickness, refraction) supplies the value.
-     * Upstream spells these as strings ("r"/"g"/"b"/"a") in its *MapChannel properties,
-     * defaulting to "g" for all three so they can share one packed texture.
+     * All three default to G so they can share one packed texture.
      */
     enum MapChannel
     {
@@ -157,9 +156,9 @@ namespace visutwin::canvas
         TONEMAP_NONE = 6,
     };
 
-    // Opacity dither patterns (upstream DITHER_*). Selects the threshold pattern used to render
+    // Opacity dither patterns. Selects the threshold pattern used to render
     // partial opacity in the opaque pass. Every pattern moves per frame while the camera jitters
-    // for TAA (upstream blueNoiseJitter), and stands still otherwise. DEVIATION: the shadow
+    // for TAA, and stands still otherwise. DEVIATION: the shadow
     // passes dither unjittered.
     enum class DitherMode
     {
@@ -168,11 +167,11 @@ namespace visutwin::canvas
         DITHER_BAYER4 = 2,
         DITHER_BAYER8 = 3,
         DITHER_BAYER16 = 4,
-        DITHER_BLUENOISE = 5,   // upstream's 32x32 blue-noise tile
+        DITHER_BLUENOISE = 5,   // 32x32 blue-noise tile
         DITHER_IGNNOISE = 6,    // interleaved gradient noise
     };
 
-    // Debug shader passes (upstream SHADERPASS_ALBEDO and friends). Replaces the forward pass
+    // Debug shader passes. Replaces the forward pass
     // output with a single surface quantity, to inspect what the material frontend produced.
     //
     // DEVIATION: upstream allocates a distinct named shader pass — and so a distinct compiled

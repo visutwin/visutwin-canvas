@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 23.07.2026
+//
 
 #include <limits>
 #include <SDL3/SDL.h>
@@ -2349,7 +2352,7 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
                 dir.strength = kShadowStrength;
                 shadowMatrix.store(dir.shadowMatrixPalette);
                 // Beyond the last cascade distance a fragment is lit without
-                // sampling (upstream a59f9ef29), so the one cascade must reach it.
+                // sampling, so the one cascade must reach it.
                 dir.shadowCascadeDistances[0] = 1000.0f;
 
                 device->frameStart();
@@ -2466,7 +2469,7 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
 
             StandardMaterial debugMaterial;
             debugMaterial.setDiffuse(Color(kDiffuseR, kDiffuseG, kDiffuseB, 1.0f));
-            // The default is upstream's specular workflow with no specular, where
+            // The default is the specular workflow with no specular, where
             // metalness packs as 0 and specularity is compiled out.
             debugMaterial.setUseMetalness(true);
             debugMaterial.setMetalness(kMetalness);

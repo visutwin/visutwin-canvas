@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// A sequence of frames from a texture atlas (upstream scene/sprite.js), drawn by an image
+// Created by Arnis Lektauers on 29.09.2026
+//
+// A sequence of frames from a texture atlas, drawn by an image
 // element: SIMPLE stretches the frame over the element's rectangle; SLICED keeps its
 // borders at their authored size (in pixels over pixelsPerUnit) and stretches the middle.
 //
@@ -22,7 +24,7 @@
 
 namespace visutwin::canvas
 {
-    /// Upstream SPRITE_RENDERMODE_SIMPLE / SLICED / TILED.
+    /// How an image element draws a sprite: simple, sliced or tiled.
     enum class SpriteRenderMode
     {
         Simple,

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// The gizmo shapes, one class per upstream file in extras/gizmo/shape/: arrow-shape.js,
-// arc-shape.js, box-shape.js, boxline-shape.js, plane-shape.js and sphere-shape.js.
-// Defaults and transforms are upstream's value for value.
+// Created by Arnis Lektauers on 02.10.2026
+//
+// The gizmo shapes: arrow, arc, box, box line, plane and sphere.
 //
 #pragma once
 
@@ -14,7 +14,7 @@
 
 namespace visutwin::canvas
 {
-    /// Upstream ArrowShape: a cylinder line from `gap` out to `gap + lineLength`, capped
+    /// A cylinder line from `gap` out to `gap + lineLength`, capped
     /// by a cone head. Picked against the cone and a cylinder fattened by `tolerance`.
     class ArrowShape final : public Shape
     {
@@ -55,12 +55,12 @@ namespace visutwin::canvas
         float sectorAngle = 360.0f;
     };
 
-    /// Upstream ArcShape: a torus segment (`sectorAngle` degrees of a ring in the shape's
+    /// A torus segment (`sectorAngle` degrees of a ring in the shape's
     /// XZ plane) and the full ring, of which one shows at a time.
     class ArcShape final : public Shape
     {
     public:
-        /// Upstream TORUS_RENDER_SEGMENTS and TORUS_INTERSECT_SEGMENTS.
+        /// Torus segment counts for rendering and for intersection.
         static constexpr int kRenderSegments = 80;
         static constexpr int kIntersectSegments = 20;
 
@@ -100,7 +100,7 @@ namespace visutwin::canvas
         std::array<TriData*, 2> _triDataCache{};
     };
 
-    /// Upstream BoxShape: the scale gizmo's centre box.
+    /// The scale gizmo's centre box.
     class BoxShape final : public Shape
     {
     public:
@@ -116,7 +116,7 @@ namespace visutwin::canvas
         float _size = 0.06f;
     };
 
-    /// Upstream BoxLineShape: the scale gizmo's axis handle, a line capped by a box.
+    /// The scale gizmo's axis handle, a line capped by a box.
     class BoxLineShape final : public Shape
     {
     public:
@@ -150,7 +150,7 @@ namespace visutwin::canvas
         Entity* _line = nullptr;
     };
 
-    /// Upstream PlaneShape: the two-axis handle, a square offset from the centre into the
+    /// The two-axis handle, a square offset from the centre into the
     /// quadrant `flipped` selects. Drawn double sided.
     class PlaneShape final : public Shape
     {
@@ -180,7 +180,7 @@ namespace visutwin::canvas
         Vector3 _flipped = Vector3(0.0f);
     };
 
-    /// Upstream SphereShape: the translate gizmo's centre and the rotate gizmo's orbit sphere.
+    /// The translate gizmo's centre and the rotate gizmo's orbit sphere.
     class SphereShape final : public Shape
     {
     public:

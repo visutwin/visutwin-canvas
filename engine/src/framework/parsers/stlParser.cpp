@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // STL (Stereolithography) file parser for VisuTwin Canvas.
 //
 // Supports both binary and ASCII STL formats. Binary is auto-detected by
@@ -15,8 +17,6 @@
 //   - Vertex welding only when smooth normals are requested
 //   - Single default PBR material (STL has no material data)
 //   - Same 56-byte PackedVertex layout as GlbParser and ObjParser
-//
-// Custom loader (not derived from upstream).
 //
 #include "stlParser.h"
 #include "framework/parsers/packedVertex.h"

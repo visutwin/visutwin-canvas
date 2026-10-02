@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Port of upstream user-interface/world-to-screen (as rebuilt in #9569).
+// Created by Arnis Lektauers on 21.03.2026
+//
+// Port of upstream user-interface/world-to-screen.
 //
 // Four capsule "fighters" walk circles of their own radius and speed over a dark floor
 // under a shadow-casting directional light, seen from a 45-degree camera at (0, 7, 12)
@@ -107,7 +109,7 @@ protected:
             return false;
         }
 
-        // The track frame of upstream's UI kit atlas (ui-atlas.mjs).
+        // The track frame of the UI kit atlas.
         _atlas = std::make_shared<TextureAtlas>();
         _atlas->setTexture(atlasTexture);
         _atlas->setFrame("track", {.rect = Vector4(292.0f, 308.0f, 64.0f, 32.0f), .pivot = Vector2(0.5f, 0.5f),

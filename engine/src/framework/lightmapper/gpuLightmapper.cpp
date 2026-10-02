@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 16.08.2026
+//
 #include "gpuLightmapper.h"
 
 #include <algorithm>
@@ -41,7 +43,7 @@ namespace visutwin::canvas
     {
         constexpr float GOLDEN_ANGLE = 2.399963229728653f;
 
-        /// Upstream random.circlePointDeterministic — evenly spread points in a unit disc.
+        /// Evenly spread points in a unit disc.
         void circlePointDeterministic(float& x, float& y, const int index, const int numPoints)
         {
             const float theta = static_cast<float>(index) * GOLDEN_ANGLE;
@@ -59,7 +61,7 @@ namespace visutwin::canvas
             return result;
         }
 
-        /// Upstream calculateLightmapSize: the resolution follows the mesh's world-space
+        /// The resolution follows the mesh's world-space
         /// bounds, so large surfaces get more texels than small ones. `maxSize` is the
         /// device's own texture limit — a bounds-derived resolution has no other ceiling,
         /// so a large enough mesh would otherwise ask for a texture the driver refuses.
@@ -204,7 +206,7 @@ namespace visutwin::canvas
         destroyBakeNodes();
 
         _options = options;
-        // Upstream's scene setters clamp these.
+        // Clamp these to their valid ranges.
         _options.ambientBakeNumSamples = std::clamp(_options.ambientBakeNumSamples, 1, 255);
         _options.ambientBakeSpherePart = std::clamp(_options.ambientBakeSpherePart, 0.001f, 1.0f);
         _options.lightmapFilterRange = std::max(_options.lightmapFilterRange, 0.001f);
@@ -221,7 +223,7 @@ namespace visutwin::canvas
             setupAmbientLight();
         }
 
-        // Upstream bakes the ambient light first, from a black lightmap, so its occlusion
+        // The ambient light bakes first, from a black lightmap, so its occlusion
         // curve shapes the ambient alone; the scene lights add on top afterwards.
         startPhase(_options.ambientBake ? Phase::AmbientLight : Phase::Direct, 0);
 
@@ -257,7 +259,7 @@ namespace visutwin::canvas
         layer->addMeshInstances({meshInstance});
         _engine->scene()->layers()->pushOpaque(layer);
 
-        // Upstream's mask scheme: the bake lights carry MASK_BAKE, so the mesh wears
+        // Mask scheme: the bake lights carry MASK_BAKE, so the mesh wears
         // MASK_BAKE while it is being baked (those lights reach it) and switches to
         // MASK_AFFECT_LIGHTMAPPED afterwards (they no longer do, and the bake is not
         // applied twice). Remember what it had so a failed bake can restore it.
@@ -334,7 +336,7 @@ namespace visutwin::canvas
             lightComponent->setLayers(layerIds);
 
             // A light on MASK_BAKE reports castShadows() == false by design
-            // (Light::castShadows excludes MASK_BAKE and MASK_NONE, mirroring upstream),
+            // (Light::castShadows excludes MASK_BAKE and MASK_NONE),
             // which suppresses its shadow map — so a bake light would light the texels
             // but cast nothing. Lift such lights to MASK_AFFECT_LIGHTMAPPED for the bake
             // and restore their authored mask afterwards.
@@ -371,7 +373,7 @@ namespace visutwin::canvas
 
     void GpuLightmapper::setupAmbientLight()
     {
-        // Upstream BakeLightAmbient's light: a white directional caster with PCF3 shadows
+        // The ambient bake light: a white directional caster with PCF3 shadows
         // at 2048. DEVIATION: shadow bias 0.05 rather than upstream's 0.2 — the authoring
         // value here feeds a polygon offset, and 0.2 pushes small casters out of their own
         // shadows (the same conversion the lightmap examples make for their lights).
@@ -442,8 +444,8 @@ namespace visutwin::canvas
         switch (phase) {
         case Phase::AmbientLight:
             // No light at all: what the frame writes is the ambient irradiance per texel —
-            // the env atlas or the flat ambient, whichever the scene has — which is
-            // upstream's dAmbientLight, the term its occlusion multiplies.
+            // the env atlas or the flat ambient, whichever the scene has — the term
+            // the occlusion multiplies.
             enableSceneLights([](const LightComponent&) { return false; });
             configureCameras(false, true, false);
             break;
@@ -517,7 +519,7 @@ namespace visutwin::canvas
                 continue;
             }
             meshInstance->setMask(MASK_AFFECT_LIGHTMAPPED);
-            // The bake belongs to the MESH INSTANCE (upstream 0cd268478): meshes that
+            // The bake belongs to the MESH INSTANCE: meshes that
             // share one material each keep their own, and the material's lightMap is
             // left alone. Written into a shared material, every mesh using it would show
             // whichever target was baked last.
@@ -550,7 +552,7 @@ namespace visutwin::canvas
             if (!node) {
                 continue;
             }
-            // Upstream BakeLightSimple: sample 0 keeps the authored direction, the rest are
+            // Sample 0 keeps the authored direction, the rest are
             // rotated by a disc point scaled to half the bake area.
             node->setLocalRotation(rotation);
             if (index > 0) {
@@ -560,8 +562,8 @@ namespace visutwin::canvas
                 node->rotateLocal(dx * half, 0.0f, dy * half);
             }
             // The lightmap accumulates in linear space, so the copies simply split the
-            // authored intensity. (Upstream's pow-based split compensates for its own
-            // gamma-space accumulation; doing that here would multiply the sun by N^0.55.)
+            // authored intensity. (A pow-based split compensates for gamma-space
+            // accumulation; doing that here would multiply the sun by N^0.55.)
             const float share = 1.0f / static_cast<float>(std::max(_dirSampleCount, 1));
             lightComponent->setIntensity(intensity * share);
             lightComponent->setLuminance(luminance * share);
@@ -573,10 +575,9 @@ namespace visutwin::canvas
         if (!_ambientLight || !_ambientLightEntity) {
             return;
         }
-        // Upstream BakeLightAmbient.prepareVirtualLight: a point on the sphere part, the
-        // light aimed back along it (lookAt(-point) then rotateLocal(90,0,0), since a light
-        // emits along its node's -Y while lookAt aims -Z), at the intensity upstream's
-        // Light ends up shading with.
+        // Virtual ambient light: a point on the sphere part, the light aimed back along it
+        // (lookAt(-point) then rotateLocal(90,0,0), since a light emits along its node's -Y
+        // while lookAt aims -Z), at the intensity ambientVirtualLightIntensity derives.
         const int numSamples = _options.ambientBakeNumSamples;
         const Vector3 point = lightmap_filters::spherePointDeterministic(index, numSamples,
             _options.ambientBakeSpherePart);
@@ -629,7 +630,7 @@ namespace visutwin::canvas
                 continue;
             }
             const auto& temp = tempTarget(static_cast<int>(lightmap->width()));
-            // Upstream's last ambient pass (bakeLmEnd under LIT_LIGHTMAP_BAKING_ADD_AMBIENT).
+            // The last ambient pass.
             drawFilter(device, aoShader, temp, {_occlusionTextures[i].get(), lightmap},
                 uniforms, "LightmapAmbientOcclusion");
             drawFilter(device, copyShader, lightmapRT, {temp->colorBuffer()}, uniforms,
@@ -667,7 +668,7 @@ namespace visutwin::canvas
             }
         }
 
-        // Upstream postprocessTextures, one colour pass (BAKE_COLOR): the first of the two
+        // Post-processing, one colour pass (BAKE_COLOR): the first of the two
         // draws is the denoise when the filter is on and a dilate otherwise, the second a
         // dilate back into the lightmap — so the lightmap is dilated once or twice.
         device->beginOfflineWork();

@@ -42,7 +42,7 @@ namespace visutwin::canvas
 #endif
         };
 
-        // Default constructor creates identity matrix (matching upstream Mat4 behavior)
+        // Default constructor creates identity matrix
         Matrix4()
         {
 #if defined(USE_SIMD_SSE)
@@ -405,8 +405,7 @@ namespace visutwin::canvas
          * a zero fourth row, and (0, 0, 0, 1) as column 3. Built from the columns' cross
          * products — column i is (c[i+1] x c[i+2]) / det — which IS the cofactor matrix over
          * the SIGNED determinant, so a mirrored transform flips its normals with its
-         * surface. A singular 3x3 (det exactly 0, or too small to invert) returns the identity,
-         * as upstream's Mat3.invertMat4 does.
+         * surface. A singular 3x3 (det exactly 0, or too small to invert) returns the identity.
          */
         [[nodiscard]] Matrix4 normalMatrix() const;
 

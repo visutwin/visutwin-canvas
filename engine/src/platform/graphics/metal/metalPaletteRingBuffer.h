@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 07.03.2026.
+// Created by Arnis Lektauers on 07.03.2026
 //
 // Variable-size triple-buffered ring buffer for matrix palettes (dynamic batches and
 // GPU skinning).

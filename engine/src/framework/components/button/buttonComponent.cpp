@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 21.03.2026
+//
 #include "buttonComponent.h"
 
 #include <algorithm>
@@ -16,8 +19,8 @@ namespace visutwin::canvas
 {
     namespace
     {
-        /// The element events a button follows (upstream `_toggleHitElementListeners`; the
-        /// XR select events have no counterpart here).
+        /// The element events a button follows (the XR select events have no
+        /// counterpart here).
         constexpr const char* kHitEvents[] = {"mouseenter", "mouseleave", "mousedown", "mouseup", "touchstart",
                                               "touchend", "touchleave", "touchcancel", "click"};
 
@@ -439,7 +442,7 @@ namespace visutwin::canvas
         _isApplyingTint = true;
         const Color& color = _imageElement->color();
         if (!sameRgb(color, tint)) {
-            // Upstream sets a three-channel colour; the image's alpha is its opacity.
+            // The tint sets a three-channel colour; the image's alpha is its opacity.
             _imageElement->setColor(Color(tint.r, tint.g, tint.b, color.a));
         }
         if (_imageElement->opacity() != tint.a) {

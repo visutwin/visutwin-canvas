@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 11.10.2025.
+// Created by Arnis Lektauers on 11.10.2025
 //
 
 #include "standardMaterial.h"
@@ -109,7 +109,7 @@ namespace visutwin::canvas
 
     namespace
     {
-        /// An sRGB-authored colour channel in linear space (upstream convertColorToLinear).
+        /// An sRGB-authored colour channel in linear space.
         float toLinear(const float c)
         {
             return std::pow(std::max(c, 0.0f), 2.2f);
@@ -172,7 +172,7 @@ namespace visutwin::canvas
         uniforms.baseColor[2] = _diffuse.b;
         uniforms.baseColor[3] = _opacity;
 
-        // The specular workflow has no metalness: upstream only reads it when
+        // The specular workflow has no metalness: it is only read when
         // useMetalness is on, and a packed 0 gives both backends' metal-rough code
         // metallic = 0 without a branch of their own.
         uniforms.metallicFactor = _useMetalness ? _metalness : 0.0f;
@@ -185,7 +185,7 @@ namespace visutwin::canvas
 
         // Scalar maps modulate their factor by one channel of a texture. The gloss
         // factor travels separately because the packed uniform carries ROUGHNESS, and
-        // the map has to scale gloss before the inversion (upstream getGlossiness).
+        // the map has to scale gloss before the inversion.
         // glossInvert means the authored value already IS roughness, so undo it here.
         uniforms.mapChannelParams[0] = _glossInvert ? (1.0f - _gloss) : _gloss;
         uniforms.mapChannelParams[1] = _glossMap
@@ -200,8 +200,8 @@ namespace visutwin::canvas
     {
         // StandardMaterial always owns the emissive contribution: write _emissive * _emissiveIntensity
         // (linearized) directly, overriding whatever base Material::updateUniforms wrote from
-        // _emissiveFactor. This matches upstream semantics (StandardMaterial.emissive is the
-        // authoritative emissive color) and prevents common authoring glitches — e.g. specular-
+        // _emissiveFactor. StandardMaterial.emissive is the authoritative emissive color, which
+        // prevents common authoring glitches — e.g. specular-
         // glossiness GLB exporters that write emissiveFactor=(1,1,1) as a sentinel when no
         // emissive texture is present, which would otherwise produce fully-white glowing surfaces.
         // Users who want emission must call setEmissive()/setEmissiveIntensity(); when they do,
@@ -212,7 +212,7 @@ namespace visutwin::canvas
         uniforms.emissiveColor[2] = toLinear(_emissive.b) * _emissiveIntensity;
         uniforms.emissiveColor[3] = 1.0f;
 
-        // Ambient tint, linearised as emissive is (upstream convertColorToLinear).
+        // Ambient tint, linearised as emissive is.
         uniforms.ambientTint[0] = toLinear(_ambient.r);
         uniforms.ambientTint[1] = toLinear(_ambient.g);
         uniforms.ambientTint[2] = toLinear(_ambient.b);
@@ -221,7 +221,7 @@ namespace visutwin::canvas
 
     void StandardMaterial::packMsdf(MaterialUniforms& uniforms) const
     {
-        // MSDF text: colours linear as upstream uploads them (Color.linear), alpha straight.
+        // MSDF text: colours linear, alpha straight.
         if (!_msdfMap) {
             return;
         }
@@ -276,7 +276,7 @@ namespace visutwin::canvas
 
     void StandardMaterial::packMetalnessSpecular(MaterialUniforms& uniforms) const
     {
-        // Metalness workflow: the non-metal F0 (upstream getSpecularModulate), from the
+        // Metalness workflow: the non-metal F0, from the
         // IOR, tinted by the specular colour when asked and scaled by the specularity
         // factor. In DOUBLE so the default IOR of 1.5 lands on exactly 0.04f, the
         // standard dielectric F0.
@@ -294,7 +294,7 @@ namespace visutwin::canvas
         uniforms.metalnessSpecular[3] = _specularityFactor;
 
         // The specular workflow's F0 and gloss. `specular` is authored in sRGB and
-        // uploaded linear, as upstream's _defineColor uniforms are; gloss is the same
+        // uploaded linear; gloss is the same
         // `gloss` the metalness workflow uses, with glossInvert applied.
         // (KHR_materials_pbrSpecularGlossiness.)
         uniforms.specGlossParams[0] = toLinear(_specular.r);
@@ -380,7 +380,7 @@ namespace visutwin::canvas
         }
         if (_heightMap)     flags |= (1u << 17);      // bit 17: hasHeightMap
         // bit 18: useSkybox OFF. Stored inverted so a zero flags word keeps the scene
-        // environment, which is upstream's default. Upstream's useSceneEnv drops the
+        // environment, the default. Turning it off drops the
         // environment atlas for this material; SH probes and the flat ambient remain.
         if (!_useSkybox)    flags |= (1u << 18);
         // bit 19: hasOpacityMap (slot 34; a separate image at set-1 binding 34 on Vulkan).
@@ -390,7 +390,7 @@ namespace visutwin::canvas
         if (_detailNormalMap) flags |= (1u << 22);    // bit 22: hasDetailNormalMap
         if (_displacementMap) flags |= (1u << 24);    // bit 24: hasDisplacementMap
 
-        // Vertex color routing (upstream diffuseVertexColor / emissiveVertexColor).
+        // Vertex color routing.
         // Bit 28 is the DISABLE for the diffuse lane so that a zero flags word keeps
         // the long-standing "vertex colors tint diffuse" behaviour.
         if (_emissiveVertexColor)  flags |= (1u << 23);
@@ -445,7 +445,7 @@ namespace visutwin::canvas
         overrideSlot(31, _glossMap);
         overrideSlot(32, _thicknessMap);
         overrideSlot(33, _refractionMap);
-        // Opacity map, alpha channel (upstream's opacityMapChannel default). Metal only.
+        // Opacity map, alpha channel by default. Metal only.
         overrideSlot(34, _opacityMap);
         // Vertex displacement map: routed to VERTEX texture slot 0 via the
         // >= 100 sentinel (see MetalTextureBinder::bindMaterialTextures).

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 01.10.2026
+//
 // A script is visited only in the phases it implements. The phases come from the
 // script's TYPE at compile time (Script::phasesOf), the registries' factories stamp
 // them on each instance, and the script system keeps one component list per phase.

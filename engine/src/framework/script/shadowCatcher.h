@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 //
 // A script that creates a shadow-catching ground plane beneath the target entity.
 // The plane uses a multiplicative-blend material with the LIT_SHADOW_CATCHER shader

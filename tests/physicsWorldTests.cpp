@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 05.09.2026
+//
 // The physics seam, exercised through whatever backend the build supplies.
 //
 // These are the properties an application depends on and that a stub silently
@@ -152,7 +154,7 @@ int main()
         }
     }
 
-    // Cone, triangle mesh and convex hull bodies (the shapes upstream's 'cone' and
+    // Cone, triangle mesh and convex hull bodies (the shapes the 'cone' and
     // 'mesh' collision types build). A cone stands on its base and a ray down onto it
     // hits the APEX, half its height above the centre; a ball dropped onto a static
     // triangle-mesh floor comes to rest on it; a dynamic hull falls.

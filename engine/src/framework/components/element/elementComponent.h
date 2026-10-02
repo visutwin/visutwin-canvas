@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// A UI element (upstream framework/components/element/component.js), its LAYOUT: an
+// Created by Arnis Lektauers on 21.03.2026
+//
+// A UI element, its LAYOUT: an
 // element sits in its parent element's rectangle, or its screen's, by ANCHORS (fractions
 // of that rectangle, x/y the bottom-left corner and z/w the top-right), a PIVOT (the point
 // of the element its position names, 0..1) and MARGINS (distances from the anchors: left,
@@ -10,21 +12,20 @@
 // anchors and the margins set its size.
 //
 // Its entity's transform is computed by the element while it has a screen
-// (GraphNodeTransformHook, upstream's patched `_sync`): the world transform goes through
+// (GraphNodeTransformHook): the world transform goes through
 // the anchors, the parent element's model transform and the screen's projection, so a
 // SCREEN-SPACE element's world transform is in clip space and a camera that draws it maps
 // world XY straight to NDC; a world-space screen's elements are ordinary world geometry.
-// Setting the entity's position re-derives the margins, as upstream.
+// Setting the entity's position re-derives the margins.
 //
-// Configure an element either with setters, each of which behaves like upstream's, or all
-// at once with `setup(ElementDesc)`, which is upstream's `addComponent('element', data)`
-// and applies the values in its order.
+// Configure an element either with setters, or all at once with `setup(ElementDesc)`,
+// which applies the values in a fixed order.
 //
 // Drawing is ElementInput's (text and images, synced by Engine::render). An image element
 // takes a texture with a UV rect, or a sprite frame, simple or 9-sliced
 // (imageElementGeometry.h); its colour multiplies the texture.
 //
-// Text is laid out on upstream's metrics (textLayout.h) as soon as an input changes, so its
+// Text is laid out (textLayout.h) as soon as an input changes, so its
 // size can be read at once; with autoWidth / autoHeight (the default) the element takes it.
 // `enableMarkup` reads `[color]`, `[outline]` and `[shadow]` tags (markup.h).
 //
@@ -62,7 +63,7 @@ namespace visutwin::canvas
     class Sprite;
     class Texture;
 
-    /// Upstream ELEMENTTYPE_GROUP / IMAGE / TEXT. A group lays out and draws nothing.
+    /// A group lays out and draws nothing.
     enum class ElementType
     {
         Group,
@@ -77,7 +78,7 @@ namespace visutwin::canvas
         Right
     };
 
-    /// Upstream's `addComponent('element', data)`: the fields given, applied in its order.
+    /// The fields given to `setup`, applied in a fixed order.
     struct ElementDesc
     {
         std::optional<ElementType> type;
@@ -103,7 +104,7 @@ namespace visutwin::canvas
         void initializeComponentData() override;
         void cloneFrom(const Component* source) override;
 
-        /// Upstream ElementComponentSystem.initializeComponentData for `desc`.
+        /// Initializes the element from `desc`.
         void setup(const ElementDesc& desc);
 
         static const std::vector<ElementComponent*>& instances() { return _instanceList.items(); }
@@ -114,7 +115,7 @@ namespace visutwin::canvas
         ElementType type() const { return _type; }
         void setType(ElementType value) { _type = value; textChanged(); }
 
-        // ---- layout (upstream semantics) --------------------------------------------
+        // ---- layout --------------------------------------------------------------------
 
         const Vector4& anchor() const { return _anchor; }
         void setAnchor(const Vector4& value);
@@ -163,7 +164,7 @@ namespace visutwin::canvas
         /// The transform from the element's local space to the screen's model space.
         const Matrix4& modelTransform() const { return _modelTransform; }
 
-        // ---- screen callbacks (upstream `_updateScreen`, `_onScreenResize`, ...) --------
+        // ---- screen callbacks -----------------------------------------------------------
 
         void updateScreen(Entity* screen);
         void onScreenResize(const Vector2& resolution);
@@ -172,22 +173,20 @@ namespace visutwin::canvas
         // ---- appearance, read by ElementInput ------------------------------------------
 
         // The colour, opacity, sprite and sprite frame setters fire `set:color`,
-        // `set:opacity`, `set:sprite` and `set:spriteFrame` when the value changes (upstream's
-        // image element fires the first two and `set:spriteAsset`); a button keeps its
-        // image's default look through them.
+        // `set:opacity`, `set:sprite` and `set:spriteFrame` when the value changes; a button
+        // keeps its image's default look through them.
         float opacity() const { return _opacity; }
         void setOpacity(float value);
         const Color& color() const { return _color; }
         void setColor(const Color& value);
-        /// The size the text is drawn at: under auto fit, the size the fit chose (upstream's
-        /// getter); otherwise the size set.
+        /// The size the text is drawn at: under auto fit, the size the fit chose; otherwise
+        /// the size set.
         int fontSize() const { return shouldAutoFit() ? _fittedFontSize : _fontSize; }
-        /// The size to draw at when not auto fitting (upstream's setter keeps it as
-        /// `_originalFontSize` while a fit is on).
+        /// The size to draw at when not auto fitting (kept while a fit is on).
         void setFontSize(const int value) { _fontSize = std::max(value, 1); textChanged(); }
-        /// Upstream `autoFitWidth` / `autoFitHeight`: shrink the font, from maxFontSize down to
-        /// minFontSize, until the text fits the element's width / height. Each works only while
-        /// the matching autoWidth / autoHeight is off, as upstream.
+        /// Shrink the font, from maxFontSize down to minFontSize, until the text fits the
+        /// element's width / height. Each works only while the matching autoWidth / autoHeight
+        /// is off.
         bool autoFitWidth() const { return _autoFitWidth; }
         void setAutoFitWidth(const bool value) { _autoFitWidth = value; textChanged(); }
         bool autoFitHeight() const { return _autoFitHeight; }
@@ -196,7 +195,7 @@ namespace visutwin::canvas
         void setMinFontSize(const int value) { _minFontSize = value; textChanged(); }
         int maxFontSize() const { return _maxFontSize; }
         void setMaxFontSize(const int value) { _maxFontSize = value; textChanged(); }
-        /// Upstream `maxLines`: a wrapping text stops breaking lines once it has this many, and
+        /// A wrapping text stops breaking lines once it has this many, and
         /// the rest runs on in the last one. Negative (the default) for no limit; ignored for text
         /// that does not wrap.
         int maxLines() const { return _maxLines; }
@@ -208,9 +207,9 @@ namespace visutwin::canvas
         /// visual places glyphs by.
         TextMeasure measureLayout() const;
         const std::string& text() const { return _text; }
-        /// Plain text; clears the localization key, as upstream's `text` setter does.
+        /// Plain text; clears the localization key.
         void setText(const std::string& value) { _i18nKey.clear(); _text = value; textChanged(); }
-        /// Upstream `key`: the text is the engine's I18n message for this key in the current
+        /// The text is the engine's I18n message for this key in the current
         /// locale, and follows the locale and any data added for it. Empty for none.
         const std::string& key() const { return _i18nKey; }
         void setKey(const std::string& value);
@@ -219,17 +218,16 @@ namespace visutwin::canvas
         ElementHorizontalAlign horizontalAlign() const { return _horizontalAlign; }
         void setHorizontalAlign(const ElementHorizontalAlign value) { _horizontalAlign = value; _textDirty = true; }
         /// Where the block of lines sits vertically in the box: 0 bottom, 0.5 centre (the
-        /// default, as upstream), 1 top (upstream `alignment.y`). The block is measured
-        /// from the font's glyph bounds, as upstream measures it.
+        /// default), 1 top. The block is measured from the font's glyph bounds.
         float verticalAlign() const { return _verticalAlign; }
         void setVerticalAlign(const float value) { _verticalAlign = std::clamp(value, 0.0f, 1.0f); _textDirty = true; }
-        /// Text outline (upstream `outlineColor`, `outlineThickness` 0..1). MSDF fonts only.
+        /// Text outline (thickness 0..1). MSDF fonts only.
         const Color& outlineColor() const { return _outlineColor; }
         void setOutlineColor(const Color& value) { _outlineColor = value; styleChanged(); }
         float outlineThickness() const { return _outlineThickness; }
         void setOutlineThickness(const float value) { _outlineThickness = value; styleChanged(); }
-        /// Text drop shadow (upstream `shadowColor`, `shadowOffset` in its editor units:
-        /// a shift of 0.005 of the atlas width per unit). MSDF fonts only.
+        /// Text drop shadow (the offset in editor units: a shift of 0.005 of the atlas
+        /// width per unit). MSDF fonts only.
         const Color& shadowColor() const { return _shadowColor; }
         void setShadowColor(const Color& value) { _shadowColor = value; styleChanged(); }
         const Vector2& shadowOffset() const { return _shadowOffset; }
@@ -237,17 +235,16 @@ namespace visutwin::canvas
         bool wrapLines() const { return _wrapLines; }
         void setWrapLines(const bool value) { _wrapLines = value; textChanged(); }
 
-        /// Upstream `spacing`: multiplies every glyph's advance (1 = the font's own).
+        /// Multiplies every glyph's advance (1 = the font's own).
         float spacing() const { return _spacing; }
         void setSpacing(const float value) { _spacing = value; textChanged(); }
-        /// The distance between lines (upstream `lineHeight`); unset, the font size.
-        /// Under auto fit the lines step by this scaled by the fitted size over maxFontSize, as
-        /// upstream scales them (`_scaledLineHeight`).
+        /// The distance between lines; unset, the font size.
+        /// Under auto fit the lines step by this scaled by the fitted size over maxFontSize.
         float lineHeight() const { return _lineHeight.value_or(static_cast<float>(_fontSize)); }
         void setLineHeight(const float value) { _lineHeight = value; textChanged(); }
-        /// Upstream `enableMarkup`: read `[color]`, `[outline]` and `[shadow]` tags in the
+        /// `enableMarkup`: read `[color]`, `[outline]` and `[shadow]` tags in the
         /// text (markup.h). An error draws the text as written, tags included.
-        /// Upstream `justify`: wrapped lines stretch flush to both edges by widening their
+        /// `justify`: wrapped lines stretch flush to both edges by widening their
         /// word gaps; lines ended by a line break and the last line keep the alignment.
         bool justify() const { return _justify; }
         void setJustify(const bool value)
@@ -257,7 +254,7 @@ namespace visutwin::canvas
                 textChanged();
             }
         }
-        /// Upstream `rangeStart` / `rangeEnd`: only the symbols (code points) in
+        /// Only the symbols (code points) in
         /// [rangeStart, rangeEnd) are drawn, without laying the text out again. Laying it out
         /// (a new text, font, size, width ...) resets the range to the whole text, so
         /// `rangeEnd()` right after `setText` is the text's length.
@@ -269,7 +266,7 @@ namespace visutwin::canvas
         uint64_t rangeVersion() const { return _rangeVersion; }
         bool enableMarkup() const { return _enableMarkup; }
         void setEnableMarkup(const bool value) { _enableMarkup = value; textChanged(); }
-        /// Upstream `autoWidth` / `autoHeight` (both on by default): the element takes the
+        /// `autoWidth` / `autoHeight` (both on by default): the element takes the
         /// text's size on that axis unless its anchors split it. A text that wraps must turn
         /// autoWidth off, or it has no width to wrap at.
         bool autoWidth() const { return _autoWidth; }
@@ -284,16 +281,16 @@ namespace visutwin::canvas
         /// these.
         const std::u32string& textCodePoints() const { return _codePoints; }
         const std::vector<std::optional<MarkupTags>>& markupTags() const { return _markupTags; }
-        /// The text's own size (upstream TextElement width / height), measured whenever
+        /// The text's own size, measured whenever
         /// the text, font, size, line height, wrapping or wrap width changes.
         float textWidth() const { return _textWidth; }
         float textHeight() const { return _textHeight; }
         /// The width lines wrap at: the element's, when wrapLines is on and the width is not
-        /// automatic on an unsplit axis; unlimited otherwise (upstream's rule).
+        /// automatic on an unsplit axis; unlimited otherwise.
         float textMaxLineWidth() const;
-        /// The layers the element's visual is drawn on (upstream `layers`). Empty, the
+        /// The layers the element's visual is drawn on. Empty, the
         /// default, lets the element system choose: LAYERID_UI for an element on a screen of
-        /// either kind, as upstream, whose manual sort by draw order keeps a world-space
+        /// either kind, whose manual sort by draw order keeps a world-space
         /// screen's coplanar elements in order (on WORLD they sorted by distance and a panel
         /// could cover its own buttons). DEVIATION: an element on NO screen goes to
         /// LAYERID_WORLD, where upstream still says UI.
@@ -302,11 +299,11 @@ namespace visutwin::canvas
         bool useInput() const { return _useInput; }
         void setUseInput(const bool value) { _useInput = value; }
 
-        // ---- image (upstream ImageElement) -----------------------------------------------
+        // ---- image ----------------------------------------------------------------------
 
-        /// Upstream `material` on an image element: a custom material (a ShaderMaterial, say)
-        /// that draws the element's quad instead of the element's own. It REPLACES the element's
-        /// handling of colour, opacity and texture, which then belong to the material, as upstream.
+        /// A custom material on an image element (a ShaderMaterial, say) that draws the
+        /// element's quad instead of the element's own. It REPLACES the element's
+        /// handling of colour, opacity and texture, which then belong to the material.
         /// Null (the default) draws the element's own material.
         const std::shared_ptr<Material>& material() const { return _customMaterial; }
         void setMaterial(std::shared_ptr<Material> value)
@@ -314,8 +311,8 @@ namespace visutwin::canvas
             _customMaterial = std::move(value);
             ++_imageVersion;
         }
-        /// A texture drawn over the element, through `rect`. Setting one clears the sprite,
-        /// as upstream. Borrowed: whoever loaded it must outlive the element.
+        /// A texture drawn over the element, through `rect`. Setting one clears the sprite.
+        /// Borrowed: whoever loaded it must outlive the element.
         Texture* texture() const { return _texture; }
         void setTexture(Texture* value);
         /// A sprite drawn over the element; setting one clears the texture.
@@ -325,14 +322,13 @@ namespace visutwin::canvas
         int spriteFrame() const { return _spriteFrame; }
         void setSpriteFrame(int value);
         /// The part of the texture drawn: x, y (from the bottom), width, height, as
-        /// fractions of the texture. Upstream `rect`; ignored when a sprite is set.
+        /// fractions of the texture. Ignored when a sprite is set.
         const Vector4& rect() const { return _rect; }
         void setRect(const Vector4& value) { _rect = value; ++_imageVersion; }
-        /// Overrides the sprite's pixels per unit for a sliced sprite (upstream
-        /// `pixelsPerUnit`, null = the sprite's).
+        /// Overrides the sprite's pixels per unit for a sliced sprite (null = the sprite's).
         std::optional<float> pixelsPerUnit() const { return _pixelsPerUnit; }
         void setPixelsPerUnit(const std::optional<float> value) { _pixelsPerUnit = value; ++_imageVersion; }
-        /// Upstream `mask`: an image element that MASKS its descendants. It is not drawn
+        /// An image element that MASKS its descendants. It is not drawn
         /// itself; its opaque texels (alpha test 1, so a sprite's transparent corners shape
         /// it) mark the stencil, and every element below it draws only there. Masks nest.
         bool mask() const { return _mask; }
@@ -343,8 +339,8 @@ namespace visutwin::canvas
                 ++_imageVersion;
             }
         }
-        /// The nearest mask above this element, or null (upstream `maskedBy`, which is an
-        /// entity there). Worked out by ElementInput before each frame; a hit test on this
+        /// The nearest mask above this element, or null. Worked out by ElementInput before
+        /// each frame; a hit test on this
         /// element must also hit it.
         ElementComponent* maskedBy() const { return _maskedBy; }
 
@@ -374,8 +370,8 @@ namespace visutwin::canvas
         /// Bumped by every image setter; ElementInput rebuilds the geometry when it moves.
         uint64_t imageVersion() const { return _imageVersion; }
 
-        /// The draw order within the screen, the screen's priority in the top 8 bits
-        /// (upstream `drawOrder`). The screen assigns it depth-first, so a child draws over
+        /// The draw order within the screen, the screen's priority in the top 8 bits.
+        /// The screen assigns it depth-first, so a child draws over
         /// its parent and a later sibling over an earlier one.
         int drawOrder() const { return _drawOrder; }
         void setDrawOrder(int value);
@@ -383,7 +379,7 @@ namespace visutwin::canvas
         void clearTextDirty() { _textDirty = false; }
 
     protected:
-        // GraphNodeTransformHook (upstream `_sync`, `_setPosition`, `_setLocalPosition`).
+        // GraphNodeTransformHook.
         void syncTransform(GraphNode& node) override;
         void setNodePosition(GraphNode& node, const Vector3& position) override;
         void setNodeLocalPosition(GraphNode& node, const Vector3& position) override;
@@ -455,7 +451,7 @@ namespace visutwin::canvas
 
         Entity* _screen = nullptr;
         EventHandlePtr _onInsertHandle;
-        // Localization (upstream `_i18nKey` and its three i18n subscriptions), subscribed the
+        // Localization (the key and its three i18n subscriptions), subscribed the
         // first time a key is set: a component added to a live entity gets no onEnable here.
         void subscribeLocalization();
         void resetLocalizedText();
@@ -466,7 +462,7 @@ namespace visutwin::canvas
 
         float _opacity = 1.0f;
         Color _color = Color(1.0f, 1.0f, 1.0f, 1.0f);
-        int _fontSize = 32;   // upstream text-element.js
+        int _fontSize = 32;
         std::string _text;
         FontResource* _fontResource = nullptr;
         ElementHorizontalAlign _horizontalAlign = ElementHorizontalAlign::Center;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 02.01.2026
+// Created by Arnis Lektauers on 02.01.2026
 //
 // Input framework: deltas that accumulate between
 // reads, frames that group them by name, sources that fill a frame from a device, and

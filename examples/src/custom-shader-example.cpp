@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 14.07.2026
+//
 // Custom shader material example — port of upstream shaders/shader-toon.
 // A ShaderMaterial carrying a user-supplied toon shader (quantised N·L into 6 bands
 // over a single warm-grey ramp) replaces the materials of every mesh instance in the
@@ -41,8 +43,7 @@ struct ModelData {
     float3    _pad;
 };
 
-// Replaces MaterialData at buffer(3) — the port's equivalent of upstream's
-// material.setParameter('uLightPos', ...).
+// Replaces MaterialData at buffer(3), carrying the uLightPos parameter.
 struct ToonData { float4 lightPos; };
 
 struct Varyings {
@@ -139,7 +140,7 @@ void main() {
 )GLSL";
 
 // ShaderMaterial carrying one custom uniform. The engine has no named-parameter path
-// for user shaders (upstream's setParameter('uLightPos', ...)), so the material
+// for user shaders, so the material
 // supplies its whole uniform block instead: customUniformData() replaces MaterialData
 // at buffer(3) / set 0 with these bytes.
 class ToonMaterial final : public ShaderMaterial
@@ -178,7 +179,7 @@ protected:
     {
         scene()->setAmbientLight(0.2f, 0.2f, 0.2f);
 
-        // Camera. Upstream translates it without rotating, so it looks straight down -Z.
+        // Camera. Translated without rotating, so it looks straight down -Z.
         const Vector3 cameraPosition(0.0f, 7.0f, 24.0f);
         auto* camera = createCamera(cameraPosition);
         if (auto* cameraComponent = camera->findComponent<CameraComponent>()) {

@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Mesh decals demo — port of upstream examples/src/examples/graphics/mesh-decals.example.mjs.
+// Created by Arnis Lektauers on 01.05.2026
 //
-// upstream does not have a dedicated decal subsystem; "mesh decals" is a *technique*
+// Mesh decals demo — port of upstream graphics/mesh-decals.
+//
+// There is no dedicated decal subsystem; "mesh decals" is a *technique*
 // using StandardMaterial primitives:
 //   • dynamic flat-quad mesh built incrementally as decals are stamped
 //   • additive-alpha blend so overlapping stamps brighten
@@ -74,7 +76,7 @@ namespace
     // Quad is laid flat on the y=0 plane, oriented by `angleRad`, scaled by `size`.
     void writeDecal(std::vector<float>& vertices, int decalIndex, const DecalQuad& d)
     {
-        // 4 corners, rotated 90° apart. upstream's example uses the same trick:
+        // 4 corners, rotated 90° apart:
         // start at angleRad and step π/2 between each corner; uv pattern is (0,0)(0,1)(1,1)(1,0).
         constexpr float kQuarter = 1.5707963267948966f;
         const float uvs[4][2] = {{0, 0}, {0, 1}, {1, 1}, {1, 0}};
@@ -129,8 +131,8 @@ protected:
     {
         spdlog::info("*** Mesh-Decals Example ***");
 
-        // Ambient only — upstream lights this scene with a dim omni and nothing else,
-        // and the near-black ground is what makes the emissive decals read as glowing.
+        // Ambient plus one dim omni (below) and nothing else; the near-black ground is
+        // what makes the emissive decals read as glowing.
         scene()->setAmbientLight(0.2f, 0.2f, 0.2f);
 
         _heart = std::make_unique<Asset>(
@@ -221,7 +223,7 @@ protected:
         // ── Decal material ──────────────────────────────────────────────────
         // Black diffuse plus a bright emissive heart, tinted per vertex — the decals
         // are pure emission, which is what makes them glow against the dark ground.
-        // The cutout is the heart's alpha, through the opacity map, as upstream.
+        // The cutout is the heart's alpha, through the opacity map.
         _decalMaterial = std::make_shared<StandardMaterial>();
         _decalMaterial->setUseLighting(false);                  // → VT_FEATURE_UNLIT
         _decalMaterial->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
@@ -240,7 +242,7 @@ protected:
         decalDepth->setDepthTest(true);
         decalDepth->setDepthWrite(false);  // host plane already wrote depth; don't double-up
         // Polygon offset to keep decals visually on top of the plane. Negative bias pulls
-        // fragments toward the camera in reverse-Z (matches Material.depthBias = -0.1 in upstream).
+        // fragments toward the camera in reverse-Z.
         decalDepth->setDepthBias(-0.1f);
         decalDepth->setSlopeDepthBias(-0.1f);
         _decalMaterial->setDepthState(decalDepth);
@@ -301,8 +303,8 @@ protected:
         }
 
         // Fade all existing decals once per second by reducing vertex color magnitude.
-        // upstream fades vertex color bytes by 2 each second (out of 255). We mimic that
-        // ratio with a normalized 2/255 ≈ 0.0078 step on float colors.
+        // A byte colour stepped by 2 each second (out of 255) is a normalized
+        // 2/255 ≈ 0.0078 step on float colors.
         _fadeAccumulator += dt;
         if (_fadeAccumulator >= 1.0f) {
             _fadeAccumulator -= 1.0f;

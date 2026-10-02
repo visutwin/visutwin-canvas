@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// The transform gizmo port (framework/gizmo, upstream extras/gizmo) on the CPU side:
+// Created by Arnis Lektauers on 02.10.2026
+//
+// The transform gizmo (framework/gizmo) on the CPU side:
 //
 // - TriData picking: the ray is carried into the triangles' space through the shape's
 //   world matrix times the TriData transform, and the hit distance is measured back in
@@ -373,13 +375,13 @@ namespace
         check(near(guideEnd, expected * guideStart, 1e-4f) && near(guideStart.length(), 0.5f, 1e-4f),
             "the angle guide ends where the start guide turns by the same angle");
 
-        gizmo->snap = true;   // snap increment 5 degrees, upstream's rotate default
+        gizmo->snap = true;   // snap increment 5 degrees, the rotate default
         gizmo->pointerMove(onRing(57.0f).getX(), onRing(57.0f).getY());
         const Quaternion snapped = Quaternion::fromAxisAngle(Vector3(0.0f, 0.0f, 1.0f), 10.0f);
         check(std::abs(std::abs(box->rotation().dot(snapped)) - 1.0f) < 1e-4f, "snapped: 12 degrees round to 10");
         gizmo->pointerUp(to.getX(), to.getY(), 0);
 
-        // absolute mode (upstream's default): a ring facing the camera turns by the mouse
+        // absolute mode (the default): a ring facing the camera turns by the mouse
         // displacement projected on (+-1, +-1) / sqrt 2, picked by the quadrant of the press
         // (here right of and above the centre: (-1, -1)), one degree per point
         gizmo->snap = false;
@@ -436,7 +438,7 @@ namespace
     {
         std::cout << "lifetime\n";
         {
-            // the engine is destroyed (upstream app.destroy) while the gizmo lives on: its
+            // the engine is destroyed while the gizmo lives on: its
             // destroy event tears the gizmo down, and the later destructor touches nothing
             GizmoScene scene = makeScene();
             Entity* box = addEntity(*scene.engine);

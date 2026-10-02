@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 25.09.2026
+//
 // ApplicationStats after rendering a known scene: three boxes (two materials) under one
 // camera and one shadow-casting directional light, rendered by the real engine on a
 // stub device whose draw() records what it was asked to draw, as the backends' do.

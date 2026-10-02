@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Text markup (upstream framework/components/element/markup.js): `[name]...[/name]` and
+// Created by Arnis Lektauers on 29.09.2026
+//
+// Text markup: `[name]...[/name]` and
 // `[name="value" attr="value"]...[/name]` tags inside a text element's string. Evaluation
 // strips the tags and returns, for every visible symbol, the tags open over it, merged in
 // the order they were opened so an inner tag overrides an outer one of the same name. A
 // backslash escapes an opening bracket (`\[`); any other backslash is kept.
 //
 // A syntax error or a tag left unclosed is not fatal: evaluation reports it and returns
-// the text AS WRITTEN with no tags, as upstream does, so the line still draws.
+// the text AS WRITTEN with no tags, so the line still draws.
 //
 // Symbols are bytes, as the text layout's are.
 //

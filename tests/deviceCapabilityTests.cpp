@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 12.09.2026
+//
 // The device capability queries, and the two decisions that key on them.
 //
 // Nothing in the tree can show either one. Every GPU this engine runs on renders
@@ -12,7 +14,7 @@
 //
 // What is pinned here:
 //   - a VSM_16F request on a device without half-float render targets resolves to
-//     PCF3 (upstream's documented fallback), while the REQUEST is remembered;
+//     PCF3, while the REQUEST is remembered;
 //   - that resolution survives LightComponent::syncToLight's per-frame replay of
 //     the same value without dropping the shadow map each frame — the trap every
 //     shadow-map-invalidating setter shares;

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Upstream extras/gizmo/constants.js and color.js.
+// Created by Arnis Lektauers on 02.10.2026
+//
+// Transform gizmo constants and colours.
 //
 #pragma once
 
@@ -12,16 +14,16 @@
 
 namespace visutwin::canvas
 {
-    /// Upstream GizmoSpace: the coordinate system the gizmo's axes follow.
+    /// The coordinate system the gizmo's axes follow.
     enum class GizmoSpace
     {
         World,
         Local
     };
 
-    /// Upstream GizmoAxis. A shape's axis is one of X, Y, Z, F (the axis facing the camera)
+    /// A shape's axis is one of X, Y, Z, F (the axis facing the camera)
     /// or XYZ; the plane handles are keyed YZ / XZ / XY but carry the axis of their NORMAL,
-    /// so the plane shape of the YZ handle reports X, exactly as upstream's 'plane:x'.
+    /// so the plane shape of the YZ handle reports X.
     enum class GizmoAxis
     {
         None,
@@ -35,7 +37,7 @@ namespace visutwin::canvas
         F
     };
 
-    /// Upstream GizmoDragMode: how the shapes show while a drag is in progress.
+    /// How the shapes show while a drag is in progress.
     enum class GizmoDragMode
     {
         Show,       ///< always show the shapes
@@ -44,7 +46,7 @@ namespace visutwin::canvas
     };
 
     /// The component index (0, 1, 2) of a single-axis value, or -1 for anything else
-    /// (upstream writes `vec[axis] = 1`, which is a no-op for 'xyz' and 'f').
+    /// (XYZ and F name no single component).
     constexpr int gizmoAxisIndex(const GizmoAxis axis)
     {
         switch (axis) {
@@ -64,7 +66,7 @@ namespace visutwin::canvas
         return axis == GizmoAxis::YZ || axis == GizmoAxis::XZ || axis == GizmoAxis::XY;
     }
 
-    /// Upstream `axis.includes(selected)` for a plane key and a single axis.
+    /// Whether a plane key includes a single axis.
     constexpr bool gizmoPlaneKeyIncludes(const GizmoAxis planeKey, const GizmoAxis axis)
     {
         switch (planeKey) {
@@ -75,7 +77,7 @@ namespace visutwin::canvas
         }
     }
 
-    /// `v` with component `index` replaced by `value` (upstream `v[axis] = value`); any other
+    /// `v` with component `index` replaced by `value`; any other
     /// index leaves `v` alone.
     inline Vector3 withGizmoComponent(const Vector3& v, const int index, const float value)
     {
@@ -87,7 +89,7 @@ namespace visutwin::canvas
         }
     }
 
-    /// Exact component-wise equality (upstream Vec3.equals).
+    /// Exact component-wise equality.
     inline bool gizmoVectorEquals(const Vector3& a, const Vector3& b)
     {
         return a.getX() == b.getX() && a.getY() == b.getY() && a.getZ() == b.getZ();
@@ -100,8 +102,8 @@ namespace visutwin::canvas
     inline const Color GIZMO_COLOR_YELLOW{1.0f, 1.0f, 0.5f, 1.0f};
     inline const Color GIZMO_COLOR_GRAY{0.5f, 0.5f, 0.5f, 0.5f};
 
-    /// Upstream GizmoTheme: the colours every shape and guide line of a transform gizmo
-    /// draws with. Shapes hold POINTERS to these colours, as upstream's hold references,
+    /// The colours every shape and guide line of a transform gizmo
+    /// draws with. Shapes hold POINTERS to these colours,
     /// so a theme change reaches them without rebuilding anything.
     struct GizmoTheme
     {
@@ -121,7 +123,7 @@ namespace visutwin::canvas
         Color disabled;
     };
 
-    /// Upstream `setTheme(partial)`: every field that is set is copied in.
+    /// `setTheme(partial)`: every field that is set is copied in.
     struct GizmoThemePartial
     {
         struct AxisColors

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 //
 #pragma once
 
@@ -19,7 +21,7 @@ namespace visutwin::canvas
 
     /**
      * @brief Draws a fullscreen quad with a shader, its input textures and one
-     * uniform block (upstream `QuadRender`).
+     * uniform block.
      * @ingroup group_scene_graphics
      *
      * This is the backend-agnostic vehicle for fullscreen effects: an effect is

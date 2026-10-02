@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 02.10.2026
+//
 #include "gizmoMaterial.h"
 
 #include <map>
@@ -59,7 +62,7 @@ vertex Varyings gizmoVertex(VertexData v [[stage_in]],
 {
     Varyings out;
     float4 clip = scene.projViewMatrix * model.modelMatrix * float4(v.position, 1.0);
-    // Upstream: keep the shape inside the depth range rather than clipping it.
+    // Keep the shape inside the depth range rather than clipping it.
     clip.z = clamp(clip.z, -abs(clip.w), abs(clip.w));
     clip.z = 0.5 * (clip.z + clip.w);   // GL [-1,1] -> [0,1], as every engine vertex shader
     out.position = clip;
@@ -139,7 +142,7 @@ void main() {
     GizmoMaterial::GizmoMaterial(const std::shared_ptr<GraphicsDevice>& device)
     {
         setName("gizmo-unlit");
-        // Upstream: blendType BLEND_NORMAL, depth test and write left at their defaults,
+        // blendType BLEND_NORMAL, depth test and write left at their defaults,
         // back faces culled (the plane shape turns culling off).
         setBlendState(std::make_shared<BlendState>(BlendState::alphaBlend()));
         setDepthState(std::make_shared<DepthState>());

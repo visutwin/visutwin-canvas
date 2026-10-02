@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 11.09.2026
+//
 // Key and button identifiers, and the event payloads the input devices fire.
 //
 #pragma once
@@ -16,8 +18,7 @@ namespace visutwin::canvas
 {
     /**
      * A physical key, by POSITION on the keyboard rather than by the character it
-     * produces — W is the key left of S whatever the layout says it types. Upstream
-     * keys off the browser's keyCode, which is also positional.
+     * produces — W is the key left of S whatever the layout says it types.
      *
      * DEVIATION: the enumerators ARE the SDL scancodes rather than a private
      * numbering with a translation table. The platform layer is SDL either way (the

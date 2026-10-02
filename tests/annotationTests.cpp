@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Script lifecycle events (upstream Script's `enable` / `disable` / `state` / `destroy`) and
+// Created by Arnis Lektauers on 01.10.2026
+//
+// Script lifecycle events (`enable` / `disable` / `state` / `destroy`) and
 // the AnnotationManager built on them: registration, hover, the click that shows a tooltip
 // and the press elsewhere that hides it, a hotspot behind the camera, an annotation disabled
 // or destroyed, and the manager's own teardown.

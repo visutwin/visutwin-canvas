@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 11.09.2025.
+// Created by Arnis Lektauers on 11.09.2025
 //
 #pragma once
 
@@ -19,8 +19,8 @@ namespace visutwin::canvas
     class ShadowMap;
 
     /**
-     * One packed 2D depth atlas holding every clustered local shadow map (upstream
-     * `LightTextureAtlas`). The atlas is split into equal square SLOTS — as many as
+     * One packed 2D depth atlas holding every clustered local shadow map.
+     * The atlas is split into equal square SLOTS — as many as
      * there are lights that need one this frame, rounded up to a square grid, or
      * whatever `LightingParams::atlasSplit` says — and each shadow-casting spot or
      * omni light is assigned one. A spot renders its single face into the whole
@@ -36,8 +36,7 @@ namespace visutwin::canvas
      *
      * The memory is the atlas, whatever the light count: 2048x2048 of 32-bit depth is
      * 16 MB, where five omni lights as 1024 cubemaps would be 120 MB. What the split
-     * gives up is per-light resolution — more lights, smaller slots — which is the
-     * trade upstream makes.
+     * gives up is per-light resolution — more lights, smaller slots.
      *
      * Rects are normalized (x, y, width, height) with the origin at the TOP-LEFT of
      * the texture, the only origin this engine has (see the texture-origin rule in
@@ -48,12 +47,12 @@ namespace visutwin::canvas
     {
     public:
         /// Pixels a cube face is rendered PAST its 90 degrees, so a filter kernel at
-        /// the tile edge still lands inside it (upstream `shadowEdgePixels`). The
+        /// the tile edge still lands inside it. The
         /// shader insets its face UV by the same amount.
         static constexpr int kShadowEdgePixels = 3;
 
         /// A slot's border, in pixels, kept clear of a spot's viewport for the same
-        /// reason (upstream's `scissorVec`, sized for a 5-tap filter).
+        /// reason (sized for a 5-tap filter).
         static constexpr int kSpotEdgePixels = 4;
 
         explicit LightTextureAtlas(const std::shared_ptr<GraphicsDevice>& device) : _device(device) {}
@@ -62,10 +61,10 @@ namespace visutwin::canvas
         /// `ceil(sqrt(count))` on a side). Both may change at any time: a new
         /// resolution resizes the texture and target in place on the next update(),
         /// bumps the version so every light is re-slotted and re-armed, and costs one
-        /// re-render of the one-shot shadows (upstream's allocateShadowAtlas).
+        /// re-render of the one-shot shadows.
         void configure(int resolution, const std::vector<int>& atlasSplit);
 
-        /// The cookie atlas (upstream `cookieAtlas`): an RGBA8 texture laid out like the
+        /// The cookie atlas: an RGBA8 texture laid out like the
         /// shadow atlas — the same normalized slot rects, at its own resolution — that
         /// RenderPassCookieRenderer copies clustered lights' cookies into and the cluster
         /// loop samples. Created by the first update that holds a cookie light; a changed

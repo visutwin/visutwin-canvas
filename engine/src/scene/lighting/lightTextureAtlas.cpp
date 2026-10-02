@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 11.09.2025.
+// Created by Arnis Lektauers on 11.09.2025
 //
 
 #include "lightTextureAtlas.h"
@@ -23,8 +23,7 @@ namespace visutwin::canvas
 {
     namespace
     {
-        // Where each cube face's tile sits in a slot's 3x3 grid (upstream
-        // `cubeSlotsOffsets`): faces +X, -X, +Y, -Y, +Z, -Z in the order
+        // Where each cube face's tile sits in a slot's 3x3 grid: faces +X, -X, +Y, -Y, +Z, -Z in the order
         // LightCamera::pointLightRotations renders them. Column = axis, row = sign.
         constexpr int kCubeTileOffsets[6][2] = {
             {0, 0}, {0, 1}, {1, 0}, {1, 1}, {2, 0}, {2, 1}
@@ -92,9 +91,8 @@ namespace visutwin::canvas
 
     Vector2 LightTextureAtlas::cubemapFaceCoordinates(const Vector3& dir, int& faceIndex)
     {
-        // Upstream's getCubemapFaceCoordinates with its V term NEGATED: the six face
-        // cameras are upstream's rotations, but upstream renders them into bottom-up
-        // GL storage and this engine's targets are top-down, so v runs the other way.
+        // Cubemap face coordinates with the V term NEGATED: this engine's targets are
+        // top-down rather than bottom-up GL storage, so v runs the other way.
         // tests/lightTextureAtlasTests.cpp holds this against the cameras' real
         // projection.
         const Vector3 absDir = dir.abs();
@@ -129,7 +127,7 @@ namespace visutwin::canvas
     {
         if (_texture) {
             if (_pendingResolution != _resolution) {
-                // A live resolution change, upstream's allocateShadowAtlas: the same
+                // A live resolution change: the same
                 // Texture and RenderTarget objects are RESIZED rather than replaced, so
                 // the ShadowMap wrapper every light holds, and the raw pointer the
                 // device binds each frame, stay valid; the backends retire the old GPU

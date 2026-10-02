@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 25.09.2026
+//
 // Adds the milliseconds a scope took to a running total: what the frame statistics
 // counters (Renderer::_cullTime, _forwardTime, ...) accumulate between two
 // Engine::fillFrameStats calls. Fractional milliseconds on purpose — a per-phase cost

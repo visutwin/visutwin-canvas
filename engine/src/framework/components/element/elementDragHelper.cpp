@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 30.09.2026
+//
 #include "elementDragHelper.h"
 
 #include <any>
@@ -66,8 +69,8 @@ namespace visutwin::canvas
         if (!_dragHandles.empty() || !_element) {
             return;
         }
-        // Upstream listens for the mouse events only when there is a mouse and for the touch
-        // events only on a touch platform; an event that never arrives costs nothing here.
+        // Both mouse and touch move events are listened for whatever the platform; an event
+        // that never arrives costs nothing here.
         for (const char* name : {"mousemove", "touchmove"}) {
             _dragHandles.push_back(_element->on(name, [this](const EventArgs& args) {
                 if (ElementInputEvent* event = inputEventOf(args)) {
@@ -131,7 +134,7 @@ namespace visutwin::canvas
 
     bool ElementDragHelper::screenToLocal(const ElementInputEvent& event, Vector3& point) const
     {
-        // upstream _chooseRayOriginAndDirection: a screen-space element is hit by a ray straight
+        // A screen-space element is hit by a ray straight
         // into the screen from the pointer, anything else by a ray from the camera through it.
         // Only differences between two points are used, so the screen-space origin need not be
         // in the element's space.

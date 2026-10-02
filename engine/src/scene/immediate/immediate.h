@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 11.10.2025.
+// Created by Arnis Lektauers on 11.10.2025
 //
 #pragma once
 
@@ -27,7 +27,7 @@ namespace visutwin::canvas
             float thickness = 1.0f;
         };
 
-        // Not in upstream: a pooled overlay line API for debug instrumentation.
+        // A pooled overlay line API for debug instrumentation.
         OverlayCommand* addOverlayLine(const Vector3& start, const Vector3& end, const Color& color, float thickness = 1.0f);
 
         const std::vector<OverlayCommand*>& overlays() const { return _overlayCommands; }

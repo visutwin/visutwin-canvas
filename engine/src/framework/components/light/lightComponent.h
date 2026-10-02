@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 10.09.2025.
+// Created by Arnis Lektauers on 10.09.2025
 //
 
 #pragma once
@@ -49,17 +49,17 @@ namespace visutwin::canvas
         float intensity() const { return _intensity; }
         void setIntensity(const float intensity) { _intensity = intensity; }
 
-        /// Upstream `luminance`: the physically based strength, candela for a spot or
+        /// The physically based strength, candela for a spot or
         /// omni light and lux for a directional one, used instead of the intensity
-        /// when the scene has physical units on. Defaults to 0, as upstream.
+        /// when the scene has physical units on. Defaults to 0.
         float luminance() const { return _luminance; }
         void setLuminance(const float value) { _luminance = value; }
 
         /// The intensity the light shines with: its luminance over the unit conversion
-        /// under physical units, its intensity otherwise (upstream Light._updateLinearColor).
+        /// under physical units, its intensity otherwise.
         float renderIntensity(bool physicalUnits) const;
 
-        /// Upstream Light.getLightUnitConversion: luminous intensity per unit of
+        /// Luminous intensity per unit of
         /// luminance for the type, over the cone for a spot (angles in RADIANS).
         static float lightUnitConversion(LightType type, float outerAngleRadians = 0.78539816f,
             float innerAngleRadians = 0.0f);
@@ -86,11 +86,11 @@ namespace visutwin::canvas
         void setCastShadows(const bool castShadows) { _castShadows = castShadows; }
 
         /**
-         * When the shadow map is rendered (upstream LightComponent.shadowUpdateMode):
+         * When the shadow map is rendered:
          * SHADOWUPDATE_REALTIME every frame (the default), SHADOWUPDATE_THISFRAME once
          * and then not again, SHADOWUPDATE_NONE never. A static scene lit by static
          * lights wants THISFRAME on every one of them: it is what turns the shadow cost
-         * of a frame into zero draws, and upstream's ambient-occlusion example is
+         * of a frame into zero draws, and the ambient-occlusion example is
          * about 730 draw calls a frame cheaper for it.
          *
          * Unlike every other property this is NOT replayed onto the backing Light each
@@ -98,7 +98,7 @@ namespace visutwin::canvas
          * once the map is rendered, and a per-frame replay would re-arm it into a
          * realtime light that merely spells its mode differently. It is pushed once, at
          * creation and after each set; the Light's own re-arm (NONE back to THISFRAME
-         * when its map is dropped) then works as upstream's does.
+         * when its map is dropped) then works as intended.
          */
         ShadowUpdateType shadowUpdateMode() const { return _shadowUpdateMode; }
         void setShadowUpdateMode(const ShadowUpdateType mode)
@@ -108,8 +108,7 @@ namespace visutwin::canvas
         }
 
         /**
-         * Shadow depth bias as a 0..1 authoring value (upstream LightComponent scale;
-         * its default is 0.05). It is remapped to the internal light bias as
+         * Shadow depth bias as a 0..1 authoring value (default 0.05). It is remapped to the internal light bias as
          * `-0.01 * clamp(value, 0, 1)` — the negative internal convention is what makes
          * `shadowBias * -1000` a POSITIVE hardware polygon offset, i.e. one that pushes
          * casters AWAY from the light and removes acne. Passing the raw value through
@@ -118,7 +117,7 @@ namespace visutwin::canvas
         float shadowBias() const { return _shadowBias; }
         void setShadowBias(const float value);
 
-        /** The remapped value handed to the internal Light (upstream light.shadowBias). */
+        /** The remapped value handed to the internal Light. */
         static float toLightShadowBias(float value)
         {
             return -0.01f * (value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value));
@@ -127,11 +126,11 @@ namespace visutwin::canvas
         float shadowNormalBias() const { return _shadowNormalBias; }
         void setShadowNormalBias(const float value) { _shadowNormalBias = value; }
 
-        /// Upstream `shadowIntensity`: how dark the shadow is (1 = full, 0 = none).
+        /// How dark the shadow is (1 = full, 0 = none).
         float shadowIntensity() const { return _shadowIntensity; }
         void setShadowIntensity(const float value) { _shadowIntensity = value; }
 
-        /// Upstream `shadowSamples` / `shadowBlockerSamples`: the PCSS filter and blocker
+        /// The PCSS filter and blocker
         /// search tap counts (16 each). One pair per shader variant: the first shadowed
         /// directional light of a layer supplies it for both directional slots.
         int shadowSamples() const { return _shadowSamples; }
@@ -147,21 +146,21 @@ namespace visutwin::canvas
 
         // Default = SHADOW_PCF3_32F (depth-comparison 3×3 PCF).
         // Set to SHADOW_VSM_16F for exponential variance shadow maps with soft
-        // edges (mirrors upstream pc.SHADOW_VSM_16F).
+        // edges.
         ShadowType shadowType() const { return _shadowType; }
         void setShadowType(const ShadowType value) { _shadowType = value; }
 
         // VSM-only: total kernel taps for the separable gaussian blur applied
         // to the moments texture (must be odd, ≥ 3). Larger = softer edges and
         // less wing-tip / silhouette flicker, at higher GPU cost.
-        // Mirrors upstream vsmBlurSize. Default 11 = filterSize 5.
+        // Default 11 = filterSize 5.
         int vsmBlurSize() const { return _vsmBlurSize; }
         void setVsmBlurSize(const int value) { _vsmBlurSize = value < 3 ? 3 : value; }
 
         // VSM-only: bias scale for the Chebyshev minVariance floor. Larger
         // values clamp more variance noise → less flicker at thin edges, but
-        // softer / more detached contact shadows. Default 0.0025 mirrors
-        // upstream SHADOW_VSM_16F. Try 0.005–0.01 if wing-tip flicker
+        // softer / more detached contact shadows. Default 0.0025.
+        // Try 0.005–0.01 if wing-tip flicker
         // persists with the default.
         float vsmBias() const { return _vsmBias; }
         void setVsmBias(const float value) { _vsmBias = value < 0.0f ? 0.0f : value; }
@@ -180,14 +179,13 @@ namespace visutwin::canvas
 
         float cascadeBlend() const { return _cascadeBlend; }
         // A FRACTION of each cascade's range (and of the shadow distance, for the
-        // far fade), clamped to [0, 1] as upstream's setter does; 0 turns both off.
+        // far fade), clamped to [0, 1]; 0 turns both off.
         void setCascadeBlend(const float value) { _cascadeBlend = std::clamp(value, 0.0f, 1.0f); }
 
-        // --- Light Cookie (upstream light.cookie / cookieIntensity / cookieChannel /
-        // cookieFalloff) ---
+        // --- Light Cookie ---
         // A texture the light projects onto the scene, multiplying its color:
         // a 2D texture for spot lights, a cubemap for omni. Directional cookies
-        // are not supported (upstream restricts them to local lights too).
+        // are not supported.
         // The component does not own the texture.
         Texture* cookie() const { return _cookie; }
         void setCookie(Texture* value) { _cookie = value; }
@@ -198,13 +196,13 @@ namespace visutwin::canvas
         CookieChannel cookieChannel() const { return _cookieChannel; }
         void setCookieChannel(const CookieChannel value) { _cookieChannel = value; }
 
-        // Spot only: keep the cone angle falloff alongside the cookie (default,
-        // upstream's too). Set false to let the cookie projection alone shape the
+        // Spot only: keep the cone angle falloff alongside the cookie (default).
+        // Set false to let the cookie projection alone shape the
         // beam — the cone falloff is then skipped and the projection is clipped.
         bool cookieFalloff() const { return _cookieFalloff; }
         void setCookieFalloff(const bool value) { _cookieFalloff = value; }
 
-        /// Spot only (upstream cookieAngle / cookieScale / cookieOffset): turn the cookie
+        /// Spot only: turn the cookie
         /// by `cookieAngle` degrees and scale it by `cookieScale` about its centre, and
         /// shift it by `cookieOffset` in its own UV units. An unset scale is (1, 1).
         float cookieAngle() const { return _cookieAngle; }
@@ -214,14 +212,14 @@ namespace visutwin::canvas
         const std::optional<Vector2>& cookieOffset() const { return _cookieOffset; }
         void setCookieOffset(const std::optional<Vector2>& value) { _cookieOffset = value; }
 
-        /// Upstream `shape`: punctual, or an LTC area source (rect, disk, sphere) the
+        /// Punctual, or an LTC area source (rect, disk, sphere) the
         /// size of the entity's scale. Under clustered lighting a shaped spot or omni
         /// light is an area light only while the scene's lighting has
-        /// `areaLightsEnabled`, as upstream; otherwise it shades as punctual.
+        /// `areaLightsEnabled`; otherwise it shades as punctual.
         LightShape shape() const { return _shape; }
         void setShape(const LightShape value) { _shape = value; }
 
-        /// Upstream `volumetricScattering`: how strongly a clustered spot or omni light
+        /// How strongly a clustered spot or omni light
         /// scatters in the camera's volumetric fog (VolumetricFogSettings::localOmniLights /
         /// localSpotLights); 0 keeps it out of the fog. Default 1.
         float volumetricScattering() const { return _volumetricScattering; }
@@ -269,19 +267,19 @@ namespace visutwin::canvas
         ShadowUpdateType _shadowUpdateMode = ShadowUpdateType::SHADOWUPDATE_REALTIME;
         // True until syncToLight has handed the mode to the Light; see shadowUpdateMode().
         mutable bool _shadowUpdateModePending = true;
-        float _shadowBias = 0.05f;   // upstream LightComponent default
+        float _shadowBias = 0.05f;
         float _shadowNormalBias = 0.0f;
         float _shadowIntensity = 1.0f;
         int _shadowSamples = 16;
         int _shadowBlockerSamples = 16;
         float _shadowDistance = 40.0f;
-        int _shadowResolution = 1024; // upstream's default; 2048 quadrupled every map
+        int _shadowResolution = 1024; // 2048 quadrupled every map
         ShadowType _shadowType = SHADOW_PCF3_32F;
         int _vsmBlurSize = 11;
         float _penumbraSize = 1.0f;
         float _penumbraFalloff = 1.0f;
         float _vsmBias = 0.0025f;
-        int _numCascades = 1;                // upstream's default; see Light::_numCascades
+        int _numCascades = 1;                // see Light::_numCascades
         float _cascadeDistribution = 0.5f;
         float _cascadeBlend = 0.0f;
         Texture* _cookie = nullptr;

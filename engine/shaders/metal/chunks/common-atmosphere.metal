@@ -153,6 +153,6 @@ static inline float3 nishitaScatter(float3 viewDir, constant AtmosphereData& atm
 }
 
 // Parallax Occlusion Mapping — adaptive ray-march with linear interpolation.
-// Unreal/Unity/Wicked) instead of upstream's single-sample offset.
+// (as in Unreal/Unity/Wicked) instead of a single-sample offset.
 // viewDirTS: view direction in tangent space (normalized).
 // Returns the parallax-adjusted UV.

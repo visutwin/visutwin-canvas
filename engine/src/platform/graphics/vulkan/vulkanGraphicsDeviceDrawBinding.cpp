@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 27.07.2026
+//
 
 #ifdef VISUTWIN_HAS_VULKAN
 
@@ -1750,7 +1753,7 @@ namespace visutwin::canvas
             columns[i * 4 + 3] = 0.0f;
         }
         // w of the first column says "rotated", so an unrotated sky skips the multiply
-        // and renders bit-identically (upstream compiles CUBEMAP_ROTATION only then).
+        // and renders bit-identically.
         const bool identity = columns[0] == 1.0f && columns[5] == 1.0f && columns[10] == 1.0f;
         columns[3] = identity ? 0.0f : 1.0f;
         if (std::memcmp(columns, _lightingUbo.skyboxRotation, sizeof(columns)) != 0) {

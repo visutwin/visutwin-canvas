@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 11.07.2026.
+// Created by Arnis Lektauers on 11.07.2026
 //
 #pragma once
 
@@ -28,10 +28,10 @@ namespace visutwin::canvas
         uint32_t splatCount;
         uint32_t shBands;       // 0 = SH0 only; 1-3 evaluate view-dependent color
         // 1 for an orthographic camera: its view rays all run along the camera forward,
-        // so SH is evaluated along that, not from the camera position (upstream #9531).
+        // so SH is evaluated along that, not from the camera position.
         uint32_t cameraOrtho;
         uint32_t pad;
-        // Output stage (upstream gsplatOutput's prepareOutputFromGamma). A splat's
+        // Output stage. A splat's
         // colour is GAMMA space; these say what the target wants done to it. Filled
         // by the renderer per draw from the same scene state the forward pass reads.
         float fogColor[4];      // linear rgb, unused
@@ -86,8 +86,8 @@ namespace visutwin::canvas
         // Two is NOT enough: Metal writes a shared-storage buffer in place while
         // keeping three frames in flight, so a result landing on two consecutive
         // frames comes back round to a buffer the frame before last may still be
-        // reading, and the splats tear mid-draw. Upstream has no such rule because
-        // its upload is queue-ordered, which is also why Vulkan cannot tear here.
+        // reading, and the splats tear mid-draw. Vulkan cannot tear here, because
+        // its upload is queue-ordered.
         std::vector<std::shared_ptr<VertexBuffer>> _orderBuffers;
         size_t _activeOrderBuffer = 0;
         uint32_t _visibleCount = 0;

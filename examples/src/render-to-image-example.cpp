@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 30.09.2026
+//
 // Port of upstream user-interface/render-to-image.
 //
 // A character card with a live 3D portrait. A second camera renders the character, on a layer
@@ -167,7 +169,7 @@ protected:
         _character->setEngine(engine());
         root()->addChild(_character);
         // The container plays its first clip on a legacy animation component when it has clips;
-        // the anim component below drives the character instead, as upstream's does
+        // the anim component below drives the character instead
         if (auto* legacy = _character->findComponent<AnimationComponent>()) {
             legacy->setPlaying(false);
             legacy->setEnabled(false);

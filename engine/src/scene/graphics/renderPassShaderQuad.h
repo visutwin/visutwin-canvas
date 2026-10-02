@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 //
 #pragma once
 
@@ -96,8 +98,8 @@ namespace visutwin::canvas
     private:
         CullMode _cullMode = CullMode::CULLFACE_NONE;
         std::shared_ptr<BlendState> _blendState = BlendState::noBlend();
-        // Fullscreen quads composite in 2D, so depth test and write are OFF, as upstream's
-        // drawQuadWithShader (DepthState.NODEPTH). With the default depth state, quads
+        // Fullscreen quads composite in 2D, so depth test and write are OFF
+        // (DepthState::noDepth). With the default depth state, quads
         // targeting the back buffer would test against UNDEFINED depth: the previous
         // back-buffer pass stores depth with StoreActionDontCare, so LoadActionLoad reads
         // garbage -> frame-random fragment dropouts (flicker).

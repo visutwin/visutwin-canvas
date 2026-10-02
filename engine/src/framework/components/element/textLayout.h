@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Text layout on upstream's metrics (text-element.js `_updateMeshes`), split in two so an
+// Created by Arnis Lektauers on 29.09.2026
+//
+// Text layout on the fonts' metrics, split in two so an
 // element can know its size without building geometry:
 //
-// - measureText breaks the symbols into lines — at a line break ('\n' or '\r', as
-//   upstream), and greedily at word boundaries
+// - measureText breaks the symbols into lines — at a line break ('\n' or '\r'),
+//   and greedily at word boundaries
 //   (a word longer than the line breaks between characters) when a line would grow past
 //   `maxLineWidth` — and measures the block: its width is the widest line leaving out
 //   trailing whitespace, its height runs from the font's highest glyph top above the first
@@ -13,13 +15,13 @@
 // - placeText positions every glyph in the element's box: horizontal alignment per line
 //   (0 left .. 1 right), the block by the vertical alignment, both about the pivot.
 //
-// Glyph metrics scale by fontSize / 32 (the fonts' em, upstream's MAGIC) and lines step
-// by `lineHeight`. `spacing` multiplies every glyph's advance, kerning included (upstream
-// `spacing`, 1 by default): it spreads the pen, not the glyphs. Symbols are CODE POINTS,
+// Glyph metrics scale by fontSize / 32 (the fonts' em) and lines step
+// by `lineHeight`. `spacing` multiplies every glyph's advance, kerning included (1 by
+// default): it spreads the pen, not the glyphs. Symbols are CODE POINTS,
 // decoded from UTF-8 (`decodeUtf8`), which is what the fonts' glyph ids are. DEVIATION:
 // upstream splits text into grapheme-like symbols (a surrogate pair, an emoji sequence);
 // a combining sequence here is several symbols. A character the font lacks takes the
-// space's glyph, as upstream substitutes it.
+// space's glyph.
 //
 #pragma once
 
@@ -35,7 +37,7 @@ namespace visutwin::canvas
 {
     struct FontResource;
 
-    /// Upstream text-element's MAGIC: font units per em.
+    /// Font units per em.
     inline constexpr float kFontUnitsPerEm = 32.0f;
 
     struct TextLine
@@ -45,7 +47,7 @@ namespace visutwin::canvas
         size_t end = 0;
         /// Advance of the line without its trailing whitespace.
         float width = 0.0f;
-        /// The word gaps a justified line may widen (upstream `_lineGaps`): the gaps between
+        /// The word gaps a justified line may widen: the gaps between
         /// its words for a line broken at a word wrap, 0 for a line ended by a line break, the
         /// last line, and a word broken mid-word — those keep the plain alignment.
         int gaps = 0;
@@ -81,14 +83,14 @@ namespace visutwin::canvas
     /// offending byte, which no font here has, so it draws as the space.
     std::u32string decodeUtf8(std::string_view text);
 
-    /// `maxLines` (upstream's; negative for none) stops breaking lines once there are that many:
-    /// the rest of the text runs on in the last one. Pass it only for text that wraps, as upstream
-    /// ignores it otherwise.
+    /// `maxLines` (negative for none) stops breaking lines once there are that many:
+    /// the rest of the text runs on in the last one. Pass it only for text that wraps; it is
+    /// ignored otherwise.
     TextMeasure measureText(const FontResource& font, const std::u32string& symbols, float fontSize, float lineHeight,
                             float maxLineWidth = std::numeric_limits<float>::infinity(), float spacing = 1.0f,
                             int maxLines = -1);
 
-    /// `justify` (upstream `justify`): a line with gaps is stretched flush to both edges of
+    /// `justify`: a line with gaps is stretched flush to both edges of
     /// the box by widening its word gaps evenly, ignoring `horizontalAlign`.
     std::vector<PlacedGlyph> placeText(const FontResource& font, const std::u32string& symbols, const TextMeasure& measure,
                                        float boxWidth, float boxHeight, const Vector2& pivot,

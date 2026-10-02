@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 21.03.2026
+//
 #pragma once
 
 #include <cstdint>
@@ -105,7 +108,7 @@ namespace visutwin::canvas
         float duration() const { return _duration; }
         void setDuration(float value) { _duration = value; }
 
-        /// Upstream `AnimTrack.events`: kept sorted by time, as AnimEvents sorts them.
+        /// The track's events, kept sorted by time, as AnimEvents sorts them.
         const std::vector<AnimEvent>& events() const { return _events; }
         void setEvents(std::vector<AnimEvent> events);
 

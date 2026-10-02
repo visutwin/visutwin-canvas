@@ -2,7 +2,7 @@
 // Copyright 2025-2026 Arnis Lektauers
 //
 // LTC (linearly transformed cosines) lookup tables for area lights, 64x64 RGBA
-// half-float — generated from upstream's area-light-luts.json (LTC_MAT_1 = inverse
+// half-float — generated from area-light-luts.json (LTC_MAT_1 = inverse
 // transform matrix columns, LTC_MAT_2 = Fresnel/geometric attenuation + horizon-clip
 // scale). Do not edit by hand.
 // Source: Heitz, Dupuy, Hill, Neubelt — "Real-Time Polygonal-Light Shading with

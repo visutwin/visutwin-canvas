@@ -2,13 +2,12 @@
 // Copyright 2025-2026 Arnis Lektauers
 //
 // Light cookies — a texture the light projects onto the scene, masking its
-// color. Port of upstream cookie.js (getCookie2D / getCookie2DClip /
-// getCookieCube). Spot lights project a 2D texture through the beam; omni
+// color. Spot lights project a 2D texture through the beam; omni
 // lights sample a cubemap by the light→fragment direction.
 //
-// Upstream's getCookie2DXform pair is folded in: the cookie OFFSET rides the
+// The cookie transform is folded in: the cookie OFFSET rides the
 // projection matrix (the renderer pre-multiplies it), and the 2x2 TRANSFORM is
-// applied about the cookie centre after the clip test, as upstream orders them.
+// applied about the cookie centre after the clip test.
 #if VT_FEATURE_COOKIE_2D || VT_FEATURE_COOKIE_CUBE
 
 // Cookie sampling is unconditionally bilinear + clamped. Clamping is safe for the
@@ -24,8 +23,8 @@
 constexpr sampler cookieSampler(coord::normalized, filter::linear,
                                 mip_filter::linear, address::clamp_to_edge);
 
-// Upstream's cookieChannel is a 3-character swizzle ('rgb', or a single channel
-// repeated, e.g. 'a' → 'aaa'). CookieChannel carries the same five options.
+// CookieChannel selects a 3-character swizzle ('rgb', or a single channel
+// repeated, e.g. 'a' → 'aaa'): five options.
 static inline float3 cookieChannelValue(const float4 texel, const uint channel)
 {
     switch (channel) {
@@ -41,8 +40,7 @@ static inline float3 cookieChannelValue(const float4 texel, const uint channel)
 
 #if VT_FEATURE_COOKIE_2D
 /// Spot cookie. `transform` is the light's world → cookie-UV projection (the same
-/// matrix as its spot shadow VP). `clip` mirrors upstream's getCookie2DClip,
-/// used when the cone falloff is disabled and the projection alone must bound the
+/// matrix as its spot shadow VP). `clip` is used when the cone falloff is disabled and the projection alone must bound the
 /// beam — outside it the light contributes nothing.
 static inline float3 getCookie2D(texture2d<float> tex, const float4x4 transform,
                                  const float3 worldPos, const float intensity,
@@ -67,9 +65,9 @@ static inline float3 getCookie2D(texture2d<float> tex, const float4x4 transform,
 
 #if VT_FEATURE_COOKIE_CUBE
 /// Omni cookie. `transform` is the light's world transform; its rotation takes
-/// the world-space light→fragment direction into cookie cube space (upstream
-/// getCookieCube's `dLightDirNormW * mat3(transform)`, which is the inverse
-/// rotation for an orthonormal basis). The X flip matches the cube face
+/// the world-space light→fragment direction into cookie cube space (the
+/// transpose of its rotation, which is the inverse rotation for an orthonormal
+/// basis). The X flip matches the cube face
 /// convention the rest of the engine samples with (skybox, reflection probe).
 static inline float3 getCookieCube(texturecube<float> tex, const float4x4 transform,
                                    const float3 lightToFrag, const float intensity,

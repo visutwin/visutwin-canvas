@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 29.09.2026
+//
 // Port of upstream user-interface/panel.
 //
 // A quest dialog, achievement toasts and a quest log, all drawn from small sprites of the UI
@@ -52,7 +54,7 @@ namespace
         return res && std::holds_alternative<FontResource*>(*res) ? std::get<FontResource*>(*res) : nullptr;
     }
 
-    /// Upstream's element properties that this example sets; centred on the parent unless
+    /// The element properties this example sets; centred on the parent unless
     /// they say otherwise.
     struct ElementProps
     {
@@ -240,7 +242,7 @@ private:
         }
         element->setColor(props.color);
         if (props.type == ElementType::Text) {
-            // Upstream applies every property before laying the text out
+            // Every property is applied before the text is laid out
             element->setAutoWidth(props.autoWidth);
             element->setWrapLines(props.wrapLines);
             if (props.alignX) {

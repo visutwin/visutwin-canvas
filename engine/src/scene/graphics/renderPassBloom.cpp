@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 //
 #include "renderPassBloom.h"
 
@@ -121,8 +123,7 @@ namespace visutwin::canvas
             pass->init(_renderTargets[i]);
             // Additive blending during progressive upscale accumulates every mip level into
             // bloom_rt[0]. Without this we only see the result of the last (finest) upsample,
-            // losing the wide halo from coarser mips — matching upstream FramePassBloom
-            // (render-passes/frame-pass-bloom.js uses BlendState.ADDBLEND on upsample passes).
+            // losing the wide halo from coarser mips.
             // Source alpha = 1.0 from the upsample shader, so SRC_ALPHA == ONE, giving a pure
             // additive accumulation src + dst.
             pass->setBlendState(std::make_shared<BlendState>(BlendState::additiveBlend()));
@@ -152,7 +153,7 @@ namespace visutwin::canvas
         const int maxNumPasses = calcMipLevels(mutableThis->_sourceTexture->width(), mutableThis->_sourceTexture->height(), 1);
         const int numPasses = std::clamp(maxNumPasses, 1, mutableThis->_blurLevel);
         // The high pass is a shader variant of the first downsample, so switching the
-        // threshold on or off rebuilds the passes, as upstream does.
+        // threshold on or off rebuilds the passes.
         if (static_cast<int>(mutableThis->_renderTargets.size()) != numPasses ||
             mutableThis->_prefilterEnabled != (mutableThis->_threshold > 0.0f)) {
             mutableThis->destroyRenderPasses();

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 11.07.2026
+// Created by Arnis Lektauers on 11.07.2026
 //
 #include "animComponentLayer.h"
 

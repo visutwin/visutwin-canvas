@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Compose-pass shaders in both languages the engine speaks, selected by
 // GraphicsDevice::shaderLanguage() and driven through QuadRender — one
 // implementation of the post chain instead of a pass class per backend.
 //
-// Chain order (mirrors upstream compose.js):
+// Chain order:
 //   CAS -> DOF -> SSAO -> Fringing -> Bloom -> ColorEnhance -> Grading
 //   -> ToneMap -> ColorLUT -> Vignette -> display gamma
 //
@@ -195,7 +197,7 @@ float3 toneMapNeutral(float3 color, float exposure) {
     return mix(color, float3(newPeak), g);
 }
 
-// Uncharted 2 filmic operator (upstream TONEMAP_FILMIC).
+// Uncharted 2 filmic operator (TONEMAP_FILMIC).
 float3 uncharted2Tonemap(float3 x) {
     const float A = 0.15, B = 0.50, C = 0.10, D = 0.20, E = 0.02, F = 0.30;
     return ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F;
@@ -208,7 +210,7 @@ float3 toneMapFilmic(float3 color, float exposure) {
     return color * whiteScale;
 }
 
-// Hejl/Burgess-Dawson operator (upstream TONEMAP_HEJL).
+// Hejl/Burgess-Dawson operator (TONEMAP_HEJL).
 float3 toneMapHejl(float3 color, float exposure) {
     color *= exposure;
     const float A = 0.22, B = 0.3, C = 0.1, D = 0.2, E = 0.01, F = 0.3;
@@ -219,7 +221,7 @@ float3 toneMapHejl(float3 color, float exposure) {
          - scl * (E / F);
 }
 
-// ACES fit by Stephen Hill (upstream TONEMAP_ACES2) — RRT+ODT polynomial.
+// ACES fit by Stephen Hill (TONEMAP_ACES2) — RRT+ODT polynomial.
 float3 RRTAndODTFit(float3 v) {
     float3 a = v * (v + 0.0245786) - 0.000090537;
     float3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
@@ -256,7 +258,7 @@ float3 applyCas(float3 color, float2 uv, float sharpness,
 
     float min_g = min(a.g, min(b.g, min(c.g, min(d.g, e.g))));
     float max_g = max(a.g, max(b.g, max(c.g, max(d.g, e.g))));
-    // The uniform is already lerp(-0.125, -0.2, userSharpness), negative, as upstream.
+    // The uniform is already lerp(-0.125, -0.2, userSharpness), negative.
     float sharpening_amount = sqrt(min(1.0 - max_g, min_g) / max(max_g, 1e-4));
     float w = sharpening_amount * sharpness;
     float3 res = (w * (a + b + d + e) + c) / (4.0 * w + 1.0);
@@ -271,8 +273,7 @@ vertex ComposeVarying composeVertex(ComposeVertexIn in [[stage_in]])
     return out;
 }
 
-// Fringing (chromatic aberration): shift red/blue by distance-squared from center
-// (upstream compose-fringing.js).
+// Fringing (chromatic aberration): shift red/blue by distance-squared from center.
 float3 applyFringing(float3 color, float2 uv, float intensity,
                      texture2d<float> sceneTexture, sampler s) {
     float2 centerDistance = uv - 0.5;
@@ -282,7 +283,7 @@ float3 applyFringing(float3 color, float2 uv, float intensity,
     return color;
 }
 
-// HDR color grading (upstream compose-grading.js); 1.0 = no change for all parameters.
+// HDR color grading; 1.0 = no change for all parameters.
 float3 applyGrading(float3 color, float brt, float sat, float con, float3 tint) {
     color *= tint;
     color = color * brt;
@@ -292,7 +293,7 @@ float3 applyGrading(float3 color, float brt, float sat, float con, float3 tint) 
     return mix(float3(0.5), color, con);
 }
 
-// Color enhance (upstream compose-color-enhance.js): shadows/highlights, midtones,
+// Color enhance: shadows/highlights, midtones,
 // vibrance and dark-channel dehaze — all in HDR before tonemapping.
 float3 applyColorEnhance(float3 color, float shadows, float highlights,
                          float vibrance, float dehaze, float midtones) {
@@ -345,8 +346,8 @@ float3 applyColorEnhance(float3 color, float shadows, float highlights,
     return max(float3(0.0), color);
 }
 
-// 3D color LUT via a 256x16 "horizontal strip" (unwrapped 16^3, Unreal format) —
-// upstream compose-color-lut.js. Applied post-tonemap: the lookup coordinate is
+// 3D color LUT via a 256x16 "horizontal strip" (unwrapped 16^3, Unreal format).
+// Applied post-tonemap: the lookup coordinate is
 // sRGB-encoded; sampled values are sRGB too (DEVIATION: the port loads LUTs as
 // non-sRGB RGBA8, so the sample is decoded to linear here instead of by the sampler).
 float3 sampleColorLUT(texture2d<float> lut, sampler s, float2 uv_l, float2 uv_h, float t) {
@@ -399,7 +400,7 @@ float3 applyVignette(float3 color, float2 uv, float inner, float outer,
     return mix(vigColor, color, vignette);
 }
 
-// Multi-pass DOF (upstream compose-dof.js): the blur pass's result mixed in by the
+// Multi-pass DOF: the blur pass's result mixed in by the
 // total circle of confusion. With a quarter-resolution blur (low quality) the blur
 // is upsampled through a 3x3 CoC-weighted fetch so in-focus texels do not bleed.
 float3 applyDof(float3 color, float2 uv, texture2d<float> cocTexture, texture2d<float> blurTexture,
@@ -443,7 +444,7 @@ float3 applyDofSinglePass(float3 sharpColor, float2 uv, float2 invRes,
     float rawDepth = depthTexture.sample(depthPointSampler, uv);
     float linearDepth = (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
 
-    // upstream-style CoC: far range starts at focusDistance + focusRange/2
+    // CoC: far range starts at focusDistance + focusRange/2
     float farRange = focusDistance + focusRange * 0.5;
     float invRange = 1.0 / max(focusRange, 0.001);
     float cocFar = clamp((linearDepth - farRange) * invRange, 0.0, 1.0);
@@ -511,7 +512,7 @@ float3 sampleSceneReduced(texture2d<float> sceneTexture, sampler s, float2 uv,
     return sum / float(taps * taps);
 }
 
-// Compose pass order (mirrors upstream compose.js):
+// Compose pass order:
 // CAS -> DOF -> SSAO -> Fringing -> Bloom -> ColorEnhance -> Grading -> ToneMap -> ColorLUT -> Vignette
 fragment float4 composeFragment(
     ComposeVarying in [[stage_in]],
@@ -531,12 +532,12 @@ fragment float4 composeFragment(
         uniforms.sceneTextureInvRes, uniforms.sceneDownscale);
 
     // 1. CAS (Contrast Adaptive Sharpening)
-    // Negative = on: the CPU side remaps the user value to upstream's negative kernel weight.
+    // Negative = on: the CPU side remaps the user value to a negative kernel weight.
     if (uniforms.sharpness < 0.0) {
         result = applyCas(result, uv, uniforms.sharpness, sceneTexture, linearSampler, uniforms.sceneTextureInvRes);
     }
 
-    // 2. DOF (single-pass from depth buffer). DOF runs BEFORE SSAO, as upstream's compose.js does.
+    // 2. DOF (single-pass from depth buffer). DOF runs BEFORE SSAO.
     // Occlusion therefore multiplies the already-defocused colour and is not itself
     // blurred, so it keeps full strength in out-of-focus parts of the frame; run the
     // other way round the defocus washes the occlusion out with everything else.
@@ -566,8 +567,8 @@ fragment float4 composeFragment(
     //     result = mix(result, blurColor, cocAmount * clamp(uniforms.dofIntensity, 0.0, 1.0));
     // }
 
-    // 4. Fringing (chromatic aberration). BEFORE bloom, as upstream compose.js orders
-    // it: applyFringing re-samples the scene texture for the red and blue channels, so
+    // 4. Fringing (chromatic aberration). BEFORE bloom:
+    // applyFringing re-samples the scene texture for the red and blue channels, so
     // running it after bloom would throw away the bloom already added to those two
     // channels and leave it only in green — a green cast over everything that blooms.
     if (uniforms.fringingIntensity > 0.0) {
@@ -791,7 +792,7 @@ vec3 applyCas(vec3 color, vec2 uv, float sharpness, vec2 invRes) {
 
     float min_g = min(a.g, min(b.g, min(c.g, min(d.g, e.g))));
     float max_g = max(a.g, max(b.g, max(c.g, max(d.g, e.g))));
-    // The uniform is already lerp(-0.125, -0.2, userSharpness), negative, as upstream.
+    // The uniform is already lerp(-0.125, -0.2, userSharpness), negative.
     float sharpening_amount = sqrt(min(1.0 - max_g, min_g) / max(max_g, 1e-4));
     float w = sharpening_amount * sharpness;
     vec3 res = (w * (a + b + d + e) + c) / (4.0 * w + 1.0);
@@ -852,7 +853,7 @@ vec3 applyColorLUT(vec3 color, sampler2D lut1, sampler2D lut2,
     return mix(color, lutColor1, intensity1);
 }
 
-// Multi-pass DOF (upstream compose-dof.js), twin of applyDof in the MSL source.
+// Multi-pass DOF, twin of applyDof in the MSL source.
 vec3 applyDof(vec3 color, vec2 uv, bool upscale, vec2 blurTexel) {
     vec2 coc = textureLod(cocTex, uv, 0.0).rg;
     vec3 blur;
@@ -913,7 +914,7 @@ vec3 applyDofSinglePass(vec3 sharpColor, vec2 uv, vec2 invRes,
     return mix(sharpColor, blurColor, cocFar);
 }
 
-// HDR color grading (upstream compose-grading.js); 1.0 = no change for all
+// HDR color grading; 1.0 = no change for all
 // parameters. Mirrors applyGrading in the MSL source above, term for term.
 vec3 applyGrading(vec3 color, float brt, float sat, float con, vec3 tint) {
     color *= tint;
@@ -924,7 +925,7 @@ vec3 applyGrading(vec3 color, float brt, float sat, float con, vec3 tint) {
     return mix(vec3(0.5), color, con);
 }
 
-// Color enhance (upstream compose-color-enhance.js): shadows/highlights, midtones,
+// Color enhance: shadows/highlights, midtones,
 // vibrance and dark-channel dehaze — all in HDR before tonemapping. Mirrors
 // applyColorEnhance in the MSL source above, term for term.
 vec3 applyColorEnhance(vec3 color, float shadows, float highlights,
@@ -1006,12 +1007,12 @@ void main() {
     vec3 result = sampleSceneReduced(uv, invRes, pc.sceneDownscale);
 
     // 1. CAS
-    // Negative = on: the CPU side remaps the user value to upstream's negative kernel weight.
+    // Negative = on: the CPU side remaps the user value to a negative kernel weight.
     if (pc.sharpness < 0.0) {
         result = applyCas(result, uv, pc.sharpness, invRes);
     }
 
-    // 2. DOF (single-pass from depth). DOF runs BEFORE SSAO, as upstream's compose.js does.
+    // 2. DOF (single-pass from depth). DOF runs BEFORE SSAO.
     // Occlusion therefore multiplies the already-defocused colour and is not itself
     // blurred, so it keeps full strength in out-of-focus parts of the frame; run the
     // other way round the defocus washes the occlusion out with everything else.
@@ -1031,10 +1032,10 @@ void main() {
         result *= ssao;
     }
 
-    // 4. Fringing (chromatic aberration). Sits between DOF and bloom, matching upstream
-    // compose.js and metalComposePass: red and blue are RE-SAMPLED from the scene
+    // 4. Fringing (chromatic aberration). Sits between DOF and bloom, matching
+    // metalComposePass: red and blue are RE-SAMPLED from the scene
     // texture, so running it after bloom would keep bloom in green only. The offset is
-    // the SQUARED distance from centre, as upstream — a linear offset smears the whole
+    // the SQUARED distance from centre — a linear offset smears the whole
     // mid-field instead of just the corners.
     if (pc.fringingIntensity > 0.0) {
         vec2 centerDistance = uv - 0.5;

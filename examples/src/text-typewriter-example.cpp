@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 29.09.2026
+//
 // Port of upstream user-interface/text-typewriter.
 //
 // An NPC's dialog box that reveals each line letter by letter, over a picture that covers the
@@ -97,7 +99,7 @@ protected:
         _screen->setScaleBlend(0.5f);
         root()->addChild(screenEntity);
 
-        // Frames of upstream's UI kit atlas (ui-atlas.mjs)
+        // Frames of the UI kit atlas
         auto atlas = std::make_shared<TextureAtlas>();
         atlas->setTexture(atlasTexture);
         const Vector2 centre(0.5f, 0.5f);

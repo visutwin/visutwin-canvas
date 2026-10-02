@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 09.10.2025.
+// Created by Arnis Lektauers on 09.10.2025
 //
 
 #pragma once
@@ -31,7 +31,7 @@ namespace visutwin::canvas
 
         MeshInstance* meshInstance() const { return _meshInstance.get(); }
 
-        /// Whether the sky writes depth (upstream SkyMesh.depthWrite, off by default).
+        /// Whether the sky writes depth (off by default).
         /// A skydome that writes it gives depth-based effects a real sky depth instead
         /// of the cleared far value; Sky passes its own setting on.
         void setDepthWrite(bool value);

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Port of the upstream "graphics/reflection-planar-blurred" example.
 //
 // The Khronos sunglasses model sits at its authored real-world size (~14 cm) on a
@@ -47,8 +49,7 @@
 
 using namespace visutwin::canvas;
 
-// Layer holding the ground reflector, excluded from the reflection cameras
-// (upstream calls it "Excluded").
+// Layer holding the ground reflector, excluded from the reflection cameras.
 constexpr int LAYERID_EXCLUDED = 100;
 
 class ReflectionPlanarBlurredExample final: public ExampleApp
@@ -60,8 +61,8 @@ public:
 protected:
     bool create() override
     {
-        // Upstream sets only the environment atlas and skybox intensity; tone mapping
-        // is a CAMERA setting there, and exposure/skyboxMip stay at their defaults.
+        // Only the environment atlas and skybox intensity are set; tone mapping
+        // is a CAMERA setting, and exposure/skyboxMip stay at their defaults.
         scene()->setSkyboxIntensity(2.0f);
 
         _envAtlas = std::make_unique<Asset>(
@@ -83,7 +84,7 @@ protected:
         }
         scene()->setEnvAtlas(std::get<Texture*>(*envAtlasResource));
 
-        // Layer order upstream asks for:
+        // Layer order:
         //   World(opaque) -> Excluded(opaque) -> Depth -> World(transp) -> Excluded(transp)
         const auto layers = scene()->layers();
         const auto worldLayer = layers->getLayerById(LAYERID_WORLD);
@@ -95,8 +96,8 @@ protected:
         layers->insert(excludedLayer, layers->getOpaqueIndex(worldLayer) + 1);
 
         // -----------------------------------------------------------------------
-        // The hero model, at its authored real-world scale — upstream neither scales
-        // nor moves it, and the whole shot is a sub-metre close-up because of that.
+        // The hero model, at its authored real-world scale — neither scaled
+        // nor moved, and the whole shot is a sub-metre close-up because of that.
         // -----------------------------------------------------------------------
         const auto sunglassesResource = _sunglassesAsset->resource();
         if (!sunglassesResource) {
@@ -122,7 +123,7 @@ protected:
         }
 
         // -----------------------------------------------------------------------
-        // Reflection render targets, sized to the backbuffer (upstream resolution 1.0).
+        // Reflection render targets, sized to the backbuffer.
         // Both reflection cameras are created BEFORE the main camera. Cameras render in
         // priority order (upstream gives these -2 / -1 / 0) and equal priorities keep
         // construction order, so with every priority left at 0 the creation order is
@@ -148,14 +149,14 @@ protected:
         auto reflectionRT = createReflectionTarget("ReflectionRenderTarget", _reflectionTexture.get());
 
         // Colour camera: the main camera's layers minus the excluded ground and minus
-        // the skybox — upstream clears to the fade colour instead of drawing the sky.
+        // the skybox — it clears to the fade colour instead of drawing the sky.
         _reflCamEntity = createCamera(Vector3(0.0f, 0.0f, 0.0f));
         _reflCamComp = _reflCamEntity->findComponent<CameraComponent>();
         _reflCamComp->setLayers({LAYERID_WORLD, LAYERID_DEPTH, LAYERID_UI});
         _reflCamComp->camera()->setRenderTarget(reflectionRT);
 
         // -----------------------------------------------------------------------
-        // Main camera. Upstream: fov 60, nearClip 0.01, white clear, NEUTRAL tone
+        // Main camera: fov 60, nearClip 0.01, white clear, NEUTRAL tone
         // mapping, and no Skybox layer — the background is the clear colour.
         // -----------------------------------------------------------------------
         _cameraEntity = createCamera(Vector3(-0.2f, 0.1f, 0.2f));
@@ -199,7 +200,7 @@ protected:
         if (event.type != SDL_EVENT_KEY_DOWN) {
             return false;
         }
-        // Steps and clamps mirror upstream's slider ranges.
+        // Steps and clamps follow the slider ranges listed in the header.
         switch (event.key.key) {
         case SDLK_B:
             _blurParams.blurAmount = std::min(_blurParams.blurAmount + 0.05f, 1.0f);
@@ -263,10 +264,7 @@ protected:
             return;
         }
 
-        // Mirror the main camera across the ground plane for both reflection cameras
-        // (upstream BlurredPlanarReflection::postUpdate):
-        //   _reflectionMatrix.setReflection(plane.normal, plane.distance);
-        //   reflectionMatrix.transformPoint(mainCameraPos, reflectedPos);
+        // Mirror the main camera across the ground plane for both reflection cameras.
         constexpr float groundY = 0.0f;
         const float planeDistance = -groundY;   // d = -dot(normal, pointOnPlane)
         const Matrix4 reflMatrix = Matrix4::reflection(0.0f, 1.0f, 0.0f, planeDistance);
@@ -282,7 +280,7 @@ protected:
         const float pitch = std::asin(std::clamp(reflDir.getY(), -1.0f, 1.0f)) * RAD_TO_DEG;
         const float yaw = std::atan2(-reflDir.getX(), -reflDir.getZ()) * RAD_TO_DEG;
 
-        // Upstream runs the same _updateReflectionCamera over both cameras, so both
+        // The same update runs over both cameras, so both
         // track the main camera's projection and both clear to the fade colour.
         syncReflectionCamera(_reflCamEntity, _reflCamComp, reflPos, pitch, yaw);
         syncReflectionCamera(_depthCamEntity, _depthCamComp, reflPos, pitch, yaw);
@@ -321,7 +319,7 @@ private:
     }
 
     // Both reflection cameras track the main camera's projection; the colour one
-    // doubles the far clip, as upstream does.
+    // doubles the far clip.
     void syncReflectionCamera(Entity* entity, CameraComponent* component,
         const Vector3& position, const float pitch, const float yaw) const
     {
@@ -334,7 +332,7 @@ private:
         component->camera()->setClearColor(_blurParams.fadeColor);
     }
 
-    // Upstream's initial script values.
+    // Initial parameter values.
     void resetBlurParams()
     {
         _blurParams.intensity = 1.0f;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 11.09.2025.
+// Created by Arnis Lektauers on 11.09.2025
 //
 #pragma once
 
@@ -42,8 +42,8 @@ namespace visutwin::canvas
         void setClusteredLightingEnabled(bool value) { _clusteredLightingEnabled = value; }
 
         const LightingParams& lighting() const { return _lighting; }
-        /// Mutable, so an application can set the cluster grid and atlas sizes the
-        /// way upstream's `scene.lighting` is written to. Read once per frame by the
+        /// Mutable, so an application can set the cluster grid and atlas sizes
+        /// directly. Read once per frame by the
         /// renderer, so a change takes effect on the next one.
         LightingParams& lighting() { return _lighting; }
         const std::shared_ptr<LayerComposition>& layers() const { return _layers; }
@@ -52,8 +52,8 @@ namespace visutwin::canvas
 
         void setAmbientLight(float r, float g, float b) { _ambientLight = Color(r, g, b); }
 
-        /** Ambient SH light probes: 9 premultiplied irradiance coefficients
-         *  (upstream AMBIENTSH basis). When set, they replace the flat ambient
+        /** Ambient SH light probes: 9 premultiplied irradiance coefficients.
+         *  When set, they replace the flat ambient
          *  and the env-atlas irradiance in the lit shader. */
         void setAmbientSH(const std::array<Vector3, 9>& coefficients)
         {
@@ -75,15 +75,15 @@ namespace visutwin::canvas
         void setSkyboxIntensity(float value);
         float skyboxIntensity() const { return _skyboxIntensity; }
 
-        /// Upstream `Scene.skyboxRotation`: turns the skybox AND the scene environment
+        /// Turns the skybox AND the scene environment
         /// lighting read from it (env atlas reflections and ambient, SH probes). A shader
-        /// samples the environment along `rotation * direction`, as upstream's
-        /// cubeMapRotate does (`dir * inverse(R)` in GLSL). The atmosphere and reflection
+        /// samples the environment along `rotation * direction` (`dir * inverse(R)`
+        /// in GLSL). The atmosphere and reflection
         /// probes, which capture the actual scene, are not turned.
         const Quaternion& skyboxRotation() const { return _skyboxRotation; }
         void setSkyboxRotation(const Quaternion& value) { _skyboxRotation = value; }
 
-        /// Upstream `Scene.physicalUnits`: lights shine with their LUMINANCE (candela for
+        /// Lights shine with their LUMINANCE (candela for
         /// spot and omni, lux for directional) instead of their intensity. The camera's
         /// physical exposure (aperture, shutter, sensitivity) is NOT ported; set the
         /// matching exposure with setExposure.
@@ -93,7 +93,7 @@ namespace visutwin::canvas
         void setExposure(float value) { _exposure = value; }
         float exposure() const { return _exposure; }
 
-        /// The exposure a camera renders with (upstream renderer's `exposure` uniform): the
+        /// The exposure a camera renders with (the `exposure` uniform): the
         /// camera's physical exposure under physicalUnits, the scene exposure otherwise.
         float exposureFor(const Camera* camera) const;
 
@@ -169,7 +169,7 @@ namespace visutwin::canvas
 
         std::shared_ptr<GraphicsDevice> _device;
 
-        // ON by default, as upstream: local lights are bucketed into the cluster
+        // ON by default: local lights are bucketed into the cluster
         // grid and their shadows packed into one LightTextureAtlas. Off, every
         // shadow-casting local owns its own map (a cubemap for an omni light) and
         // at most two of them light through the main array — the path PCSS local

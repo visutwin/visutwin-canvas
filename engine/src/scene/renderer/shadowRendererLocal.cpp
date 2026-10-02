@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 11.09.2025.
+// Created by Arnis Lektauers on 11.09.2025
 //
 #include "shadowRendererLocal.h"
 
@@ -87,7 +87,7 @@ namespace visutwin::canvas
                 }
 
                 // A VSM spot light's moments are blurred as a directional light's are
-                // (upstream ShadowRenderer.render: `light._isVsm && light._vsmBlurSize > 1`).
+                // (when the blur size is above 1).
                 if (applyVsm && light->shadowType() == SHADOW_VSM_16F && light->vsmBlurSize() > 1) {
                     ShadowMap* sm = light->shadowMap();
                     if (sm && sm->blurTempTexture() && sm->blurTempRenderTarget() && !sm->renderTargets().empty()) {
@@ -157,7 +157,7 @@ namespace visutwin::canvas
                 if (light->type() == LightType::LIGHTTYPE_SPOT) {
                     // Spot: orient camera along the light's direction, FOV = outerConeAngle * 2.
                     // The camera looks down its -Z, but the spot light emits down -Y —
-                    // compose a local -90° X rotation (upstream rotateLocal(-90, 0, 0)).
+                    // compose a local -90° X rotation.
                     shadowCam->node()->setRotation(
                         lightNode->rotation() * Quaternion::fromEulerAngles(-90.0f, 0.0f, 0.0f));
                     shadowCam->setFov(std::min(light->outerConeAngle() * 2.0f, 179.0f));
@@ -167,8 +167,7 @@ namespace visutwin::canvas
                     // Point (omni): LightCamera::create already sets the per-face
                     // rotation. 90 degrees for a cubemap face; a face rendered into an
                     // atlas tile is widened by kShadowEdgePixels so a filter kernel at
-                    // the tile edge still lands inside it (upstream
-                    // shadow-renderer-local.js), and the shader insets its UV to match.
+                    // the tile edge still lands inside it, and the shader insets its UV to match.
                     float fov = 90.0f;
                     if (light->atlasViewportAllocated() && light->shadowMap() &&
                         light->shadowMap()->shadowTexture()) {

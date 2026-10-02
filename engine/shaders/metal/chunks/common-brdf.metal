@@ -15,24 +15,22 @@ static inline float getFresnelCC(float cosTheta)
 }
 
 // Kelemen visibility term for clearcoat — simpler than Smith-GGX since clearcoat
-// is typically smooth. V = 0.25 / (LdotH^2). Used by Filament and upstream.
+// is typically smooth. V = 0.25 / (LdotH^2). Used by Filament.
 static inline float getVisibilityKelemen(float LdotH)
 {
     return 0.25 / max(LdotH * LdotH, 1e-5);
 }
 
-// ── Anisotropic GGX (upstream lightSpecularAnisoGGX + reflDirAniso) ──
+// ── Anisotropic GGX ──
 // The twin of the same block in common-brdf.glsl; change the two together.
 //
 // `anisotropy` is the INTENSITY in [0, 1]; the engine's signed value only picks the
 // direction (tangent or bitangent), which the surface chunk resolves into T and B.
 //
-// (at, ab) exactly as upstream: alpha = ((1 - gloss)^2)^2, stretched toward 1 along
-// the tangent by intensity SQUARED. This alpha is one squaring beyond the isotropic
-// distribution's (whose GGX alpha is (1 - gloss)^2), so the highlight narrows as
-// soon as a material turns anisotropy on — upstream's own formulation, kept so both
-// backends and upstream agree. What stood here before scaled roughness^2 by
-// (1 +/- anisotropy), which is not upstream's shape.
+// (at, ab): alpha = ((1 - gloss)^2)^2, stretched toward 1 along the tangent by
+// intensity SQUARED. This alpha is one squaring beyond the isotropic distribution's
+// (whose GGX alpha is (1 - gloss)^2), so the highlight narrows as soon as a material
+// turns anisotropy on — upstream's own formulation, reproduced on purpose.
 static inline float2 getAnisotropicAlpha(float gloss, float anisotropy)
 {
     const float r = max((1.0 - gloss) * (1.0 - gloss), 0.001);

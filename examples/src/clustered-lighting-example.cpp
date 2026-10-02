@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 14.07.2026
+//
 // Clustered lighting example — port of upstream graphics/clustered-lighting.
 //
 // A high-polycount cylinder stands on a large normal-mapped ground plane. 30 omni
@@ -139,13 +141,13 @@ protected:
         // Enable clustered lighting: the unshadowed local lights are bucketed into a 3D
         // world-space grid so many of them can be evaluated cheaply in one pass.
         scene()->setClusteredLightingEnabled(true);
-        // The cluster grid defaults already match upstream's tuning for this scene
+        // The cluster grid defaults already suit this scene
         // (ClusterConfig: 12x16x12 cells, 48 lights per cell).
         scene()->setToneMapping(TONEMAP_ACES);
 
-        // Tiling normal map shared by the ground plane and the cylinder (upstream uses the
-        // same material for both).
-        // NOTE: AssetData::mipmaps defaults to false here (upstream defaults to true) — without
+        // Tiling normal map shared by the ground plane and the cylinder (one material
+        // for both).
+        // NOTE: AssetData::mipmaps defaults to false here — without
         // mips the tiled normal map aliases into per-pixel noise across the 150-unit ground.
         _normalMapAsset = std::make_unique<Asset>(
             "normal-map",
@@ -167,7 +169,7 @@ protected:
         _material->setBumpiness(1.0f);
         _material->setGloss(0.5f);
         _material->setMetalness(0.3f);
-        _material->setUseMetalness(true);  // upstream sets useMetalness = true here
+        _material->setUseMetalness(true);
 
         // --- Ground plane ---
         auto* ground = createPrimitive("plane", _material.get(), Vector3(0.0f, 0.0f, 0.0f),
@@ -281,7 +283,7 @@ protected:
         }
 
         // addOrbitControls derives the orbit distance and angles from the current camera
-        // position, so the upstream pose is preserved exactly.
+        // position, so the authored pose is preserved exactly.
         auto* cameraControls = addOrbitControls(camera, Vector3(0.0f, 40.0f, 0.0f));
         cameraControls->setMoveSpeed(60.0f);
         cameraControls->storeResetState();

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 11.07.2026.
+// Created by Arnis Lektauers on 11.07.2026
 //
 #include "morphInstance.h"
 
@@ -47,8 +47,7 @@ namespace visutwin::canvas
         _gpuParams = GpuMorphParams{};
         _gpuParams.vertexCount = _morph ? static_cast<uint32_t>(_morph->vertexCount()) : 0;
 
-        // Collect active targets, strongest |weight| first, capped at MAX_ACTIVE_TARGETS
-        // (matches upstream's active-target sorting in morph-instance.js).
+        // Collect active targets, strongest |weight| first, capped at MAX_ACTIVE_TARGETS.
         constexpr float epsilon = 1e-5f;
         std::vector<int> active;
         active.reserve(_weights.size());

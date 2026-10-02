@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 13.09.2026
+//
 // StandardMaterial's workflow and scalar packing, pinned against upstream.
 //
-// A default upstream StandardMaterial is in the SPECULAR workflow (useMetalness
+// A default StandardMaterial is in the SPECULAR workflow (useMetalness
 // false) with a black specular colour, so it renders no specular at all, where a
 // metalness-0 default would be a dielectric with reflections. A render cannot say
 // which default a scene got — the difference is a faint grazing highlight — so the
@@ -79,7 +81,7 @@ int main()
 {
     StubDevice device;
 
-    // Upstream's defaults, and what they mean for the packed block.
+    // The defaults, and what they mean for the packed block.
     {
         StandardMaterial material;
         check(!material.useMetalness(), "useMetalness defaults to false (upstream _defineFlag('useMetalness', false))");
@@ -101,7 +103,7 @@ int main()
             "a default material keeps the scene environment and has no opacity map bit");
     }
 
-    // Each of upstream's useSpecular conditions turns specular on.
+    // Each of the useSpecular conditions turns specular on.
     {
         StandardMaterial metal;
         metal.setUseMetalness(true);
@@ -160,7 +162,7 @@ int main()
         check(near(u.normalScale, 0.4f), "setBumpiness applies with a base-colour texture bound");
     }
 
-    // The ambient tint (upstream material_ambient, #9538): white by default, so every
+    // The ambient tint: white by default, so every
     // material that never sets it packs exactly 1 and renders as before; authored sRGB,
     // uploaded linear, as emissive is.
     {
@@ -197,8 +199,7 @@ int main()
 
     // A mesh instance's own lightmap (what a lightmapper bakes) goes over the
     // material's lightmap slot, and leaves the material itself untouched. A baker that
-    // writes into the shared material makes meshes sharing one show a single bake;
-    // upstream gave the mesh instance its own slot in 0cd268478.
+    // writes into the shared material makes meshes sharing one show a single bake.
     {
         const auto assigned = makeTexture(&device);
         const auto baked = makeTexture(&device);

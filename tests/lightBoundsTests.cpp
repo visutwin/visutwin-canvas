@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 12.09.2026
+//
 // The cluster grid is sized from the union of these bounds and the shader ignores any
 // fragment outside it, so a bound that is too SMALL drops lighting on surfaces the
 // light really reaches, and one that is too LARGE only coarsens every cell in the

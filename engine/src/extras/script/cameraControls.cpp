@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 28.12.2025
+// Created by Arnis Lektauers on 28.12.2025
 //
 #include "extras/script/cameraControls.h"
 
@@ -47,7 +47,7 @@ namespace visutwin::canvas
 
     CameraControls::CameraControls()
     {
-        // Upstream's constructor: orbit zooms down to 0.01 with no upper limit.
+        // Orbit zooms down to 0.01 with no upper limit.
         _orbitController.setZoomRange(Vector2(0.01f, std::numeric_limits<float>::infinity()));
 
         _flyMobileInput.on("joystick:position:left", [this](const std::array<float, 4>& p) {
@@ -63,7 +63,7 @@ namespace visutwin::canvas
             entity()->engine()->fire(_joystickEventName + ":right", p[0], p[1], p[2], p[3]);
         });
 
-        // Inputs gathered while disabled are discarded, as upstream's 'state' handler.
+        // Inputs gathered while disabled are discarded.
         on("state", [this](bool) { discardInputs(); });
     }
 
@@ -200,7 +200,7 @@ namespace visutwin::canvas
         const Vector3 position = entity()->position();
         _startZoomDist = position.distance(point);
         _controller->attach(_pose.look(position, point), false);
-        // Upstream moves the camera on the next update; doing it now keeps a frame
+        // Moving the camera now rather than on the next update keeps a frame
         // rendered before that update (a screenshot of frame 0) on the new view.
         applyPose();
     }

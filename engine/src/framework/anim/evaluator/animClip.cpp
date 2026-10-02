@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 21.03.2026
+//
 #include "animClip.h"
 
 #include <algorithm>
@@ -38,7 +41,7 @@ namespace visutwin::canvas
         alignCursorToCurrentTime();
     }
 
-    // --- Events (upstream anim-clip.js, line for line) ---
+    // --- Events ---
 
     const AnimEvent* AnimClip::nextEvent() const
     {

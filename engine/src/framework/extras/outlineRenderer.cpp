@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 12.07.2026.
+// Created by Arnis Lektauers on 12.07.2026
 //
 #include "outlineRenderer.h"
 
@@ -32,7 +32,7 @@ namespace visutwin::canvas
 {
     namespace
     {
-        // Separable outline extend (port of upstream shaderOutlineExtendPS): dilates the
+        // Separable outline extend: dilates the
         // silhouette with a 5-tap max and marks color discontinuities in alpha. The offset
         // direction and source-alpha multiplier are baked per variant (H then V) since quad
         // passes carry no uniform data; the half-texel step comes from the texture size.
@@ -316,10 +316,10 @@ void main() {
             return;
         }
 
-        // Only a component that is actually rendered (upstream 7c1e90f34): a disabled
+        // Only a component that is actually rendered: a disabled
         // component or entity keeps its mesh instances, still visible, but out of the
         // scene's layers — and this renderer has its own layer, so cloning them outlined
-        // an object that is not drawn. Checked when the entity is added, as upstream;
+        // an object that is not drawn. Checked when the entity is added;
         // removal goes by the record and needs no check.
         if (auto* render = entity->findComponent<RenderComponent>(); render && render->active()) {
             // Flat unlit silhouette material in the outline color.

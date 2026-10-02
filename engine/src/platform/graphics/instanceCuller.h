@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 13.04.2026
+//
 // Backend-agnostic interface for GPU frustum culling of instanced draws.
 //
 // Concrete implementations (e.g. MetalInstanceCullPass) run a compute pipeline

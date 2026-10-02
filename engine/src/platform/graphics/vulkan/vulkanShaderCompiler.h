@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 10.07.2026
+//
 // Runtime GLSL -> SPIR-V compilation for the Vulkan backend.
 //
 #pragma once

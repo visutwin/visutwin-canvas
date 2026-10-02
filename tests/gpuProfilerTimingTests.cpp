@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 16.09.2026
+//
 // GpuProfiler::publishTimings is what makes the HUD's GPU figure mean anything.
 // On a pipelined GPU a pass's own start-to-end interval contains the time it
 // overlapped its neighbours, so summing intervals counts the same time twice; and

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // SkinBatchInstance — matrix palette manager for dynamic batching.
 //
 // Holds references to the GraphNode of each original mesh instance in a

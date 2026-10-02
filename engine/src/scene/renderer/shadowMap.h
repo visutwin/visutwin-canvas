@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauets on 02.10.2025.
+// Created by Arnis Lektauers on 02.10.2025
 //
 #pragma once
 #include <memory>

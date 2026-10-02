@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 29.09.2026
+//
 // Port of upstream user-interface/input-events.
 //
 // A map that drops a marker wherever the ground is pressed, under a HUD. The HUD is a group
@@ -58,7 +60,7 @@ namespace
         {"Danger", Color(0.95f, 0.3f, 0.25f, 1.0f)},
     }};
 
-    /// Upstream's createElement properties that this example sets.
+    /// The element properties that this example sets.
     struct ElementProps
     {
         ElementType type = ElementType::Image;
@@ -229,7 +231,7 @@ protected:
         if (Mouse* mouse = engine()->mouse()) {
             mouse->on("mousedown", [this](const MouseEvent& event) {
                 // A tap is followed by emulated mouse events, which would drop a second
-                // marker; upstream cancels them, and here they carry fromTouch
+                // marker; they carry fromTouch
                 if (!event.fromTouch) {
                     drop(event.x, event.y);
                 }

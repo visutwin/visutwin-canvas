@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 05.09.2026
+//
 // Port of upstream graphics/wide-line.
 //
 // One polyline of 96 points following a sine wave, drawn by a WideLineRenderer: the
@@ -9,8 +11,8 @@
 // colour or width per point; this is the primitive that does.
 //
 // DEVIATION: upstream exposes every setting through its controls panel. Here the
-// keys cycle the cap and join styles and toggle the dash pattern, and the rest are
-// upstream's initial values.
+// keys cycle the cap and join styles and toggle the dash pattern, and the rest keep
+// their initial values.
 //
 #include <cmath>
 #include <memory>

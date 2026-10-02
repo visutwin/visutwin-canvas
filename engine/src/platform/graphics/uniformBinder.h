@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Base interface for uniform packing, ring-buffer allocation, and per-pass deduplication.
 // Backend implementations (Metal, Vulkan) provide concrete GPU submission logic.
 //
@@ -92,7 +94,7 @@ namespace visutwin::canvas
             PackedVector4u clusterParams2 = {};
 
             // Ambient SH light probes: 9 premultiplied irradiance coefficients
-            // (VT_FEATURE_LIGHT_PROBES; upstream AMBIENTSH basis).
+            // (VT_FEATURE_LIGHT_PROBES).
             PackedVector4f ambientSH[9] = {};
 
             // Camera view-projection (column-major) for fragment-stage screen
@@ -145,16 +147,16 @@ namespace visutwin::canvas
             PackedVector4f shadow1PcssCascadeDepthRanges = {1.0f, 1.0f, 1.0f, 1.0f};
 
             // Scene::skyboxRotation as a 3x3 rotation, one COLUMN per vector (w unused):
-            // environment samples read along R * dir (upstream cubeMapRotate).
+            // environment samples read along R * dir.
             PackedVector4f skyboxRotation0 = {1.0f, 0.0f, 0.0f, 0.0f};
             PackedVector4f skyboxRotation1 = {0.0f, 1.0f, 0.0f, 0.0f};
             PackedVector4f skyboxRotation2 = {0.0f, 0.0f, 1.0f, 0.0f};
 
-            // Spot cookie 2x2 per 2D cookie slot (upstream cookieTransform), mat2 columns.
+            // Spot cookie 2x2 per 2D cookie slot, mat2 columns.
             PackedVector4f cookieTransform2D0 = {1.0f, 0.0f, 0.0f, 1.0f};
             PackedVector4f cookieTransform2D1 = {1.0f, 0.0f, 0.0f, 1.0f};
 
-            // Upstream blueNoiseJitter: xy offset the opacity dither per frame while the
+            // Dither jitter: xy offset the opacity dither per frame while the
             // camera jitters (TAA), zero otherwise. zw unused.
             PackedVector4f ditherJitter = {0.0f, 0.0f, 0.0f, 0.0f};
         };

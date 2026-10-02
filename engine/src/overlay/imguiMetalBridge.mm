@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 21.03.2026
 //
 // ImGui Metal C++ bridge — provides MTL::Device*/MTL::CommandBuffer* overloads
 // that delegate to the Obj-C implementations compiled into the vcpkg imgui library.

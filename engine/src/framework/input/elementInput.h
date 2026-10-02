@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 13.10.2025.
+// Created by Arnis Lektauers on 13.10.2025
 //
 #pragma once
 
@@ -39,8 +39,8 @@ namespace visutwin::canvas
     class Texture;
 
     /**
-     * An input event delivered to an element (upstream ElementInputEvent, with the fields of
-     * ElementMouseEvent and ElementTouchEvent in one struct). It is fired as a POINTER,
+     * An input event delivered to an element, with the mouse and touch fields in one
+     * struct. It is fired as a POINTER,
      * `ElementInputEvent*`, so every handler on the way up the hierarchy sees the same event
      * and `stopPropagation()` from one of them stops the bubbling:
      *
@@ -61,9 +61,9 @@ namespace visutwin::canvas
         float dx = 0.0f;
         float dy = 0.0f;
         MouseButton button = MouseButton::None;
-        /// The wheel's direction only, -1 or 1 (upstream snaps it the same way).
+        /// The wheel's direction only, -1 or 1.
         int wheelDelta = 0;
-        /// The wheel's movement as a browser's WheelEvent gives it (what upstream's scroll view
+        /// The wheel's movement as a browser's WheelEvent gives it (what the scroll view
         /// reads): pixels, x positive to the right and y positive TOWARD the user. DEVIATION:
         /// SDL gives notches, and a notch is taken as 100 pixels.
         float wheelPixelsX = 0.0f;
@@ -73,7 +73,7 @@ namespace visutwin::canvas
         bool touch = false;
         int64_t touchId = 0;
 
-        /// Upstream `wheel`: the delta as its old scale, -2 per notch away from the user.
+        /// The delta on the old wheel scale, -2 per notch away from the user.
         float wheel() const { return static_cast<float>(wheelDelta) * -2.0f; }
         void stopPropagation() { _stopPropagation = true; }
         bool propagationStopped() const { return _stopPropagation; }
@@ -83,18 +83,17 @@ namespace visutwin::canvas
     };
 
     /**
-     * Draws UI elements and delivers input to them (upstream ElementInput plus the element
-     * system's drawing). Each text or image element gets a visual: a child entity with a
-     * render component, rebuilt when what it depends on changes. Engine::render syncs the
-     * visuals before drawing (upstream's element system keeps its meshes current on its own),
-     * so an application does not call it.
+     * Draws UI elements and delivers input to them. Each text or image element gets a
+     * visual: a child entity with a render component, rebuilt when what it depends on
+     * changes. Engine::render syncs the visuals before drawing, so an application does not
+     * call it.
      *
      * Input: Engine::handleInputEvent passes every SDL event to `handleEvent`, which turns
      * mouse and touch events into the calls below; a platform without SDL calls them
      * directly. Elements with `useInput` receive `mousedown`, `mouseup`, `mousemove`,
      * `mousewheel`, `mouseenter`, `mouseleave`, `click`, `touchstart`, `touchmove`,
      * `touchend`, `touchleave` and `touchcancel`, each bubbling to the parent entities'
-     * elements. The element hit is the front one under the pointer, as upstream picks it:
+     * elements. The element hit is the front one under the pointer:
      * cameras from the last drawn back, and per camera the elements on layers it draws,
      * front layer first, screen-space before world-space, higher draw order first. A
      * screen-space element is hit through its screen corners, any other by a ray from the
@@ -122,7 +121,7 @@ namespace visutwin::canvas
 
         void detach();
 
-        /// Upstream `enabled`: while false, no input event is delivered.
+        /// While false, no input event is delivered.
         bool enabled() const { return _enabled; }
         void setEnabled(const bool value) { _enabled = value; }
 
@@ -130,9 +129,8 @@ namespace visutwin::canvas
         /// devices (a trackpad's fingers are not touches on the canvas), and the mouse
         /// events SDL synthesizes from touches are dropped, as a browser's are by a
         /// button's `preventDefault`. Returns true when a handler called
-        /// `stopPropagation()` on an event it produced: upstream's
-        /// `stopImmediatePropagation` of the DOM event, which keeps the press from the mouse
-        /// and touch devices too, and Engine::handleInputEvent withholds it from them.
+        /// `stopPropagation()` on an event it produced, which keeps the press from the mouse
+        /// and touch devices too: Engine::handleInputEvent withholds it from them.
         bool handleEvent(const SDL_Event& event);
 
         // Platform-neutral input, in canvas points (y down).
@@ -150,13 +148,11 @@ namespace visutwin::canvas
         ElementComponent* hoveredElement() const { return _hoveredElement; }
         ElementComponent* pressedElement() const { return _pressedElement; }
 
-        /// The front input element at canvas point (x, y) seen through `camera`, or null
-        /// (upstream `_getTargetElementByCoords`).
+        /// The front input element at canvas point (x, y) seen through `camera`, or null.
         ElementComponent* elementAt(CameraComponent* camera, float x, float y);
 
         /// The corners an element is hit through: `corners` (screen or world) grown by its
-        /// button's hit padding, scaled by `scale`, and reordered for negative scales
-        /// (upstream `ElementInput.buildHitCorners`).
+        /// button's hit padding, scaled by `scale`, and reordered for negative scales.
         static std::array<Vector3, 4> buildHitCorners(ElementComponent* element, const std::array<Vector3, 4>& corners,
                                                       const Vector3& scale);
         /// Create, update and retire the visuals of every text and image element.
@@ -165,7 +161,7 @@ namespace visutwin::canvas
     private:
     public:
         /// Everything an element material is built from. Two parts with equal keys draw
-        /// with ONE material (upstream shares its element materials the same way): the
+        /// with ONE material: the
         /// renderer skips the material bind between consecutive draws of one material,
         /// and a screen of labels in one font and colour packs one uniform block, not one
         /// per label. All values are the ones the material is given, already converted
@@ -232,7 +228,7 @@ namespace visutwin::canvas
             std::vector<VisualPart> parts;
             /// Text: the styles its parts draw in (resolved at the last rebuild).
             std::vector<TextStyle> styles;
-            /// Text with markup tags: its shadow offsets take upstream's PER-VERTEX
+            /// Text with markup tags: its shadow offsets take the PER-VERTEX
             /// convention, which differs from the uniform one (see msdfShadowUvOffset).
             bool markupStyles = false;
             ElementType type = ElementType::Group;
@@ -250,8 +246,8 @@ namespace visutwin::canvas
             float cachedHeight = 0.0f;
             Vector2 cachedPivot = Vector2(0.5f, 0.5f);
             uint64_t cachedRangeVersion = 0;
-            /// A mask's second draw, after its last descendant, which puts the stencil back
-            /// (upstream `unmaskMeshInstance`); null for anything that is not a mask.
+            /// A mask's second draw, after its last descendant, which puts the stencil back;
+            /// null for anything that is not a mask.
             MeshInstance* unmask = nullptr;
             bool cachedMask = false;
             // image
@@ -269,7 +265,7 @@ namespace visutwin::canvas
             float y = 0.0f;
         };
 
-        /// Upstream `_updateMask`, run over every element tree before each frame: who masks
+        /// Run over every element tree before each frame: who masks
         /// whom, each draw's stencil state, and where each unmask draws.
         void syncMasks();
         /// One shared parameter set per (test, write, reference).
@@ -330,7 +326,7 @@ namespace visutwin::canvas
         ElementComponent* _pressedElement = nullptr;
         std::unordered_map<int64_t, TouchInfo> _touchedElements;
         std::unordered_map<int64_t, bool> _touchLeaveFired;
-        /// Upstream `_clickedEntities`: when a touch last clicked an element, so the mouse
+        /// When a touch last clicked an element, so the mouse
         /// click a platform synthesizes from it is not delivered a second time.
         std::unordered_map<const ElementComponent*, std::chrono::steady_clock::time_point> _clickedElements;
         /// A `destroy` subscription per element the input remembers (hovered, pressed,

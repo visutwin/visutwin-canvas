@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 02.10.2026
+//
 #include "shape.h"
 
 #include <algorithm>
@@ -104,7 +107,7 @@ namespace visutwin::canvas
     void Shape::createRenderComponent(Entity* entity, const std::vector<std::shared_ptr<Mesh>>& meshes)
     {
         const Color& color = _disabled ? *_disabledColor : *_defaultColor;
-        // Upstream: DEPTH_WRITE only for a positive depth, so -1 (and 0) keep the
+        // DEPTH_WRITE only for a positive depth, so -1 (and 0) keep the
         // interpolated one.
         _material->setDepth(_depth > 0.0f ? _depth : -1.0f);
         _material->setColor(color);

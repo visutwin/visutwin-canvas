@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Area picker demo (parity with upstream graphics/area-picker): 300 random
 // metallic primitives in a 30-unit box, lit only by the dim helipad env atlas.
 // A quarter-resolution Picker renders mesh ids offscreen; every frame four
@@ -44,8 +46,7 @@ constexpr float CAMERA_ORBIT_RADIUS = 40.0f;
 
 // Screen-space rectangle outline: four thin unlit rods on the IMMEDIATE layer,
 // parented to the camera and positioned in camera-local space at a fixed
-// distance so they stay glued to the given window-pixel rectangle
-// (upstream: camera.screenToWorld + app.drawLines).
+// distance so they stay glued to the given window-pixel rectangle.
 class RectOutline
 {
 public:
@@ -54,7 +55,7 @@ public:
     {
         _material = std::make_shared<StandardMaterial>();
         _material->setUseLighting(false);
-        _material->setDiffuse(Color(1.0f, 0.02f, 0.58f, 1.0f)); // upstream pink
+        _material->setDiffuse(Color(1.0f, 0.02f, 0.58f, 1.0f)); // pink
         auto depthState = std::make_shared<DepthState>();
         depthState->setDepthTest(false);
         depthState->setDepthWrite(false);
@@ -120,7 +121,7 @@ public:
 protected:
     bool create() override
     {
-        // Upstream scene: dim skydome only — no analytical lights. Highlighted
+        // Scene: dim skydome only — no analytical lights. Highlighted
         // objects glow via emissive + bloom.
         scene()->setSkyboxMip(2);
         scene()->setSkyboxIntensity(0.1f);
@@ -146,7 +147,7 @@ protected:
         if (_cameraComponent && _cameraComponent->camera()) {
             _cameraComponent->camera()->setClearColor(Color(0.1f, 0.1f, 0.1f, 1.0f));
         }
-        // Bloom (upstream CameraFrame bloom intensity 0.01).
+        // Bloom (intensity 0.01).
         if (_cameraComponent) {
             auto rendering = _cameraComponent->rendering();
             rendering.bloomIntensity = 0.01f;
@@ -180,7 +181,7 @@ protected:
             createPrimitive(primitiveType, material.get(), position, Vector3(scale, scale, scale));
         }
 
-        // Green marker for the picked world point (upstream emissiveIntensity 100).
+        // Green marker for the picked world point (emissiveIntensity 100).
         // Lives on the UI layer so the WORLD-layer picker never sees it; hidden by
         // zero scale until the first successful pick.
         auto markerMaterial = std::make_shared<StandardMaterial>();
@@ -197,7 +198,7 @@ protected:
         _mouseX = WINDOW_WIDTH / 2;
         _mouseY = WINDOW_HEIGHT / 2;
 
-        // Outline rods for the four areas (all pink, like upstream drawRectangle).
+        // Outline rods for the four areas (all pink).
         for (int i = 0; i < 4; ++i) {
             _outlines.push_back(std::make_unique<RectOutline>(engine(), _cameraEntity, _cameraComponent));
         }
@@ -288,7 +289,7 @@ protected:
             }
         };
 
-        // Upstream areas: tall yellow rect, wide cyan strip, tiny magenta
+        // Areas: tall yellow rect, wide cyan strip, tiny magenta
         // square (proportional positions), and a 1x1 red probe at the mouse.
         struct PickArea
         {

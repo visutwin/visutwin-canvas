@@ -1,7 +1,7 @@
 // Shadow-pass opacity frontend, shared by shadow.frag (the depth-only PCF pass)
 // and shadow_vsm_moments.frag.
 //
-// Upstream's litShadowMain runs the material frontend before writing depth, and
+// The material frontend runs before depth is written, because
 // a shadow computed without it is the shadow of the caster's quad rather than of
 // the caster: every masked material — foliage, a fence, a cut-out sign — threw a
 // solid block. The alpha here has to be the SAME product the forward pass tests,
@@ -60,7 +60,7 @@ void applyShadowOpacity() {
         discard;
     }
 
-    // Shadow-pass opacity dither (upstream opacityShadowDither, flags bits 29-31,
+    // Shadow-pass opacity dither (flags bits 29-31,
     // kept independent of the forward dither in bits 25-27). A partially-opaque
     // caster discards the same screen-space Bayer pattern here, so it throws a
     // thinned shadow instead of a solid one. The mode stays a runtime read; the

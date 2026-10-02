@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // STL (Stereolithography) file parser for VisuTwin Canvas.
 //
 // Loads binary and ASCII STL geometry, producing a GlbContainerResource that
@@ -11,7 +13,7 @@
 // The parser provides optional crease-angle smooth normal generation and
 // configurable default PBR material properties.
 //
-// Custom STL loader (not derived from upstream).
+// Custom STL loader.
 // This is a VisuTwin-specific addition for robot/CAD visualization.
 //
 #pragma once

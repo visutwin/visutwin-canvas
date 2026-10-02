@@ -2759,5 +2759,15 @@ Silicon the Apple SIMD backend is the active path and scalar is the fallback.
   is clean of the name apart from the `playcanvas-grey` / `playcanvas-cube` asset
   filenames; attribution lives in `NOTICE` and the README, which is where the MIT
   obligation is discharged)
+- Code comments mention upstream ONLY where the reader needs it: a `DEVIATION:`
+  note, an example's file header naming the upstream example it ports, a
+  deliberately reproduced upstream quirk that would otherwise look like a bug, and a
+  test whose oracle is upstream's own code or cases. No "as upstream", no upstream
+  function or file names as attribution, no upstream issue or commit numbers —
+  describe what the code does and why. Port history belongs in the engineering log.
+- Every header and source file opens with the same block, before any descriptive
+  comment: `// SPDX-License-Identifier: Apache-2.0`, `// Copyright 2025-2026 Arnis
+  Lektauers`, `//`, `// Created by Arnis Lektauers on DD.MM.YYYY` (the day the file
+  is created, no trailing period), `//`.
 - Shader features: `VT_FEATURE_*` prefix (not upstream `PC_*`), declared once in
   `platform/graphics/shaderFeatures.h`

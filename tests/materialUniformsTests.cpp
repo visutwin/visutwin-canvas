@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 22.08.2026
+//
 // Material packs its GPU uniform block once and reuses it until something on the
 // material changes (Material::packedUniforms). These cover the invalidation: a
 // mutator that fails to mark the cache dirty returns yesterday's values, which
@@ -52,7 +54,7 @@ int main()
     // Scalars go through the same path.
     {
         auto material = std::make_shared<StandardMaterial>();
-        // Metalness only packs in the metalness workflow; upstream's default is the
+        // Metalness only packs in the metalness workflow; the default is the
         // specular workflow, which packs metallic 0 whatever `metalness` says.
         material->setUseMetalness(true);
         material->setMetalness(0.0f);

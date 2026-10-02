@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 15.09.2026
+//
 // The one way this engine sets stb_image's vertical-flip flag.
 //
 // stb_image keeps TWO flip flags: a process-global one

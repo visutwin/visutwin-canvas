@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 11.09.2026
+//
 // A Light's shadow map is allocated lazily by the renderer and only when null, so
 // every property that changes what the map must BE — or makes it needed at all —
 // has to drop it. Four do: setNumCascades, setShadowType, setShadowResolution and
@@ -187,7 +189,7 @@ namespace
     }
 
     // VSM renders for directional and spot lights; an omni light asking for it gets
-    // PCF3, as upstream's. The resolution follows the light TYPE, so changing the type
+    // PCF3. The resolution follows the light TYPE, so changing the type
     // re-resolves the kept request.
     bool checkLocalVsmFallsBack()
     {
@@ -236,7 +238,7 @@ namespace
     // initialised with the four-cascade 2x2 grid while the count defaults to one stays
     // that way, since setNumCascades(1) returns early on an unchanged count, and every
     // default directional shadow then renders into one quadrant of its map (half
-    // upstream's resolution).
+    // the resolution).
     bool checkDefaultCascadeLayout()
     {
         Light light(nullptr);

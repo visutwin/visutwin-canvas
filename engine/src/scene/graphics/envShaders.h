@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 04.09.2026
+//
 // Shaders for the environment bakes, authored once per language and selected by
 // GraphicsDevice::shaderLanguage(). These run over QuadRender inside a
 // beginOfflineWork scope, so there is no pass class per backend — the same
@@ -156,7 +158,7 @@ void main() {
 )";
 
     /// Uniforms for the reprojection pass. `uvMod` applies the seam expansion
-    /// (upstream bakes a border so bilinear taps at a rect edge stay inside it);
+    /// (the bake adds a border so bilinear taps at a rect edge stay inside it);
     /// the projection ids mirror TextureProjection in platform/graphics/constants.h.
     struct alignas(16) ReprojectUniforms
     {

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 23.07.2026
+//
 // Shared shader feature contract. ProgramLibrary resolves these once; Metal
 // emits matching preprocessor defines and Vulkan passes the same feature set
 // through specialization constants in its build-time compiled SPIR-V modules.

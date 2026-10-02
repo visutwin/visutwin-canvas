@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 09.11.2025.
+// Created by Arnis Lektauers on 09.11.2025
 //
 #pragma once
 
@@ -47,8 +47,8 @@ namespace visutwin::canvas
         }
 
         /**
-         * Comparison the depth test performs against the depth buffer (upstream
-         * Material.depthFunc). Defaults to LessEqual — required for the skybox at
+         * Comparison the depth test performs against the depth buffer.
+         * Defaults to LessEqual — required for the skybox at
          * cleared depth 1.0. Greater is the x-ray trick: the mesh only draws where
          * something already rendered in front of it.
          *
@@ -63,15 +63,14 @@ namespace visutwin::canvas
         // Constant depth bias added to each fragment's depth in hardware depth-buffer units.
         // Useful for decals and similar coplanar overlays to prevent z-fighting with the
         // surface they sit on. Negative values pull fragments toward the camera (in
-        // reverse-Z, the engine's convention, "more positive depth" = closer; this matches
-        // upstream Material.depthBias semantics where -0.1 nudges decals on top).
+        // reverse-Z, the engine's convention, "more positive depth" = closer; -0.1 nudges
+        // decals on top).
         // Combined with slopeDepthBias to handle slanted surfaces.
         float depthBias() const { return _depthBias; }
         void setDepthBias(float value) { _depthBias = value; }
 
         // Per-fragment depth bias scaled by the slope of the surface (max derivative of depth).
         // Important for decals on slanted surfaces where a constant bias is insufficient.
-        // upstream calls this Material.slopeDepthBias.
         float slopeDepthBias() const { return _slopeDepthBias; }
         void setSlopeDepthBias(float value) { _slopeDepthBias = value; }
 
@@ -87,13 +86,13 @@ namespace visutwin::canvas
             return state;
         }
 
-        /// Upstream `DepthState.DEFAULT`: test LESS_EQUAL, write. Shared: never mutate it.
+        /// The default: test LESS_EQUAL, write. Shared: never mutate it.
         static const std::shared_ptr<DepthState>& defaultState() {
             static const auto state = std::make_shared<DepthState>();
             return state;
         }
 
-        /// Upstream `DepthState.NODEPTH`: no test (always passes), no write — what a
+        /// No test (always passes), no write — what a
         /// fullscreen quad composites with. Shared: never mutate it.
         static const std::shared_ptr<DepthState>& noDepth() {
             static const auto state = [] {

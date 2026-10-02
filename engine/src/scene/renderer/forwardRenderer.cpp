@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 11.09.2025.
+// Created by Arnis Lektauers on 11.09.2025
 //
 #include "forwardRenderer.h"
 
@@ -148,7 +148,7 @@ namespace visutwin::canvas
         // The frame graph asks for the pairs it will actually render, and the batch
         // fills a cache both sublayer passes then read, rather than each sublayer
         // sweeping the whole scene and throwing away the half that belongs to the
-        // other. Culling per batch is also what gives the precull and postcull events upstream's
+        // other. Culling per batch is also what gives the precull and postcull events their
         // contract, once per camera rather than once per layer.
         const auto& actions = layerComposition.renderActions();
 
@@ -197,7 +197,7 @@ namespace visutwin::canvas
         // LightTextureAtlas — one packed 2D depth texture, a slot per light — and is
         // sampled by the clustered fragment shader, arbitrarily many and none of them
         // through the bounded main light array. A light the atlas has no slot left
-        // for casts no shadow this frame, as upstream. Non-clustered mode: every
+        // for casts no shadow this frame. Non-clustered mode: every
         // shadow-casting local owns its own map (a cubemap for an omni light).
         const bool clusteredMode = _scene->clusteredLightingEnabled();
         std::vector<Light*> atlasLights;         // clustered: shadow-casting spots and omnis
@@ -235,8 +235,8 @@ namespace visutwin::canvas
             // anywhere later in the frame, the first frame allocated the 2048
             // default and resized it a frame later.
             //
-            // A light with a cookie needs a slot too, shadowed or not (upstream's
-            // collectLights): its cookie is copied into the same rect of the cookie
+            // A light with a cookie needs a slot too, shadowed or not:
+            // its cookie is copied into the same rect of the cookie
             // atlas. Only the shadow casters are culled and rendered below.
             std::vector<Light*>& slotLights = _atlasSlotLights;
             slotLights = atlasLights;
@@ -495,8 +495,8 @@ namespace visutwin::canvas
 
         // The actions keep the COMPOSITION's firstCameraUse / lastCameraUse: whether
         // this is the camera's first / last action of the whole frame, which is what
-        // prerender / postrender and the directional-shadow split mean (upstream copies
-        // them into a render step and never mutates the action). Do not rewrite them
+        // prerender / postrender and the directional-shadow split mean (a render step copies
+        // them and the action is never mutated). Do not rewrite them
         // here per block: a camera split into blocks would fire its events once per
         // block, and the next frame's split would read the rewritten flag.
         for (int i = startIndex; i <= endIndex; ++i) {

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 02.10.2026
+//
 // Port of upstream graphics/particles-snow.
 //
 // A hundred snowflakes fall for ten seconds each from a 14 x 4 x 14 box five units above
@@ -102,14 +104,14 @@ protected:
     }
 
 private:
-    // Upstream: the depth softening and the camera's depth map toggle together.
+    // The depth softening and the camera's depth map toggle together.
     void applySoft()
     {
         if (_particles) {
             _particles->options().depthSoftening = _soft ? 0.08f : 0.0f;
             _particles->apply();
         }
-        // The request is counted (upstream's too): ask once, and release only what was asked.
+        // The request is counted: ask once, and release only what was asked.
         if (_camera && _soft != _depthRequested) {
             _camera->requestSceneDepthMap(_soft);
             _depthRequested = _soft;

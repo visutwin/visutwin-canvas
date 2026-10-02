@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 //
 #pragma once
 
@@ -34,8 +36,7 @@ namespace visutwin::canvas
         int blurRingPoints() const { return _blurRingPoints; }
         void setBlurRingPoints(const int value) { _blurRingPoints = value; }
 
-        /// The full-resolution scene texture the high-quality blur reads (upstream
-        /// `setSceneTexture`, #9591). With TAA it alternates between the two history textures, so
+        /// The full-resolution scene texture the high-quality blur reads. With TAA it alternates between the two history textures, so
         /// the camera frame sets it every frame; the low-quality setup blurs the half-resolution
         /// copy, which the camera frame retargets itself.
         void setSceneTexture(Texture* texture)

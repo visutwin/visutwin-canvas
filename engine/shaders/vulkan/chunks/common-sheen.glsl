@@ -21,7 +21,7 @@ float sheenVisibility(float NoV, float NoL) {
 }
 
 // Analytical sheen directional albedo E(NoV, roughness): a piecewise exp fit that
-// stands in for the precomputed DFG lookup upstream samples, so no LUT texture is
+// stands in for a precomputed DFG lookup, so no LUT texture is
 // needed. Same fit as the Metal chunk.
 float sheenIBLApprox(float NoV, float roughness) {
     float r2 = roughness * roughness;

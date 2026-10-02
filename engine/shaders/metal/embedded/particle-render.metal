@@ -42,7 +42,7 @@ struct ParticleVaryings {
 // which ParticleEmitter splices in after the metal_stdlib prologue.
 
 // The simulation's PCG hash, for the per-particle random points between a graph and its
-// graph2 (particleSimShaders.h; upstream takes fract(rndFactor * 10000) and * 1000).
+// graph2 (particleSimShaders.h).
 static inline uint particlePcgHash(uint v)
 {
     const uint state = v * 747796405u + 2891336453u;
@@ -51,7 +51,7 @@ static inline uint particlePcgHash(uint v)
 }
 static inline float particleRnd(uint key) { return float(particlePcgHash(key) >> 8) * (1.0 / 16777216.0); }
 
-// Upstream's rotate(): mat2(c, -s, s, c) * v — a positive angle turns clockwise.
+// mat2(c, -s, s, c) * v — a positive angle turns clockwise.
 static inline float2 particleRotate(float2 v, float c, float s)
 {
     return float2(v.x * c + v.y * s, -v.x * s + v.y * c);
@@ -84,7 +84,7 @@ vertex ParticleVaryings particleVS(uint vid [[vertex_id]],
     const float age = p.posAge.w;
     const float lifetime = max(p.velLifetime.w, 1e-5);
     if (age <= 0.0 || age > lifetime || p.rotSeedSize.w > 0.5) {
-        return out;   // unborn, dead or hidden (upstream particle.js)
+        return out;   // unborn, dead or hidden
     }
     const float lifeT = saturate(age / lifetime);
 
@@ -104,7 +104,7 @@ vertex ParticleVaryings particleVS(uint vid [[vertex_id]],
         return out;
     }
 
-    // Upstream particle_wrap: a world-space particle wraps into a box around the emitter.
+    // Wrap: a world-space particle wraps into a box around the emitter.
     float3 particlePos = p.posAge.xyz;
     if (params.wrapParams.w > 0.5) {
         const float3 bounds = params.wrapParams.xyz;
@@ -123,7 +123,7 @@ vertex ParticleVaryings particleVS(uint vid [[vertex_id]],
     const float3 viewVelocity = (params.modelView * float4(p.motion.xyz, 0.0)).xyz;
     float2 velocityV = viewVelocity.xy;
     if (screenSpace) {
-        // The offset x is scaled by height / width below (upstream #9570), so measure the
+        // The offset x is scaled by height / width below, so measure the
         // direction of motion in the same units.
         velocityV.x /= params.motionParams.w;
     }
@@ -147,7 +147,7 @@ vertex ParticleVaryings particleVS(uint vid [[vertex_id]],
     float4 clip;
     if (useMesh || customFace) {
         if (useMesh) {
-            // Upstream particle_mesh: the mesh's vertex, turned about z then x by the angle.
+            // Mesh particle: the mesh's vertex, turned about z then x by the angle.
             const uint base = vid * 14u;
             float3 local = float3(meshVertices[base], meshVertices[base + 1u], meshVertices[base + 2u]);
             local.xy = particleRotate(local.xy, ca, sa);
@@ -155,12 +155,12 @@ vertex ParticleVaryings particleVS(uint vid [[vertex_id]],
             worldOffset = local;
             meshUv = float2(meshVertices[base + 6u], meshVertices[base + 7u]);
         } else {
-            // Upstream particle_customFace: the quad in the plane of the face vectors.
+            // Custom face: the quad in the plane of the face vectors.
             worldOffset = params.faceTangent.xyz * offset.x + params.faceBinorm.xyz * offset.y;
         }
         const float3 viewOffset = (params.view * float4(worldOffset * size, 0.0)).xyz;
         if (params.motionParams.y > 0.0 && dot(viewOffset.xy, viewOffset.xy) > 1e-12) {
-            // Upstream particle_stretch, for any vertex: the ones trailing the motion are
+            // Stretch, for any vertex: the ones trailing the motion are
             // pulled back along it.
             const float3 previous = viewPos.xyz - viewVelocity * params.motionParams.y;
             const float interpolation = dot(-velocityV, normalize(viewOffset.xy)) * 0.5 + 0.5;
@@ -169,8 +169,7 @@ vertex ParticleVaryings particleVS(uint vid [[vertex_id]],
         viewPos.xyz += viewOffset;
         clip = params.projection * viewPos;
     } else {
-        // Screen-aligned billboard, upstream's particle.js + particle_pointAlong / _billboard /
-        // _stretch / _end, in view space. In SCREEN SPACE the model matrix already lands in
+        // Screen-aligned billboard (point-along, billboard, stretch), in view space. In SCREEN SPACE the model matrix already lands in
         // clip space (the view and projection are identity) and the quad is sized in viewport
         // heights.
         if (params.motionParams.y > 0.0) {
@@ -192,7 +191,7 @@ vertex ParticleVaryings particleVS(uint vid [[vertex_id]],
     clip.z = 0.5 * (clip.z + clip.w);
     out.viewDepth = -viewPos.z;
 
-    // A lit particle (upstream particle_normal / particle_TBN): the normal bulges out from
+    // A lit particle: the normal bulges out from
     // the quad's centre toward the vertex, and a normal map turns the camera-aligned frame
     // by the particle's angle.
     if (params.lightCube[0].w > 0.5) {
@@ -232,7 +231,7 @@ fragment half4 particleFS(ParticleVaryings in [[stage_in]],
     float4 tex = float4(1.0);
     if (in.hasMap > 0.5 && colorMap.get_width() > 0) {
         tex = colorMap.sample(mapSampler, in.uv);
-        // The colour map is sRGB-authored (upstream loads every one with srgb: true).
+        // The colour map is sRGB-authored.
         tex.rgb = pow(max(tex.rgb, float3(0.0)), float3(2.2));
     } else {
         // Procedural soft disc when no color map is assigned.
@@ -243,7 +242,7 @@ fragment half4 particleFS(ParticleVaryings in [[stage_in]],
     float alpha = tex.a * in.color.a;
     float3 rgb = in.color.rgb * tex.rgb;
 
-    // Upstream particle_soft: fade where the particle nears the scene behind it.
+    // Soft particles: fade where the particle nears the scene behind it.
     if (params.softParams.w > 0.5) {
         const float near = params.softParams.y;
         const float far = params.softParams.z;
@@ -252,7 +251,7 @@ fragment half4 particleFS(ParticleVaryings in [[stage_in]],
         alpha *= saturate(abs(in.viewDepth - depth) * params.softParams.x);
     }
 
-    // Upstream particle_lighting: the light cube, by Lambert or half Lambert on the normal.
+    // Lighting: the light cube, by Lambert or half Lambert on the normal.
     if (params.lightCube[0].w > 0.5) {
         float3 normal = normalize(in.normal);
         if (params.lightCube[2].w > 0.5) {
@@ -276,11 +275,11 @@ fragment half4 particleFS(ParticleVaryings in [[stage_in]],
         rgb *= light;
     }
 
-    // Upstream particle_end: the colour is linear; a gamma target tone-maps it with the
+    // Output: the colour is linear; a gamma target tone-maps it with the
     // scene's exposure and encodes it, a camera frame's linear HDR scene leaves both to compose.
     if (in.output.z < 0.5) {
         rgb = toneMap(rgb, in.output.x, in.output.y);
-        rgb = pow(max(rgb, float3(0.0)) + 0.0000001, float3(1.0 / 2.2));  // upstream gammaCorrectOutput
+        rgb = pow(max(rgb, float3(0.0)) + 0.0000001, float3(1.0 / 2.2));  // gamma correction
     }
     return half4(half3(rgb), half(alpha));
 }

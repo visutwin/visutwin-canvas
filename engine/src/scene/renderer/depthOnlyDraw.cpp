@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 11.09.2026
+//
 #include "depthOnlyDraw.h"
 
 #include "core/scopedTimer.h"
@@ -39,8 +41,7 @@ namespace visutwin::canvas
         }
 
         meshInstance->setVisibleThisFrame(true);
-        // The caster's own cull mode, as upstream's shadow pass (`setCullMode(true,
-        // false, meshInstance)`) and this port's forward pass apply it. Left unset,
+        // The caster's own cull mode, as the forward pass applies it. Left unset,
         // the depth passes drew with whatever the previous draw had chosen: the
         // device default on the first frame and the last full-screen quad's
         // CULLFACE_NONE on every frame after — so a torch light sitting inside its
@@ -73,7 +74,7 @@ namespace visutwin::canvas
                 device->setShader(variant);
             }
             device->setVertexBuffer(instancing.vertexBuffer, 5);
-            // Instances live in the node's space (upstream matrix_model * instance).
+            // Instances live in the node's space (matrix_model * instance).
             device->setTransformUniforms(viewProjection, meshInstance->node()
                 ? meshInstance->node()->worldTransform() : Matrix4::identity());
             device->draw(mesh->getPrimitive(), mesh->getIndexBuffer(), instancing.count, -1, true, true);

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // The post chain, drawn once through QuadRender rather than through a device
 // virtual implemented separately per backend. Shader sources (MSL + GLSL) and
 // the shared uniform layout live in composeShaders.h.
@@ -42,7 +44,7 @@ namespace visutwin::canvas
         uniforms.blurTextureUpscale = _blurTextureUpscale ? 1u : 0u;
         uniforms.bloomIntensity = _bloomIntensity;
         uniforms.dofIntensity = _dofIntensity;
-        // Upstream (render-pass-compose.js) feeds the CAS kernel
+        // The CAS kernel is fed
         // lerp(-0.125, -0.2, sharpness): the weight must be NEGATIVE to sharpen.
         // With the raw positive user value the same kernel is a convex blend of
         // the pixel with its four neighbours, i.e. a blur, which is what this

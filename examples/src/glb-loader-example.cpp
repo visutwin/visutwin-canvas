@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 21.03.2026
+//
 // Port of upstream loaders/glb.
 //
 // Loads geometry-camera-light.glb, a grey cube on a scaled plane that also carries
@@ -25,7 +27,7 @@ namespace
 {
     constexpr const char* kModel = "models/geometry-camera-light.glb";
 
-    // Upstream's physical camera settings for the glb's cameras.
+    // Physical camera settings for the glb's cameras.
     constexpr float kAperture = 4.0f;
     constexpr float kShutter = 1.0f / 100.0f;
     constexpr float kSensitivity = 500.0f;

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025-2026 Arnis Lektauers
 //
 // Created by Arnis Lektauers on 25.07.2025
 //
@@ -478,7 +480,7 @@ namespace visutwin::canvas
     {
         // Both operands are affine: each column of the product is this matrix's
         // upper 3x4 applied to the matching rhs column, and the bottom row is FORCED
-        // to (0, 0, 0, 1) rather than computed, exactly as upstream's mulAffine2 does.
+        // to (0, 0, 0, 1) rather than computed.
 #if defined(USE_SIMD_APPLE)
         const simd_float4 a0 = cm.columns[0];
         const simd_float4 a1 = cm.columns[1];
@@ -557,8 +559,8 @@ namespace visutwin::canvas
         const Vector3 n2 = c0.cross(c1);
         const float det = c0.dot(n0);
         const float invDet = 1.0f / det;
-        // A singular 3x3 (a zero scale on some axis) has no inverse; upstream's
-        // Mat3.invertMat4 returns the identity for it, so the surface keeps its
+        // A singular 3x3 (a zero scale on some axis) has no inverse; the
+        // identity is returned for it, so the surface keeps its
         // authored normals and tangents. Only an exact zero (or a determinant so small
         // its reciprocal overflows) counts: a tiny but valid scale, such as a model in
         // millimetres scaled by 0.001, keeps its true inverse transpose.

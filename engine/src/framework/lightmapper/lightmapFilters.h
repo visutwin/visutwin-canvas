@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// The CPU half of upstream's lightmap post-processing (lightmap-filters.js) and of its
-// ambient bake (bake-light-ambient.js): the uniform block the dilate, bilateral denoise
-// and ambient-occlusion passes read, and the virtual-light distribution and intensity the
-// ambient bake uses. Pure functions, so tests/lightmapFiltersTests.cpp can hold them to
-// upstream's numbers without a GPU.
+// Created by Arnis Lektauers on 02.10.2026
+//
+// The CPU half of the lightmap post-processing and of the ambient bake: the uniform
+// block the dilate, bilateral denoise and ambient-occlusion passes read, and the
+// virtual-light distribution and intensity the ambient bake uses. Pure functions, so
+// tests/lightmapFiltersTests.cpp can check them without a GPU.
 //
 #pragma once
 
@@ -17,7 +18,7 @@
 
 namespace visutwin::canvas::lightmap_filters
 {
-    /// Upstream DENOISE_FILTER_SIZE: the bilateral kernel is 15 x 15 texels; the shader's
+    /// The bilateral kernel is 15 x 15 texels; the shader's
     /// loop bound has to match.
     inline constexpr int kDenoiseFilterSize = 15;
 
@@ -26,7 +27,7 @@ namespace visutwin::canvas::lightmap_filters
     /// put each element on its own 16 bytes.
     struct alignas(16) LightmapFilterUniforms
     {
-        float pixelOffset[2] = {0.0f, 0.0f};   // 1 / texture size (upstream `pixelOffset`)
+        float pixelOffset[2] = {0.0f, 0.0f};   // 1 / texture size
         float sigmas[2] = {0.0f, 0.0f};        // filterRange, filterSmoothness (`sigmas`)
         float bZnorm = 1.0f;                   // 1 / normpdf(0, smoothness)
         float occlusionContrast = 0.0f;        // ambientBakeOcclusionContrast
@@ -36,15 +37,14 @@ namespace visutwin::canvas::lightmap_filters
     };
     static_assert(sizeof(LightmapFilterUniforms) == 96);
 
-    /// Upstream's `normpdf` (lightmap-filters.js and bilateralDeNoise.js), constants and all.
+    /// The normal probability density the denoise kernel weights by.
     inline float normpdf(const float x, const float sigma)
     {
         return 0.39894f * std::exp(-0.5f * x * x / (sigma * sigma)) / sigma;
     }
 
-    /// Upstream LightmapFilters.prepare + prepareDenoise + evaluateDenoiseUniforms: the
-    /// spatial kernel from `filterRange`, the range normaliser from `filterSmoothness`.
-    /// Upstream's scene setters keep the range above 0.001; so does this.
+    /// The spatial kernel from `filterRange`, the range normaliser from `filterSmoothness`.
+    /// The range is kept above 0.001.
     inline void prepareDenoise(LightmapFilterUniforms& u, const float filterRange,
         const float filterSmoothness)
     {
@@ -67,7 +67,7 @@ namespace visutwin::canvas::lightmap_filters
         u.pixelOffset[1] = 1.0f / static_cast<float>(std::max(height, 1));
     }
 
-    /// Upstream bakeLmEnd's ambient-occlusion curve, applied to the accumulated visibility
+    /// The ambient-occlusion curve, applied to the accumulated visibility
     /// before it multiplies the ambient light.
     inline float ambientOcclusionCurve(const float occlusion, const float contrast, const float brightness)
     {
@@ -75,7 +75,7 @@ namespace visutwin::canvas::lightmap_filters
         return std::clamp(shaped, 0.0f, 1.0f);
     }
 
-    /// Upstream random.spherePointDeterministic with start 0: evenly spread points over the
+    /// Evenly spread points over the
     /// top `end` part of the unit sphere (0.5 the upper hemisphere, 1 all of it).
     inline Vector3 spherePointDeterministic(const int index, const int numPoints, const float end)
     {
@@ -88,13 +88,12 @@ namespace visutwin::canvas::lightmap_filters
         return Vector3(std::cos(theta) * radius, y, std::sin(theta) * radius);
     }
 
-    /// The LINEAR intensity of one of upstream's ambient-bake virtual lights.
-    /// BakeLightAmbient.prepareVirtualLight sets the light's intensity to
-    /// `(pow(2 pi spherePart, 2.2) / N) ^ (1 / 2.2)`, and upstream's Light then shades with
+    /// The LINEAR intensity of one ambient-bake virtual light, whose authored intensity is
+    /// `(pow(2 pi spherePart, 2.2) / N) ^ (1 / 2.2)`. Upstream's Light shades with
     /// `linear(color) * intensity` when the intensity is at least 1 and with
-    /// `linear(color * intensity)` below it (Light._updateLinearColor). This engine
-    /// multiplies the decoded colour by the intensity in both cases, so the virtual light
-    /// is given the value upstream ends up shading with — white, so the colour drops out.
+    /// `linear(color * intensity)` below it; this engine multiplies the decoded colour by
+    /// the intensity in both cases, so the virtual light is given the value upstream ends
+    /// up shading with — white, so the colour drops out.
     inline float ambientVirtualLightIntensity(const int numVirtualLights, const float spherePart)
     {
         constexpr float kGamma = 2.2f;

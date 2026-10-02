@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers 02.01.2026
+// Created by Arnis Lektauers on 02.01.2026
 //
 #include "pose.h"
 
@@ -14,7 +14,7 @@ namespace visutwin::canvas
 {
     namespace
     {
-        // Upstream math.lerpAngle: the short way round, alpha clamped.
+        // Angle lerp: the short way round, alpha clamped.
         float lerpAngle(const float a, float b, const float alpha)
         {
             if (b - a > 180.0f) {

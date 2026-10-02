@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
+// Created by Arnis Lektauers on 30.07.2026
+//
 #pragma once
 
 #include <array>
@@ -19,7 +21,7 @@ namespace visutwin::canvas
     class Shader;
 
     /**
-     * Ray-marched volumetric fog (upstream FramePassVolumetricFog). Marches from the camera to the
+     * Ray-marched volumetric fog. Marches from the camera to the
      * scene surface accumulating in-scattered directional light and transmittance into a
      * reduced-resolution RGBA16F texture.
      *
@@ -27,7 +29,7 @@ namespace visutwin::canvas
      * scene. Both are driven from CameraComponent::VolumetricFogSettings.
      *
      * The clustered omni and spot lights (VolumetricFogSettings::localOmniLights /
-     * localSpotLights, upstream RenderPassVolumetricFogLocal) are added into the same texture
+     * localSpotLights) are added into the same texture
      * by this pass, after the march: a fullscreen triangle per light, scissored to the
      * screen bounds of its volume, additive in colour and keeping the march's
      * transmittance. DEVIATION: upstream gives them a pass of their own drawing a quad over

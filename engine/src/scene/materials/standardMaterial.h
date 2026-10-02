@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Created by Arnis Lektauers on 11.10.2025.
+// Created by Arnis Lektauers on 11.10.2025
 //
 #pragma once
 #include <algorithm>
@@ -55,19 +55,19 @@ namespace visutwin::canvas
         /// specular at all — see rendersSpecular().
         const Color& specular() const { return _specular; }
         void setSpecular(const Color& value) { _specular = value; markUniformsDirty(); }
-        /// Upstream `useMetalnessSpecularColor`: in the METALNESS workflow, tint the
+        /// In the METALNESS workflow, tint the
         /// non-metal F0 by `specular` (KHR_materials_specular's specularColorFactor).
         /// Off by default, when the non-metal F0 is untinted.
         bool useMetalnessSpecularColor() const { return _useMetalnessSpecularColor; }
         void setUseMetalnessSpecularColor(const bool value) { _useMetalnessSpecularColor = value; markUniformsDirty(); }
-        /// Upstream `specularityFactor` (KHR_materials_specular's specularFactor): scales
+        /// KHR_materials_specular's specularFactor: scales
         /// the non-metal F0 in the metalness workflow. Default 1.
         float specularityFactor() const { return _specularityFactor; }
         void setSpecularityFactor(const float value) { _specularityFactor = value; markUniformsDirty(); }
         // --- Metalness ---
         float metalness() const { return _metalness; }
         void setMetalness(const float value) { _metalness = value; markUniformsDirty(); }
-        /// Selects the workflow, upstream's default included: FALSE, so a material is
+        /// Selects the workflow. Default FALSE, so a material is
         /// in the specular workflow (specular colour + gloss) until it asks for
         /// metalness, and `metalness` (default 1) only applies once it does.
         bool useMetalness() const { return _useMetalness; }
@@ -77,8 +77,7 @@ namespace visutwin::canvas
         bool usesSpecularWorkflow() const { return !_useMetalness; }
 
         /// Whether this material renders ANY specular — direct, area, clustered or
-        /// reflected. Upstream's useSpecular (standard-material-options-builder.js):
-        /// a specular-workflow material with a black specular colour, no specular map
+        /// reflected. A specular-workflow material with a black specular colour, no specular map
         /// and no clearcoat gets none, not merely a dark one. A black F0 is not the
         /// same thing: the Fresnel term still reflects at grazing angles, which is why
         /// this is a shader variant (VT_FEATURE_NO_SPECULAR) rather than a colour.
@@ -115,7 +114,7 @@ namespace visutwin::canvas
         // reflection probe / env atlas where the ray leaves the screen.
         bool useScreenSpaceReflection() const { return _useSSR; }
         void setUseScreenSpaceReflection(const bool value) { _useSSR = value; markUniformsDirty(); }
-        // Opacity dithering (upstream opacityDither): render partial opacity in the OPAQUE pass
+        // Opacity dithering: render partial opacity in the OPAQUE pass
         // by discarding fragments against an ordered Bayer threshold — no sorting artifacts and
         // depth writes stay valid. Leave the material non-transparent when using this.
         //
@@ -136,7 +135,7 @@ namespace visutwin::canvas
             setOpacityDitherMode(value ? DitherMode::DITHER_BAYER8 : DitherMode::DITHER_NONE);
         }
 
-        // Independent dither strength (upstream StandardMaterial.alphaDither). Opacity
+        // Independent dither strength. Opacity
         // normally drives BOTH alpha blending and dither density; setting this decouples
         // them, so opacity drives only the blend and this value only the dither pattern.
         // Unset (the default) restores the coupled behaviour.
@@ -146,9 +145,9 @@ namespace visutwin::canvas
         void clearAlphaDither() { _alphaDither = ALPHA_DITHER_UNSET; markUniformsDirty(); }
         bool hasAlphaDither() const { return _alphaDither >= 0.0f; }
 
-        // Dither the SHADOW pass too (upstream StandardMaterial.opacityShadowDither), so a
+        // Dither the SHADOW pass too, so a
         // partially-opaque caster throws a correspondingly thinned shadow instead of a solid
-        // one. Independent of opacityDitherMode, exactly as upstream keeps them.
+        // one. Independent of opacityDitherMode.
         DitherMode opacityShadowDitherMode() const { return _opacityShadowDitherMode; }
         void setOpacityShadowDitherMode(const DitherMode value)
         {
@@ -159,17 +158,17 @@ namespace visutwin::canvas
         Texture* glossMap() const { return _glossMap; }
         void setGlossMap(Texture* texture) { _glossMap = texture; markUniformsDirty(); }
 
-        /// Channel of the gloss map that supplies glossiness (upstream glossMapChannel, default "g").
+        /// Channel of the gloss map that supplies glossiness (default "g").
         MapChannel glossMapChannel() const { return _glossMapChannel; }
         void setGlossMapChannel(const MapChannel value) { _glossMapChannel = value; markUniformsDirty(); }
 
-        /// Per-pixel thickness, multiplying the thickness factor (upstream thicknessMap).
+        /// Per-pixel thickness, multiplying the thickness factor.
         Texture* thicknessMap() const { return _thicknessMap; }
         void setThicknessMap(Texture* texture) { _thicknessMap = texture; markUniformsDirty(); }
         MapChannel thicknessMapChannel() const { return _thicknessMapChannel; }
         void setThicknessMapChannel(const MapChannel value) { _thicknessMapChannel = value; markUniformsDirty(); }
 
-        /// Per-pixel refraction visibility, multiplying the refraction factor (upstream refractionMap).
+        /// Per-pixel refraction visibility, multiplying the refraction factor.
         Texture* refractionMap() const { return _refractionMap; }
         void setRefractionMap(Texture* texture) { _refractionMap = texture; markUniformsDirty(); }
         MapChannel refractionMapChannel() const { return _refractionMapChannel; }
@@ -177,22 +176,22 @@ namespace visutwin::canvas
         // --- Emissive ---
         // StandardMaterial owns the emissive contribution unconditionally: updateUniforms() writes
         // pow(_emissive, 2.2) * _emissiveIntensity to the GPU as linear HDR, overriding whatever
-        // base Material::_emissiveFactor the parser populated. This matches upstream's
-        // StandardMaterial.emissive semantics and deliberately ignores authoring artifacts like
+        // base Material::_emissiveFactor the parser populated. This deliberately ignores
+        // authoring artifacts like
         // specular-glossiness exporters writing emissiveFactor=(1,1,1) with no emissive texture
         // (which would otherwise produce fully-white glowing walls).
-        /// Tint of the AMBIENT diffuse (upstream `ambient`), authored in sRGB like
+        /// Tint of the AMBIENT diffuse, authored in sRGB like
         /// `diffuse` and uploaded linear; white (the default) changes nothing. It does
         /// not touch a lightmap, which replaces the ambient, nor direct light.
         const Color& ambient() const { return _ambient; }
         void setAmbient(const Color& value) { _ambient = value; markUniformsDirty(); }
 
-        // --- MSDF text (upstream msdfMap and the text element's font uniforms) ---
+        // --- MSDF text ---
         /// A multi-channel signed distance field atlas page. It takes the BASE COLOUR
         /// slot — a text material has no diffuse map — and compiles VT_FEATURE_MSDF, under
         /// which the unlit path reads the slot as distances rather than colour: coverage
-        /// from the median of RGB, then outline and shadow composited in linear, as
-        /// upstream's applyMsdf. Setting it replaces any diffuse map, and vice versa.
+        /// from the median of RGB, then outline and shadow composited in linear.
+        /// Setting it replaces any diffuse map, and vice versa.
         Texture* msdfMap() const { return _msdfMap; }
         void setMsdfMap(Texture* texture)
         {
@@ -202,24 +201,24 @@ namespace visutwin::canvas
             setHasBaseColorTexture(texture != nullptr);
             markUniformsDirty();
         }
-        /// Texels of distance spread in the atlas (upstream font_pxrange) and the
-        /// intensity that fattens the glyph (font_sdfIntensity).
+        /// Texels of distance spread in the atlas and the intensity that fattens the
+        /// glyph.
         void setMsdfFont(const float pxRange, const float intensity)
         {
             _msdfPxRange = pxRange;
             _msdfIntensity = intensity;
             markUniformsDirty();
         }
-        /// Outline colour (sRGB, alpha straight) and SHADER thickness (upstream's
-        /// outlineThickness x 0.2).
+        /// Outline colour (sRGB, alpha straight) and SHADER thickness (the
+        /// element's outlineThickness x 0.2).
         void setMsdfOutline(const Color& color, const float thickness)
         {
             _msdfOutlineColor = color;
             _msdfOutlineThickness = thickness;
             markUniformsDirty();
         }
-        /// Shadow colour (sRGB, alpha straight) and offset in atlas UV (upstream's
-        /// shadow_offset; the text element converts its shadowOffset).
+        /// Shadow colour (sRGB, alpha straight) and offset in atlas UV (the
+        /// text element converts its shadowOffset).
         void setMsdfShadow(const Color& color, const Vector2& uvOffset)
         {
             _msdfShadowColor = color;
@@ -242,7 +241,7 @@ namespace visutwin::canvas
             setHasEmissiveTexture(texture != nullptr);
             markUniformsDirty();
         }
-        // --- Vertex color routing (upstream diffuseVertexColor / emissiveVertexColor) ---
+        // --- Vertex color routing ---
         // A mesh's vertex colors modulate the diffuse lane by default.
         // Route them to emissive instead for additive stamps like decals, where the
         // color has to survive an unlit, black-diffuse material.
@@ -281,7 +280,7 @@ namespace visutwin::canvas
          * The height-map value that sits at the level of the geometry. Texels above
          * it stand proud of the polygon, texels below sink into it. 1 treats the map
          * as pure depth carved below the surface; the default 0.5 pivots the relief
-         * around mid-grey, which is upstream's default too.
+         * around mid-grey.
          */
         float heightMapBase() const { return _heightMapBase; }
         void setHeightMapBase(const float value) { _heightMapBase = value; markUniformsDirty(); }
@@ -295,9 +294,9 @@ namespace visutwin::canvas
         // --- Anisotropy ---
         float anisotropy() const { return _anisotropy; }
         void setAnisotropy(const float value) { _anisotropy = value; markUniformsDirty(); }
-        /// Upstream `anisotropyRotation`, in DEGREES: turns the anisotropy direction from
-        /// the tangent toward the bitangent. A negative `anisotropy` (upstream's
-        /// deprecated setter) adds 90 on top.
+        /// In DEGREES: turns the anisotropy direction from
+        /// the tangent toward the bitangent. A negative `anisotropy` (a
+        /// deprecated form) adds 90 on top.
         float anisotropyRotation() const { return _anisotropyRotation; }
         void setAnisotropyRotation(const float degrees) { _anisotropyRotation = degrees; markUniformsDirty(); }
         // --- Transmission / Refraction ---
@@ -323,7 +322,7 @@ namespace visutwin::canvas
         void setDispersion(const float value) { _dispersion = value; markUniformsDirty(); }
         // --- Ambient Occlusion ---
         // The AO map and the base Material's occlusion texture are ONE slot (4) and one
-        // shader feature; the GLB parser fills the base property, upstream code and the
+        // shader feature; the GLB parser fills the base property, other code and the
         // examples talk to aoMap. Keep the two in step here, or `setAoMap(nullptr)` on a
         // loaded material clears nothing.
         Texture* aoMap() const { return _aoMap ? _aoMap : occlusionTexture(); }
@@ -390,11 +389,11 @@ namespace visutwin::canvas
         void setClearCoatGlossInvert(const bool value) { _clearCoatGlossInvert = value; markUniformsDirty(); }
         float clearCoatBumpiness() const { return _clearCoatBumpiness; }
         void setClearCoatBumpiness(const float value) { _clearCoatBumpiness = value; markUniformsDirty(); }
-        /// Channel of the clearcoat map that supplies intensity (upstream clearCoatMapChannel,
-        /// default "g"; KHR_materials_clearcoat stores it in R).
+        /// Channel of the clearcoat map that supplies intensity
+        /// (default "g"; KHR_materials_clearcoat stores it in R).
         MapChannel clearCoatMapChannel() const { return _clearCoatMapChannel; }
         void setClearCoatMapChannel(const MapChannel value) { _clearCoatMapChannel = value; markUniformsDirty(); }
-        /// Channel of the clearcoat gloss map (upstream clearCoatGlossMapChannel, default "g").
+        /// Channel of the clearcoat gloss map (default "g").
         MapChannel clearCoatGlossMapChannel() const { return _clearCoatGlossMapChannel; }
         void setClearCoatGlossMapChannel(const MapChannel value) { _clearCoatGlossMapChannel = value; markUniformsDirty(); }
         Texture* clearCoatMap() const { return _clearCoatMap; }
@@ -424,7 +423,7 @@ namespace visutwin::canvas
         void setIridescenceThicknessMax(const float value) { _iridescenceThicknessMax = value; markUniformsDirty(); }
         // --- Spec-Gloss map (KHR_materials_pbrSpecularGlossiness) ---
         // The specular workflow itself is specular() + gloss() with useMetalness
-        // false, as upstream; this map adds rgb = specular colour (sRGB), a = gloss.
+        // false; this map adds rgb = specular colour (sRGB), a = gloss.
         // METAL ONLY: it rides the metal-rough binding (slot 3), and the Vulkan
         // fragment stage has no reinterpretation of that sample.
         Texture* specGlossMap() const { return _specGlossMap; }

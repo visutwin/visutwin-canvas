@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025-2026 Arnis Lektauers
 //
-// Picker::getWorldPoint casts its ray through the CENTRE of the pixel it reads, as
-// upstream's getWorldPointAsync does since 5cc6269d5. A ray through the integer
+// Created by Arnis Lektauers on 24.09.2026
+//
+// Picker::getWorldPoint casts its ray through the CENTRE of the pixel it reads.
+// A ray through the integer
 // coordinate passes the pixel's top-left corner, so every picked point sits half a
 // pick-buffer pixel off the surface point that pixel shows.
 //
