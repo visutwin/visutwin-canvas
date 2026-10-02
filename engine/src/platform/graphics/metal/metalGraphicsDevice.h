@@ -28,10 +28,7 @@
 namespace visutwin::canvas
 {
     class Compute;
-    class MetalComposePass;
-    class MetalLICPass;
     class MetalMarchingCubesPass;
-    class MetalParticleComputePass;
     class MetalInstanceCullPass;
     class MetalRenderPipeline;
     class MetalComputePipeline;
@@ -43,10 +40,7 @@ namespace visutwin::canvas
      */
     class MetalGraphicsDevice : public GraphicsDevice
     {
-        friend class MetalComposePass;
-        friend class MetalLICPass;
         friend class MetalMarchingCubesPass;
-        friend class MetalParticleComputePass;
         friend class MetalInstanceCullPass;
 
     public:
@@ -438,7 +432,6 @@ namespace visutwin::canvas
         std::unique_ptr<MetalComputePipeline> _computePipeline;
 
         std::vector<std::shared_ptr<MetalBindGroupFormat>> _bindGroupFormats;
-        std::unique_ptr<MetalComposePass> _composePass;
 
         // Triple-buffered ring buffers for per-draw uniform data.
         // Replaces setVertexBytes()/setFragmentBytes() with pre-allocated MTLBuffer

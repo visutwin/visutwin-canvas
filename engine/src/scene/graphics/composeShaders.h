@@ -647,7 +647,7 @@ void main() { vUv = vertexUv0; gl_Position = vec4(vertexPosition, 1.0); }
 #ifdef VT_FRAGMENT_SHADER
 layout(location = 0) in vec2 vUv;
 
-// Compose pass — port of metalComposePass.cpp composeFragment.
+// Compose pass — the GLSL twin of the MSL compose body above.
 // Order: CAS -> DOF (single-pass from depth) -> SSAO -> Fringing -> Bloom ->
 // ColorEnhance -> Grading -> ToneMap -> ColorLUT -> Vignette -> display gamma.
 // Runs as a fullscreen draw inside the compose render pass (usually targeting the
@@ -1033,7 +1033,7 @@ void main() {
     }
 
     // 4. Fringing (chromatic aberration). Sits between DOF and bloom, matching
-    // metalComposePass: red and blue are RE-SAMPLED from the scene
+    // the MSL body: red and blue are RE-SAMPLED from the scene
     // texture, so running it after bloom would keep bloom in green only. The offset is
     // the SQUARED distance from centre — a linear offset smears the whole
     // mid-field instead of just the corners.
@@ -1066,7 +1066,7 @@ void main() {
 
     // 6. Tonemapping. Every curve consumes exposure-scaled color (Metal
     // passes exposure into each curve); TONEMAP_NONE applies neither the
-    // curve nor exposure — matching metalComposePass exactly.
+    // curve nor exposure — matching the MSL body exactly.
     result = max(result, vec3(0.0));
     int mode = int(float(pc.tonemapMode) + 0.5);
     float exposure = pc.exposure;

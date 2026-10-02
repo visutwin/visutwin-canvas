@@ -11,7 +11,6 @@
 #include <chrono>
 #include <cstring>
 #include <ranges>
-#include "metalComposePass.h"
 #include "metalInstanceCullPass.h"
 #include "metalTexture.h"
 #include "core/scopedTimer.h"
@@ -322,9 +321,6 @@ namespace visutwin::canvas
             }
         }
         _stencilStateCache.clear();
-        // All envAtlas passes must be destroyed before _composePass — they
-        // reference it.
-        _composePass.reset();
 
         if (_backBufferDepthTexture) {
             _backBufferDepthTexture->release();

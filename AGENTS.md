@@ -34,7 +34,7 @@ Vulkan 1.3.
 
 ```
 visutwin-canvas/
-  engine/          # Core 3D engine (345 .h + 251 .cpp + 1 .mm = 597 files)
+  engine/          # Core 3D engine (343 .h + 248 .cpp + 1 .mm = 592 files)
     src/core/      # Math (Vector2/3/4, Matrix4, Quaternion, SIMD multi-backend), shapes, events, tags
     src/platform/  # Graphics abstraction + Metal and Vulkan backends, input
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
@@ -201,8 +201,8 @@ bundled by `tools/generate_vulkan_shader_bundle.py`. Feature flags arrive as
 — add new code to the matching component, not one monolith.
 
 **Metal-only today:** volumetric fog on the compute path, texture streaming, the
-ImGui/ImPlot overlay (`viz/overlay/`, uses `imgui_impl_metal`), marching cubes,
-LIC, and the spec-gloss map.
+ImGui/ImPlot overlay (`viz/overlay/`, uses `imgui_impl_metal`), marching cubes
+and the spec-gloss map.
 
 **Planned next backend: WebGPU** — targets browser and native (Dawn/wgpu). WGSL
 maps onto the same shared feature contract; the specialization-constant approach

@@ -13,7 +13,7 @@
 //     allocates space in the output buffer, and writes full 56-byte VertexData
 //     (position, normal, UV, tangent) matching the engine's common.metal layout.
 //
-// Follows the MetalParticleComputePass pattern:
+// Structure:
 //   - Embedded MSL source as string literal
 //   - Lazy resource creation
 //   - Friend access to MetalGraphicsDevice for command queue

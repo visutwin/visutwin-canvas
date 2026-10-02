@@ -35,7 +35,7 @@ the [README](README.md).
 
 ## Post-processing & tooling
 - **TAA**, **SSAO** (post-compose or per-material lighting mode), **bloom** (configurable chain depth), **depth of field** (multi-pass bokeh: circle of confusion, CoC-premultiplied far downsample, concentric near/far blur, composed by CoC), **edge detection**, and a compose chain with **color grading**, **3D LUT**, chromatic **fringing**, **color enhance**, **vignette**, and tone mapping (Linear, Filmic, ACES, **ACES2**, Neutral, None)
-- **Planar reflections** with distance-based blur, **atmosphere/sky scattering** (Nishita), and **surface LIC** flow visualization
+- **Planar reflections** with distance-based blur and **atmosphere/sky scattering** (Nishita)
 - **Debug shader passes**: replace the forward output with a single surface quantity (albedo, world normal, opacity, specularity, gloss, metalness, AO, emission, lighting, UV0) — one variant, mode switched at runtime with no recompile
 - **GPU timestamp profiler** (per-pass timings on both backends) and a **MiniStats** ImGui HUD built on it
 - **In-engine measurement hooks** in the examples harness: env-driven screenshot capture (by frame or by time, single or burst), a uniform SH probe, and a mirror floor with a pillar for screen-space-reflection checks
@@ -84,7 +84,7 @@ Known Limitations, and `AGENTS.md` records the remaining parity items.
 
 ## Known Limitations
 
-- Metal remains the primary graphics backend; Vulkan is functional and covers most rendering paths, but not yet at full parity. Metal-only today: volumetric fog, texture streaming, the ImGui/ImPlot overlay, and the compute passes used by the sibling visualization project (marching cubes, LIC)
+- Metal remains the primary graphics backend; Vulkan is functional and covers most rendering paths, but not yet at full parity. Metal-only today: volumetric fog, texture streaming, the ImGui/ImPlot overlay, and the compute passes used by the sibling visualization project (marching cubes)
 - No audio subsystem; no sprite component (sprites are data an image element shows)
 - Gaussian splatting: WebP-packed SOG format and the unified octree/LOD streaming path are not ported
 - Reflection probes support runtime scene-capture baking (dynamic cubemap) as well as supplied cubemaps; per-level GGX cube prefilter is deferred (roughness uses hardware trilinear cube mips)
