@@ -441,6 +441,14 @@ if(VISUTWIN_PHYSICS_JOLT)
     else()
         target_link_libraries(visutwin-canvas PUBLIC Jolt::Jolt)
     endif()
+    # Jolt is built without RTTI, so UBSan's vptr check cannot run on its types: it
+    # references their typeinfo, which the library never emits, and the link fails.
+    # Apple clang 21 leaves vptr out of -fsanitize=undefined; the older clang on CI's
+    # macOS runner turns it on. The rest of the engine keeps the check.
+    if(VISUTWIN_SANITIZE)
+        set_source_files_properties(src/framework/physics/jolt/joltPhysicsWorld.cpp
+            PROPERTIES COMPILE_OPTIONS -fno-sanitize=vptr)
+    endif()
 endif()
 
 if(VISUTWIN_BACKEND_VULKAN)
