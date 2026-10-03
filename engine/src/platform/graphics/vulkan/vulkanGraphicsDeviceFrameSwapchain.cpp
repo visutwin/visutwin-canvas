@@ -9,6 +9,7 @@
 #include <vector>
 #include <cmath>
 #include "vulkanGraphicsDevice.h"
+#include "platform/graphics/runLoopWait.h"
 
 #include <algorithm>
 #include <chrono>
@@ -382,7 +383,9 @@ namespace visutwin::canvas
         if (_renderingDisabled || _swapchainRecreationPending || _device == VK_NULL_HANDLE) {
             return;
         }
-        vkWaitForFences(_device, 1, &_frames[_frameIndex].inFlightFence, VK_TRUE, UINT64_MAX);
+        // With the run loop serviced, so a press is not held by macOS meanwhile (runLoopWait.h).
+        VkFence fence = _frames[_frameIndex].inFlightFence;
+        waitServicingRunLoop([this, fence] { vkWaitForFences(_device, 1, &fence, VK_TRUE, UINT64_MAX); });
     }
 
     void VulkanGraphicsDevice::onFrameStart()
@@ -404,11 +407,12 @@ namespace visutwin::canvas
 
         // The fence wait and the acquire below are where a vsync'd frame waits for the
         // display, inside Engine::render(); see displayWaitMilliseconds().
-        VkResult waitResult;
+        VkResult waitResult = VK_SUCCESS;
         {
             const DisplayWaitScope waitScope(*this);
-            waitResult = vkWaitForFences(
-                _device, 1, &frame.inFlightFence, VK_TRUE, UINT64_MAX);
+            waitServicingRunLoop([&] {
+                waitResult = vkWaitForFences(_device, 1, &frame.inFlightFence, VK_TRUE, UINT64_MAX);
+            });
         }
         if (waitResult != VK_SUCCESS) {
             _renderingDisabled = true;
@@ -429,11 +433,18 @@ namespace visutwin::canvas
             return;
         }
 
-        VkResult result;
+        // The acquire waits for the display; with the run loop serviced (runLoopWait.h). The
+        // swapchain is used by nothing else while this thread waits for it.
+        VkResult result = VK_SUCCESS;
+        const auto acquire = [&] {
+            waitServicingRunLoop([&] {
+                result = vkAcquireNextImageKHR(_device, _swapchain, UINT64_MAX,
+                    frame.imageAvailable, VK_NULL_HANDLE, &_swapchainImageIndex);
+            });
+        };
         {
             const DisplayWaitScope waitScope(*this);
-            result = vkAcquireNextImageKHR(_device, _swapchain, UINT64_MAX,
-                frame.imageAvailable, VK_NULL_HANDLE, &_swapchainImageIndex);
+            acquire();
         }
         if (result == VK_ERROR_OUT_OF_DATE_KHR) {
             // Recreate directly — setResolution(_width, _height) would
@@ -442,8 +453,7 @@ namespace visutwin::canvas
             if (recreateSwapchain() != SwapchainRecreation::Recreated) {
                 return;
             }
-            result = vkAcquireNextImageKHR(_device, _swapchain, UINT64_MAX,
-                frame.imageAvailable, VK_NULL_HANDLE, &_swapchainImageIndex);
+            acquire();
         }
         if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
             // Skip this frame: the fence was deliberately NOT reset, so the

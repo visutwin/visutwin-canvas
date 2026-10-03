@@ -1157,6 +1157,17 @@ present, but the rule below never depends on reading it.
   turns `refraction`'s capsules into a flat opaque wash. Settle it by setting a
   CONSTANT value on both sides. `textures/checkboard.png` and the whole seaside-rocks01
   set (`seaside-rocks01-gloss.jpg` included) are upstream's exact bytes.
+- **On macOS a wait for the display or the GPU must keep the main run loop serviced**
+  (`waitServicingRunLoop`, `platform/graphics/runLoopWait.h`). When the pointer is pressed
+  over a window, macOS holds the SYSTEM pointer until the app's main thread services its run
+  loop; a main thread blocked instead (the frame gate, `nextDrawable`, `vkWaitForFences`,
+  `vkAcquireNextImageKHR`: most of a vsynced frame) is given up on only after ~200-250 ms,
+  and the press arrives with the movement made meanwhile folded into one jump: every
+  click-and-drag hangs, then lurches. Both backends' frame waits go through it (the wait runs
+  on a serial queue while the main thread sits in `CFRunLoopRunInMode`). Proven with bare
+  SDL probes: sleeping between frames reproduces it in a window with no renderer at all,
+  idling in SDL's own wait does not, and a plain Cocoa window never shows it. A new blocking
+  wait on the main thread owes the same treatment.
 - **A loop waits for the next frame BEFORE it polls input** (`Engine::waitForNextFrame`):
   Metal takes the frame-gate slot and the drawable there, Vulkan the frame fence. Waited
   for inside `render()` instead (where the drawable used to be taken, at the first

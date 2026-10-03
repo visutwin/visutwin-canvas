@@ -5,6 +5,7 @@
 //
 #include <cmath>
 #include "metalGraphicsDevice.h"
+#include "platform/graphics/runLoopWait.h"
 #include <typeinfo>
 
 #include <algorithm>
@@ -423,7 +424,7 @@ namespace visutwin::canvas
         // rings onto the region it used. waitForNextFrame may already have taken the slot,
         // before the application polled input.
         if (!_frameSlotTaken) {
-            _frameGate.waitForFrame();
+            waitServicingRunLoop([this] { _frameGate.waitForFrame(); });
         }
         _frameSlotTaken = false;
         _transformRing->beginFrame();
@@ -476,26 +477,40 @@ namespace visutwin::canvas
         if (!_metalLayer || _insideFrame) {
             return;
         }
-        // The frame slot first: its wait is the GPU catching up, which is also what frees
-        // the drawable below.
-        if (!_frameSlotTaken) {
-            _frameGate.waitForFrame();
-            _frameSlotTaken = true;
+        const bool takeSlot = !_frameSlotTaken;
+        const bool takeDrawable = !_preparedDrawable;
+        if (!takeSlot && !takeDrawable) {
+            return;
         }
-        // Then the drawable, which is where a display-synced frame waits for the display.
-        // Acquired at the size the frame will render, under a pool of its own (the frame's
-        // is not pushed yet) and retained past it.
-        if (!_preparedDrawable) {
+        // The drawable is acquired at the size the frame will render.
+        if (takeDrawable) {
             const auto [w, h] = size();
             const CGSize drawableSize = _metalLayer->drawableSize();
             if (static_cast<int>(drawableSize.width) != w || static_cast<int>(drawableSize.height) != h) {
                 _metalLayer->setDrawableSize(CGSize{static_cast<CGFloat>(w), static_cast<CGFloat>(h)});
             }
-            NS::AutoreleasePool* pool = NS::AutoreleasePool::alloc()->init();
-            if (CA::MetalDrawable* drawable = _metalLayer->nextDrawable()) {
-                _preparedDrawable = drawable->retain();
+        }
+        // The frame slot first (the GPU catching up, which is also what frees a drawable),
+        // then the drawable (the display), both with the run loop kept serviced: a main
+        // thread blocked here when the pointer is pressed makes macOS hold the press
+        // (runLoopWait.h). nextDrawable may be called from any thread; the pool is the
+        // waiting thread's own.
+        CA::MetalDrawable* acquired = nullptr;
+        waitServicingRunLoop([&] {
+            if (takeSlot) {
+                _frameGate.waitForFrame();
             }
-            pool->release();
+            if (takeDrawable) {
+                NS::AutoreleasePool* pool = NS::AutoreleasePool::alloc()->init();
+                if (CA::MetalDrawable* drawable = _metalLayer->nextDrawable()) {
+                    acquired = drawable->retain();
+                }
+                pool->release();
+            }
+        });
+        _frameSlotTaken = true;
+        if (takeDrawable) {
+            _preparedDrawable = acquired;
         }
     }
 
@@ -1902,7 +1917,21 @@ namespace visutwin::canvas
         // it is inside Engine::render(); see displayWaitMilliseconds().
         {
             const DisplayWaitScope waitScope(*this);
-            _currentDrawable = _metalLayer->nextDrawable();
+            // Waited for with the run loop serviced (runLoopWait.h); the drawable is retained
+            // across the waiting thread's pool and handed to this frame's pool, as one
+            // acquired here would be.
+            CA::MetalDrawable* acquired = nullptr;
+            waitServicingRunLoop([&] {
+                NS::AutoreleasePool* pool = NS::AutoreleasePool::alloc()->init();
+                if (CA::MetalDrawable* drawable = _metalLayer->nextDrawable()) {
+                    acquired = drawable->retain();
+                }
+                pool->release();
+            });
+            _currentDrawable = acquired;
+            if (_currentDrawable) {
+                _currentDrawable->autorelease();
+            }
         }
         if (!_currentDrawable) {
             spdlog::warn("Failed to acquire CAMetalDrawable");
