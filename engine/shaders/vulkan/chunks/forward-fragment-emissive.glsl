@@ -12,4 +12,5 @@
     if ((material.flags & (1u << 23)) != 0u) {
         emissive *= clamp(fragColor.rgb, 0.0, 1.0);
     }
-    color += emissive;
+    // Added to `color` by the tail, after the sheen and clearcoat layers, so neither
+    // attenuates it.

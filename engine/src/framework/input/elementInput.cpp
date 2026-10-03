@@ -136,12 +136,14 @@ namespace visutwin::canvas
                 /// The symbol (code point index) of each quad, ascending: what a draw range
                 /// narrows the index range by.
                 std::vector<uint32_t> quadSymbols;
+                /// The run's placed quads, in the element's space: what a world-space text
+                /// is culled by.
+                BoundingBox bounds;
             };
             /// One per (page, style), in key order.
             std::vector<Run> runs;
             /// Style 0 is the element's own, read live each frame; the rest come from tags.
             std::vector<ElementInput::TextStyle> styles;
-            BoundingBox bounds;
         };
 
         /// The text's geometry, one run per (atlas page, style): each page is its own
@@ -189,10 +191,31 @@ namespace visutwin::canvas
                 std::vector<uint32_t> indices;
                 std::vector<uint32_t> symbols;
                 uint32_t base = 0;
+                float minX = 0.0f;
+                float minY = 0.0f;
+                float maxX = 0.0f;
+                float maxY = 0.0f;
             };
             std::map<std::pair<int, int>, Buffers> runs;
             for (const PlacedGlyph& g : glyphs) {
                 Buffers& b = runs[{g.page, styleOf[g.symbol]}];
+                // The bounds are the quads themselves: the glyphs sit about the pivot, and
+                // can reach past the element's box (a long word, a run-on last line).
+                const float x0 = std::min(g.x0, g.x1);
+                const float x1 = std::max(g.x0, g.x1);
+                const float y0 = std::min(g.y0, g.y1);
+                const float y1 = std::max(g.y0, g.y1);
+                if (b.base == 0u) {
+                    b.minX = x0;
+                    b.maxX = x1;
+                    b.minY = y0;
+                    b.maxY = y1;
+                } else {
+                    b.minX = std::min(b.minX, x0);
+                    b.maxX = std::max(b.maxX, x1);
+                    b.minY = std::min(b.minY, y0);
+                    b.maxY = std::max(b.maxY, y1);
+                }
                 // position(3) normal(3) uv0(2) tangent(4) uv1(2)
                 const std::array<float, 56> quad = {
                     g.x0, g.y1, 0.0f,   0.0f, 0.0f, 1.0f,   g.u0, g.v0,   1.0f, 0.0f, 0.0f, 1.0f,   g.u0, g.v0,
@@ -206,13 +229,12 @@ namespace visutwin::canvas
                 b.symbols.push_back(static_cast<uint32_t>(g.symbol));
             }
 
-            const float boxW = element->calculatedWidth();
-            const float boxH = element->calculatedHeight();
-            result.bounds.setCenter(Vector3(0.0f, 0.0f, 0.0f));
-            result.bounds.setHalfExtents(Vector3(std::max(boxW * 0.5f, 1.0f), std::max(boxH * 0.5f, 1.0f), 1.0f));
             for (auto& [key, b] : runs) {
                 if (!b.vertices.empty() && !b.indices.empty()) {
-                    result.runs.push_back({key, std::move(b.vertices), std::move(b.indices), std::move(b.symbols)});
+                    BoundingBox bounds;
+                    bounds.setCenter(Vector3((b.minX + b.maxX) * 0.5f, (b.minY + b.maxY) * 0.5f, 0.0f));
+                    bounds.setHalfExtents(Vector3((b.maxX - b.minX) * 0.5f, (b.maxY - b.minY) * 0.5f, 0.001f));
+                    result.runs.push_back({key, std::move(b.vertices), std::move(b.indices), std::move(b.symbols), bounds});
                 }
             }
             return result;
@@ -337,6 +359,9 @@ namespace visutwin::canvas
         {
             auto material = std::make_shared<StandardMaterial>();
             material->setUseLighting(false);
+            // The fully unlit output: emission alone, no ambient or reflection, and
+            // the only path that draws an MSDF page as text.
+            material->setUnlit(true);
             material->setUseSkybox(false);
             // UI colours are display colours: no tone mapping and no exposure (the
             // gamma encode of a gamma target still applies), and no fog.
@@ -843,6 +868,11 @@ namespace visutwin::canvas
                 rebuild = rebuild || element->textDirty();
             } else {
                 const Sprite* sprite = element->sprite().get();
+                if (sprite && visual.cachedSpriteVersion != sprite->version()) {
+                    // The sprite changed since the image was built, its frame keys perhaps:
+                    // the element's frame clamps to the frames there are now.
+                    element->clampSpriteFrame();
+                }
                 const uint64_t atlasVersion = sprite && sprite->atlas() ? sprite->atlas()->version() : 0;
                 rebuild = rebuild || visual.cachedMask != element->mask() ||
                     visual.cachedImageVersion != element->imageVersion() ||
@@ -863,7 +893,7 @@ namespace visutwin::canvas
                     }
                     if (sameRuns) {
                         for (size_t i = 0; i < text.runs.size(); ++i) {
-                            setPartGeometry(visual.parts[i], text.runs[i].vertices, text.runs[i].indices, text.bounds);
+                            setPartGeometry(visual.parts[i], text.runs[i].vertices, text.runs[i].indices, text.runs[i].bounds);
                             visual.parts[i].quadSymbols = std::move(text.runs[i].quadSymbols);
                         }
                         rangeStale = true;
@@ -894,7 +924,7 @@ namespace visutwin::canvas
                     for (auto& run : text.runs) {
                         const auto [page, style] = run.key;
                         VisualPart part;
-                        if (!setPartGeometry(part, run.vertices, run.indices, text.bounds)) {
+                        if (!setPartGeometry(part, run.vertices, run.indices, run.bounds)) {
                             continue;
                         }
                         part.quadSymbols = std::move(run.quadSymbols);
@@ -931,6 +961,9 @@ namespace visutwin::canvas
                         Material* material = part.customMaterial ? part.customMaterial.get() : part.material.get();
                         auto meshInstance = std::make_unique<MeshInstance>(part.mesh.get(), material, visual.entity);
                         meshInstance->setScreenSpace(!visual.worldSpace);
+                        // A UI element casts no shadow, in world space too: the shadow
+                        // passes take every mesh with castShadow set, blended or not.
+                        meshInstance->setCastShadow(false);
                         part.meshInstance = meshInstance.get();
                         visual.render->addMeshInstance(std::move(meshInstance));
                     }
@@ -938,6 +971,7 @@ namespace visutwin::canvas
                         const VisualPart& part = visual.parts.front();
                         auto unmask = std::make_unique<MeshInstance>(part.mesh.get(), part.material.get(), visual.entity);
                         unmask->setScreenSpace(!visual.worldSpace);
+                        unmask->setCastShadow(false);
                         visual.unmask = unmask.get();
                         visual.render->addMeshInstance(std::move(unmask));
                     }

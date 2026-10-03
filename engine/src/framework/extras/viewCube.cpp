@@ -63,7 +63,7 @@ namespace visutwin::canvas
     {
         auto material = std::make_shared<StandardMaterial>();
         material->setName("view-cube-handle");
-        material->setUseLighting(false);
+        material->setUnlit(true);
         material->setDiffuse(color);
         // Drawn on the Immediate layer with depth testing off so the gizmo always
         // stays visible on top of the scene.
@@ -98,7 +98,7 @@ namespace visutwin::canvas
     {
         auto material = std::make_shared<StandardMaterial>();
         material->setName("view-cube-rod");
-        material->setUseLighting(false);
+        material->setUnlit(true);
         material->setDiffuse(color);
         auto depthState = std::make_shared<DepthState>();
         depthState->setDepthTest(false);

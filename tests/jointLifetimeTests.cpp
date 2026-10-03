@@ -12,7 +12,9 @@
 // a world that NEVER frees its joint objects: it marks one dead exactly when a real
 // world would free it and counts every call made on a dead one. The component-side
 // contract under test: a rebuilt body gets its joint rebuilt, and a destroyed end
-// leaves no joint and no reference to it.
+// leaves no joint and no reference to it. A disabled joint, or a joint whose end's
+// body has left the world because it was disabled, holds no constraint, and the
+// constraint comes back when they are enabled again.
 
 #include <iostream>
 #include <memory>
@@ -200,6 +202,40 @@ int main()
     frameUpdate();
     check(world.liveJoints() == 1 && world.joints.back()->bodyB == rigidC->physicsBody(),
         "a new end brings the joint back");
+    check(deadCalls == 0, "still no call on a freed joint");
+
+    std::cout << "\ndisabling an end's rigid body\n";
+    rigidC->setEnabled(false);
+    check(world.liveJoints() == 0, "the body leaves the world and the constraint goes with it");
+    frameUpdate();
+    rigidC->syncFromSimulation(world);
+    joint->syncToSimulation(world);
+    check(world.liveJoints() == 0, "no constraint is built while that end has no body");
+    rigidC->setEnabled(true);
+    rigidC->syncFromSimulation(world);
+    frameUpdate();
+    check(world.liveJoints() == 1 && world.joints.back()->bodyB == rigidC->physicsBody(),
+        "enabled again, the joint is rebuilt against the new body");
+    check(deadCalls == 0, "no call on a freed joint");
+
+    std::cout << "\ndisabling the joint\n";
+    joint->setEnabled(false);
+    check(world.liveJoints() == 0, "disabling the component destroys the constraint");
+    frameUpdate();
+    check(world.liveJoints() == 0, "and no update rebuilds it while it stays disabled");
+    joint->setEnabled(true);
+    rigidC->syncFromSimulation(world);
+    frameUpdate();
+    check(world.liveJoints() == 1, "enabled again, it is rebuilt");
+
+    frame->setEnabled(false);
+    check(world.liveJoints() == 0, "disabling the joint's entity destroys the constraint");
+    frameUpdate();
+    check(world.liveJoints() == 0, "and no update rebuilds it");
+    frame->setEnabled(true);
+    rigidC->syncFromSimulation(world);
+    frameUpdate();
+    check(world.liveJoints() == 1, "enabling the entity rebuilds it");
     check(deadCalls == 0, "still no call on a freed joint");
 
     return finish("joint lifetime");

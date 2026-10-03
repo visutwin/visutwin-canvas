@@ -29,6 +29,9 @@ namespace visutwin::canvas
 
         void initializeComponentData() override {}
         void cloneFrom(const Component* source) override;
+        /// Takes the sibling rigid body out of the simulation: a body is simulated only
+        /// while its collision component is active.
+        void onDisable() override;
 
         static const std::vector<CollisionComponent*>& instances() { return _instanceList.items(); }
 

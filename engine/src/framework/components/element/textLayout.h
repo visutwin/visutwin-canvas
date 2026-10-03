@@ -9,9 +9,11 @@
 // - measureText breaks the symbols into lines — at a line break ('\n' or '\r'),
 //   and greedily at word boundaries
 //   (a word longer than the line breaks between characters) when a line would grow past
-//   `maxLineWidth` — and measures the block: its width is the widest line leaving out
-//   trailing whitespace, its height runs from the font's highest glyph top above the first
-//   line's pen to its lowest glyph bottom below the last line's.
+//   `maxLineWidth` — and measures the block: its width is the furthest any symbol's
+//   advance reaches, whitespace included, its height runs from the font's highest glyph top
+//   above the first line's pen to its lowest glyph bottom below the last line's. A line
+//   closed by a line break or a wrap aligns by its width without trailing whitespace; the
+//   last line by its whole advance.
 // - placeText positions every glyph in the element's box: horizontal alignment per line
 //   (0 left .. 1 right), the block by the vertical alignment, both about the pivot.
 //
@@ -45,7 +47,8 @@ namespace visutwin::canvas
         /// Symbols (code points) [begin, end), the line break itself excluded.
         size_t begin = 0;
         size_t end = 0;
-        /// Advance of the line without its trailing whitespace.
+        /// The width the line is aligned by: its advance without trailing whitespace for a
+        /// line closed by a line break or a wrap, its whole advance for the last line.
         float width = 0.0f;
         /// The word gaps a justified line may widen: the gaps between
         /// its words for a line broken at a word wrap, 0 for a line ended by a line break, the

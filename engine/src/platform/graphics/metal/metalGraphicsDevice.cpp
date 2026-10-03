@@ -277,6 +277,13 @@ namespace visutwin::canvas
             _renderPassEncoder = nullptr;
         }
 
+        // Release what the base class holds (the current render target among it) while
+        // this device and the base's own members still exist, as the Vulkan device does.
+        // Left to the base's member destructors, the last render target an offline bake
+        // bound is freed AFTER the target registry it erases itself from, and while the
+        // shared_ptr releasing it is the one its destructor resets: a trap at teardown.
+        releaseGpuReferences();
+
         // _pipelineState is a non-owning pointer; the render pipeline cache
         // owns pipeline states and releases them in its destructor.
         _pipelineState = nullptr;

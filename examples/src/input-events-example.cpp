@@ -212,11 +212,8 @@ protected:
                 if (event.changed.empty()) {
                     return;
                 }
-                // The touch device reports drawable pixels; the camera takes canvas points
-                const auto [cw, ch] = engine()->canvasSize();
-                const auto [pw, ph] = engine()->graphicsDevice()->size();
-                drop(event.changed[0].x * static_cast<float>(cw) / static_cast<float>(std::max(pw, 1)),
-                     event.changed[0].y * static_cast<float>(ch) / static_cast<float>(std::max(ph, 1)));
+                // Touches are in canvas points, as mouse events are
+                drop(event.changed[0].x, event.changed[0].y);
             });
         }
 

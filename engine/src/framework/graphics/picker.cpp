@@ -105,7 +105,9 @@ namespace visutwin::canvas
             }
 
             for (auto* meshInstance : renderComponent->meshInstances()) {
-                if (!meshInstance || !meshInstance->node()) {
+                // A hidden instance (one merged into a batch, or hidden by the app) is
+                // not drawn, so it cannot be picked: the forward cull skips it as well.
+                if (!meshInstance || !meshInstance->node() || !meshInstance->visible()) {
                     continue;
                 }
 

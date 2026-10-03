@@ -43,6 +43,12 @@ namespace visutwin::canvas
         _broken = false;
     }
 
+    void JointComponent::onDisable()
+    {
+        // Rebuilt by the first update after the joint is enabled again.
+        dropJoint();
+    }
+
     void JointComponent::bodyWillBeDestroyed(const Entity* owner)
     {
         if (owner == nullptr) {
@@ -194,6 +200,13 @@ namespace visutwin::canvas
 
     void JointComponent::syncToSimulation(PhysicsWorld& world)
     {
+        if (!active()) {
+            // Normally already done by onDisable; this also covers a state change that
+            // reached no hook.
+            dropJoint();
+            return;
+        }
+
         if (_joint != nullptr) {
             if (!_broken && _joint->isBroken()) {
                 _broken = true;

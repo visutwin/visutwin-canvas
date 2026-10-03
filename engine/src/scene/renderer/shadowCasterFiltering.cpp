@@ -5,8 +5,6 @@
 //
 #include "shadowCasterFiltering.h"
 
-#include "scene/materials/standardMaterial.h"
-
 #include <algorithm>
 
 #include "framework/components/camera/cameraComponent.h"
@@ -107,18 +105,11 @@ namespace visutwin::canvas
             return false;
         }
 
-        Material* material = meshInstance->material();
-        const bool alphaTestCaster = material && material->alphaMode() == AlphaMode::MASK;
-        // A material that dithers its shadow is asking to cast one despite being blended
-        // (opacityShadowDither): the shadow pass discards the same screen-space
-        // Bayer pattern, so the caster throws a thinned shadow instead of a solid one.
-        const auto* standard = dynamic_cast<const StandardMaterial*>(material);
-        const bool ditheredShadowCaster = standard &&
-            standard->opacityShadowDitherMode() != DitherMode::DITHER_NONE;
-        if (material && material->transparent() && !alphaTestCaster && !ditheredShadowCaster) {
-            return false;
-        }
-
+        // The material's blending does not decide whether a mesh casts: castShadow does.
+        // A blended caster writes solid depth, unless its material alpha-tests or
+        // dithers its shadow (opacityShadowDither), in which case the shadow pass runs
+        // the material's opacity frontend and discards (shadowFrontendMaterial). A
+        // blended mesh that should cast nothing turns castShadow off.
         return meshInstance->mesh()->hasVertexBuffer();
     }
 

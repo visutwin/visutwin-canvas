@@ -237,7 +237,7 @@ void main() {
             // Flat unlit silhouette material in the outline color.
             auto material = std::make_shared<StandardMaterial>();
             material->setName("outline-silhouette");
-            material->setUseLighting(false);
+            material->setUnlit(true);
             material->setDiffuse(color);
             materials.push_back(material);
             sources.push_back(entity);

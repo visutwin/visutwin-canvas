@@ -32,6 +32,10 @@ visutwin_add_unit_test(visutwin-camera-projection-tests camera-projection camera
 # It needs a GPU and a window, so it carries the `gpu` label, which the CI test presets
 # exclude; run it with `ctest --preset gpu`, or `ctest -L gpu` in a Vulkan build.
 visutwin_add_unit_test(visutwin-gpu-instance-cull-tests gpu-instance-cull gpuInstanceCullTests.cpp LABELS gpu TIMEOUT 60)
+# The orientation of an env atlas baked from an equirect, read back from the real device
+# (tests/envAtlasOrientationTests.cpp); `gpu` label for the same reason.
+visutwin_add_unit_test(visutwin-env-atlas-orientation-tests env-atlas-orientation envAtlasOrientationTests.cpp
+    LABELS gpu TIMEOUT 60)
 
 if(VISUTWIN_BACKEND_VULKAN)
     visutwin_add_unit_test(visutwin-vulkan-smoke vulkan-validation-smoke vulkanSmoke.cpp
@@ -102,6 +106,7 @@ visutwin_add_unit_test(visutwin-light-culling-tests light-culling lightCullingTe
 visutwin_add_unit_test(visutwin-sort-key-tests sort-key sortKeyTests.cpp)
 visutwin_add_unit_test(visutwin-light-bounds-tests light-bounds lightBoundsTests.cpp)
 visutwin_add_unit_test(visutwin-light-texture-atlas-tests light-texture-atlas lightTextureAtlasTests.cpp)
+visutwin_add_unit_test(visutwin-clustered-atlas-visibility-tests clustered-atlas-visibility clusteredAtlasVisibilityTests.cpp)
 visutwin_add_unit_test(visutwin-gpu-profiler-timing-tests gpu-profiler-timing gpuProfilerTimingTests.cpp)
 visutwin_add_unit_test(visutwin-device-capability-tests device-capabilities deviceCapabilityTests.cpp)
 visutwin_add_unit_test(visutwin-gsplat-sort-keys-tests gsplat-sort-keys gsplatSortKeysTests.cpp)
@@ -125,6 +130,7 @@ visutwin_add_unit_test(visutwin-texture-gpu-size-tests texture-gpu-size textureG
 visutwin_add_unit_test(visutwin-morph-bounds-tests morph-bounds morphBoundsTests.cpp TINYGLTF)
 visutwin_add_unit_test(visutwin-joint-lifetime-tests joint-lifetime jointLifetimeTests.cpp)
 visutwin_add_unit_test(visutwin-batch-lifetime-tests batch-lifetime batchLifetimeTests.cpp)
+visutwin_add_unit_test(visutwin-batch-mirror-tests batch-mirror batchMirrorTests.cpp)
 visutwin_add_unit_test(visutwin-glb-material-paths-tests glb-material-paths glbMaterialPathsTests.cpp TINYGLTF)
 visutwin_add_unit_test(visutwin-glb-point-cloud-tests glb-point-cloud glbPointCloudTests.cpp TINYGLTF)
 visutwin_add_unit_test(visutwin-raycast-fallback-tests raycast-fallback raycastFallbackTests.cpp)
@@ -153,6 +159,7 @@ visutwin_add_unit_test(visutwin-annotation-tests annotation annotationTests.cpp)
 visutwin_add_unit_test(visutwin-script-phase-tests script-phases scriptPhaseTests.cpp)
 visutwin_add_unit_test(visutwin-ui-visual-sharing-tests ui-visual-sharing uiVisualSharingTests.cpp)
 visutwin_add_unit_test(visutwin-picker-tests picker pickerTests.cpp)
+visutwin_add_unit_test(visutwin-particle-color-graph-tests particle-color-graph particleColorGraphTests.cpp)
 visutwin_add_unit_test(visutwin-upstream-small-ports-tests upstream-small-ports upstreamSmallPortsTests.cpp)
 visutwin_add_unit_test(visutwin-layout-calculator-tests layout-calculator layoutCalculatorTests.cpp)
 visutwin_add_unit_test(visutwin-ui-layout-scroll-tests ui-layout-scroll uiLayoutScrollTests.cpp)

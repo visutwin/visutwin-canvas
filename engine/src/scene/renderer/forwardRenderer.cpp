@@ -214,7 +214,15 @@ namespace visutwin::canvas
                 continue;
             }
             if (clusteredMode) {
-                atlasLights.push_back(sceneLight);
+                // Only a light some camera reaches this frame takes an atlas slot: the
+                // atlas is split by the number of lights in it, so counting the ones
+                // out of view would shrink every visible light's slot for shadows
+                // nobody samples (64 casters with 4 in view: an 8x8 split, not 2x2).
+                // A culled light that comes back finds its slot taken or re-split and
+                // is re-armed by the atlas, as any re-slotted light is.
+                if (sceneLight->visibleThisFrame()) {
+                    atlasLights.push_back(sceneLight);
+                }
             } else {
                 // A light that was atlased while clustering was on must not keep
                 // its slot: the cull would widen an omni's faces for a tile it no

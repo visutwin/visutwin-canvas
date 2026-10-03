@@ -404,6 +404,10 @@
             float gloss = 1.0 - roughness;
 
             vec3 refrColor = vec3(0.0);
+            // The distance the volume absorbs over: the length of the LAST refraction
+            // vector built (the blue channel's under dispersion), thickness times the
+            // model's scale along the refracted direction.
+            float refractionLength = 0.0;
             for (int ch = 0; ch < refrSamples; ++ch) {
                 float etaCh = (refrSamples == 1)
                     ? eta : (eta + halfSpread * float(ch - 1));
@@ -416,6 +420,7 @@
                                        length(vtDraw.model[2].xyz));
                 vec3 refractionVector = (dot(refrDir, refrDir) > 0.0)
                     ? normalize(refrDir) * thickness * modelScale : vec3(0.0);
+                refractionLength = length(refractionVector);
 
                 vec4 projected = lighting.viewProjection *
                     vec4(fragWorldPos + refractionVector, 1.0);
@@ -443,7 +448,8 @@
                 }
             }
 
-            // Volume transmittance (KHR_materials_volume Beer's law); distance 0
+            // Volume transmittance (KHR_materials_volume Beer's law) over the
+            // refracted path length, which carries the model's scale; distance 0
             // transmits everything. Then the diffuse albedo, ONCE, applied to the
             // refraction mixed into the diffuse light - not
             // baseColor^(thickness + 1), which darkened a tinted volume several times
@@ -451,19 +457,23 @@
             if (material.attenuationParams.w > 0.0) {
                 vec3 attColor = clamp(material.attenuationParams.rgb, 0.0001, 1.0);
                 refrColor *= exp(-(-log(attColor) / material.attenuationParams.w) *
-                    thickness);
+                    refractionLength);
             }
-            refrColor *= diffuseAlbedo;
 
-            // Fresnel: grazing angles reflect more, normal incidence transmits.
-            float F0ior = pow((1.0 - ior) / (1.0 + ior), 2.0);
-            float fresnel = F0ior + (1.0 - F0ior) * pow(1.0 - NdotV, 5.0);
-            float transmission = refractionFactor * (1.0 - fresnel);
+            // Fresnel: the light the surface reflects does not enter it. The same
+            // gloss-aware Fresnel the reflections are weighted by (iridescence
+            // included), so at a glossy rim the refraction fades out and the
+            // reflection takes over. Twin of the Metal tail.
+            vec3 refrFresnel = getFresnel(dot(N, V), gloss, F0);
+            if (vtFeatureEnabled(VT_FEATURE_IRIDESCENCE_BIT)) {
+                refrFresnel = mix(refrFresnel, iridFresnel, iridIntensity);
+            }
+            refrColor *= diffuseAlbedo * (vec3(1.0) - refrFresnel);
 
-            // Replace surface diffuse with the refracted scene, keep specular.
-            // Emissive is added after this block, so it survives on its own.
+            // Replace surface diffuse with the refracted scene by the transmission
+            // factor, keep specular. Emissive is added in the tail, after this block.
             vec3 specPart = directSpecular + indirectSpecular;
-            color = mix(color, refrColor + specPart, clamp(transmission, 0.0, 1.0));
+            color = mix(color, refrColor + specPart, clamp(refractionFactor, 0.0, 1.0));
         } else if (vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) &&
             lighting.envParams.y > 0.5 && (material.flags & (1u << 18)) == 0u &&
             refractionFactor > 0.0) {

@@ -484,7 +484,8 @@ namespace visutwin::canvas
         if (!_enabled) {
             return;
         }
-        // Snap the browser's deltaY, positive TOWARD the user, to its sign.
+        // `deltaY` is positive AWAY from the user; the event carries the sign of a browser's
+        // deltaY, which is positive TOWARD the user.
         const int wheelDelta = deltaY > 0.0f ? -1 : (deltaY < 0.0f ? 1 : 0);
         // The browser's pixel deltas, for whoever reads them (the scroll view); 100 a notch.
         constexpr float kPixelsPerNotch = 100.0f;
@@ -619,19 +620,6 @@ namespace visutwin::canvas
 
     // ---- SDL -------------------------------------------------------------------------------
 
-    namespace
-    {
-
-
-        bool isDirectTouch(const SDL_TouchFingerEvent& finger)
-        {
-            // SDL's touch device list exists only once video is up; asked before that,
-            // SDL_GetTouchDeviceType dereferences it and crashes.
-            return SDL_WasInit(SDL_INIT_VIDEO) != 0 &&
-                SDL_GetTouchDeviceType(finger.touchID) == SDL_TOUCH_DEVICE_DIRECT;
-        }
-    }
-
     bool ElementInput::handleEvent(const SDL_Event& event)
     {
         if (!_engine) {
@@ -658,16 +646,19 @@ namespace visutwin::canvas
             if (event.wheel.which == SDL_TOUCH_MOUSEID) {
                 break;
             }
-            const float flip = event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -1.0f : 1.0f;
-            onMouseWheel(event.wheel.mouse_x, event.wheel.mouse_y, flip * event.wheel.y, currentKeyModifiers(),
-                         flip * event.wheel.x);
+            // The deltas are taken as given, whatever `direction` says: SDL reports them
+            // already adjusted for the system's natural-scrolling setting and only FLAGS a
+            // flipped device, as a browser's wheel deltas are adjusted. Undoing the flip
+            // would scroll content against the user's setting, and against the Mouse device.
+            onMouseWheel(event.wheel.mouse_x, event.wheel.mouse_y, event.wheel.y, currentKeyModifiers(),
+                         event.wheel.x);
             break;
         }
         case SDL_EVENT_FINGER_DOWN:
         case SDL_EVENT_FINGER_MOTION:
         case SDL_EVENT_FINGER_UP:
         case SDL_EVENT_FINGER_CANCELED: {
-            if (!isDirectTouch(event.tfinger)) {
+            if (!isDirectTouchDevice(event.tfinger.touchID)) {
                 break;
             }
             // SDL's finger positions are fractions of the window.

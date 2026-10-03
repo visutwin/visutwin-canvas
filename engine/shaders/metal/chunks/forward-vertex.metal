@@ -241,9 +241,14 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
     rd.uv1 = v.uv1;
 
 #if VT_FEATURE_VERTEX_COLORS
-    // Pass vertex color to fragment shader. Apply sRGB → linear conversion
-    // in the vertex shader (once per vertex).
+    // Pass vertex color to fragment shader. Vertex colours are LINEAR unless the
+    // material says they are gamma encoded (vertexColorGamma), which is decoded here,
+    // once per vertex.
+#if VT_FEATURE_VERTEX_COLOR_GAMMA
     rd.vertexColor = float4(pow(max(v.color.rgb, float3(0.0)), float3(2.2)), v.color.a);
+#else
+    rd.vertexColor = v.color;
+#endif
 #endif
 
 #if VT_FEATURE_POINT_SIZE

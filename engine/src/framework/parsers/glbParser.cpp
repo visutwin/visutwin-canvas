@@ -25,7 +25,9 @@
 #include <optional>
 #include <queue>
 #include <set>
+#include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include <draco/compression/decode.h>
@@ -169,7 +171,8 @@ namespace visutwin::canvas
         // target, the skin's bone list — or an unnamed node exists under one name
         // and is animated under another. Unnamed animated nodes are common in
         // exporter output, where only meshes and bones are named, so a channel
-        // targeting one must not be skipped.
+        // targeting one must not be skipped. Callers take the name from
+        // glbNodeNames, which also makes sibling names unique.
         std::string glbNodeName(const tinygltf::Model& model, const int nodeIndex)
         {
             const auto& name = model.nodes[static_cast<size_t>(nodeIndex)].name;
@@ -191,6 +194,39 @@ namespace visutwin::canvas
             return parents;
         }
 
+        // The name of every node, as the entity, the animation channels and the skin's
+        // bone list all spell it: glbNodeName, with the children of one parent made
+        // unique in the order the parent lists them — the first keeps its name, the
+        // next of the same name gets "1" appended, the one after "2", and so on. A path
+        // of names (glbNodePath) cannot tell two siblings called "Wheel" apart, so
+        // without this both of their channels would animate the first one. Root nodes
+        // keep their names as written.
+        std::vector<std::string> glbNodeNames(const tinygltf::Model& model, const std::vector<int>& parents)
+        {
+            std::vector<std::string> names(model.nodes.size());
+            for (size_t i = 0; i < model.nodes.size(); ++i) {
+                names[i] = glbNodeName(model, static_cast<int>(i));
+            }
+            std::unordered_map<std::string, int> seen;
+            for (size_t i = 0; i < model.nodes.size(); ++i) {
+                seen.clear();
+                for (const int child : model.nodes[i].children) {
+                    // Each child once, under the parent glbNodeParents gave it.
+                    if (child < 0 || child >= static_cast<int>(names.size()) ||
+                        parents[static_cast<size_t>(child)] != static_cast<int>(i)) {
+                        continue;
+                    }
+                    std::string& name = names[static_cast<size_t>(child)];
+                    if (const auto it = seen.find(name); it != seen.end()) {
+                        name += std::to_string(it->second++);
+                    } else {
+                        seen.emplace(name, 1);
+                    }
+                }
+            }
+            return names;
+        }
+
         // The animation target as a PATH of node names from the node's glTF root
         // down to it, joined with '/'. A bare name
         // cannot tell two nodes apart that share it in different branches — a
@@ -198,12 +234,12 @@ namespace visutwin::canvas
         // scene would animate only whichever findByName met first. DefaultAnimBinder
         // walks the path and falls back to the leaf name for tracks that were not
         // produced by this parser.
-        std::string glbNodePath(const tinygltf::Model& model, const std::vector<int>& parents, int nodeIndex)
+        std::string glbNodePath(const std::vector<std::string>& names, const std::vector<int>& parents, int nodeIndex)
         {
-            std::string path = glbNodeName(model, nodeIndex);
+            std::string path = names[static_cast<size_t>(nodeIndex)];
             for (int parent = parents[static_cast<size_t>(nodeIndex)]; parent >= 0;
                  parent = parents[static_cast<size_t>(parent)]) {
-                path = glbNodeName(model, parent) + "/" + path;
+                path = names[static_cast<size_t>(parent)] + "/" + path;
             }
             return path;
         }
@@ -582,6 +618,7 @@ namespace visutwin::canvas
         /// Parse glTF skins into container payloads (inverse bind matrices + joint indices).
         void parseSkins(const tinygltf::Model& model, GlbContainerResource* container)
         {
+            const std::vector<std::string> nodeNames = glbNodeNames(model, glbNodeParents(model));
             for (const auto& skin : model.skins) {
                 GlbSkinPayload payload;
                 payload.jointNodeIndices = skin.joints;
@@ -613,7 +650,7 @@ namespace visutwin::canvas
                 for (const int jointNodeIndex : skin.joints) {
                     boneNames.push_back(
                         (jointNodeIndex >= 0 && jointNodeIndex < static_cast<int>(model.nodes.size()))
-                            ? glbNodeName(model, jointNodeIndex) : std::string());
+                            ? nodeNames[static_cast<size_t>(jointNodeIndex)] : std::string());
                 }
 
                 payload.skin = std::make_shared<Skin>(std::move(inverseBindPose), std::move(boneNames));
@@ -718,6 +755,7 @@ namespace visutwin::canvas
             }
 
             const std::vector<int> nodeParents = glbNodeParents(model);
+            const std::vector<std::string> nodeNames = glbNodeNames(model, nodeParents);
 
             for (size_t animIdx = 0; animIdx < model.animations.size(); ++animIdx) {
                 const auto& anim = model.animations[animIdx];
@@ -835,7 +873,7 @@ namespace visutwin::canvas
 
                     // Target node as a name path (see glbNodePath); an unnamed node
                     // takes the same fallback name its entity is instantiated under.
-                    const std::string nodeName = glbNodePath(model, nodeParents, channel.target_node);
+                    const std::string nodeName = glbNodePath(nodeNames, nodeParents, channel.target_node);
 
                     // Create curve referencing the input/output by index.
                     const size_t inputIndex = track->inputs().size();
@@ -2670,12 +2708,11 @@ namespace visutwin::canvas
         }
 
         // Interleaves the vertices with COLOR_0 (RGBA per vertex) into the 72-byte
-        // vertex-coloured layout. glTF vertex colours are LINEAR, while both backends'
-        // vertex stages decode a vertex colour as gamma 2.2 (pow 2.2) before the
-        // fragment stage multiplies it into the linear base colour. The colour is
-        // therefore stored pre-encoded with the inverse curve, which the decode turns
-        // back into the file's linear value. Alpha is written as 1: the colour tints
-        // the diffuse only, and opacity is not taken from it.
+        // vertex-coloured layout. glTF vertex colours are LINEAR, and so is what the
+        // vertex stage passes on unless a material sets vertexColorGamma, which a
+        // glTF material never does: the file's values are stored as they are. Alpha
+        // is written as 1: the colour tints the diffuse only, and opacity is not taken
+        // from it.
         std::vector<uint8_t> packColoredVertices(const std::vector<PackedVertex>& vertices,
             const std::vector<float>& colors)
         {
@@ -2685,7 +2722,7 @@ namespace visutwin::canvas
                 std::memcpy(dst, &vertices[i], sizeof(PackedVertex));
                 float color[4];
                 for (size_t c = 0; c < 3; ++c) {
-                    color[c] = std::pow(std::max(colors[i * 4 + c], 0.0f), 1.0f / 2.2f);
+                    color[c] = std::max(colors[i * 4 + c], 0.0f);
                 }
                 color[3] = 1.0f;
                 std::memcpy(dst + sizeof(PackedVertex), color, sizeof(color));
@@ -3355,12 +3392,14 @@ namespace visutwin::canvas
         }
 
         // ── Nodes: the glTF hierarchy and local transforms ───────────
+        const std::vector<std::string> nodeNames = glbNodeNames(model, glbNodeParents(model));
         for (size_t nodeIndex = 0; nodeIndex < model.nodes.size(); ++nodeIndex) {
             const auto& node = model.nodes[nodeIndex];
             GlbNodePayload nodePayload;
-            // Never empty: an unnamed node is `node_<index>`, the name its
-            // animation channels and skin entries carry too (glbNodeName).
-            nodePayload.name = glbNodeName(model, static_cast<int>(nodeIndex));
+            // Never empty: an unnamed node is `node_<index>`, and a repeated sibling
+            // name is made unique; the animation channels and skin entries carry the
+            // same names (glbNodeNames).
+            nodePayload.name = nodeNames[nodeIndex];
             if (!node.matrix.empty()) {
                 decomposeNodeMatrix(node.matrix, nodePayload.translation, nodePayload.rotation, nodePayload.scale);
             }

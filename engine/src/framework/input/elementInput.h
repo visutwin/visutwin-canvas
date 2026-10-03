@@ -137,7 +137,8 @@ namespace visutwin::canvas
         void onMouseDown(float x, float y, MouseButton button, const KeyModifiers& modifiers = {});
         void onMouseUp(float x, float y, MouseButton button, const KeyModifiers& modifiers = {});
         void onMouseMove(float x, float y, const KeyModifiers& modifiers = {});
-        /// In notches: `deltaY` > 0 is away from the user, `deltaX` > 0 to the right.
+        /// In notches: `deltaY` > 0 is away from the user, `deltaX` > 0 to the right, with the
+        /// system's natural-scrolling setting already applied (as SDL reports them).
         void onMouseWheel(float x, float y, float deltaY, const KeyModifiers& modifiers = {}, float deltaX = 0.0f);
         void onTouchStart(int64_t id, float x, float y);
         void onTouchMove(int64_t id, float x, float y);

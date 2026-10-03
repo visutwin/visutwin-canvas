@@ -32,6 +32,11 @@ namespace visutwin::canvas
      * The joint is created lazily on the first update, because the bodies it needs
      * are themselves created on their first update. Any setter marks it stale and
      * it is rebuilt.
+     *
+     * Only an ACTIVE joint holds a constraint: disabling the component or its entity
+     * destroys it at once, and the next update after it is enabled again rebuilds it.
+     * An end whose body has left the world (disabled) leaves no constraint either,
+     * until that body is back.
      */
     class JointComponent : public Component
     {
@@ -41,6 +46,7 @@ namespace visutwin::canvas
 
         void initializeComponentData() override {}
         void cloneFrom(const Component* source) override;
+        void onDisable() override;
         void resolveClonedReferences(const Component* source, const CloneNodeMap& map) override;
 
         static const std::vector<JointComponent*>& instances() { return _instanceList.items(); }

@@ -44,6 +44,26 @@ namespace visutwin::canvas
 
         /** World-space bounds at prepare time, which the maxAabbSize split measures. */
         BoundingBox aabb;
+
+        /**
+         * MeshInstance::mask(): which lights and cameras reach the mesh. One batch draws
+         * with one mask, so a source lit by a different light set cannot share it.
+         */
+        uint32_t mask = 0;
+
+        /**
+         * The stencil test and write the mesh draws with (a UI mask level). A batch
+         * carries one; `hasStencil` false means the stencil is off and the keys are 0.
+         */
+        bool hasStencil = false;
+        uint32_t stencilFrontKey = 0;
+        uint32_t stencilBackKey = 0;
+
+        /** MeshInstance::drawBucket(): the primary sort key, so one bucket per batch. */
+        uint8_t drawBucket = 127;
+
+        /** MeshInstance::drawOrder(), which orders a translucent bucket (see below). */
+        double drawOrder = 0.0;
     };
 
     /** Stride of the packed vertex both merge paths read (position, normal, uv0, tangent, uv1). */
@@ -67,9 +87,29 @@ namespace visutwin::canvas
      *
      * `dynamic` additionally caps a list at kMaxDynamicBatchInstances, since every
      * instance in a dynamic batch owns a matrix in the palette.
+     *
+     * `translucent` is for a bucket whose material blends, where the order of the
+     * draws is part of the picture: the candidates are taken in drawOrder, and one is
+     * not merged past a skipped candidate it overlaps unless the two share a draw
+     * order — merging it would draw it in the first candidate's place, ahead of or
+     * behind a surface it has to composite over.
+     *
+     * A source's mirroring is not a split key: the merge reverses a mirrored source's
+     * triangle winding instead (see BatchManager), so it shares the batch.
      */
     std::vector<std::vector<size_t>> splitBatchLists(const std::vector<BatchCandidate>& candidates,
-        float maxAabbSize, bool dynamic);
+        float maxAabbSize, bool dynamic, bool translucent = false);
+
+    /**
+     * Appends one source's triangle-list indices to a merged list, offset by
+     * `vertexOffset`. `indices` holds `indexCount` indices of `indexSize` bytes (1, 2
+     * or 4); a null `indices` means the source is not indexed and every `vertexCount`
+     * vertices in order are its triangles. `reverseWinding` swaps the last two corners
+     * of every triangle — what a source with a mirrored world transform needs once its
+     * transform no longer travels with the draw.
+     */
+    void appendTriangleIndices(std::vector<uint32_t>& merged, const uint8_t* indices, int indexSize,
+        int indexCount, int vertexCount, uint32_t vertexOffset, bool reverseWinding);
 
     /**
      * Whether a render component's mesh instances may be batched at all, given

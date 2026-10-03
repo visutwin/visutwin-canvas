@@ -9,6 +9,7 @@
 
 #include "core/math/matrix4.h"
 #include "framework/components/render/renderComponent.h"
+#include "framework/components/rigidbody/rigidBodyComponent.h"
 #include "framework/entity.h"
 #include "platform/graphics/indexBuffer.h"
 #include "platform/graphics/vertexBuffer.h"
@@ -27,6 +28,15 @@ namespace visutwin::canvas
     CollisionComponent::~CollisionComponent()
     {
         _instanceList.remove(this);
+    }
+
+    void CollisionComponent::onDisable()
+    {
+        if (Entity* owner = entity()) {
+            if (auto* body = owner->findComponent<RigidBodyComponent>()) {
+                body->removeFromSimulation();
+            }
+        }
     }
 
     BoundingSphere CollisionComponent::worldBounds() const

@@ -60,7 +60,9 @@
     indirectSpecular = float3(0.0);
 #endif
 
-    float3 litLinear = diffuseColor * (directDiffuse + indirectDiffuse) + directSpecular + indirectSpecular + emissiveLinear;
+    // Emission is NOT part of the lit colour: it is added after the sheen and
+    // clearcoat layers below, so neither layer attenuates it.
+    float3 litLinear = diffuseColor * (directDiffuse + indirectDiffuse) + directSpecular + indirectSpecular;
 
 #if VT_FEATURE_TRANSMISSION
     // Scalar maps modulate their factors per pixel (the thickness and
@@ -99,6 +101,10 @@
         const int refrSamples = (dispersion > 0.0) ? 3 : 1;
 
         float3 refrColor = float3(0.0);
+        // The distance the volume absorbs over: the length of the LAST refraction
+        // vector built (the blue channel's under dispersion), thickness times the
+        // model's scale along the refracted direction.
+        float refractionLength = 0.0;
         for (int ch = 0; ch < refrSamples; ++ch) {
             const float etaCh = (refrSamples == 1) ? eta : (eta + halfSpread * float(ch - 1));
             const float3 refrDir = refract(-V, N, etaCh);
@@ -109,6 +115,7 @@
             // (the vertex stage passes it, the fragment stage has no model matrix).
             const float3 refractionVector = (length_squared(refrDir) > 0.0)
                 ? normalize(refrDir) * thickness * rd.modelScale : float3(0.0);
+            refractionLength = length(refractionVector);
 
             // Project the refracted exit point to grab-texture UV.
             const float4 projected = lighting.viewProjection * float4(rd.worldPos + refractionVector, 1.0);
@@ -131,7 +138,8 @@
             }
         }
 
-        // Volume transmittance (KHR_materials_volume Beer's law); distance 0 transmits
+        // Volume transmittance (KHR_materials_volume Beer's law) over the refracted
+        // path length, which carries the model's scale; distance 0 transmits
         // everything. Then the diffuse ALBEDO, once: the refraction mixes into the
         // diffuse light and the combine multiplies that by the albedo. Not
         // baseColor^(thickness + 1): that would darken a coloured refraction by a
@@ -139,19 +147,23 @@
         const float attDistance = material.attenuationParams.w;
         if (attDistance > 0.0) {
             const float3 attColor = clamp(material.attenuationParams.rgb, 0.0001, 1.0);
-            refrColor *= exp(-(-log(attColor) / attDistance) * thickness);
+            refrColor *= exp(-(-log(attColor) / attDistance) * refractionLength);
         }
-        refrColor *= diffuseColor;
 
-        // Fresnel: grazing angles reflect more, normal incidence transmits more.
-        const float NdotV = max(dot(N, V), 0.0);
-        const float F0_ior = pow((1.0 - ior) / (1.0 + ior), 2.0);
-        const float fresnel = F0_ior + (1.0 - F0_ior) * pow(1.0 - NdotV, 5.0);
-        const float transmission = refractionFactor * (1.0 - fresnel);
+        // Fresnel: the light the surface reflects does not enter it. The same
+        // gloss-aware Fresnel the reflections are weighted by (iridescence included),
+        // so the transmitted and reflected shares add up; at a glossy rim the
+        // refraction fades out and the reflection takes over.
+        float3 refrFresnel = getFresnel(dot(N, V), gloss, F0);
+#if VT_FEATURE_IRIDESCENCE
+        refrFresnel = mix(refrFresnel, iridFresnel, iridIntensity);
+#endif
+        refrColor *= diffuseColor * (float3(1.0) - refrFresnel);
 
-        // Blend: replace surface diffuse with the refracted scene, keep specular.
-        const float3 specPart = directSpecular + indirectSpecular + emissiveLinear;
-        litLinear = mix(litLinear, refrColor + specPart, transmission);
+        // Blend: replace surface diffuse with the refracted scene by the transmission
+        // factor, keep specular.
+        const float3 specPart = directSpecular + indirectSpecular;
+        litLinear = mix(litLinear, refrColor + specPart, saturate(refractionFactor));
     }
 #else
     // Cubemap-based refraction: the reflection lookup
@@ -212,11 +224,24 @@
             refrColor *= diffuseColor * diffuseColor;
 
             // Blend: replace surface diffuse with refracted view, keep specular.
-            const float3 specPart = directSpecular + indirectSpecular + emissiveLinear;
+            const float3 specPart = directSpecular + indirectSpecular;
             litLinear = mix(litLinear, refrColor + specPart, saturate(refractionFactor));
         }
     }
 #endif
+#endif
+
+    // The layers stack from the inside out: the sheen sits on the base, the
+    // clearcoat on top of both, so the coat's Fresnel also dims the sheen.
+#if VT_FEATURE_SHEEN
+    // Sheen energy conservation: the sheen layer absorbs some energy from the base layer.
+    // Factor 0.157 ≈ average directional albedo of the Charlie sheen BRDF,
+    // derived from fitting the sheen DFG integral.
+    // base *= (1 - max(sheenColor) * 0.157), then add sheen contribution.
+    {
+        const float sheenScaling = 1.0 - max(sheenTint.r, max(sheenTint.g, sheenTint.b)) * 0.157;
+        litLinear = litLinear * sheenScaling + sheenSpecularDirect + sheenSpecularIndirect;
+    }
 #endif
 
 #if VT_FEATURE_CLEARCOAT
@@ -232,16 +257,9 @@
     }
 #endif
 
-#if VT_FEATURE_SHEEN
-    // Sheen energy conservation: the sheen layer absorbs some energy from the base layer.
-    // Factor 0.157 ≈ average directional albedo of the Charlie sheen BRDF,
-    // derived from fitting the sheen DFG integral.
-    // base *= (1 - max(sheenColor) * 0.157), then add sheen contribution.
-    {
-        const float sheenScaling = 1.0 - max(sheenTint.r, max(sheenTint.g, sheenTint.b)) * 0.157;
-        litLinear = litLinear * sheenScaling + sheenSpecularDirect + sheenSpecularIndirect;
-    }
-#endif
+    // Emission is added after the layers are combined: an emissive surface under a
+    // coat or sheen keeps its full emission.
+    litLinear += emissiveLinear;
 
 #if VT_FEATURE_PLANAR_REFLECTION
     // DEVIATION: planar reflection with per-pixel distance-dependent Poisson disk blur.
@@ -429,7 +447,11 @@
 #else
     const float tonemapMode = lighting.skyboxMipAndPad.z;
 #endif
-    return float4(linearToSrgb(toneMap(max(litLinear, float3(0.0)), exposure, tonemapMode)), alpha);
+    // The lit colour goes into the curve UNCLAMPED, as the GLSL twin does: a channel
+    // driven negative (an albedo above 1 under metalness, whose ambient is scaled by
+    // 1 - F0) comes out of ACES clamped from its own formula, and only the gamma encode
+    // clamps at 0. Clamping first turned such a channel black on Metal alone.
+    return float4(linearToSrgb(toneMap(litLinear, exposure, tonemapMode)), alpha);
 #endif
 #endif
 }

@@ -54,7 +54,8 @@ public:
         : _cameraComponent(cameraComponent)
     {
         _material = std::make_shared<StandardMaterial>();
-        _material->setUseLighting(false);
+        // A flat colour, as an immediate line draws: no light, ambient or fog.
+        _material->setUnlit(true);
         _material->setDiffuse(Color(1.0f, 0.02f, 0.58f, 1.0f)); // pink
         auto depthState = std::make_shared<DepthState>();
         depthState->setDepthTest(false);

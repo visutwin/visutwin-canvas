@@ -308,10 +308,11 @@ namespace visutwin::canvas
         _keyboard = appOptions.keyboard;
         _mouse = appOptions.mouse;
         _touch = appOptions.touch;
-        if (_touch && _graphicsDevice) {
-            // SDL reports touches in normalized window coordinates; the device
-            // converts to pixels, which needs the size. Refreshed on resize below.
-            const auto [width, height] = _graphicsDevice->size();
+        if (_touch) {
+            // SDL reports touches in normalized window coordinates; the device converts to
+            // window points, the space the mouse and the UI report in, which needs the
+            // canvas size. Refreshed on resize below.
+            const auto [width, height] = canvasSize();
             _touch->setWindowSize(width, height);
         }
         _gamepads = appOptions.gamepads;
@@ -631,8 +632,11 @@ namespace visutwin::canvas
 
     void Engine::handleInputEvent(const SDL_Event& event)
     {
-        if (_touch && event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
-            _touch->setWindowSize(event.window.data1, event.window.data2);
+        if (_touch && (event.type == SDL_EVENT_WINDOW_RESIZED || event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)) {
+            // In points, whichever of the two arrives: a density change alone resizes the
+            // drawable and not the window.
+            const auto [width, height] = canvasSize();
+            _touch->setWindowSize(width, height);
         }
         // UI elements first, before the devices: a
         // press an element handler stops (`stopPropagation`) does not reach the mouse or

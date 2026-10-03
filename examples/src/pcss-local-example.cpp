@@ -158,9 +158,9 @@ protected:
         _areaLight->setLocalEulerAngles(45.0f, 90.0f, 0.0f);
         _areaLight->setLocalPosition(4.0f, 7.0f, 0.0f);
 
-        // Emissive material that is the light source colour. The unlit path adds
-        // the base colour to the emissive, so the diffuse is black: with no lights
-        // and no ambient, a diffuse would contribute nothing anyway.
+        // Emissive material that is the light source colour. No light reaches it
+        // (useLighting off) and the diffuse is black, so the ambient adds nothing
+        // either and it draws as its emission alone.
         _brightMaterial = std::make_shared<StandardMaterial>();
         _brightMaterial->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
         _brightMaterial->setEmissive(_area->color());

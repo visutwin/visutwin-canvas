@@ -13,6 +13,9 @@
 //  - A chunk resolves material override > registry override > default.
 //  - A variant's key changes exactly when an override that feeds it changes, so a new
 //    override compiles a new variant and an unchanged one reuses the cache.
+//  - useLighting(false) keeps the lit pipeline with no lights (VT_FEATURE_NO_LIGHTS, no
+//    clustered lights), setUnlit is the fully unlit path, and vertex colours are linear
+//    unless vertexColorGamma (or variant bit 35) says otherwise.
 //
 // CPU only: a stub device answers the shader language, and nothing is compiled.
 
@@ -160,6 +163,62 @@ int main()
             "useTonemap(false) compiles VT_FEATURE_NO_TONEMAP");
         a.setUseTonemap(true);
         check(ProgramLibraryTestAccess::key(msl, &a) == base, "and turning it back on returns to the old key");
+    }
+
+    std::cout << "\nlighting off, unlit and vertex-colour gamma\n";
+    {
+        // Under clustered lighting and area lights, so that dropping them is seen.
+        msl.setClusteredLightingEnabled(true);
+        msl.setAreaLightsEnabled(true);
+        msl.setLocalShadowsEnabled(true);
+
+        StandardMaterial a;
+        const auto base = ProgramLibraryTestAccess::key(msl, &a);
+        check(!base.features.test(ShaderFeature::NoLights) && !base.features.test(ShaderFeature::Unlit) &&
+              !base.features.test(ShaderFeature::VertexColorGamma) &&
+              base.features.test(ShaderFeature::LightClustering),
+            "a default material is lit, clustered, and reads vertex colours as linear");
+
+        // useLighting off keeps the lit pipeline and drops only the lights.
+        a.setUseLighting(false);
+        const auto noLights = ProgramLibraryTestAccess::key(msl, &a);
+        check(noLights.features.test(ShaderFeature::NoLights) && !noLights.features.test(ShaderFeature::Unlit),
+            "useLighting(false) compiles VT_FEATURE_NO_LIGHTS, not the unlit path");
+        check(!noLights.features.test(ShaderFeature::LightClustering) &&
+              !noLights.features.test(ShaderFeature::AreaLights) &&
+              !noLights.features.test(ShaderFeature::LocalShadows),
+            "and takes no clustered lights, area lights or local shadows");
+        check(noLights.features.test(ShaderFeature::Fog) == base.features.test(ShaderFeature::Fog),
+            "while its fog is untouched");
+        a.setUseLighting(true);
+        check(ProgramLibraryTestAccess::key(msl, &a) == base, "turning lighting back on returns to the old key");
+
+        // The fully unlit output is its own switch.
+        a.setUnlit(true);
+        const auto unlit = ProgramLibraryTestAccess::key(msl, &a);
+        check(unlit.features.test(ShaderFeature::Unlit) && !unlit.features.test(ShaderFeature::NoLights),
+            "setUnlit(true) compiles VT_FEATURE_UNLIT");
+        a.setUnlit(false);
+        check(ProgramLibraryTestAccess::key(msl, &a) == base, "and turning it off returns to the old key");
+
+        // Gamma-encoded vertex colours, from a StandardMaterial or from variant bit 35.
+        a.setVertexColorGamma(true);
+        const auto gamma = ProgramLibraryTestAccess::key(msl, &a);
+        check(gamma.features.test(ShaderFeature::VertexColorGamma) && !(gamma == base),
+            "setVertexColorGamma(true) compiles VT_FEATURE_VERTEX_COLOR_GAMMA");
+        a.setVertexColorGamma(false);
+        check(ProgramLibraryTestAccess::key(msl, &a) == base, "and turning it off returns to the old key");
+
+        Material generic;
+        check(!ProgramLibraryTestAccess::key(msl, &generic).features.test(ShaderFeature::VertexColorGamma),
+            "a generic material reads vertex colours as linear");
+        generic.setShaderVariantKey(1ull << 35);
+        check(ProgramLibraryTestAccess::key(msl, &generic).features.test(ShaderFeature::VertexColorGamma),
+            "and variant bit 35 makes them gamma encoded");
+
+        msl.setClusteredLightingEnabled(false);
+        msl.setAreaLightsEnabled(false);
+        msl.setLocalShadowsEnabled(false);
     }
 
     return finish("shader composition");

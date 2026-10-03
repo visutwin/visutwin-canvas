@@ -14,9 +14,13 @@
 //     "Wheel"). Bound by bare name, both channels resolve to whichever
 //     findByName meets first, so one entity takes both animations and the other
 //     none. The binder walks a PATH of names from the root down.
+//   - SIBLINGS with the same name. A path cannot tell them apart, so the parser
+//     makes them unique in the order their parent lists them ("Wheel", "Wheel1",
+//     "Wheel2"), and the entity, the channel targets and the skin's bone list all
+//     carry the unique names.
 //
-// The model is built in memory with tinygltf: no meshes, so the stub device
-// creates nothing, and the only outputs are node payloads and one animation.
+// The models are built in memory with tinygltf: no meshes, so the stub device
+// creates nothing, and the only outputs are node payloads, a skin and one animation.
 
 #define TINYGLTF_NO_STB_IMAGE
 #define TINYGLTF_NO_STB_IMAGE_WRITE
@@ -132,6 +136,58 @@ namespace
             tinygltf::AnimationChannel channel;
             channel.sampler = i;
             channel.target_node = targets[i];
+            channel.target_path = "translation";
+            animation.channels.push_back(channel);
+        }
+        model.animations.push_back(animation);
+        return model;
+    }
+
+    // Node indices of the sibling hierarchy: 0 "Root" with three children all named
+    // "Wheel" (1, 2, 3), each translated by its own channel to (i, 0, 0), and a skin
+    // whose joints are the three wheels.
+    tinygltf::Model buildSiblingModel()
+    {
+        tinygltf::Model model;
+        model.asset.version = "2.0";
+
+        model.nodes.resize(4);
+        model.nodes[0].name = "Root";
+        model.nodes[0].children = {1, 2, 3};
+        for (int i = 1; i <= 3; ++i) {
+            model.nodes[static_cast<size_t>(i)].name = "Wheel";
+        }
+
+        tinygltf::Scene scene;
+        scene.nodes = {0};
+        model.scenes.push_back(scene);
+        model.defaultScene = 0;
+
+        tinygltf::Skin skin;
+        skin.joints = {1, 2, 3};
+        model.skins.push_back(skin);
+
+        tinygltf::Buffer buffer;
+        appendFloats(buffer.data, {0.0f, 1.0f});
+        for (int i = 1; i <= 3; ++i) {
+            const auto x = static_cast<float>(i);
+            appendFloats(buffer.data, {x, 0.0f, 0.0f, x, 0.0f, 0.0f});
+        }
+        model.buffers.push_back(buffer);
+
+        const int times = addAccessor(model, 0, 2, TINYGLTF_TYPE_SCALAR);
+        tinygltf::Animation animation;
+        animation.name = "spin";
+        for (int i = 1; i <= 3; ++i) {
+            tinygltf::AnimationSampler sampler;
+            sampler.input = times;
+            sampler.output = addAccessor(model, 8 + (i - 1) * 24, 2, TINYGLTF_TYPE_VEC3);
+            sampler.interpolation = "LINEAR";
+            animation.samplers.push_back(sampler);
+
+            tinygltf::AnimationChannel channel;
+            channel.sampler = i - 1;
+            channel.target_node = i;
             channel.target_path = "translation";
             animation.channels.push_back(channel);
         }
@@ -260,6 +316,45 @@ int main()
                 holder->addChild(instance.root);
                 evaluateAndCheck(holder, instance, track, "bound to a holder above the root");
                 delete holder;
+            }
+        }
+    }
+
+    // ── Siblings sharing a name ──────────────────────────────────────────
+    {
+        tinygltf::Model siblings = buildSiblingModel();
+        auto container3 = GlbParser::createFromModel(siblings, device, "glbAnimationBindingTests");
+        check(container3 != nullptr, "sibling container");
+        if (container3) {
+            const auto spin = container3->animTracks().find("spin");
+            if (check(spin != container3->animTracks().end(), "the sibling animation is parsed")) {
+                std::set<std::string> siblingTargets;
+                for (const auto& curve : spin->second->curves()) {
+                    siblingTargets.insert(curve.nodeName);
+                }
+                check(siblingTargets == std::set<std::string>{"Root/Wheel", "Root/Wheel1", "Root/Wheel2"},
+                    "same-named siblings target unique paths, in the order the parent lists them");
+            }
+            const auto& skins = container3->skinPayloads();
+            check(skins.size() == 1 && skins[0].skin &&
+                      skins[0].skin->boneNames() == std::vector<std::string>{"Wheel", "Wheel1", "Wheel2"},
+                "the skin's bone list carries the same unique names");
+
+            Entity* root = container3->instantiateRenderEntity();
+            if (check(root != nullptr, "the sibling model instantiates")) {
+                GraphNode* wheels[3] = {childNamed(root, "Wheel"), childNamed(root, "Wheel1"), childNamed(root, "Wheel2")};
+                check(wheels[0] && wheels[1] && wheels[2] && wheels[0] != wheels[1] && wheels[1] != wheels[2],
+                    "the siblings instantiate under their unique names");
+                if (spin != container3->animTracks().end() && wheels[0] && wheels[1] && wheels[2]) {
+                    AnimEvaluator evaluator(std::make_unique<DefaultAnimBinder>(root));
+                    evaluator.addClip(std::make_shared<AnimClip>(spin->second, 0.0f, 1.0f, true, true));
+                    evaluator.update(0.25f);
+                    for (int i = 0; i < 3; ++i) {
+                        check(nearStrict(wheels[i]->localPosition(), static_cast<float>(i + 1), 0.0f, 0.0f, kTolerance),
+                            "sibling " + std::to_string(i) + " takes ITS channel");
+                    }
+                }
+                delete root;
             }
         }
     }

@@ -175,13 +175,17 @@ namespace visutwin::canvas
 
         /**
          * Coarse priority, the HIGHEST-priority field of the material sort key, so a
-         * bucket is drawn entirely before the next whatever their materials are.
-         * 8 bits. Default 0.
+         * bucket is drawn entirely before the next whatever their materials are, and
+         * the primary key of the two distance sorts too (back to front draws the
+         * higher bucket first, front to back the lower; see distanceSortsBefore).
+         * 8 bits. Default 127, the middle, so a mesh can be moved either side of
+         * everything left at the default.
          *
          * This is what a caller reaches for when something must precede everything
          * else in its sublayer — a stencil mask, a depth primer — without splitting
          * it into its own layer.
          */
+        static constexpr uint8_t kDefaultDrawBucket = 127;
         uint8_t drawBucket() const { return _drawBucket; }
         void setDrawBucket(const uint8_t value) { _drawBucket = value; }
 
@@ -434,7 +438,7 @@ namespace visutwin::canvas
         double _drawOrder = 0.0;
         std::shared_ptr<StencilParameters> _stencilFront;
         std::shared_ptr<StencilParameters> _stencilBack;
-        uint8_t _drawBucket = 0;
+        uint8_t _drawBucket = kDefaultDrawBucket;
         float _sortDistance = 0.0f;
         uint32_t _mask = MASK_AFFECT_DYNAMIC;
 

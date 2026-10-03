@@ -26,7 +26,9 @@
 #include <set>
 #include <vector>
 
+#include "scene/materials/material.h"
 #include "scene/mesh.h"
+#include "scene/meshInstance.h"
 #include "scene/renderer/sortKey.h"
 #include "support/check.h"
 
@@ -131,6 +133,38 @@ int main()
         check(makeForwardSortKey(0, false, 7, first->id()) < makeForwardSortKey(0, false, 7, second->id()) &&
               makeForwardSortKey(0, false, 7, second->id()) < makeForwardSortKey(0, false, 7, third->id()),
             "so one material's draws sort in the order their meshes were created");
+    }
+
+    // ── The distance sorts take the bucket first ──────────────────────────────
+    {
+        const uint64_t lowBucket = makeForwardSortKey(10, false, 7, meshA);
+        const uint64_t highBucket = makeForwardSortKey(200, false, 7, meshA);
+        check(forwardSortKeyBucket(highBucket) == 200 && forwardSortKeyBucket(lowBucket) == 10,
+            "the bucket reads back out of the key");
+
+        // Back to front: the higher bucket first, even when it is the nearer draw.
+        check(distanceSortsBefore(highBucket, 1.0f, lowBucket, 50.0f, true) &&
+              !distanceSortsBefore(lowBucket, 50.0f, highBucket, 1.0f, true),
+            "back to front draws the higher bucket first, whatever the depths");
+        // Front to back: the lower bucket first, even when it is the farther draw.
+        check(distanceSortsBefore(lowBucket, 50.0f, highBucket, 1.0f, false) &&
+              !distanceSortsBefore(highBucket, 1.0f, lowBucket, 50.0f, false),
+            "front to back draws the lower bucket first, whatever the depths");
+
+        // Within one bucket, depth decides, then the key on an exact tie.
+        const uint64_t same = makeForwardSortKey(MeshInstance::kDefaultDrawBucket, false, 7, meshA);
+        const uint64_t sameLater = makeForwardSortKey(MeshInstance::kDefaultDrawBucket, false, 7, meshB);
+        check(distanceSortsBefore(same, 9.0f, sameLater, 2.0f, true) &&
+              distanceSortsBefore(sameLater, 2.0f, same, 9.0f, false),
+            "within a bucket the depth orders the draws");
+        check(distanceSortsBefore(same, 3.0f, sameLater, 3.0f, true) &&
+              !distanceSortsBefore(sameLater, 3.0f, same, 3.0f, true),
+            "and an exact tie falls back to the forward key");
+
+        // Every mesh instance starts in the middle bucket, so moving one either way
+        // reorders it against all the rest.
+        const MeshInstance instance(static_cast<Mesh*>(nullptr), static_cast<Material*>(nullptr));
+        check(instance.drawBucket() == 127, "a mesh instance's draw bucket defaults to 127");
     }
 
     return finish("forward sort key");

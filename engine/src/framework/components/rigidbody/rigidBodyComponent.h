@@ -44,6 +44,12 @@ namespace visutwin::canvas
      * With no world supplied nothing is created and nothing moves — the component
      * is inert but still answers `type()` and friends, which is what the
      * raycast-only behaviour that predates the seam relied on.
+     *
+     * Only an ACTIVE body is in the world: disabling this component, its entity (or a
+     * parent), or the sibling CollisionComponent destroys the body at once, so nothing
+     * collides with it, world raycasts miss it and the joints on it drop their
+     * constraints. Enabled again, it is recreated on the next simulation sync at the
+     * entity's current transform, at rest.
      */
     class RigidBodyComponent : public Component
     {
@@ -57,6 +63,7 @@ namespace visutwin::canvas
 
         void initializeComponentData() override {}
         void cloneFrom(const Component* source) override;
+        void onDisable() override;
 
         static const std::vector<RigidBodyComponent*>& instances() { return _instanceList.items(); }
 
@@ -111,8 +118,19 @@ namespace visutwin::canvas
         [[nodiscard]] PhysicsBody* physicsBody() const { return _body; }
 
         /// Called by RigidBodyComponentSystem; creates the body if it does not
-        /// exist yet and mirrors its transform onto the entity.
+        /// exist yet and mirrors its transform onto the entity. A body that is not
+        /// simulated (see simulated()) is taken out of the world instead.
         void syncFromSimulation(PhysicsWorld& world);
+
+        /// True when the body belongs in the world: this component is active and the
+        /// sibling CollisionComponent, if there is one, is active too.
+        [[nodiscard]] bool simulated() const;
+
+        /// Destroys the body, if one exists, and forgets anything held for it; joints on
+        /// it let go first. The next sync of a simulated body creates a new one at the
+        /// entity's transform with no velocity. Called when this component, its entity
+        /// or its collision component is disabled.
+        void removeFromSimulation();
 
     private:
         // Writes a dynamic body's pose to an entity with a negative local scale or a

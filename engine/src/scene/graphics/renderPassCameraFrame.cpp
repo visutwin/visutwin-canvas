@@ -589,7 +589,7 @@ namespace visutwin::canvas
     {
         if (prepassRenders(options) && _prepassRenderTarget) {
             _prePass = std::make_shared<RenderPassPrepass>(device(), _scene, _renderer, _cameraComponent,
-                _sceneDepthTexture.get(), _sceneOptions);
+                _sceneDepthTexture.get(), _sceneOptions, _sourceActions, _layerComposition);
             // Clears the depth it is about to write; the scene pass clears it again.
             _prePass->init(_prepassRenderTarget, _sceneOptions);
             constexpr float clearDepthValue = 1.0f;

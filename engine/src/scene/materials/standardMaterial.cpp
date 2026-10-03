@@ -97,6 +97,8 @@ namespace visutwin::canvas
         _useFog = true;
         _useTonemap = true;
         _useLighting = true;
+        _unlit = false;
+        _vertexColorGamma = false;
         _useSkybox = true;
         _twoSidedLighting = false;
 

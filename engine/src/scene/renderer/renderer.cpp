@@ -53,25 +53,6 @@ namespace visutwin::canvas
 {
     namespace
     {
-        constexpr std::array<std::array<float, 2>, 16> haltonSequence = {{
-            {0.5f, 0.333333f},
-            {0.25f, 0.666667f},
-            {0.75f, 0.111111f},
-            {0.125f, 0.444444f},
-            {0.625f, 0.777778f},
-            {0.375f, 0.222222f},
-            {0.875f, 0.555556f},
-            {0.0625f, 0.888889f},
-            {0.5625f, 0.037037f},
-            {0.3125f, 0.370370f},
-            {0.8125f, 0.703704f},
-            {0.1875f, 0.148148f},
-            {0.6875f, 0.481481f},
-            {0.4375f, 0.814815f},
-            {0.9375f, 0.259259f},
-            {0.03125f, 0.592593f}
-        }};
-
         struct ForwardDrawEntry
         {
             MeshInstance* meshInstance = nullptr;
@@ -135,7 +116,7 @@ namespace visutwin::canvas
         {
             const auto* material = meshInstance ? meshInstance->material() : nullptr;
             return makeForwardSortKey(
-                meshInstance ? meshInstance->drawBucket() : 0u,
+                meshInstance ? meshInstance->drawBucket() : MeshInstance::kDefaultDrawBucket,
                 material && material->alphaMode() == AlphaMode::MASK,
                 // No material means the default one, and they all sort together.
                 material ? material->id() : 0x7FFFFFu,
@@ -210,6 +191,13 @@ namespace visutwin::canvas
                 if (Light* sceneLight = lightComponent->light()) {
                     sceneLight->setVisibleThisFrame(false);
                     sceneLight->setMaxScreenSize(0.0f);
+                    // An atlas slot is this frame's too. The atlas only touches the
+                    // lights it is handed, which are the visible ones, so a light
+                    // culled this frame would otherwise keep last frame's slot — a rect
+                    // another light may now own — for the cluster data and the cookie
+                    // pass to read.
+                    sceneLight->setAtlasViewportAllocated(false);
+                    sceneLight->setAtlasSlotUpdated(false);
                 }
             }
         }
@@ -909,14 +897,9 @@ namespace visutwin::canvas
             }
 
             view.projMatrix = camera.projectionMatrix();
-            float jitterX = 0.0f;
-            float jitterY = 0.0f;
-            const float jitter = std::max(camera.jitter(), 0.0f);
-            if (jitter > 0.0f) {
-                const auto& offset = haltonSequence[static_cast<size_t>(device.renderVersion() % haltonSequence.size())];
-                jitterX = jitter * (offset[0] * 2.0f - 1.0f) / static_cast<float>(view.viewport.w);
-                jitterY = jitter * (offset[1] * 2.0f - 1.0f) / static_cast<float>(view.viewport.h);
-
+            // The depth prepass takes the same offset from Camera::jitterOffset.
+            const auto [jitterX, jitterY] = camera.jitterOffset(device.renderVersion(), view.viewport.w, view.viewport.h);
+            if (camera.jitter() > 0.0f) {
                 // Accumulate, do not assign: these are the same two elements that carry an
                 // off-center projection offset (Camera::setProjectionOffset), so overwriting them
                 // here would silently cancel the shift lens whenever TAA is enabled.
@@ -1074,23 +1057,18 @@ namespace visutwin::canvas
                     });
                 break;
 
+            // Bucket first, then depth: see distanceSortsBefore in sortKey.h.
             case SortMode::SORTMODE_BACK2FRONT:
                 std::stable_sort(entries.begin(), entries.end(),
                     [](const ForwardDrawEntry* a, const ForwardDrawEntry* b) {
-                        if (a->sortDistance == b->sortDistance) {
-                            return a->sortKey < b->sortKey;
-                        }
-                        return a->sortDistance > b->sortDistance;
+                        return distanceSortsBefore(a->sortKey, a->sortDistance, b->sortKey, b->sortDistance, true);
                     });
                 break;
 
             case SortMode::SORTMODE_FRONT2BACK:
                 std::stable_sort(entries.begin(), entries.end(),
                     [](const ForwardDrawEntry* a, const ForwardDrawEntry* b) {
-                        if (a->sortDistance == b->sortDistance) {
-                            return a->sortKey < b->sortKey;
-                        }
-                        return a->sortDistance < b->sortDistance;
+                        return distanceSortsBefore(a->sortKey, a->sortDistance, b->sortKey, b->sortDistance, false);
                     });
                 break;
 
@@ -1238,11 +1216,22 @@ namespace visutwin::canvas
             // aggressively low-variance (noisy) samples are clamped to lit. Too
             // small flickers; too large detaches contact shadows. The
             // default is 0.0025.
-            dir.bias = vsm ? sceneLight->vsmBias() : 0.0001f;
+            //
+            // The stored depth is normalised over the shadow camera's depth range,
+            // which the fit sets to the casters' extent along the light every frame,
+            // so a bias authored in world-ish units is divided by that range (over 7),
+            // as a VSM spot's is by its range. The FIRST cascade's fitted far clip
+            // stands for every cascade.
+            LightRenderData* rd = sceneLight->getRenderData(fitCamera, 0);
+            if (vsm) {
+                const float farClip = rd && rd->shadowCamera ? rd->shadowCamera->farClip() : 0.0f;
+                dir.bias = sceneLight->vsmBias() / (std::max(farClip, 1e-4f) / 7.0f);
+            } else {
+                dir.bias = 0.0001f;
+            }
             dir.penumbraSize = sceneLight->penumbraSize();
             dir.penumbraFalloff = sceneLight->penumbraFalloff();
 
-            LightRenderData* rd = sceneLight->getRenderData(fitCamera, 0);
             if (rd && rd->shadowCamera && rd->shadowCamera->node()) {
                 dir.viewProjection = rd->shadowCamera->projectionMatrix()
                     * rd->shadowCamera->node()->worldTransform().inverse();

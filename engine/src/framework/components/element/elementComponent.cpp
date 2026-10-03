@@ -823,15 +823,19 @@ namespace visutwin::canvas
         }
         _inTextLayout = true;
         _markupTags.clear();
+        // An empty text is laid out as a single space, so it keeps one line's height (and
+        // the space's width) rather than collapsing to nothing.
+        static const std::string kEmptyTextSymbols = " ";
+        const std::string& source = _text.empty() ? kEmptyTextSymbols : _text;
         if (_enableMarkup) {
-            MarkupResult markup = evaluateMarkup(_text);
+            MarkupResult markup = evaluateMarkup(source);
             if (!markup.error.empty()) {
-                spdlog::warn("{} in text '{}'", markup.error, _text);
+                spdlog::warn("{} in text '{}'", markup.error, source);
             }
             _symbols = std::move(markup.symbols);
             _markupTags = std::move(markup.tags);
         } else {
-            _symbols = _text;
+            _symbols = source;
         }
         _codePoints = decodeUtf8(_symbols);
         if (!_markupTags.empty() && _codePoints.size() != _symbols.size()) {
@@ -905,21 +909,38 @@ namespace visutwin::canvas
         if (_sprite) {
             _texture = nullptr;   // and a sprite clears the texture
         }
+        // The frame clamps to the new sprite's frames.
+        _spriteFrame = clampedSpriteFrame(_spriteFrame);
         ++_imageVersion;
         if (changed) {
             fire("set:sprite");
         }
     }
 
+    int ElementComponent::clampedSpriteFrame(const int value) const
+    {
+        const int count = _sprite ? static_cast<int>(_sprite->frameKeys().size()) : 0;
+        return count > 0 ? std::clamp(value, 0, count - 1) : std::max(value, 0);
+    }
+
     void ElementComponent::setSpriteFrame(const int value)
     {
-        const int frame = std::max(value, 0);
+        const int frame = clampedSpriteFrame(value);
         if (frame == _spriteFrame) {
             return;
         }
         _spriteFrame = frame;
         ++_imageVersion;
         fire("set:spriteFrame");
+    }
+
+    void ElementComponent::clampSpriteFrame()
+    {
+        const int frame = clampedSpriteFrame(_spriteFrame);
+        if (frame != _spriteFrame) {
+            _spriteFrame = frame;
+            ++_imageVersion;
+        }
     }
 
     void ElementComponent::setRangeStart(const int value)

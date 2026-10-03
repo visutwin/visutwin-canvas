@@ -5,11 +5,51 @@
 //
 #include "camera.h"
 
+#include <algorithm>
+#include <cstddef>
+
 #include "graphNode.h"
 
 namespace visutwin::canvas
 {
+    namespace
+    {
+        // Halton (2, 3) sample positions in [0, 1), one per frame, cycled.
+        constexpr std::array<std::array<float, 2>, 16> haltonSequence = {{
+            {0.5f, 0.333333f},
+            {0.25f, 0.666667f},
+            {0.75f, 0.111111f},
+            {0.125f, 0.444444f},
+            {0.625f, 0.777778f},
+            {0.375f, 0.222222f},
+            {0.875f, 0.555556f},
+            {0.0625f, 0.888889f},
+            {0.5625f, 0.037037f},
+            {0.3125f, 0.370370f},
+            {0.8125f, 0.703704f},
+            {0.1875f, 0.148148f},
+            {0.6875f, 0.481481f},
+            {0.4375f, 0.814815f},
+            {0.9375f, 0.259259f},
+            {0.03125f, 0.592593f}
+        }};
+    }
+
     Camera::~Camera() = default;
+
+    std::array<float, 2> Camera::jitterOffset(const int renderVersion, const int viewportWidth,
+        const int viewportHeight) const
+    {
+        const float jitter = std::max(_jitter, 0.0f);
+        if (jitter <= 0.0f) {
+            return {0.0f, 0.0f};
+        }
+        const auto& offset = haltonSequence[static_cast<size_t>(renderVersion) % haltonSequence.size()];
+        return {
+            jitter * (offset[0] * 2.0f - 1.0f) / static_cast<float>(std::max(viewportWidth, 1)),
+            jitter * (offset[1] * 2.0f - 1.0f) / static_cast<float>(std::max(viewportHeight, 1))
+        };
+    }
 
     float Camera::screenSize(const BoundingSphere& sphere) const
     {

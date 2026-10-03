@@ -173,7 +173,10 @@ static inline void computeAmbientOcclusionSAO(
     // discard samples that are too close to the horizon
     w *= step(vv * minHorizonAngleSineSquared, vn * vn);
 
-    occlusion += w * max(0.0, vn + origin.z * bias) / (vv + peak2);
+    // The bias SUBTRACTS a depth-proportional amount from vn, so a sample barely above
+    // the tangent plane (depth noise on a flat surface) occludes nothing. origin.z is
+    // the positive view distance here, hence the minus.
+    occlusion += w * max(0.0, vn - origin.z * bias) / (vv + peak2);
 }
 
 static inline float scalableAmbientObscurance(
@@ -344,7 +347,8 @@ void main() {
             float w = max(0.0, 1.0 - vv * pc.invRadiusSquared);
             w = w * w;
             w *= step(vv * pc.minHorizonAngleSineSquared, vn * vn);
-            occlusion += w * max(0.0, vn + origin.z * pc.bias) / (vv + pc.peak2);
+            // The bias subtracts: origin.z is the positive view distance (see the MSL body).
+            occlusion += w * max(0.0, vn - origin.z * pc.bias) / (vv + pc.peak2);
 
             tapPos = angleStep * tapPos;
         }

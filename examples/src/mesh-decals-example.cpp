@@ -113,9 +113,8 @@ namespace
             v[OFF_COLOR + 1] = d.g;
             v[OFF_COLOR + 2] = d.b;
             // Alpha must be 1 in this engine: VT_FEATURE_VERTEX_COLORS multiplies the
-            // running fragment alpha by saturate(vertexColor.a). upstream can leave
-            // alpha at zero because their decal example uses emissiveVertexColor (RGB
-            // only); we route through diffuseVertexColor + UNLIT and need full alpha.
+            // running fragment alpha by saturate(vertexColor.a), even when the colour
+            // tints only the emissive.
             v[OFF_COLOR + 3] = d.a;
         }
     }
@@ -223,7 +222,7 @@ protected:
         // are pure emission, which is what makes them glow against the dark ground.
         // The cutout is the heart's alpha, through the opacity map.
         _decalMaterial = std::make_shared<StandardMaterial>();
-        _decalMaterial->setUseLighting(false);                  // → VT_FEATURE_UNLIT
+        _decalMaterial->setUseLighting(false);                  // no lights; black diffuse takes no ambient
         _decalMaterial->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
         _decalMaterial->setOpacityMap(heartTexture);            // alpha channel = cutout
         _decalMaterial->setEmissive(Color(1.0f, 1.0f, 1.0f, 1.0f));
@@ -231,6 +230,9 @@ protected:
         _decalMaterial->setEmissiveIntensity(10.0f);            // bright enough to bloom on HDR displays
         _decalMaterial->setDiffuseVertexColor(false);
         _decalMaterial->setEmissiveVertexColor(true);
+        // DEVIATION: the random decal colours are decoded as gamma, as this port has
+        // always drawn them; upstream reads the same values as linear.
+        _decalMaterial->setVertexColorGamma(true);
         _decalMaterial->setTransparent(true);                   // route through transparent sublayer
 
         auto blend = std::make_shared<BlendState>(BlendState::additiveBlend());  // BLEND_ADDITIVEALPHA

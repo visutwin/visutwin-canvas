@@ -3,14 +3,16 @@
 //
 // Created by Arnis Lektauers on 02.10.2026
 //
-// SDL's modifier state and mouse buttons in the engine's terms, for every place that
-// turns an SDL event into one: the keyboard and mouse devices and the UI's element input.
+// SDL's modifier state, mouse buttons and touch device kinds in the engine's terms, for
+// every place that turns an SDL event into one: the input devices and the UI's element input.
 //
 #pragma once
 
+#include <SDL3/SDL_init.h>
 #include <SDL3/SDL_keyboard.h>
 #include <SDL3/SDL_keycode.h>
 #include <SDL3/SDL_mouse.h>
+#include <SDL3/SDL_touch.h>
 
 #include "platform/input/inputConstants.h"
 
@@ -30,6 +32,15 @@ namespace visutwin::canvas
     inline KeyModifiers currentKeyModifiers()
     {
         return keyModifiersFromSdl(SDL_GetModState());
+    }
+
+    /// Whether a finger event's device is a touch SCREEN. A trackpad reports its contacts
+    /// as finger events too (an INDIRECT device), and those are not touches: the pointer
+    /// they move arrives as mouse events. SDL's touch device list exists only once video is
+    /// up; asked before that, SDL_GetTouchDeviceType dereferences it and crashes.
+    inline bool isDirectTouchDevice(const SDL_TouchID touchId)
+    {
+        return SDL_WasInit(SDL_INIT_VIDEO) != 0 && SDL_GetTouchDeviceType(touchId) == SDL_TOUCH_DEVICE_DIRECT;
     }
 
     inline MouseButton mouseButtonFromSdl(const Uint8 sdlButton)

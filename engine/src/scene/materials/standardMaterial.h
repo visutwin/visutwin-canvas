@@ -249,6 +249,13 @@ namespace visutwin::canvas
         void setDiffuseVertexColor(const bool value) { _diffuseVertexColor = value; markUniformsDirty(); }
         bool emissiveVertexColor() const { return _emissiveVertexColor; }
         void setEmissiveVertexColor(const bool value) { _emissiveVertexColor = value; markUniformsDirty(); }
+        /// Whether the mesh's vertex colours are gamma encoded. Vertex colours are
+        /// LINEAR by default (glTF's COLOR_0 is); set this for colours authored in
+        /// gamma space, and the vertex stage decodes them (pow 2.2) before the
+        /// fragment stage multiplies them into the linear base or emissive colour.
+        /// A shader variant (VT_FEATURE_VERTEX_COLOR_GAMMA).
+        bool vertexColorGamma() const { return _vertexColorGamma; }
+        void setVertexColorGamma(const bool value) { _vertexColorGamma = value; markUniformsDirty(); }
         // --- Normal ---
         // Writes through to the base Material's slot, as setAoMap does: a glTF
         // material binds the BASE slot, so a StandardMaterial-only store made
@@ -373,8 +380,21 @@ namespace visutwin::canvas
         /// (VT_FEATURE_NO_TONEMAP), so the setter marks the uniforms dirty.
         bool useTonemap() const { return _useTonemap; }
         void setUseTonemap(const bool value) { _useTonemap = value; markUniformsDirty(); }
+        /// Whether scene lights shade this material. Off, no light reaches it — neither
+        /// the light list nor the clustered lights — while ambient, environment
+        /// reflections, fog and the layer combine still run (VT_FEATURE_NO_LIGHTS). An
+        /// emissive light-source shape with a black diffuse therefore draws as its
+        /// emission alone. For a flat colour with no shading at all, see setUnlit.
         bool useLighting() const { return _useLighting; }
         void setUseLighting(const bool value) { _useLighting = value; markUniformsDirty(); }
+        /// DEVIATION: a fully unlit output — the diffuse colour plus the emission, with
+        /// no ambient, reflection or fog (VT_FEATURE_UNLIT, the path KHR_materials_unlit
+        /// also takes). It carries the engine's own overlays: UI elements and MSDF text,
+        /// outlines, the view cube. Upstream reaches the same pixels through useLighting
+        /// off plus a black diffuse, no skybox and no fog; MSDF text is drawn only by
+        /// this path, so an MSDF map turns it on by itself.
+        bool unlit() const { return _unlit; }
+        void setUnlit(const bool value) { _unlit = value; markUniformsDirty(); }
         bool useSkybox() const { return _useSkybox; }
         void setUseSkybox(const bool value) { _useSkybox = value; markUniformsDirty(); }
         bool twoSidedLighting() const { return _twoSidedLighting; }
@@ -599,6 +619,8 @@ namespace visutwin::canvas
         bool _useFog = true;
         bool _useTonemap = true;
         bool _useLighting = true;
+        bool _unlit = false;
+        bool _vertexColorGamma = false;
         bool _useSkybox = true;
         bool _twoSidedLighting = false;
         bool _shadowCatcher = false;

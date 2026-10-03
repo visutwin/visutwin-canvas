@@ -148,6 +148,15 @@ namespace visutwin::canvas
         float jitter() const { return _jitter; }
         void setJitter(const float value) { _jitter = value; }
 
+        /**
+         * The TAA sub-pixel offset of this camera's projection in the frame of
+         * `renderVersion`, for a viewport of the given pixel size: {x, y}, to be ADDED to
+         * projection elements (2, 0) and (2, 1). Zero when jitter is off. Every pass that
+         * rasterises the camera's view (the forward pass, the depth prepass) takes it
+         * from here, so all of them sample the same sub-pixel positions in one frame.
+         */
+        std::array<float, 2> jitterOffset(int renderVersion, int viewportWidth, int viewportHeight) const;
+
         const Matrix4& viewProjectionPrevious() const { return _viewProjPrevious; }
         const Matrix4& viewProjectionInverse() const { return _viewProjInverse; }
         const std::array<float, 4>& jitters() const { return _jitters; }

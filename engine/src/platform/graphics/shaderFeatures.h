@@ -86,7 +86,9 @@
     X(TransparentPass,           "VT_FEATURE_TRANSPARENT_PASS") \
     X(ScreenSpace,               "VT_FEATURE_SCREEN_SPACE") \
     X(Msdf,                      "VT_FEATURE_MSDF") \
-    X(NoTonemap,                 "VT_FEATURE_NO_TONEMAP")
+    X(NoTonemap,                 "VT_FEATURE_NO_TONEMAP") \
+    X(NoLights,                  "VT_FEATURE_NO_LIGHTS") \
+    X(VertexColorGamma,          "VT_FEATURE_VERTEX_COLOR_GAMMA")
 
 namespace visutwin::canvas
 {

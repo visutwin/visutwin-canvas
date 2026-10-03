@@ -17,6 +17,9 @@
 // It also catches a ray running BACKWARDS: built from the far plane toward the camera
 // (NDC z 1 taken for the near plane under a GL-style projection), the nearest hit is
 // the far side of the object.
+//
+// And a mesh instance that is not visible (setVisible(false), as a batched source is)
+// is not drawn, so it must not be picked either.
 
 #include <cmath>
 #include <iostream>
@@ -32,6 +35,7 @@
 #include "framework/graphics/picker.h"
 #include "scene/camera.h"
 #include "scene/materials/standardMaterial.h"
+#include "scene/meshInstance.h"
 #include "support/check.h"
 #include "support/stubDevice.h"
 #include "support/testEngine.h"
@@ -93,6 +97,22 @@ int main()
         const float y = right->getY();
         check(std::fabs(right->getZ() - std::sqrt(radius * radius - x * x - y * y)) < 1e-3f,
             "the point is on the camera side of the picked bounds");
+    }
+
+    std::cout << "\nhidden mesh instances are not picked\n";
+    {
+        MeshInstance* boxInstance = render->meshInstances().empty() ? nullptr : render->meshInstances().front();
+        if (check(boxInstance != nullptr, "the box has a mesh instance")) {
+            check(picker.getSelectionSingle(50, 50) == boxInstance, "the visible box is picked");
+            boxInstance->setVisible(false);
+            picker.prepare(camera, engine->scene().get());
+            check(picker.getSelectionSingle(50, 50) == nullptr && picker.getSelection(0, 0, 100, 100).empty(),
+                "hidden, it is picked nowhere");
+            check(!picker.getWorldPoint(50, 50).has_value(), "and gives no world point");
+            boxInstance->setVisible(true);
+            picker.prepare(camera, engine->scene().get());
+            check(picker.getSelectionSingle(50, 50) == boxInstance, "visible again, it is picked again");
+        }
     }
 
     return finish("picker");

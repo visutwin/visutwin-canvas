@@ -408,7 +408,12 @@
     float3 directDiffuse = float3(0.0);
     float3 directSpecular = float3(0.0);
     const uint lightCount = min(lighting.lightCountAndFlags.x, 8u);
-#if VT_FEATURE_MULTI_LIGHT
+#if VT_FEATURE_NO_LIGHTS
+    // useLighting off: no light reaches the surface; ambient, reflections and the
+    // combine below still run. The clustered loop is compiled out with it.
+    const uint loopLightCount = 0u;
+    (void)lightCount;
+#elif VT_FEATURE_MULTI_LIGHT
     const uint loopLightCount = lightCount;
 #else
     const uint loopLightCount = min(lightCount, 1u);

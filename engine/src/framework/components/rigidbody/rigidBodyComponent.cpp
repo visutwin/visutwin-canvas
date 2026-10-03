@@ -299,10 +299,47 @@ namespace visutwin::canvas
         return entity() ? entity()->findComponent<CollisionComponent>() : nullptr;
     }
 
+    bool RigidBodyComponent::simulated() const
+    {
+        if (!active()) {
+            return false;
+        }
+        const CollisionComponent* shape = collision();
+        return shape == nullptr || shape->active();
+    }
+
+    void RigidBodyComponent::onDisable()
+    {
+        removeFromSimulation();
+    }
+
+    void RigidBodyComponent::removeFromSimulation()
+    {
+        if (_world != nullptr && _body != nullptr) {
+            // A joint on this body is freed with it; let it go first.
+            JointComponent::bodyWillBeDestroyed(entity());
+            _world->destroyBody(_body);
+        }
+        _body = nullptr;
+        _bodyStale = false;
+        // Comes back at rest: neither the old body's motion nor anything asked of it
+        // before it left carries over.
+        clearPending();
+    }
+
     void RigidBodyComponent::syncFromSimulation(PhysicsWorld& world)
     {
         Entity* owner = entity();
         if (owner == nullptr) {
+            return;
+        }
+
+        if (!simulated()) {
+            // Normally already done by onDisable; this also covers a state change that
+            // reached no hook.
+            if (_body != nullptr) {
+                removeFromSimulation();
+            }
             return;
         }
 

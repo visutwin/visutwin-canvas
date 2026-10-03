@@ -9,6 +9,8 @@
 layout(location = 0) in vec3 inPosition;
 layout(location = 5) in vec4 inColor;
 
+#include "shader_features.glsl"
+
 layout(push_constant) uniform PushConstants {
     mat4 viewProjection;
     mat4 model;
@@ -35,7 +37,10 @@ void main() {
     fragWorldTangent = vec4(1.0, 0.0, 0.0, 1.0);
     fragUV0 = vec2(0.0);
     fragUV1 = vec2(0.0);
-    // sRGB -> linear once per vertex, matching forward-vertex.metal: the fragment
-    // stage multiplies this straight into the linear base colour.
-    fragColor = vec4(pow(max(inColor.rgb, vec3(0.0)), vec3(2.2)), inColor.a);
+    // Vertex colours are LINEAR unless the material says they are gamma encoded
+    // (vertexColorGamma), which is decoded here once per vertex, matching
+    // forward-vertex.metal: the fragment stage multiplies this straight into the
+    // linear base colour.
+    fragColor = vtFeatureEnabled(VT_FEATURE_VERTEX_COLOR_GAMMA_BIT)
+        ? vec4(pow(max(inColor.rgb, vec3(0.0)), vec3(2.2)), inColor.a) : inColor;
 }

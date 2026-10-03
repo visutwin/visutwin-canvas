@@ -28,8 +28,10 @@ namespace visutwin::canvas
             if (_world == nullptr) {
                 return;
             }
+            // Inactive joints are visited too: the sync drops the constraint of a joint
+            // that is no longer active.
             for (auto* joint : JointComponent::instances()) {
-                if (joint && joint->enabled() && joint->entity() && joint->entity()->enabled()) {
+                if (joint && joint->entity()) {
                     joint->syncToSimulation(*_world);
                 }
             }

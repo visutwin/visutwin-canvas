@@ -155,8 +155,11 @@ vertex GSplatVaryings gsplatVS(uint vid [[vertex_id]],
     // from the projection's (a manual aspect ratio, a side-by-side stereo target).
     // Signs are kept: the footprint is added to the centre in clip
     // space, so a projection that flips an axis must flip the footprint with it.
+    //
+    // An orthographic projection has no perspective divide, so its Jacobian is the
+    // focal length alone: the same expression evaluated at view position (0, 0, 1).
     const float2 focal = params.viewport.xy * float2(params.projection[0][0], params.projection[1][1]);
-    const float3 v = view.xyz;
+    const float3 v = params.cameraOrtho != 0u ? float3(0.0, 0.0, 1.0) : view.xyz;
     const float2 J1 = focal / v.z;
     const float2 J2 = -J1 / v.z * v.xy;
     const float3x3 J = float3x3(float3(J1.x, 0.0, J2.x),
@@ -193,7 +196,10 @@ vertex GSplatVaryings gsplatVS(uint vid [[vertex_id]],
         return out;
     }
 
-    const float2 diagonalVector = normalize(float2(offDiagonal, lambda1 - diagonal1));
+    // The epsilon keeps a circular footprint (offDiagonal 0, lambda1 == diagonal1),
+    // whose eigenvector is the zero vector, from normalizing to NaN; it then takes the
+    // x axis. Twin of the same guard in gsplat.vert.
+    const float2 diagonalVector = normalize(float2(offDiagonal, lambda1 - diagonal1) + float2(1e-8, 0.0));
     const float2 v1 = l1 * diagonalVector;
     const float2 v2 = l2 * float2(diagonalVector.y, -diagonalVector.x);
 
@@ -240,8 +246,10 @@ vertex GSplatVaryings gsplatVS(uint vid [[vertex_id]],
     out.position = clip;
     out.uv = uv;
     // The colour is gamma space; the output stage makes it what the target wants.
-    // clip.w is the view depth (positive here), the same depth the forward fog uses.
-    out.color = half4(half3(gsplatPrepareOutput(max(displayColor, float3(0.0)), clip.w, params)), color.a);
+    // Fogged at the view depth, -view.z, the same depth the forward fog uses. Not
+    // clip.w: that equals it under a perspective projection, but is 1 for every splat
+    // under an orthographic one.
+    out.color = half4(half3(gsplatPrepareOutput(max(displayColor, float3(0.0)), -view.z, params)), color.a);
     return out;
 }
 

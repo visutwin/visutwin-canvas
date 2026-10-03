@@ -13,6 +13,7 @@
 // page 0 for every page is caught. A render cannot show that: every shipped font but
 // roboto is a single page.
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -24,6 +25,7 @@
 
 #include <stb_image_write.h>
 
+#include "core/shape/boundingBox.h"
 #include "framework/appOptions.h"
 #include "framework/components/element/elementComponent.h"
 #include "framework/components/element/elementComponentSystem.h"
@@ -38,6 +40,7 @@
 #include "framework/input/elementInput.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "scene/materials/standardMaterial.h"
+#include "scene/mesh.h"
 #include "scene/meshInstance.h"
 #include "support/check.h"
 #include "support/stubDevice.h"
@@ -218,6 +221,46 @@ int main()
         check(material && near(material->packedUniforms().msdfOutlineShadow[0], 0.1f, kTolerance), "and updates the thickness");
     }
 
+    std::cout << "text bounds\n";
+    {
+        // A world-space text is culled by its parts' bounds, so they must be where the glyphs
+        // are: about the pivot, not centred on the element's origin. With pivot (1, 1) the
+        // text lies left of and below the origin (a glyph's quad may still reach past it).
+        ElementComponent* text = addText(msdf);
+        text->setHorizontalAlign(ElementHorizontalAlign::Left);
+        text->setPivot(Vector2(1.0f, 1.0f));
+        elementInput->syncElements();
+        const auto placed = placeText(*msdf, text->textCodePoints(), text->measureLayout(), text->calculatedWidth(),
+                                      text->calculatedHeight(), text->pivot(), 0.0f, text->verticalAlign(), text->justify());
+        const auto parts = visualInstances(text->entity());
+        check(parts.size() == 2, "the text draws as one part per page");
+        for (MeshInstance* part : parts) {
+            auto* material = dynamic_cast<StandardMaterial*>(part->material());
+            const int page = material && material->msdfMap() == msdf->pages[1] ? 1 : 0;
+            float minX = std::numeric_limits<float>::infinity();
+            float minY = minX;
+            float maxX = -minX;
+            float maxY = -minX;
+            for (const PlacedGlyph& g : placed) {
+                if (g.page == page) {
+                    minX = std::min(minX, g.x0);
+                    maxX = std::max(maxX, g.x1);
+                    minY = std::min(minY, g.y0);
+                    maxY = std::max(maxY, g.y1);
+                }
+            }
+            const BoundingBox& box = part->mesh()->aabb();
+            const std::string name = "page " + std::to_string(page) + ": ";
+            check(near(box.center().getX(), (minX + maxX) * 0.5f, kTolerance) &&
+                  near(box.halfExtents().getX(), (maxX - minX) * 0.5f, kTolerance) &&
+                  near(box.center().getY(), (minY + maxY) * 0.5f, kTolerance) &&
+                  near(box.halfExtents().getY(), (maxY - minY) * 0.5f, kTolerance),
+                  name + "the part's bounds are its placed glyph quads");
+            check(box.center().getX() < 0.0f && box.center().getY() < 0.0f,
+                  name + "which sit about the pivot, left of and below the origin, not centred on it");
+        }
+    }
+
     std::cout << "layout (upstream metrics)\n";
     {
         // The MSDF font: A and B advance 10 font units, kerning A->B -2.5 and B->A -1, bounds
@@ -239,7 +282,20 @@ int main()
         const TextMeasure spacedWrap = measureText(*msdf, "AB AB", 32.0f, 32.0f, 30.0f, 1.4f);
         check(spacedWrap.lines.size() == 2, "and wrapping measures the spread line (24.5 fits 30, the second word does not)");
         const TextMeasure empty = measureText(*msdf, "", 32.0f, 32.0f);
-        check(near(empty.width, 0.0f, kTolerance) && near(empty.height, 0.0f, kTolerance), "empty text measures 0 x 0");
+        check(near(empty.width, 0.0f, kTolerance) && near(empty.height, 0.0f, kTolerance),
+              "no symbols measure 0 x 0 (an element lays an empty text out as a space instead)");
+        // A word wrapped onto a line of its own that is still too long for it breaks there
+        // too. 'W' advances 15; with no space glyph "A A" reaches 20 and fits 22, the W does
+        // not, and "AW" (25) does not fit a line of its own either.
+        FontGlyph wide = msdf->glyphs[65];
+        wide.id = 87;
+        wide.xadvance = 15.0f;
+        msdf->glyphs[87] = wide;
+        const TextMeasure wrappedLong = measureText(*msdf, "A AW", 32.0f, 32.0f, 22.0f);
+        check(wrappedLong.lines.size() == 3 && wrappedLong.lines[1].begin == 2 && wrappedLong.lines[1].end == 3 &&
+                  wrappedLong.lines[2].begin == 3,
+              "a wrapped word too long for its new line breaks before the symbol that overflows it");
+        msdf->glyphs.erase(87);
         // Symbols are code points: a glyph keyed 8230 (U+2026, three bytes in UTF-8) is one
         // symbol with its own advance, where a byte loop drew three missing glyphs.
         FontGlyph ellipsis = msdf->glyphs[65];
@@ -277,6 +333,40 @@ int main()
         const float before = split->width();
         split->setText("AB");
         check(near(split->width(), before, kTolerance), "a split axis keeps its own size");
+    }
+
+    std::cout << "whitespace and empty text\n";
+    {
+        // A space that advances 5 for this block (the font has none).
+        FontGlyph space = msdf->glyphs[65];
+        space.id = 32;
+        space.xadvance = 5.0f;
+        msdf->glyphs[32] = space;
+
+        // The text's width is the furthest any symbol reaches, whitespace included.
+        const TextMeasure trailing = measureText(*msdf, "AB  ", 32.0f, 32.0f);
+        check(near(trailing.width, 27.5f, kTolerance), "the width takes in trailing whitespace (17.5 + 2 x 5)");
+        check(trailing.lines.size() == 1 && near(trailing.lines[0].width, 27.5f, kTolerance),
+              "and the last line aligns by its whole advance, trailing whitespace included");
+        const auto right = placeText(*msdf, decodeUtf8("AB  "), trailing, 40.0f, 40.0f, Vector2(0.0f, 0.0f), 1.0f, 1.0f);
+        check(!right.empty() && near(right[0].x0, 40.0f - 27.5f, kTolerance),
+              "so right-aligned, the trailing spaces keep their room at the edge");
+        const TextMeasure broken = measureText(*msdf, "AB  \nAB", 32.0f, 32.0f);
+        check(broken.lines.size() == 2 && near(broken.lines[0].width, 17.5f, kTolerance) && near(broken.width, 27.5f, kTolerance),
+              "a line closed by a line break aligns without its trailing whitespace; the width still counts it");
+        const TextMeasure wrapped = measureText(*msdf, "AB AB", 32.0f, 32.0f, 20.0f);
+        check(wrapped.lines.size() == 2 && near(wrapped.lines[0].width, 17.5f, kTolerance) && near(wrapped.width, 22.5f, kTolerance),
+              "a wrapped line aligns without the space it broke at, and the width counts that space (17.5 + 5)");
+
+        // An empty text is laid out as one space, so it keeps a line's height.
+        ElementComponent* empty = addText(msdf);
+        empty->setFontSize(32);
+        empty->setText("");
+        check(empty->textSymbols() == " " && empty->textCodePoints() == std::u32string(U" "),
+              "an empty text is laid out as a single space");
+        check(near(empty->width(), 5.0f, kTolerance) && near(empty->height(), 29.0f, kTolerance),
+              "so it measures the space's width and a line's height (24 - -5), not 0 x 0");
+        msdf->glyphs.erase(32);
     }
 
     std::cout << "justify (upstream justify)\n";

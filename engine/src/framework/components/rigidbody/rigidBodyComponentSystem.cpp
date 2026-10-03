@@ -334,15 +334,16 @@ namespace visutwin::canvas
         // Create bodies BEFORE stepping so an entity added this frame is part of the
         // very first step rather than a frame behind. The same call writes kinematic
         // transforms into the simulation and reads dynamic ones back out, which is why
-        // it runs on both sides of the step.
+        // it runs on both sides of the step. Every component is visited, inactive ones
+        // included: the sync takes a body that is no longer simulated out of the world.
         for (auto* body : RigidBodyComponent::instances()) {
-            if (body && body->enabled() && body->entity() && body->entity()->enabled()) {
+            if (body && body->entity()) {
                 body->syncFromSimulation(*_world);
             }
         }
         _world->step(dt);
         for (auto* body : RigidBodyComponent::instances()) {
-            if (body && body->enabled() && body->entity() && body->entity()->enabled()) {
+            if (body && body->entity()) {
                 body->syncFromSimulation(*_world);
             }
         }

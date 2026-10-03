@@ -489,13 +489,11 @@ namespace
 
             const auto v = vertexFloats(container, 0);
             if (v.size() == 3 * 18) {
-                // Stored as c^(1/2.2): the vertex stages decode with pow 2.2, which
-                // returns the file's linear colour. Alpha is 1.
-                const auto decoded = [&](const size_t i) { return std::pow(v[i], 2.2f); };
-                check(nearStrict(decoded(14), 0.25f, 1e-4f) && nearStrict(decoded(15), 0.5f, 1e-4f) &&
-                      nearStrict(decoded(16), 1.0f, 1e-4f) && v[17] == 1.0f &&
-                      nearStrict(decoded(18 + 14), 1.0f, 1e-4f) && nearStrict(decoded(18 + 15), 0.0f, 1e-4f),
-                    label(path, "the colour decodes back to the file's linear value, with alpha 1"));
+                // Stored LINEAR, exactly the file's values: a glTF material never
+                // asks the vertex stage to decode gamma. Alpha is 1.
+                check(v[14] == 0.25f && v[15] == 0.5f && v[16] == 1.0f && v[17] == 1.0f &&
+                      v[18 + 14] == 1.0f && v[18 + 15] == 0.0f,
+                    label(path, "the colour is the file's linear value, with alpha 1"));
             } else {
                 fail(label(path, "three 72-byte vertices"));
             }
@@ -505,6 +503,9 @@ namespace
             check((colouredKey & kVertexColorsBit) != 0, label(path, "the coloured primitive compiles vertex colours"));
             check(payloads[0].material != payloads[1].material && (plainKey & kVertexColorsBit) == 0,
                 label(path, "through a copy: the shared material stays without them"));
+            const auto* colouredStd = dynamic_cast<const StandardMaterial*>(payloads[0].material.get());
+            check(colouredStd && !colouredStd->vertexColorGamma() && (colouredKey & (1ull << 35)) == 0,
+                label(path, "and reads them as linear (no gamma decode)"));
             check(vertexStride(container, 1) == 56, label(path, "a primitive without COLOR_0 keeps 56 bytes"));
             check(vertexStride(container, 2) == 56 && payloads[2].material == payloads[1].material,
                 label(path, "a white COLOR_0 is dropped: 56 bytes and the shared material"));

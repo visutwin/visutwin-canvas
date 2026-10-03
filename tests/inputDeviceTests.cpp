@@ -237,6 +237,17 @@ namespace
         TouchDevice touch;
         touch.setWindowSize(800, 600);
 
+        // A trackpad's contacts are SDL finger events too. By default only a touch screen
+        // counts, and with SDL video not up (as here) no device is one.
+        touch.handleEvent(fingerEvent(SDL_EVENT_FINGER_DOWN, 1, 0.5f, 0.25f));
+        check(touch.touches().empty(), "a finger on a device that is not a touch screen is not a touch");
+        // The test cannot register an SDL touch screen, so it names device 0 as one.
+        touch.setDeviceFilter([](const SDL_TouchID id) { return id == 0; });
+        SDL_Event indirect = fingerEvent(SDL_EVENT_FINGER_DOWN, 1, 0.5f, 0.25f);
+        indirect.tfinger.touchID = 7;
+        touch.handleEvent(indirect);
+        check(touch.touches().empty(), "the filter decides which devices' fingers are touches");
+
         int starts = 0;
         size_t touchesAtEnd = 0;
         touch.on("touchstart", [&](const TouchEvent&) { ++starts; });
@@ -246,10 +257,10 @@ namespace
 
         touch.handleEvent(fingerEvent(SDL_EVENT_FINGER_DOWN, 1, 0.5f, 0.25f));
         check(touch.touches().size() == 1, "a finger down is tracked");
-        // SDL reports normalized window coordinates; a caller working in pixels
+        // SDL reports normalized window coordinates; a caller working in window points
         // would otherwise place every touch in the top-left corner.
-        checkNear(touch.touches()[0].x, 400.0f, "touch x is converted to pixels");
-        checkNear(touch.touches()[0].y, 150.0f, "touch y is converted to pixels");
+        checkNear(touch.touches()[0].x, 400.0f, "touch x is converted to window points");
+        checkNear(touch.touches()[0].y, 150.0f, "touch y is converted to window points");
 
         touch.handleEvent(fingerEvent(SDL_EVENT_FINGER_DOWN, 2, 0.25f, 0.5f));
         check(touch.touches().size() == 2, "a second finger is tracked alongside the first");

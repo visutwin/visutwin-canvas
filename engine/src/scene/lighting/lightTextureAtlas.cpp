@@ -245,9 +245,10 @@ namespace visutwin::canvas
     {
         ensureCreated();
 
-        // Every light starts the frame unallocated; only an assignment below says
-        // otherwise. (A light that was in the atlas last frame and is not in the list
-        // now — culled, disabled, shadows off — must not keep claiming a slot.)
+        // Every light in the list starts unallocated; only an assignment below says
+        // otherwise. A light that was in the atlas last frame and is not in the list
+        // now (culled, disabled, shadows off) is not touched here: the renderer clears
+        // its allocation when it resets light visibility for the frame.
         for (auto* light : lights) {
             if (light) {
                 light->setAtlasViewportAllocated(false);

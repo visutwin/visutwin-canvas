@@ -27,31 +27,44 @@ namespace visutwin::canvas
             return space != font.glyphs.end() ? &space->second : nullptr;
         }
 
-        /// The kerned advance of symbols [begin, end) times `spacing`, without trailing
-        /// whitespace.
-        float rangeWidth(const FontResource& font, const std::u32string& symbols, const size_t begin, const size_t end,
-                         const float scale, const float spacing)
+        /// The spaced, kerned advance of symbol `i` after the symbol `prev` (-1 for the
+        /// first on its line, which takes no kerning). A line break takes no space.
+        float symbolAdvance(const FontResource& font, const std::u32string& symbols, const size_t i, const int prev,
+                            const float scale, const float spacing)
         {
-            float width = 0.0f;
-            float widthMinusTrailing = 0.0f;
+            if (isLineBreak(symbols[i])) {
+                return 0.0f;
+            }
+            const int code = static_cast<int>(symbols[i]);
+            const FontGlyph* glyph = glyphFor(font, code);
+            const float kern = prev >= 0 ? font.kerningValue(prev, code) * scale : 0.0f;
+            return spacing * (kern + (glyph ? glyph->xadvance * scale : 0.0f));
+        }
+
+        struct RangeAdvance
+        {
+            /// The advance of every symbol in the range.
+            float full = 0.0f;
+            /// The same without the trailing whitespace.
+            float withoutTrailing = 0.0f;
+        };
+
+        /// The advance of symbols [begin, end) laid out as one line.
+        RangeAdvance rangeAdvance(const FontResource& font, const std::u32string& symbols, const size_t begin,
+                                  const size_t end, const float scale, const float spacing)
+        {
+            RangeAdvance result;
             int prev = -1;
             for (size_t i = begin; i < end; ++i) {
-                const int code = static_cast<int>(symbols[i]);
-                // A line break inside a line (the last of `maxLines`) takes no space: it is
-                // skipped before any advance.
-                if (isLineBreak(symbols[i])) {
-                    prev = code;
-                    continue;
+                // A line break inside a line (the last of `maxLines`) takes no space, but the
+                // next symbol still kerns against it.
+                result.full += symbolAdvance(font, symbols, i, prev, scale, spacing);
+                if (!isLineBreak(symbols[i]) && !isWhitespace(symbols[i])) {
+                    result.withoutTrailing = result.full;
                 }
-                const FontGlyph* glyph = glyphFor(font, code);
-                const float kern = prev >= 0 ? font.kerningValue(prev, code) * scale : 0.0f;
-                width += spacing * (kern + (glyph ? glyph->xadvance * scale : 0.0f));
-                if (!isWhitespace(symbols[i])) {
-                    widthMinusTrailing = width;
-                }
-                prev = code;
+                prev = static_cast<int>(symbols[i]);
             }
-            return widthMinusTrailing;
+            return result;
         }
     }
 
@@ -109,8 +122,11 @@ namespace visutwin::canvas
         m.fontMinY = font.minY * m.scale;
         m.fontMaxY = font.maxY * m.scale;
 
-        const auto pushLine = [&](const size_t begin, const size_t end, const int gaps = 0) {
-            m.lines.push_back({begin, end, rangeWidth(font, symbols, begin, end, m.scale, m.spacing), gaps});
+        // A line closed by a line break or a wrap aligns by its width without the trailing
+        // whitespace; the last line by its whole advance, trailing whitespace included.
+        const auto pushLine = [&](const size_t begin, const size_t end, const int gaps, const bool last) {
+            const RangeAdvance advance = rangeAdvance(font, symbols, begin, end, m.scale, m.spacing);
+            m.lines.push_back({begin, end, last ? advance.full : advance.withoutTrailing, gaps});
         };
         // Gap count: a whitespace run followed by a visible symbol, after the line's
         // first visible symbol. Trailing whitespace is no gap.
@@ -134,6 +150,8 @@ namespace visutwin::canvas
 
         size_t start = 0;
         size_t lastBreak = 0;   // the first symbol after the latest whitespace; 0 = none on this line
+        float penX = 0.0f;      // the advance of [start, i): where symbol i starts on its line
+        int prev = -1;          // the symbol before i on its line, for kerning; -1 at a line start
         // `maxLines`: on the last line allowed nothing breaks any more, so the rest of
         // the text runs on in it, past the width, line breaks included (and drawn as nothing).
         const auto mayBreak = [&m, maxLines]() {
@@ -143,40 +161,58 @@ namespace visutwin::canvas
             const char32_t c = symbols[i];
             if (isLineBreak(c)) {
                 if (!mayBreak()) {
+                    prev = static_cast<int>(c);
                     continue;
                 }
-                pushLine(start, i);
+                pushLine(start, i, 0, false);
                 start = i + 1;
                 lastBreak = 0;
+                penX = 0.0f;
+                prev = -1;
                 continue;
             }
+            float advance = symbolAdvance(font, symbols, i, prev, m.scale, m.spacing);
             // Greedy wrap: a visible symbol that would take the line past the limit breaks
             // it after the latest whitespace, or before itself inside a word too long for
             // a line of its own.
-            if (!isWhitespace(c) && i > start && mayBreak() &&
-                rangeWidth(font, symbols, start, i + 1, m.scale, m.spacing) > maxLineWidth) {
+            if (!isWhitespace(c) && i > start && mayBreak() && penX + advance > maxLineWidth) {
                 const bool atWord = lastBreak > start;
                 const size_t breakAt = atWord ? lastBreak : i;
                 // Only a line broken at a word may be justified; a word broken mid-word has
                 // nothing to stretch.
-                pushLine(start, breakAt, atWord ? interiorGaps(start, breakAt) : 0);
+                pushLine(start, breakAt, atWord ? interiorGaps(start, breakAt) : 0, false);
                 start = breakAt;
                 lastBreak = 0;
+                // The start of the word moves down with it, and is measured again there.
+                penX = rangeAdvance(font, symbols, start, i, m.scale, m.spacing).full;
+                prev = i > start ? static_cast<int>(symbols[i - 1]) : -1;
+                advance = symbolAdvance(font, symbols, i, prev, m.scale, m.spacing);
+                // A word too long for a line of its own breaks before this symbol as well.
+                if (i > start && mayBreak() && penX + advance > maxLineWidth) {
+                    pushLine(start, i, 0, false);
+                    start = i;
+                    penX = 0.0f;
+                    prev = -1;
+                    advance = symbolAdvance(font, symbols, i, prev, m.scale, m.spacing);
+                }
             }
+            // The width is the furthest any symbol reaches, whitespace included — and
+            // including where the start of a wrapped word reached before it moved down.
+            penX += advance;
+            m.width = std::max(m.width, penX);
+            prev = static_cast<int>(c);
             if (isWhitespace(c)) {
                 lastBreak = i + 1;
             }
         }
-        pushLine(start, symbols.size());
+        pushLine(start, symbols.size(), 0, true);
 
-        // Width and height grow glyph by glyph, so an empty text measures
-        // 0 x 0 and the height ends at the last line that HAS a glyph (a trailing line
-        // break adds nothing).
+        // The height grows glyph by glyph, so an empty text measures 0 x 0 and the height
+        // ends at the last line that HAS a glyph (a trailing line break adds nothing).
         int lastLineWithGlyph = -1;
         for (size_t li = 0; li < m.lines.size(); ++li) {
             const TextLine& line = m.lines[li];
             if (line.end > line.begin) {
-                m.width = std::max(m.width, line.width);
                 lastLineWithGlyph = static_cast<int>(li);
             }
         }

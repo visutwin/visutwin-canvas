@@ -1,6 +1,7 @@
 #version 450
 
 #include "normal_matrix.glsl"
+#include "shader_features.glsl"
 
 // Vertex-color variant: the 72-byte interleaved layout appends a vec4 color
 // after uv1 (attribute location 5, offset 56). Identical to forward.vert
@@ -41,7 +42,10 @@ void main() {
     fragWorldTangent = vec4(normalize(normalMatrix * inTangent.xyz), inTangent.w);
     fragUV0 = inUV0;
     fragUV1 = inUV1;
-    // sRGB -> linear once per vertex, matching forward-vertex.metal: the fragment
-    // stage multiplies this straight into the linear base colour.
-    fragColor = vec4(pow(max(inColor.rgb, vec3(0.0)), vec3(2.2)), inColor.a);
+    // Vertex colours are LINEAR unless the material says they are gamma encoded
+    // (vertexColorGamma), which is decoded here once per vertex, matching
+    // forward-vertex.metal: the fragment stage multiplies this straight into the
+    // linear base colour.
+    fragColor = vtFeatureEnabled(VT_FEATURE_VERTEX_COLOR_GAMMA_BIT)
+        ? vec4(pow(max(inColor.rgb, vec3(0.0)), vec3(2.2)), inColor.a) : inColor;
 }

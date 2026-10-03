@@ -7,6 +7,8 @@
 
 #include <algorithm>
 
+#include "platform/input/sdlInputMapping.h"
+
 namespace visutwin::canvas
 {
     std::vector<Touch>::iterator TouchDevice::find(const int64_t id)
@@ -21,8 +23,18 @@ namespace visutwin::canvas
         _height = height > 0 ? static_cast<float>(height) : 1.0f;
     }
 
+    bool TouchDevice::acceptsDevice(const SDL_TouchID touchId) const
+    {
+        return _deviceFilter ? _deviceFilter(touchId) : isDirectTouchDevice(touchId);
+    }
+
     void TouchDevice::handleEvent(const SDL_Event& event)
     {
+        const bool finger = event.type == SDL_EVENT_FINGER_DOWN || event.type == SDL_EVENT_FINGER_MOTION ||
+            event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_CANCELED;
+        if (finger && !acceptsDevice(event.tfinger.touchID)) {
+            return;
+        }
         const auto fireTouch = [this](const char* name, const Touch& changed) {
             fire(name, TouchEvent{.touches = _touches, .changed = {changed}});
         };

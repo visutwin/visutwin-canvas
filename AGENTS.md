@@ -384,8 +384,10 @@ The engine owns the input DEVICES; the application owns the event loop.
   works through a cast, and the list needs no translation table to get wrong. They
   are POSITIONAL: `Key::W` is the key left of `Key::S` whatever it types.
 - **Touch positions need the window size.** SDL reports normalized coordinates;
-  `TouchDevice::setWindowSize` converts to pixels and Engine keeps it current from
-  the resize event. Without it every touch lands in the top-left corner.
+  `TouchDevice::setWindowSize` converts to window POINTS (the space `Mouse` and
+  `ElementInput` use) and Engine keeps it current from `canvasSize()` on resize. Without it
+  every touch lands in the top-left corner. Only a touch SCREEN's (direct) fingers are
+  touches (`isDirectTouchDevice`): a trackpad's contacts arrive as finger events too.
 - Examples must not poll SDL for input. `CameraControls` reads the engine's
   keyboard and mouse; there is no `platform/input.h` key sink.
 
@@ -433,6 +435,12 @@ systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
   or under a disabled parent; `tests/raycastFallbackTests.cpp`.
 - **`raycastAll` returns hits NEAREST FIRST on both paths**, so the order does not
   depend on whether a physics world has been supplied.
+- **Only an ACTIVE body is in the world.** Disabling the rigid body, its entity, a parent or
+  the sibling collision component destroys the body at once (joints let go first through
+  `bodyWillBeDestroyed`), so nothing collides with it and world raycasts miss it; enabled
+  again, it is recreated on the next step at the entity's CURRENT transform, at rest. A
+  disabled joint destroys its constraint and is rebuilt when enabled again. Both systems
+  visit INACTIVE components too, so the sync can remove them.
 - **A joint lets go of its constraint BEFORE the world frees it.** The world destroys
   every joint touching a body it destroys, so `RigidBodyComponent` calls
   `JointComponent::bodyWillBeDestroyed(entity)` before each `destroyBody` (a setter
@@ -540,6 +548,12 @@ Set scene-wide with `Scene::setToneMapping` or per camera with
 `RenderingSettings::toneMapping` is a separate, currently **unread** field —
 `applyCameraSettings` never copies it into `CameraFrameOptions`. Use
 `setToneMapping`.
+
+**The forward tail tone-maps the lit colour UNCLAMPED on both backends**; only the gamma
+encode clamps at 0. A channel driven negative (an albedo above 1 under metalness: the
+ambient is scaled by 1 - F0) comes back from ACES through its own formula and clamp, as
+upstream's does; clamping before the curve turned it black on one backend (`refraction`'s
+blue ring objects were yellow on Metal).
 
 **Tone mapping NONE applies NEITHER curve NOR exposure**, as upstream's
 `tonemappingNone`. On Vulkan exposure is applied inside the dispatch
@@ -808,7 +822,11 @@ present, but the rule below never depends on reading it.
   and the plane reads its irradiance from the ROUGHNESS column instead: a ground
   plane lit by a blue sky comes back dark navy. Both `toSphericalUv` and
   `dirToEquirect` pick azimuth 0 at the pole. Any new direction-to-equirect
-  code owes the same guard.
+  code owes the same guard. An atlas baked FROM a cube samples it along d with NO X flip;
+  only the shading lookups negate X (as the sky does with its cube). A flip in the bake
+  mirrors every reflection and the ambient against the sky drawn from the same HDR, which
+  no single image shows wrong; `tests/envAtlasOrientationTests.cpp` (label `gpu`) bakes an
+  asymmetric equirect and holds it.
 - **A Metal texture is SHARED unless it is a render target created without host
   data, which is PRIVATE.** Shared storage is what `replaceRegion` uploads need; a
   render target in shared storage forgoes lossless framebuffer compression on Apple
@@ -922,7 +940,10 @@ present, but the rule below never depends on reading it.
   spot and omni is in the cluster grid and its shadow comes from the
   LightTextureAtlas; the main-array allocation clears `castShadows` when its two
   slots run out, so a clustered light routed through the array would lose its shadow
-  past `ShadowParams::kMaxLocalShadows`. A light enters the grid only with a dynamic or
+  past `ShadowParams::kMaxLocalShadows`. Only lights VISIBLE this frame take clustered
+  atlas slots (the split follows their count), and `resetLightVisibility` clears every
+  light's allocation each frame, so a culled light never keeps a rect another light now
+  owns. A light enters the grid only with a dynamic or
   lightmapped mask (`clusterAdmitsLight`: a bake-only light must not light at runtime), and
   each draw accepts a clustered light only when the light's bits (`areaHalfHeight.w`) meet
   the one its mesh mask selects (`clusterParams2.y`: dynamic if the mesh has it, otherwise
@@ -1273,13 +1294,21 @@ present, but the rule below never depends on reading it.
   derived after it, from the final normals. DEVIATION: upstream keeps smooth normals and
   flat-shades through a material flag this port does not have.
 - **glTF `COLOR_0` on a static triangle primitive uses the 72-byte coloured layout and a
-  copy of its material with variant bit 21**, and is stored as `pow(c, 1 / 2.2)` so the
-  vertex stages' unconditional `pow(c, 2.2)` gives back the file's LINEAR value (alpha
-  written 1: it tints diffuse, not opacity). Move the decode behind a material flag (a
-  `vertexColorGamma`, off by default) and store linear values together, never one
-  without the other. An all-white stream is dropped (it would only cost the batchable
+  copy of its material with variant bit 21**, stored LINEAR as the file has it (alpha
+  written 1: it tints diffuse, not opacity). **Vertex colours are linear unless the
+  material says otherwise**: the vertex stages decode `pow(c, 2.2)` only under
+  `StandardMaterial::setVertexColorGamma(true)` / `VT_FEATURE_VERTEX_COLOR_GAMMA` (variant
+  bit 35 for a material that is not a StandardMaterial), off by default. A mesh authored
+  with gamma-space colours must set it (`mesh-decals` does); one that does not is drawn
+  brighter in the mid-tones. An all-white stream is dropped (it would only cost the batchable
   layout); a skinned or morphed primitive drops its colour with a warning, since no
   skinned or morphed vertex stage reads one.
+- **The combine order is sheen, then clearcoat, then EMISSION, then the planar
+  reflection, on both backends.** Emission added before the layers is attenuated by the
+  coat's Fresnel and the sheen's albedo scaling. `setUseLighting(false)` means NO DIRECT
+  LIGHTS (`VT_FEATURE_NO_LIGHTS`: ambient, reflections, fog and the combine still run); the
+  `base + emissive` path is `setUnlit(true)` (DEVIATION), which UI, MSDF text, outlines,
+  the view cube and glTF unlit materials take.
 - **An animation layer's weight is a CONTRIBUTION, composed per node across layers;
   nothing but the component writes an animated node.** Each layer's `AnimEvaluator`
   has a pose sink (`setPoseSink`) that hands its per-node result to the
@@ -1320,8 +1349,10 @@ present, but the rule below never depends on reading it.
   animate their own entity. Skipping a channel whose node has no name, or binding by
   bare `findByName`, silently loses the animation of an exporter that names only
   meshes and bones, and drives the first of two duplicate names twice.
-  `tests/glbAnimationBindingTests.cpp` builds the model in
-  memory and holds both. Hand-authored tracks keep working with bare names.
+  Same-named SIBLINGS are made unique in their parent's child order (`Wheel`, `Wheel1`,
+  `Wheel2`; roots keep their names) by `glbNodeNames`, the one table the node payload, the
+  channels and the skin bones read. `tests/glbAnimationBindingTests.cpp` builds the models in
+  memory and holds all of it. Hand-authored tracks keep working with bare names.
 - **`KHR_texture_transform` cannot be copied from upstream, because this parser
   flips V into the vertex and upstream does not.** The composed transform is
   derived in the comment above `applyTextureTransforms`; what matters outside it is
@@ -1342,7 +1373,8 @@ present, but the rule below never depends on reading it.
   `tests/primitiveGeometryTests.cpp` pins the orientation; test anything new here
   with an ASYMMETRIC image, never a checker.
 - **The picker renders an id buffer, as upstream, and unprojects through the pixel
-  CENTRE.** `Picker::prepare` draws private clones of the candidates (their material
+  CENTRE.** `Picker::prepare` draws private clones of the candidates (hidden mesh
+  instances, `visible() == false`, are not candidates; their material
   cloned with `Material::setPick`, `VT_FEATURE_PICK`: after the alpha test the fragment
   writes a 24-bit id into rgb) into an RGBA8 + depth target inside an offline scope, and
   reads both back with `Texture::read`; a selection is what is VISIBLE, and
@@ -1530,6 +1562,11 @@ present, but the rule below never depends on reading it.
   same scene with different pixels from run to run (`orbit`'s statue: up to 190 pixels).
   Anything else that orders draws must likewise use an id or the collection order, not
   a pointer.
+- **A draw BUCKET (default 127) is the primary key of BACK2FRONT (higher first) and
+  FRONT2BACK (lower first)**, ahead of depth (`distanceSortsBefore` in `sortKey.h`).
+- **Blending is NOT a shadow-caster rule.** A blended mesh casts solid depth unless it
+  alpha-tests or dithers its shadow; turn `castShadow` off for one that should not (UI
+  element visuals do).
 - **A layer carries a sort mode per sublayer** (`Layer::opaqueSortMode` /
   `transparentSortMode`, upstream's SORTMODE_*), defaulting to MATERIALMESH and
   BACK2FRONT. The two pull in opposite
@@ -1603,11 +1640,12 @@ present, but the rule below never depends on reading it.
   the quad's x scaled by height / width (upstream #9570), and a screen puts it in the UI draw
   order beside its elements (`ScreenComponent::processDrawOrderSync`).
   A particle's colour is LINEAR and owes the target upstream's output stage (particle_end):
-  the colour map is decoded from sRGB, multiplied by the colour graph, then tone-mapped with
-  the scene's exposure and gamma-encoded, or left linear on a camera frame's HDR scene
-  (`ParticleEmitter::setOutput`, filled per draw by the renderer like the splats' tail).
-  A billboard that writes `tex x ramp` raw draws every mid-tone of a colour graph darker
-  than upstream's. The kernel's randomness is an INTEGER hash (PCG of the particle
+  the colour map AND the colour graph are decoded from gamma space (the graph's rgb on the
+  CPU when its LUT is built, clamped to [0, 1]; alpha is never decoded), multiplied, then
+  tone-mapped with the scene's exposure and gamma-encoded, or left linear on a camera
+  frame's HDR scene (`ParticleEmitter::setOutput`, filled per draw by the renderer like the
+  splats' tail). A ramp left undecoded draws every mid-tone of a colour graph BRIGHTER than
+  upstream's (a 0.5 grey at about 0.73). The kernel's randomness is an INTEGER hash (PCG of the particle
   index and a step counter), identical in MSL and GLSL; `fract(sin(x) * 43758)` is not
   uniform on the GPU (a spark fountain 10% narrower than upstream) and not the same on
   the two backends. An unset graph is a CurveSet whose curves have NO KEYS — a default
@@ -1908,7 +1946,9 @@ present, but the rule below never depends on reading it.
   evaluated along the camera forward, not from the camera position to the splat
   (`GpuGSplatParams::cameraOrtho`, upstream #9531): ortho rays all run parallel, and a
   direction from the camera position changes a splat's colour as the camera pans while
-  the image stays put.
+  the image stays put. Under ortho the footprint's Jacobian is also evaluated at view
+  position (0, 0, 1), and splat fog takes the view depth `-view.z`, not `clip.w` (1 for
+  every splat under ortho).
   No shipped asset has SH bands, so no render shows it.
 - **A splat's clip z is CLAMPED to the depth range, and that only works because
   its screen-space kernel is clamped too.** A gaussian splat is a quad built around
@@ -2108,7 +2148,10 @@ present, but the rule below never depends on reading it.
   consumer at any sample count, it spends draws (a third of `taa`'s) on depth erased
   before anything samples it. The split is upstream's.
   A new consumer that reads scene depth inside or before the scene pass has to be added
-  to that predicate; `tests/cameraFrameStopTests.cpp` holds the table.
+  to that predicate; `tests/cameraFrameStopTests.cpp` holds the table. The prepass draws
+  with the frame's TAA jitter (`Camera::jitterOffset`, which the forward view uses too),
+  because under MSAA TAA reprojects from ITS depth, and only depth-WRITING materials from the
+  camera's sublayers before the Depth layer, taken from the frame's cull sets.
 - **A UI element on a screen OWNS its entity's transform** (upstream's patched `_sync`,
   here `GraphNodeTransformHook`, which `ElementComponent` installs on its entity):
   `GraphNode::sync`, `setPosition` and `setLocalPosition` go through the hook, the world
@@ -2272,7 +2315,9 @@ present, but the rule below never depends on reading it.
   and `scroll-view`'s titles). A scroll view, scrollbar and button look for their elements and
   scrollbars after each update (`refreshBindings`), since nothing fires `element:add` or
   `scrollbar:add` here; the mouse wheel reaches the scroll view as a browser's pixel deltas,
-  100 a notch (`ElementInputEvent::wheelPixelsX/Y`).
+  100 a notch (`ElementInputEvent::wheelPixelsX/Y`). SDL's wheel deltas already follow the
+  system's natural-scrolling setting (FLIPPED only reports it), so the flag must not be
+  undone, or a scroll view moves against the user's preference.
 - **The back buffer is the canvas in POINTS times `GraphicsDevice::pixelRatio()`** =
   min(`maxPixelRatio`, the window's pixel density), upstream's `maxPixelRatio`.
   `resizeCanvas` takes points, as upstream's takes CSS pixels. The default is uncapped (a
@@ -2335,8 +2380,12 @@ present, but the rule below never depends on reading it.
   determinant's sign. Assets really do carry such nodes — one node
   of `leonardo_da_vinci.glb` is mirrored, and it is the only place a shipped
   example shows this at all.
-- **A batch is one vertex layout, one primitive type and ONE pair of shadow
-  flags.** `BatchManager` merges by reinterpreting a source vertex buffer as the
+- **A batch is one vertex layout, one primitive type, ONE pair of shadow flags, one light
+  mask, one stencil state and one draw bucket** (a blended group also keeps its draw order:
+  a candidate is never merged past an overlapping one it skipped), and the batch copies
+  mask, stencil, bucket and draw order from its sources. A MIRRORED source is re-wound as
+  it is merged (DEVIATION: upstream splits by scale sign and flips the batch's faces), so
+  mirrored and plain sources share a batch. `BatchManager` merges by reinterpreting a source vertex buffer as the
   parsers' 56-byte packed vertex, so a mesh instance that is not exactly that
   layout may never enter a batch: a skinned mesh (88 bytes) or a point cloud (28)
   tagged into a batch group would merge as garbage geometry, read past the end
@@ -2407,15 +2456,19 @@ present, but the rule below never depends on reading it.
   action, the grab runs AFTER the transparent layers, and the surface refracts itself
   from last frame. (3) The diffuse albedo applies ONCE, as upstream (the refraction
   mixes into `dDiffuseLight`, which `combineColor` multiplies by albedo), not as a
-  `baseColor^(thickness + 1)` tint. A transposed matrix hides a wrong stop completely.
+  `baseColor^(thickness + 1)` tint. (4) The refracted colour is weighted by
+  `1 - getFresnel(NdotV, gloss, specularity)` (gloss-aware, iridescence included) and
+  mixed by `transmission` alone, and Beer-Lambert absorbs over the length of the refracted
+  vector, which carries the model scale; a Schlick weight on the whole mix turns a glass
+  rim opaque. A transposed matrix hides a wrong stop completely.
   Probe it this way — output the grab at a FIXED uv (valid texture?), the flags
   `uv in range` / `w > 0` (valid projection?), and the raw sample + 0.05 (a feedback
   loop runs away to white within 120 frames).
 
   Compare refraction brightness against upstream only when it is pinned to the same
   pose; an unpinned capture or a differently-posed thumbnail reads as "dimmer than
-  upstream" when it is not (pinned, `post-processing`'s amber matches, ours a touch
-  brighter). The refraction offset is scaled by the model's
+  upstream" when it is not (pinned, `post-processing`'s amber matched, ours a touch
+  brighter, BEFORE the Fresnel weight moved to the refracted colour — re-measure). The refraction offset is scaled by the model's
   per-axis world scale, as upstream's refractionDynamic (x60 on the amber): Metal passes
   it from the vertex stage as a flat `modelScale` varying, Vulkan's fragment stage reads
   the model matrix from the push constants it now shares with the vertex stage. Still
@@ -2499,6 +2552,8 @@ present, but the rule below never depends on reading it.
   shadow edges (Metal's bilinear hardware-compare PCF against the atlas's nine uniform
   taps). When a pipeline ignores a state the engine set,
   the bug is invisible until something depends on the non-default value.
+- **A directional VSM bias is `vsmBias / (cascade-0 fitted far / 7)`**, the spot rule over
+  the fitted depth span; passed raw, it is a variance floor several times too large.
 - **A VSM SPOT stores distance / range, not depth, and an omni light asking for VSM
   gets PCF3** (upstream both). `Light::resolveShadowType` falls back with a one-time
   warning and `Light::setType` re-resolves the kept request. A spot's VSM pass (its own

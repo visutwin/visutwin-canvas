@@ -392,10 +392,18 @@ int main()
         wheel.wheel.mouse_x = 100.0f;
         wheel.wheel.mouse_y = 110.0f;
         wheel.wheel.y = 1.0f;
+        wheel.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+        engine->handleInputEvent(wheel);
+        check(r.count("mousewheel") == 1 && r.events[0].wheelDelta == -1 && near(r.events[0].wheelPixelsY, -100.0f, kTolerance),
+            "a wheel moved away from the user is a browser's negative deltaY: wheelDelta -1, -100 pixels a notch");
+        r.clear();
+        // SDL's deltas already follow the system's natural-scrolling setting, as a browser's
+        // do; FLIPPED only says the device is inverted. Undoing it would scroll the content
+        // against the user's setting, and against what the Mouse device reports.
         wheel.wheel.direction = SDL_MOUSEWHEEL_FLIPPED;
         engine->handleInputEvent(wheel);
-        check(r.count("mousewheel") == 1 && r.events[0].wheelDelta == 1,
-            "a flipped (natural) wheel event is turned back to the physical direction");
+        check(r.count("mousewheel") == 1 && r.events[0].wheelDelta == -1 && near(r.events[0].wheelPixelsY, -100.0f, kTolerance),
+            "a flipped (natural scrolling) wheel event is taken as SDL reports it, not turned back");
         r.clear();
 
         SDL_Event finger{};
@@ -773,6 +781,29 @@ int main()
         check(element->spriteFrame() == 0, "and the default frame comes back");
         b->setActive(false);
         check(element->spriteFrame() == 3, "inactive shows frame 3");
+        e->destroy();
+    }
+
+    std::cout << "\nsprite frame clamps to the sprite's frames\n";
+    {
+        // An out-of-range frame has no atlas frame to draw, and the image would fall back to
+        // an untextured quad.
+        Entity* e = addTo(screen, newEntity(engine.get(), "frames"));
+        ElementComponent* element = addElement(e, {.type = ElementType::Image, .width = 40.0f, .height = 40.0f});
+        element->setSpriteFrame(5);
+        check(element->spriteFrame() == 5, "with no sprite the frame is kept as set");
+        auto sprite = std::make_shared<Sprite>(nullptr, std::vector<std::string>{"a", "b", "c"});
+        element->setSprite(sprite);
+        check(element->spriteFrame() == 2, "assigning a sprite clamps the frame to its last one");
+        element->setSpriteFrame(7);
+        check(element->spriteFrame() == 2, "a frame set past the last clamps to it");
+        element->setSpriteFrame(-3);
+        check(element->spriteFrame() == 0, "and one below the first to the first");
+        element->setSpriteFrame(2);
+        input->syncElements();
+        sprite->setFrameKeys({"a"});
+        input->syncElements();
+        check(element->spriteFrame() == 0, "a sprite that loses frames clamps the frame when the element is next drawn");
         e->destroy();
     }
 

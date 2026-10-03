@@ -53,4 +53,34 @@ namespace visutwin::canvas
         const uint64_t mesh = meshId;
         return (bucket << 56) | (masked << 55) | (material << 32) | mesh;
     }
+
+    /** The draw bucket a forward sort key was packed with (its top 8 bits). */
+    inline uint8_t forwardSortKeyBucket(const uint64_t sortKey)
+    {
+        return static_cast<uint8_t>(sortKey >> 56);
+    }
+
+    /**
+     * The order of the two distance sort modes. The draw bucket is the PRIMARY key in
+     * both, as it is for the material sort: back to front draws the HIGHER bucket
+     * first, front to back the LOWER one (the direction follows the mode, so a bucket
+     * that must come last in a back-to-front sublayer is a low one). Within a bucket
+     * the signed view depth decides (sortDistance.h), and an exact tie falls back to
+     * the forward key, so equal depths keep a stable material grouping.
+     *
+     * Returns true when the draw (keyA, distanceA) goes before (keyB, distanceB).
+     */
+    inline bool distanceSortsBefore(const uint64_t keyA, const float distanceA,
+        const uint64_t keyB, const float distanceB, const bool backToFront)
+    {
+        const uint8_t bucketA = forwardSortKeyBucket(keyA);
+        const uint8_t bucketB = forwardSortKeyBucket(keyB);
+        if (bucketA != bucketB) {
+            return backToFront ? bucketA > bucketB : bucketA < bucketB;
+        }
+        if (distanceA != distanceB) {
+            return backToFront ? distanceA > distanceB : distanceA < distanceB;
+        }
+        return keyA < keyB;
+    }
 }

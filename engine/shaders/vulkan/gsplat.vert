@@ -87,9 +87,12 @@ void main() {
     uint base=index*10u; vec3 center=load3(base); vec3 ca=load3(base+4u), cb=load3(base+7u);
     vec4 view=params.modelView*vec4(center,1), clip=params.projection*view; if(clip.w<=0.0)return;
     mat3 covariance=mat3(ca.x,ca.y,ca.z, ca.y,cb.x,cb.y, ca.z,cb.y,cb.z);
-    // Per-axis, signed focal length — see gsplat-render.metal.
-    vec2 j=params.viewport.xy*vec2(params.projection[0][0],params.projection[1][1])/view.z;
-    mat3 J=mat3(j.x,0,-j.x*view.x/view.z, 0,j.y,-j.y*view.y/view.z, 0,0,0);
+    // Per-axis, signed focal length — see gsplat-render.metal. An orthographic
+    // projection has no perspective divide: its Jacobian is the focal length alone,
+    // the same expression at view position (0, 0, 1).
+    vec3 vp=params.cameraOrtho!=0u ? vec3(0.0,0.0,1.0) : view.xyz;
+    vec2 j=params.viewport.xy*vec2(params.projection[0][0],params.projection[1][1])/vp.z;
+    mat3 J=mat3(j.x,0,-j.x*vp.x/vp.z, 0,j.y,-j.y*vp.y/vp.z, 0,0,0);
     mat3 W=transpose(mat3(params.modelView)); mat3 T=W*J;
     mat3 cov=transpose(T)*covariance*T;
     float d1=cov[0][0]+0.3, od=cov[0][1], d2=cov[1][1]+0.3;
@@ -107,6 +110,8 @@ void main() {
     vec2 c=clip.ww*params.viewport.zw;
     // Cull against the frustum x/y planes, as Metal does.
     if(any(greaterThan(abs(clip.xy)-vec2(max(l1,l2))*c, clip.ww)))return;
+    // The epsilon keeps a circular footprint's zero eigenvector from normalizing to
+    // NaN; twin of the guard in gsplat-render.metal.
     vec2 axis=normalize(vec2(od,lambda1-d1)+vec2(1e-8,0));
     vec2 corners[4]=vec2[](vec2(-1,-1),vec2(1,-1),vec2(-1,1),vec2(1,1));
     vec2 uv=corners[gl_VertexIndex];
@@ -125,6 +130,7 @@ void main() {
         vec3 direction=normalize(transpose(mat3(params.modelView))*viewDir);
         displayColor+=evaluateSH(index*45u,params.shBands,direction);
     }
-    // Gamma-space colour -> what the target wants (clip.w is the view depth).
-    outColor=vec4(gsplatPrepareOutput(max(displayColor,vec3(0)), clip.w),color.a);
+    // Gamma-space colour -> what the target wants, fogged at the view depth -view.z
+    // (clip.w is 1 under an orthographic projection); twin of gsplat-render.metal.
+    outColor=vec4(gsplatPrepareOutput(max(displayColor,vec3(0)), -view.z),color.a);
 }

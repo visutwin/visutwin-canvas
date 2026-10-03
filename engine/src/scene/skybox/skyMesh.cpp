@@ -74,9 +74,9 @@ namespace visutwin::canvas
             };
         }
 
-        std::shared_ptr<Mesh> createSkyBoxMesh(const std::shared_ptr<GraphicsDevice>& device, const float yOffset)
+        std::shared_ptr<Mesh> createSkyBoxMesh(const std::shared_ptr<GraphicsDevice>& device, const float he,
+            const float yOffset)
         {
-            const float he = 1.0f;
             const float minY = -he + yOffset;
             const float maxY = he + yOffset;
 
@@ -246,13 +246,21 @@ namespace visutwin::canvas
 
     std::shared_ptr<Mesh> SkyMesh::createInfiniteMesh(const std::shared_ptr<GraphicsDevice>& device) const
     {
-        return createSkyBoxMesh(device, 0.0f);
+        // DEVIATION: half-extent 1 where upstream uses the unit box. Only the direction to
+        // each fragment reaches the screen, so the size changes no pixel; the larger box
+        // is further from a camera's near plane, which a sky drawn around the camera must
+        // not cross.
+        return createSkyBoxMesh(device, 1.0f, 0.0f);
     }
 
     std::shared_ptr<Mesh> SkyMesh::createBoxMesh(const std::shared_ptr<GraphicsDevice>& device) const
     {
-        // SKYTYPE_BOX uses yOffset: 0.5.
-        return createSkyBoxMesh(device, 0.5f);
+        // The unit box with its floor at y = 0: x and z in [-0.5, 0.5], y in [0, 1]. The
+        // size matters here, unlike the infinite sky: the fragment direction is taken
+        // from the sky's centre (Sky::center, default (0, 1, 0), in these same local
+        // units) to the box surface, so the box's extent relative to that centre is
+        // what places the projected horizon and floor.
+        return createSkyBoxMesh(device, 0.5f, 0.5f);
     }
 
     std::shared_ptr<Mesh> SkyMesh::createDomeMesh(const std::shared_ptr<GraphicsDevice>& device) const

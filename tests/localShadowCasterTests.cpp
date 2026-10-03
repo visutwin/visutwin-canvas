@@ -200,6 +200,16 @@ namespace
             "a box moved under the spot joins its list");
         boxes[2]->setLocalPosition(2.5f, 0.0f, 0.0f);
 
+        // Blending is not a caster rule: a blended material with neither alpha test nor
+        // shadow dither casts solid depth, and only castShadow turns a caster off.
+        material->setTransparent(true);
+        renderFrame();
+        check(spotData && contains(spotData->visibleCasters, boxInstances[1]) &&
+              spotData->visibleCasters == referenceSpotCasters(spotLight),
+            "a box with a blended material still casts");
+        check(stats.drawCalls().shadow == listed(spotLight) + listed(omniLight), "and is drawn into the shadow");
+        material->setTransparent(false);
+
         // ── A light whose shadow does not render gets no list ────────────────────
         spot->setShadowUpdateMode(ShadowUpdateType::SHADOWUPDATE_NONE);
         renderFrame();

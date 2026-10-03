@@ -247,7 +247,9 @@ namespace visutwin::canvas
             bool dynamicBatch = false;      // Dynamic batching — per-vertex bone index + matrix palette
             bool pointSize = false;         // Point primitive rendering — [[point_size]] in vertex output
             bool areaLights = false;        // Area rectangular lights — MRP evaluation in main loop
-            bool unlit = false;             // KHR_materials_unlit — skip PBR lighting
+            bool unlit = false;             // KHR_materials_unlit, StandardMaterial::unlit — skip PBR lighting
+            bool noLights = false;          // StandardMaterial::useLighting false: lit pipeline, no lights
+            bool vertexColorGamma = false;  // vertex colours are gamma encoded: decode in the vertex stage
             bool pick = false;              // Picker id pass: write the packed id after the alpha test
             bool msdf = false;              // StandardMaterial::msdfMap: the base slot is a distance field
             bool noTonemap = false;         // StandardMaterial::useTonemap false: TONEMAP_NONE, no exposure

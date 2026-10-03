@@ -274,8 +274,8 @@ namespace visutwin::canvas
         bool autoHeight() const { return _autoHeight; }
         void setAutoHeight(const bool value) { _autoHeight = value; textChanged(); }
 
-        /// The text drawn — markup stripped when it is on — and each symbol's tags (empty
-        /// without markup or tags).
+        /// The text drawn — markup stripped when it is on, a single space for an empty
+        /// text — and each symbol's tags (empty without markup or tags).
         const std::string& textSymbols() const { return _symbols; }
         /// The same text as code points, what the layout places; markupTags() is indexed by
         /// these.
@@ -318,9 +318,14 @@ namespace visutwin::canvas
         /// A sprite drawn over the element; setting one clears the texture.
         const std::shared_ptr<Sprite>& sprite() const { return _sprite; }
         void setSprite(std::shared_ptr<Sprite> value);
-        /// Which of the sprite's frames is drawn.
+        /// Which of the sprite's frames is drawn: clamped to the sprite's frames when it is
+        /// set, when a sprite is assigned, and when the sprite's frame keys change (seen by
+        /// `clampSpriteFrame`, which the element drawer calls before it builds the image).
         int spriteFrame() const { return _spriteFrame; }
         void setSpriteFrame(int value);
+        /// Clamps the frame to the current sprite's frame count, without firing
+        /// `set:spriteFrame`; for when the sprite's frames changed under the element.
+        void clampSpriteFrame();
         /// The part of the texture drawn: x, y (from the bottom), width, height, as
         /// fractions of the texture. Ignored when a sprite is set.
         const Vector4& rect() const { return _rect; }
@@ -391,6 +396,8 @@ namespace visutwin::canvas
         float absBottom() const { return _localAnchor.getY() + _margin.getY(); }
         bool hasSplitAnchorsX() const;
         bool hasSplitAnchorsY() const;
+        /// `value` within the sprite's frames; floored at 0 without a sprite or frames.
+        int clampedSpriteFrame(int value) const;
 
         ElementComponent* parentElement() const;
         void calculateLocalAnchors();

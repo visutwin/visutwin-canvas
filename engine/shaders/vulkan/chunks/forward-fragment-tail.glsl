@@ -1,4 +1,33 @@
 
+    // The layers stack from the inside out: the sheen sits on the base, the
+    // clearcoat on top of both, so the coat's Fresnel also dims the sheen. Twin of
+    // forward-fragment-tail.metal, which also blends the planar reflection after them.
+
+    // Sheen energy conservation: the sheen layer takes energy from the base layer
+    // rather than adding on top of it. 0.157 is the average directional albedo of
+    // the Charlie BRDF, from fitting its DFG integral. Twin of the block in
+    // forward-fragment-tail.metal.
+    if (vtFeatureEnabled(VT_FEATURE_SHEEN_BIT)) {
+        float sheenScaling = 1.0 -
+            max(sheenTint.r, max(sheenTint.g, sheenTint.b)) * 0.157;
+        color = color * sheenScaling + sheenSpecularDirect + sheenSpecularIndirect;
+    }
+
+    if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
+        // Energy-conserving clearcoat composition, twin of forward-fragment-tail.metal:
+        //   f = base * (1 - Fc * ccSpecularity) + (ccSpecularLight + ccReflection) * ccSpecularity
+        // Light the coat reflects cannot also reach the base, so the base is dimmed
+        // by the coat's Fresnel; the coat's own direct and environment specular are
+        // added scaled by the coat factor.
+        float ccNdotV = max(dot(ccNormalW, V), 0.0);
+        float ccScaling = 1.0 - getFresnelCC(ccNdotV) * ccSpecularity;
+        color = color * ccScaling + (ccSpecularLight + ccReflection) * ccSpecularity;
+    }
+
+    // Emission is added after the layers are combined: an emissive surface under a
+    // coat or sheen keeps its full emission.
+    color += emissive;
+
     // ── Blurred planar reflection (parity with forward-fragment-tail.metal) ──
     // DEVIATION (inherited from the Metal chunk): upstream implements planar
     // reflection as a ShaderMaterial script; here it is a shader feature fed by
@@ -129,27 +158,6 @@
                 return;
             }
         }
-    }
-
-    if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
-        // Energy-conserving clearcoat composition, twin of forward-fragment-tail.metal:
-        //   f = base * (1 - Fc * ccSpecularity) + (ccSpecularLight + ccReflection) * ccSpecularity
-        // Light the coat reflects cannot also reach the base, so the base is dimmed
-        // by the coat's Fresnel; the coat's own direct and environment specular are
-        // added scaled by the coat factor.
-        float ccNdotV = max(dot(ccNormalW, V), 0.0);
-        float ccScaling = 1.0 - getFresnelCC(ccNdotV) * ccSpecularity;
-        color = color * ccScaling + (ccSpecularLight + ccReflection) * ccSpecularity;
-    }
-
-    // Sheen energy conservation: the sheen layer takes energy from the base layer
-    // rather than adding on top of it. 0.157 is the average directional albedo of
-    // the Charlie BRDF, from fitting its DFG integral. Twin of the block in
-    // forward-fragment-tail.metal.
-    if (vtFeatureEnabled(VT_FEATURE_SHEEN_BIT)) {
-        float sheenScaling = 1.0 -
-            max(sheenTint.r, max(sheenTint.g, sheenTint.b)) * 0.157;
-        color = color * sheenScaling + sheenSpecularDirect + sheenSpecularIndirect;
     }
 
     // Fog. The three curves: LINEAR over [start, end], EXP

@@ -14,14 +14,19 @@
 //    unchanged value reaches nothing at all. A body that cannot take a new mass in place
 //    is rebuilt with its velocities carried over.
 //  - teleport() before the body exists stops it: nothing held is applied.
+//  - Only an active body is in the world. Disabling the component, its entity, a parent
+//    or the sibling collision component destroys the body at once; enabled again, it is
+//    recreated at the entity's CURRENT transform, at rest.
 //
 // The components run against a world of recording bodies, so every call is visible.
 
+#include <algorithm>
 #include <iostream>
 #include <memory>
 #include <optional>
 #include <vector>
 
+#include "framework/components/collision/collisionComponent.h"
 #include "framework/components/component.h"
 #include "framework/components/rigidbody/rigidBodyComponent.h"
 #include "framework/entity.h"
@@ -134,6 +139,12 @@ namespace
             std::make_unique<RigidBodyComponent>(nullptr, entity), componentTypeID<RigidBodyComponent>()));
         body->setType(RigidBodyType::Dynamic);
         return body;
+    }
+
+    bool holds(const RecordingWorld& world, const PhysicsBody* body)
+    {
+        return std::any_of(world.bodies.begin(), world.bodies.end(),
+            [body](const auto& owned) { return owned.get() == body; });
     }
 
     RecordingBody* bodyOf(const RigidBodyComponent* component)
@@ -259,6 +270,79 @@ int main()
         check(staticBody && staticBody->settingCalls == 0 && world.created == createdBefore,
             "a static body is neither told its mass nor rebuilt for it");
         check(fixed->mass() == 12.0f, "the mass is kept for a later type change");
+    }
+
+    std::cout << "\ndisabling takes the body out of the world\n";
+    {
+        RecordingWorld world;
+        Entity root;
+        root.setEnabledInHierarchy(true);
+        RigidBodyComponent* component = addDynamicBody(root);
+        Entity* owner = component->entity();
+        auto* collision = static_cast<CollisionComponent*>(owner->addComponentInstance(
+            std::make_unique<CollisionComponent>(nullptr, owner), componentTypeID<CollisionComponent>()));
+        owner->setPosition(Vector3(1.0f, 0.0f, 0.0f));
+        component->syncFromSimulation(world);
+        RecordingBody* first = bodyOf(component);
+        if (check(first != nullptr && world.created == 1, "an active body is created")) {
+            first->linear = Vector3(0.0f, -4.0f, 0.0f);
+            first->angular = Vector3(1.0f, 0.0f, 0.0f);
+
+            component->setEnabled(false);
+            check(component->physicsBody() == nullptr && world.destroyed == 1 && world.bodies.empty(),
+                "disabling the component destroys the body at once");
+            component->syncFromSimulation(world);
+            check(component->physicsBody() == nullptr && world.created == 1,
+                "and no sync recreates it while it stays disabled");
+
+            owner->setPosition(Vector3(4.0f, 5.0f, 6.0f));
+            component->setEnabled(true);
+            component->syncFromSimulation(world);
+            RecordingBody* second = bodyOf(component);
+            check(second != nullptr && world.created == 2 && holds(world, second),
+                "enabled again, the next sync recreates it");
+            check(second && same(second->desc.position, Vector3(4.0f, 5.0f, 6.0f)),
+                "at the entity's current position");
+            check(second && same(second->linear, Vector3(0.0f, 0.0f, 0.0f)) &&
+                      same(second->angular, Vector3(0.0f, 0.0f, 0.0f)),
+                "and at rest");
+        }
+
+        owner->setEnabled(false);
+        check(component->physicsBody() == nullptr && world.bodies.empty(),
+            "disabling the entity takes the body out of the world");
+        owner->setEnabled(true);
+        component->syncFromSimulation(world);
+        check(component->physicsBody() != nullptr && world.bodies.size() == 1,
+            "enabling the entity brings it back");
+
+        root.setEnabled(false);
+        check(component->physicsBody() == nullptr && world.bodies.empty(),
+            "disabling a parent takes the body out of the world");
+        root.setEnabled(true);
+        component->syncFromSimulation(world);
+        check(component->physicsBody() != nullptr && world.bodies.size() == 1, "enabling the parent brings it back");
+
+        collision->setEnabled(false);
+        check(component->physicsBody() == nullptr && world.bodies.empty(),
+            "disabling the collision component takes the body out of the world");
+        component->syncFromSimulation(world);
+        check(component->physicsBody() == nullptr && world.bodies.empty(),
+            "and a body without an active collision component is not recreated");
+        collision->setEnabled(true);
+        component->syncFromSimulation(world);
+        check(component->physicsBody() != nullptr && world.bodies.size() == 1,
+            "enabling the collision component brings it back");
+
+        const int createdBefore = world.created;
+        const int destroyedBefore = world.destroyed;
+        component->setEnabled(false);
+        component->setLinearVelocity(Vector3(0.0f, 3.0f, 0.0f));
+        component->setEnabled(true);
+        component->syncFromSimulation(world);
+        check(world.created == createdBefore + 1 && world.destroyed == destroyedBefore + 1 &&
+                  bodyOf(component) && same(bodyOf(component)->linear, Vector3(0.0f, 3.0f, 0.0f)),
+            "a velocity set while disabled is given to the recreated body");
     }
 
     return finish("rigid-body state");

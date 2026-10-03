@@ -31,8 +31,10 @@ namespace visutwin::canvas::env_shaders
     };
     static_assert(sizeof(EquirectToCubeUniforms) == 16);
 
-    // The face mapping is the one the convolve pass's X flip expects; keep the
-    // two in step.
+    // The face mapping is the standard cube convention, the one the hardware cube
+    // lookup uses, so the cube this writes holds the equirect's texel for every
+    // direction: sampling it along d returns equirect(d). The reproject and convolve
+    // passes rely on that and sample a cube source along d unchanged.
     constexpr const char* EQUIRECT_TO_CUBE_MSL = VT_QUAD_MSL_PRELUDE R"(
 
 constant float PI = 3.141592653589793;
@@ -222,8 +224,10 @@ fragment float4 reprojectFragment(
         ? uvToDirOctahedral(uv) : uvToDirEquirect(uv));
 
 #ifdef SRC_CUBE
-    // The engine's atlas lookup handedness: negate X, as the sky paths do.
-    const float4 raw = sourceTexture.sample(linearSampler, float3(-dir.x, dir.y, dir.z));
+    // NO X flip here: the atlas stores the source at the direction it came from,
+    // and the shading lookups negate X when they read it, as the skybox does when it
+    // reads a cube. Flipping here too would mirror every reflection against the sky.
+    const float4 raw = sourceTexture.sample(linearSampler, dir);
 #else
     const float2 srcUv = (u.sourceProjection == PROJ_OCTAHEDRAL)
         ? dirToUvOctahedral(dir) : dirToUvEquirect(dir);
@@ -306,7 +310,8 @@ void main() {
         ? uvToDirOctahedral(uv) : uvToDirEquirect(uv));
 
 #ifdef SRC_CUBE
-    vec4 raw = texture(sourceTexture, vec3(-dir.x, dir.y, dir.z));
+    // No X flip: see the MSL body.
+    vec4 raw = texture(sourceTexture, dir);
 #else
     vec2 srcUv = (u.sourceProjection == PROJ_OCTAHEDRAL)
         ? dirToUvOctahedral(dir) : dirToUvEquirect(dir);
@@ -405,8 +410,8 @@ fragment float4 convolveFragment(
         }
         const float3 L = T * s.x + B * s.y + N * s.z;
 #ifdef SRC_CUBE
-        float3 color = sourceTexture.sample(linearSampler,
-            float3(-L.x, L.y, L.z), level(s.w)).rgb;
+        // Along L unchanged, as the reproject pass samples a cube.
+        float3 color = sourceTexture.sample(linearSampler, L, level(s.w)).rgb;
 #else
         float3 color = sourceTexture.sample(linearSampler,
             dirToUvEquirect(L), level(s.w)).rgb;
@@ -485,7 +490,7 @@ void main() {
         }
         vec3 L = T * s.x + B * s.y + N * s.z;
 #ifdef SRC_CUBE
-        vec3 color = textureLod(sourceTexture, vec3(-L.x, L.y, L.z), s.w).rgb;
+        vec3 color = textureLod(sourceTexture, L, s.w).rgb;
 #else
         vec3 color = textureLod(sourceTexture, dirToUvEquirect(L), s.w).rgb;
 #endif

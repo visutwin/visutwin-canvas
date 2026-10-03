@@ -18,6 +18,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include "core/math/color.h"
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/depthState.h"
 #include "platform/graphics/shader.h"
@@ -227,9 +228,14 @@ namespace visutwin::canvas
                 g = color[i * colorChannels + 1];
                 b = color[i * colorChannels + 2];
             }
-            _renderParams.colorLut[i][0] = std::max(r, 0.0f);
-            _renderParams.colorLut[i][1] = std::max(g, 0.0f);
-            _renderParams.colorLut[i][2] = std::max(b, 0.0f);
+            // The colour graph is authored in gamma space, like the colour map it
+            // multiplies, and the shaders work in linear: decode the rgb here, each
+            // sample clamped to [0, 1] first. The shader interpolates between decoded
+            // samples, so the ramp is blended in linear space. Alpha is coverage and is
+            // not decoded.
+            _renderParams.colorLut[i][0] = gammaToLinear(std::clamp(r, 0.0f, 1.0f));
+            _renderParams.colorLut[i][1] = gammaToLinear(std::clamp(g, 0.0f, 1.0f));
+            _renderParams.colorLut[i][2] = gammaToLinear(std::clamp(b, 0.0f, 1.0f));
             _renderParams.colorLut[i][3] = std::clamp(alpha[i], 0.0f, 1.0f);
             _renderParams.scaleLut[i][0] = std::max(scale[i], 0.0f);
             _renderParams.scaleLut[i][1] = std::max(scale2[i], 0.0f);

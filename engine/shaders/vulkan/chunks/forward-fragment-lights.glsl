@@ -1,4 +1,6 @@
-    uint count = min(lighting.lightCount.x, 8u);
+    // useLighting off (VT_FEATURE_NO_LIGHTS): no light reaches the surface; ambient,
+    // reflections and the combine still run. The clustered loop is compiled out with it.
+    uint count = vtFeatureEnabled(VT_FEATURE_NO_LIGHTS_BIT) ? 0u : min(lighting.lightCount.x, 8u);
     for (uint i = 0u; i < count; ++i) {
         Light light = lighting.lights[i];
         uint type = uint(light.directionType.w + 0.5);

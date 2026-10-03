@@ -250,6 +250,7 @@ namespace visutwin::canvas
         // material cannot see whether the mesh even carries a color stream — but asking
         // for emissiveVertexColor is that opt-in, and would otherwise silently do nothing.
         options.vertexColors = stdMat.emissiveVertexColor();
+        options.vertexColorGamma = stdMat.vertexColorGamma();
         // The specular workflow (useMetalness false, the default) runs through
         // the spec-gloss variant: F0 from the specular colour, gloss from `gloss`.
         options.specGloss = stdMat.usesSpecularWorkflow() || stdMat.specGlossMap() != nullptr;
@@ -258,9 +259,14 @@ namespace visutwin::canvas
         options.orenNayar = stdMat.useOrenNayar();
         options.detailNormals = stdMat.detailNormalMap() != nullptr;
         options.displacement = stdMat.displacementMap() != nullptr;
-        // A StandardMaterial with lighting disabled (decals, debug visualizers, holograms).
-        options.unlit = !stdMat.useLighting();
+        // useLighting off keeps the lit pipeline (ambient, reflections, fog, the
+        // combine) and drops only the lights; applyFrameOptions turns the clustered
+        // lights off for it.
+        options.noLights = !stdMat.useLighting();
         options.msdf = stdMat.msdfMap() != nullptr;
+        // The fully unlit output (UI, MSDF text, overlays). An MSDF map is read as a
+        // distance field only on that path, so it implies it.
+        options.unlit = stdMat.unlit() || options.msdf;
         // useTonemap off (UI text and images): neither the curve nor exposure, while
         // the gamma encode of a gamma target still applies.
         options.noTonemap = !stdMat.useTonemap();
@@ -318,6 +324,9 @@ namespace visutwin::canvas
         options.pointSize = variantBit(variantBits, 31);
         // unlit: bit 32, used by glb-parser for KHR_materials_unlit assets.
         options.unlit = options.unlit || variantBit(variantBits, 32);
+        // Gamma-encoded vertex colours: bit 35, for a material that is not a
+        // StandardMaterial (which says StandardMaterial::setVertexColorGamma).
+        options.vertexColorGamma = options.vertexColorGamma || variantBit(variantBits, 35);
     }
 
     void ProgramLibrary::applyDrawOptions(ShaderVariantOptions& options, const uint64_t variantBits,
@@ -386,6 +395,17 @@ namespace visutwin::canvas
         options.pcf1Shadows = _pcf1ShadowsEnabled && !options.skybox;
         options.pcf5Shadows = _pcf5ShadowsEnabled && !options.skybox;
         options.areaLights = _areaLightsEnabled && !options.skybox;
+
+        // A material that takes no lights (useLighting off) gets no clustered lights
+        // either, and nothing that only shades a light — the light loops are empty.
+        if (options.noLights) {
+            options.lightClustering = false;
+            options.areaLights = false;
+            options.localShadows = false;
+            options.omniShadows = false;
+            options.cookie2D = false;
+            options.cookieCube = false;
+        }
     }
 
     std::string ProgramLibrary::resolveProgramName(const ShaderVariantOptions& options)
@@ -452,6 +472,8 @@ namespace visutwin::canvas
         set(ShaderFeature::DynamicBatch, options.dynamicBatch);
         set(ShaderFeature::PointSize, options.pointSize);
         set(ShaderFeature::Unlit, options.unlit);
+        set(ShaderFeature::NoLights, options.noLights);
+        set(ShaderFeature::VertexColorGamma, options.vertexColorGamma);
         set(ShaderFeature::Pick, options.pick);
         set(ShaderFeature::AreaLights, options.areaLights);
         set(ShaderFeature::VsmShadows, options.vsmShadows);

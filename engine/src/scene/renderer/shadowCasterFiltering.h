@@ -51,8 +51,8 @@ namespace visutwin::canvas
     void collectShadowCasters(std::vector<MeshInstance*>& casters, const Camera* camera = nullptr);
 
     // The mesh-level caster rules that do NOT depend on a camera: castShadow, node
-    // state, material transparency (with the alpha-test and dithered-shadow
-    // exceptions) and the presence of geometry. Split out so a caller that does its
+    // state and the presence of geometry. Material blending is not one of them: a
+    // blended caster casts solid depth unless it alpha-tests or dithers its shadow. Split out so a caller that does its
     // own visibility test — the omni classification, which tests six faces at once —
     // pays these once rather than once per face.
     bool shouldRenderShadowMeshInstanceIgnoringVisibility(MeshInstance* meshInstance);

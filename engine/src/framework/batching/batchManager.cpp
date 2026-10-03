@@ -15,7 +15,11 @@
 
 #include "framework/components/render/renderComponent.h"
 #include "platform/graphics/graphicsDevice.h"
+#include "platform/graphics/indexBuffer.h"
 #include "scene/composition/layerComposition.h"
+#include "scene/graphNode.h"
+#include "scene/materials/material.h"
+#include "scene/meshInstance.h"
 #include "scene/scene.h"
 #include "spdlog/spdlog.h"
 
@@ -132,7 +136,51 @@ namespace visutwin::canvas
             candidate.castShadow = meshInstance->castShadow();
             candidate.receiveShadow = meshInstance->receiveShadow();
             candidate.aabb = meshInstance->aabb();
+            candidate.mask = meshInstance->mask();
+            const auto& stencilFront = meshInstance->stencilFront();
+            const auto& stencilBack = meshInstance->stencilBack();
+            candidate.hasStencil = stencilFront || stencilBack;
+            candidate.stencilFrontKey = stencilFront ? stencilFront->key() : 0u;
+            candidate.stencilBackKey = stencilBack ? stencilBack->key() : 0u;
+            candidate.drawBucket = meshInstance->drawBucket();
+            candidate.drawOrder = meshInstance->drawOrder();
             return candidate;
+        }
+
+        // A source whose world transform mirrors it (negative determinant).
+        bool sourceIsMirrored(const MeshInstance* meshInstance)
+        {
+            return meshInstance->node() && meshInstance->node()->worldScaleSign() < 0.0f;
+        }
+
+        // DEVIATION: upstream splits a batch by the sources' scale sign and flips the
+        // batch's culling for a mirrored one. Here a mirrored source's triangles are
+        // re-wound as they are merged instead: the batch draws with an identity node, so
+        // nothing else would flip them, and mirrored and unmirrored sources can then
+        // share one batch.
+        void appendSourceIndices(std::vector<uint32_t>& merged, const MeshInstance* meshInstance,
+            const IndexBuffer* indexBuffer, const int vertexCount, const uint32_t vertexOffset)
+        {
+            const bool mirrored = sourceIsMirrored(meshInstance);
+            if (indexBuffer && !indexBuffer->storage().empty()) {
+                appendTriangleIndices(merged, indexBuffer->storage().data(),
+                    indexFormatBytes(indexBuffer->format()),
+                    indexBuffer->numIndices(), vertexCount, vertexOffset, mirrored);
+            } else {
+                appendTriangleIndices(merged, nullptr, 0, 0, vertexCount, vertexOffset, mirrored);
+            }
+        }
+
+        // The per-draw state a batch carries once, from its first source; the split
+        // guaranteed every source agrees on it.
+        void copyBatchDrawState(MeshInstance& batchInstance, const MeshInstance& source)
+        {
+            batchInstance.setCastShadow(source.castShadow());
+            batchInstance.setReceiveShadow(source.receiveShadow());
+            batchInstance.setMask(source.mask());
+            batchInstance.setStencil(source.stencilFront(), source.stencilBack());
+            batchInstance.setDrawBucket(source.drawBucket());
+            batchInstance.setDrawOrder(source.drawOrder());
         }
     }
 
@@ -285,8 +333,9 @@ namespace visutwin::canvas
         }
 
         // 3. Build batches. A (group, material) bucket is not one batch: mesh
-        //    instances that disagree about their vertex layout, primitive type or
-        //    shadow flags cannot share a draw, and a batch may not grow past the
+        //    instances that disagree about their vertex layout, primitive type, shadow
+        //    flags, mask, stencil or draw bucket cannot share a draw (and a blended
+        //    bucket keeps its draw order), and a batch may not grow past the
         //    group's maxAabbSize. splitBatchLists applies those rules and hands back
         //    one list per batch.
         int batchCount = 0;
@@ -303,8 +352,9 @@ namespace visutwin::canvas
                 candidates.push_back(describeCandidate(mi));
             }
 
+            const bool translucent = key.material && key.material->transparent();
             const auto lists = splitBatchLists(candidates,
-                group ? group->maxAabbSize : 0.0f, dynamic);
+                group ? group->maxAabbSize : 0.0f, dynamic, translucent);
 
             for (const auto& indices : lists) {
                 if (indices.size() < 2) continue;  // A batch of one saves nothing.
@@ -490,33 +540,9 @@ namespace visutwin::canvas
                 mergedVertices.push_back(v);
             }
 
-            // Remap indices with vertex offset.
-            if (ib && !ib->storage().empty()) {
-                const int idxCount = ib->numIndices();
-                const auto* idxData = ib->storage().data();
-
-                if (ib->format() == INDEXFORMAT_UINT16) {
-                    const auto* idx16 = reinterpret_cast<const uint16_t*>(idxData);
-                    for (int i = 0; i < idxCount; i++) {
-                        mergedIndices.push_back(static_cast<uint32_t>(idx16[i]) + vertexOffset);
-                    }
-                } else if (ib->format() == INDEXFORMAT_UINT32) {
-                    const auto* idx32 = reinterpret_cast<const uint32_t*>(idxData);
-                    for (int i = 0; i < idxCount; i++) {
-                        mergedIndices.push_back(idx32[i] + vertexOffset);
-                    }
-                } else {
-                    // UINT8
-                    for (int i = 0; i < idxCount; i++) {
-                        mergedIndices.push_back(static_cast<uint32_t>(idxData[i]) + vertexOffset);
-                    }
-                }
-            } else {
-                // Non-indexed: generate identity indices.
-                for (int i = 0; i < vertCount; i++) {
-                    mergedIndices.push_back(vertexOffset + static_cast<uint32_t>(i));
-                }
-            }
+            // Remap indices with vertex offset. The positions are now in world space,
+            // where a mirrored source's triangles wind the other way.
+            appendSourceIndices(mergedIndices, mi, ib.get(), vertCount, vertexOffset);
 
             // Merge AABB.
             BoundingBox instanceAabb = mi->aabb();
@@ -588,9 +614,7 @@ namespace visutwin::canvas
         batch->meshInstance = std::make_unique<MeshInstance>(
             mergedMesh.get(), sharedMaterial, &batch->node);
 
-        // Inherit shadow flags from first original.
-        batch->meshInstance->setCastShadow(meshInstances[0]->castShadow());
-        batch->meshInstance->setReceiveShadow(meshInstances[0]->receiveShadow());
+        copyBatchDrawState(*batch->meshInstance, *meshInstances[0]);
 
         // Hide original mesh instances.
         for (auto* mi : meshInstances) {
@@ -687,31 +711,11 @@ namespace visutwin::canvas
                 mergedVertices.push_back(dv);
             }
 
-            // Remap indices with vertex offset.
-            if (ib && !ib->storage().empty()) {
-                const int idxCount = ib->numIndices();
-                const auto* idxData = ib->storage().data();
-
-                if (ib->format() == INDEXFORMAT_UINT16) {
-                    const auto* idx16 = reinterpret_cast<const uint16_t*>(idxData);
-                    for (int i = 0; i < idxCount; i++) {
-                        mergedIndices.push_back(static_cast<uint32_t>(idx16[i]) + vertexOffset);
-                    }
-                } else if (ib->format() == INDEXFORMAT_UINT32) {
-                    const auto* idx32 = reinterpret_cast<const uint32_t*>(idxData);
-                    for (int i = 0; i < idxCount; i++) {
-                        mergedIndices.push_back(idx32[i] + vertexOffset);
-                    }
-                } else {
-                    for (int i = 0; i < idxCount; i++) {
-                        mergedIndices.push_back(static_cast<uint32_t>(idxData[i]) + vertexOffset);
-                    }
-                }
-            } else {
-                for (int i = 0; i < vertCount; i++) {
-                    mergedIndices.push_back(vertexOffset + static_cast<uint32_t>(i));
-                }
-            }
+            // Remap indices with vertex offset. The palette applies the node's transform
+            // per frame, but the batch's own node is the identity, so the draw does not
+            // flip a mirrored source's culling: its winding is reversed here, from the
+            // mirroring at build time.
+            appendSourceIndices(mergedIndices, mi, ib.get(), vertCount, vertexOffset);
 
             // Collect node for matrix palette.
             boneNodes.push_back(mi->node());
@@ -783,9 +787,7 @@ namespace visutwin::canvas
         // Mark the batch MeshInstance as a dynamic batch for shader variant selection.
         batch->meshInstance->setDynamicBatch(true);
 
-        // Inherit shadow flags from first original.
-        batch->meshInstance->setCastShadow(meshInstances[0]->castShadow());
-        batch->meshInstance->setReceiveShadow(meshInstances[0]->receiveShadow());
+        copyBatchDrawState(*batch->meshInstance, *meshInstances[0]);
 
         // Create SkinBatchInstance with node pointers.
         const size_t boneCount = boneNodes.size();
