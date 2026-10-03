@@ -5,7 +5,6 @@
 //
 #include "animClip.h"
 
-#include <algorithm>
 #include <cmath>
 
 #include "core/eventHandler.h"
@@ -207,10 +206,22 @@ namespace visutwin::canvas
             while (_time < 0.0f) {
                 _time += duration;
             }
-        } else {
-            _time = std::clamp(_time, 0.0f, duration);
-            if (_time == 0.0f || _time == duration) {
+        } else if (_speed >= 0.0f) {
+            // A non-looping clip pauses only when the step CROSSES the end it plays toward.
+            // Merely sitting at either end does not count: a clip entered at time 0 on a
+            // zero-dt frame (the engine's first) must not freeze there.
+            if (_time > duration) {
+                _time = duration;
                 _playing = false;
+            } else if (_time < 0.0f) {
+                _time = 0.0f;
+            }
+        } else {
+            if (_time < 0.0f) {
+                _time = 0.0f;
+                _playing = false;
+            } else if (_time > duration) {
+                _time = duration;
             }
         }
     }

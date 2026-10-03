@@ -10,13 +10,20 @@
 #include <algorithm>
 #include <cstring>
 
+#include "lightRadiance.h"
+
 namespace visutwin::canvas
 {
     DerivedLighting deriveLighting(const Color& ambientColor, const std::vector<GpuLightData>& lights,
         const size_t maxLights, const FogParams& fogParams, const ShadowParams& shadowParams,
-        const Vector3* ambientSH, const Matrix4* viewProjection)
+        const Vector3* ambientSH, const Matrix4* viewProjection, const uint32_t meshLightMask)
     {
         DerivedLighting out;
+
+        // A draw on a dynamic mesh accepts the clustered lights that affect dynamic meshes;
+        // any other draw (a lightmapped mesh, a bake) the ones that affect lightmapped meshes.
+        out.clusterLightAccept = (meshLightMask & MASK_AFFECT_DYNAMIC) != 0u
+            ? MASK_AFFECT_DYNAMIC : MASK_AFFECT_LIGHTMAPPED;
 
         // Ambient SH light probes: nine premultiplied irradiance coefficients.
         if (ambientSH) {
@@ -47,11 +54,11 @@ namespace visutwin::canvas
             const GpuLightData& src = lights[i];
             DerivedLight& dst = out.lights[i];
             dst.source = &src;
-            Color linear;
-            linear.linear(&src.color);
-            dst.linearColor[0] = linear.r;
-            dst.linearColor[1] = linear.g;
-            dst.linearColor[2] = linear.b;
+            const LightRadiance radiance = lightRadiance(src.color, src.intensity);
+            dst.linearColor[0] = radiance.linearColor[0];
+            dst.linearColor[1] = radiance.linearColor[1];
+            dst.linearColor[2] = radiance.linearColor[2];
+            dst.intensity = radiance.intensity;
         }
 
         Color fogLinear;

@@ -1515,14 +1515,15 @@ namespace visutwin::canvas
         const std::vector<GpuLightData>& lights, const Vector3& cameraPosition,
         bool enableNormalMaps, float exposure, const FogParams& fogParams,
         const ShadowParams& shadowParams, int toneMapping,
-        const Vector3* ambientSH, const Matrix4* viewProjection)
+        const Vector3* ambientSH, const Matrix4* viewProjection, const uint32_t meshLightMask)
     {
         // The values are decided in deriveLighting, shared with the Metal backend; this only
         // lays them out in VulkanLightingUBO.
         constexpr uint32_t kMaxLights = 8;
         auto& ubo = _lightingUbo;
         const DerivedLighting derived = deriveLighting(ambientColor, lights, kMaxLights,
-            fogParams, shadowParams, ambientSH, viewProjection);
+            fogParams, shadowParams, ambientSH, viewProjection, meshLightMask);
+        ubo.clusterParams2[1] = derived.clusterLightAccept;
 
         std::memcpy(ubo.ambientSH, derived.ambientSH, sizeof(ubo.ambientSH));
         // SSR and refraction project world positions to screen UV with this.
@@ -1647,7 +1648,7 @@ namespace visutwin::canvas
             dst.colorIntensity[0] = light.linearColor[0];
             dst.colorIntensity[1] = light.linearColor[1];
             dst.colorIntensity[2] = light.linearColor[2];
-            dst.colorIntensity[3] = src.intensity;
+            dst.colorIntensity[3] = light.intensity;
             dst.coneParams[0] = src.innerConeCos;
             dst.coneParams[1] = src.outerConeCos;
             dst.coneParams[2] = src.falloffModeLinear ? 1.0f : 0.0f;

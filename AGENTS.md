@@ -257,8 +257,14 @@ What IS single-sourced is the block's CONTENT: `deriveLighting`
 (`platform/graphics/lightingDerivation.h`) decides every value both layouts carry — the
 sRGB decode of ambient, light and fog colours, the SH and view-projection packing, the
 area-light up axis, the local shadow slots (spot matrix, omni near / far / RELATIVE bias,
-the unused-slot defaults), the cookie slots and when a directional slot counts as
-active — and each backend's `setLightingUniforms` only lays the result out. A new
+the unused-slot defaults), the cookie slots, when a directional slot counts as active,
+each light's colour / intensity split and which clustered lights the draw accepts — and
+each backend's `setLightingUniforms` only lays the result out. The split is
+`lightRadiance` (`platform/graphics/lightRadiance.h`), a reproduced quirk: at intensity 1
+or more the colour is decoded and then scaled, below 1 it is scaled BEFORE the sRGB decode
+(0.5 shades at about 0.22, not 0.5). Binders pack `DerivedLight::intensity`, never
+`GpuLightData::intensity`, and anything else that shades a light (clusters, volumetric
+fog, the GPU lightmapper's split sun copies) goes through the same function. A new
 lighting value is decided there, then copied by both binders; a value derived inside
 one binder lets the two backends drift apart.
 
@@ -291,7 +297,12 @@ builds resolve in full on every memo hit and assert the two agree;
 ### Adding a texture slot
 
 Bump `MetalTextureBinder::kMaxTextureSlots` AND add the slot to the
-`materialSlots` clear list in `bindMaterialTextures`. Slots 0-38 are taken today
+`materialSlots` clear list in `bindMaterialTextures`. Metal fragment SAMPLER slots 1-6 carry
+the texture's own sampler for base colour, normal, metal-rough, occlusion, emissive and
+lightmap (`kMaterialSamplerTextureSlots`, built from `textureSamplerState`, the same mapping
+Vulkan's per-texture samplers use) — exactly the maps Vulkan binds as combined samplers. A
+new map Vulkan binds as a combined sampler needs a sampler slot there, within the budget
+comment in `metalTextureBinder.h`; a separate-image map keeps `defaultSampler` on both. Slots 0-38 are taken today
 (31-33 the gloss, thickness and refraction maps, 34 the opacity map; 35 is the
 second directional shadow map, 36 the clustered cookie atlas and 37-38 the VSM spot
 moments, scene slots, not material ones).
@@ -354,7 +365,9 @@ The engine owns the input DEVICES; the application owns the event loop.
 - **The edges record TRANSITIONS, not a snapshot comparison.** DEVIATION from
   upstream, which diffs this frame's key map against last frame's and therefore
   cannot see a key pressed AND released inside one frame. Auto-repeat is not a new
-  press; the edge is recorded only when the key was actually up.
+  press; the edge is recorded only when the key was actually up, and a RELEASE edge
+  only when it was actually held (a key-up whose key-down was withheld by the UI, or
+  one arriving after a focus loss already released it, is not a second release).
 - **Losing window focus releases everything held.** A key or button held while
   focus moves away never sends its release, and would otherwise read as held for
   the rest of the process. The release EDGE is recorded too, so a caller watching
@@ -389,8 +402,13 @@ systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
   finished storing everything else that came with it, and a world read once at
   construction is null forever — a whole scene frozen with nothing to show why.
 - The body is created lazily from the component's settings plus the sibling
-  `CollisionComponent`'s shape, and any setter marks it stale so it is rebuilt.
-  Authoring order therefore does not matter.
+  `CollisionComponent`'s shape, so authoring order does not matter. Mass, friction,
+  restitution and damping then update the LIVE body (`PhysicsBody::setMass` / `setFriction`
+  / `setRestitution` / `setDamping`) and an unchanged value does nothing; only the type, or a
+  mass the backend refuses in place (0, "from the shape"), rebuilds it, and a rebuilt dynamic
+  body keeps its velocities. Velocity, impulse, torque impulse, force and torque given before
+  the body exists (or while a rebuild is pending) are STORED and applied at creation, before
+  the step: a projectile launched in the frame it is spawned must not be dropped.
 - **Static bodies do not get their transform written back** (nothing else should
   be fighting whatever placed them) and **kinematic bodies are pushed the other
   way**: the entity's transform goes INTO the simulation.
@@ -399,6 +417,9 @@ systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
   `Engine::fixedDeltaTime()`; `RigidBodyComponentSystem::step(dt)` is public for
   driving the simulation from another clock, and `setTimeScale(0)` pauses it
   (nothing steps, nothing is written back) while the rest of the engine runs on.
+  `Engine::update` clamps the frame time to `maxDeltaTime()` (0.1 s) and multiplies it by
+  `timeScale()` before anything sees it, the accumulator included; `VISUTWIN_FIXED_DT`
+  raises the clamp to its own value, so a magnifying 2.0 step still gets through.
 - **The CPU raycast fallback skips colliders that are not `active()`.** Testing the
   components' own `enabled()` alone would still hit a collider on a disabled entity,
   or under a disabled parent; `tests/raycastFallbackTests.cpp`.
@@ -427,8 +448,9 @@ systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
   that holds bodies still or turns them by a known rotation.
 - `teleport()` rather than `setPosition()` on a simulated entity: the step would
   overwrite a bare transform, and Jolt does not wake a body that was only moved.
-- `CollisionComponent::height` is the FULL height for a capsule, caps included;
-  the backend converts to Jolt's cylindrical half-height.
+- `CollisionComponent::height` is the FULL height for a capsule, caps included, and
+  defaults to 2; the backend converts to Jolt's cylindrical half-height. A joint defaults
+  to FIXED, and a ball joint's swing and twist limits of 0 mean UNLIMITED here.
 - **A joint lives on its OWN entity, and that entity's transform is the joint
   FRAME** — its local **X axis is the primary axis** (hinge rotation, slider
   travel, ball twist). Position and orient the entity, parent it, THEN add the
@@ -598,7 +620,7 @@ device cache, the source built only on a miss) with the vertex stage, vertex inp
 `VT_QUAD_GLSL_VERTEX`) rather than a copy of them. A quad pass is otherwise a shader,
 up to 8 input textures on fragment slots 0-7, and one uniform block. The block rides the per-draw MATERIAL slot (Metal buffer 3 / Vulkan
 set 0 binding 0) via `GraphicsDevice::setQuadUniformData`; `kPerDrawUniformCapacity`
-(640; `MaterialUniforms` itself is 544 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
+(640; `MaterialUniforms` itself is 560 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
 allocation behind it. A smaller block is copied into the front of a full-size
 allocation, so never shorten the allocation. Quad passes draw an oversized
 fullscreen TRIANGLE and, on Metal, bind `_postSampler` (linear, clamp, no anisotropy),
@@ -892,7 +914,11 @@ present, but the rule below never depends on reading it.
   spot and omni is in the cluster grid and its shadow comes from the
   LightTextureAtlas; the main-array allocation clears `castShadows` when its two
   slots run out, so a clustered light routed through the array would lose its shadow
-  past `ShadowParams::kMaxLocalShadows`. Clustered lighting is ON by default, as upstream,
+  past `ShadowParams::kMaxLocalShadows`. A light enters the grid only with a dynamic or
+  lightmapped mask (`clusterAdmitsLight`: a bake-only light must not light at runtime), and
+  each draw accepts a clustered light only when the light's bits (`areaHalfHeight.w`) meet
+  the one its mesh mask selects (`clusterParams2.y`: dynamic if the mesh has it, otherwise
+  lightmapped). Clustered lighting is ON by default, as upstream,
   so a scene that needs the non-clustered path (PCSS local shadows) has to say
   `setClusteredLightingEnabled(false)`. Clustered COOKIES come from a cookie atlas laid
   out like the shadow atlas (same slot rects, `RenderPassCookieRenderer` copies each
@@ -1227,10 +1253,25 @@ present, but the rule below never depends on reading it.
   byte/short in CORE glTF, and `KHR_mesh_quantization` extends that to `POSITION`,
   `NORMAL` and `TANGENT`. One `decodeComponent` in `glbParser.cpp` does the spec's
   de-quantisation for every reader, sparse overrides included, so a new reader
-  should go through `readElement` rather than casting to `const float*`. Never gate a
+  should go through `AccessorReader` (built once per accessor, sparse substitution
+  resolved up front, a base-less accessor reading as zeros plus its overrides) rather than
+  casting to `const float*` or reading the base view alone. Never gate a
   primitive on `componentType != FLOAT`: a guard that `continue`s drops the mesh with
   nothing logged. Verify a change here by rendering the quantised asset
   against the same geometry written as floats — they must agree to rounding.
+- **A glTF triangle primitive without NORMAL is UNWELDED into a flat-shaded triangle
+  list** (`applyFlatNormals`): its vertex count grows and its index buffer goes. Any new
+  per-vertex stream must be remapped through the source list it returns, and tangents are
+  derived after it, from the final normals. DEVIATION: upstream keeps smooth normals and
+  flat-shades through a material flag this port does not have.
+- **glTF `COLOR_0` on a static triangle primitive uses the 72-byte coloured layout and a
+  copy of its material with variant bit 21**, and is stored as `pow(c, 1 / 2.2)` so the
+  vertex stages' unconditional `pow(c, 2.2)` gives back the file's LINEAR value (alpha
+  written 1: it tints diffuse, not opacity). Move the decode behind a material flag (a
+  `vertexColorGamma`, off by default) and store linear values together, never one
+  without the other. An all-white stream is dropped (it would only cost the batchable
+  layout); a skinned or morphed primitive drops its colour with a warning, since no
+  skinned or morphed vertex stage reads one.
 - **An animation layer's weight is a CONTRIBUTION, composed per node across layers;
   nothing but the component writes an animated node.** Each layer's `AnimEvaluator`
   has a pose sink (`setPoseSink`) that hands its per-node result to the
@@ -1655,7 +1696,14 @@ present, but the rule below never depends on reading it.
   `notifyHierarchyStateChanged`) walks by index and skips holes. A `removeChild` that
   finds and erases is quadratic over many siblings. `tests/graphNodeTests.cpp` holds
   order, re-removal, deletion
-  while attached and a removal mid-walk.
+  while attached and a removal mid-walk. `removeChild` DISABLES the detached subtree
+  (DEVIATION: this engine renders from global component lists filtered by `active()`, so
+  a detached entity left active would go on rendering), but `addChild` MOVING a node from
+  one parent to another notifies only a real change of its enabled-in-hierarchy state:
+  reparenting between two enabled parents fires no disable / enable.
+- **`EventHandler::off(name, callback)` matches by function IDENTITY**: a function pointer,
+  or the same captureless lambda object. A capturing lambda or a `std::function` cannot be
+  compared and is a compile error there — keep the handle `on()` returned, or use a scope.
 - **`Entity::destroy()` is the teardown path, and it does NOT free the node.**
   Descendants first, disable in order, `destroy` event, then each component
   released THROUGH the system that owns it (so `beforeremove` / `remove` fire for
@@ -1920,7 +1968,8 @@ present, but the rule below never depends on reading it.
 - **The lighting block is set once per LAYER, not per draw.** `renderForwardLayer`
   calls `setLightingUniforms` on a layer's first draw and again only when a draw's
   light mask or `receiveShadow` differs from the previous draw's — the only two
-  inputs to that block that depend on the draw. Anything genuinely per draw must go
+  inputs to that block that depend on the draw (the mask also picks which clustered
+  lights the draw accepts). Anything genuinely per draw must go
   in the model or material block, never in the lighting block, or every draw after
   the first reads the first one's value.
 - **Vulkan reuses per-draw uploads WITHIN A FRAME, keyed on what they came from.** Every
@@ -1950,9 +1999,10 @@ present, but the rule below never depends on reading it.
   before falling back to the hashed per-frame cache.
 - **Metal's `draw()` issues encoder state only when it differs from what the encoder
   holds, and it is the ONLY writer of that state.** The pipeline, the vertex buffers at
-  slots 0 and 5, the cull mode, the depth-stencil state, the stencil reference and the
-  offsets of buffer slots 3 and 4 are remembered per encoder (`_pipelineState`,
-  `_encoderVertexBuffer0` ..., and the binder's `_encoderMaterialOffset`);
+  slots 0 and 5, the cull mode, the depth-stencil state, the stencil reference, the
+  offsets of buffer slots 3 and 4 and the fragment samplers at slots 0-6 are remembered per
+  encoder (`_pipelineState`, `_encoderVertexBuffer0` ..., the binder's
+  `_encoderMaterialOffset` and the texture binder's `_boundSamplers`);
   `startRenderPass` forgets them with the new encoder (`resetEncoderStateCache`,
   `resetPassState`) and sets the front-face winding once. Code that sets any of these on
   `_renderPassEncoder` from anywhere else must update or reset the cache, or the next
@@ -2091,7 +2141,9 @@ present, but the rule below never depends on reading it.
   Text and image elements are DRAWN by `ElementInput::syncElements`, which
   `Engine::render` calls before the frame (no example calls it). The visual's material is
   upstream's: EMISSIVE-only, colour times the image texture, alpha from the texture, black
-  diffuse. Setting the colour as diffuse AND emissive makes the unlit path's
+  diffuse, and NOT tone mapped (`StandardMaterial::setUseTonemap(false)` compiles
+  `VT_FEATURE_NO_TONEMAP`: mode NONE, no exposure, gamma still applied; a feature that changes
+  tone mapping has to reach every return path, the unlit one included). Setting the colour as diffuse AND emissive makes the unlit path's
   `base + emissive` draw every glyph at twice its linear colour (white clips and hides
   it; an HDR label such as `post-processing`'s blooms twice as hard). A screen assigns its
   elements' `drawOrder` depth-first (priority in the top 8 bits) on the update after a
@@ -2125,9 +2177,10 @@ present, but the rule below never depends on reading it.
   its text is set, or the element has already grown to the unwrapped width. Markup
   (`markup.h`, upstream's scanner and parser) resolves to a style per symbol; each (page,
   style) run is its own mesh instance and material (DEVIATION: upstream uses vertex
-  attributes and one mesh per page). With tags present upstream switches EVERY symbol to
-  its per-vertex shadow convention, `(0.005 x, 0.005 y)`, which points y the other way from
-  the uniform one on a square page; reproduced, not fixed.
+  attributes and one mesh per page). Text with tags takes the SAME shadow offset as text
+  without: upstream's per-vertex path packs -width / height into y as well, so both come to
+  `(0.005 x, -aspect x 0.005 y)` per page (a sign flip read off its shader alone, without the
+  packing, puts a tagged run's shadow on the wrong side).
   Text is laid out on upstream's METRICS: glyphs scale by fontSize / 32 (the fonts' em),
   lines step by fontSize, and the block is aligned by the glyph `bounds` extent with
   vertical alignment 0.5 by default. Scaling by fontSize over the 64-pixel atlas cell

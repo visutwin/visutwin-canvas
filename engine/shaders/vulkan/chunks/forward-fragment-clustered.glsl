@@ -12,6 +12,10 @@
                 uint index1 = clusterCells.values[base + slot];
                 if (index1 == 0u) break;
                 ClusterLight cl = clusterLights.values[index1 - 1u];
+                // The light's mask bits (areaHalfHeight.w: 1 affects dynamic meshes, 2
+                // lightmapped ones) against the bit this draw accepts, from its
+                // mesh-instance mask (see the Metal twin).
+                if ((uint(cl.areaHalfHeight.w + 0.5) & lighting.clusterParams2.y) == 0u) continue;
                 vec3 delta = cl.positionRange.xyz - fragWorldPos;
                 float distance = length(delta);
                 vec3 L = delta / max(distance, 1e-5);

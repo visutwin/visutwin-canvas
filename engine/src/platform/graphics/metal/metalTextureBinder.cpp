@@ -9,6 +9,7 @@
 #include "metalTextureBinder.h"
 
 #include <cassert>
+#include "metalSamplerCache.h"
 #include "metalTexture.h"
 #include "platform/graphics/texture.h"
 #include "scene/materials/material.h"
@@ -57,11 +58,26 @@ namespace visutwin::canvas
     // Sampler
     // -----------------------------------------------------------------------
 
-    void MetalTextureBinder::bindSamplerCached(MTL::RenderCommandEncoder* encoder, MTL::SamplerState* sampler)
+    void MetalTextureBinder::bindSamplerCached(MTL::RenderCommandEncoder* encoder, const int slot,
+        MTL::SamplerState* sampler)
     {
-        if (sampler && _boundSampler != sampler) {
-            encoder->setFragmentSamplerState(sampler, 0);
-            _boundSampler = sampler;
+        assert(slot >= 0 && slot < kSamplerSlotCount);
+        if (sampler && _boundSamplers[slot] != sampler) {
+            encoder->setFragmentSamplerState(sampler, static_cast<NS::UInteger>(slot));
+            _boundSamplers[slot] = sampler;
+        }
+    }
+
+    void MetalTextureBinder::bindDrawSamplers(MTL::RenderCommandEncoder* encoder, MTL::SamplerState* general,
+        MTL::SamplerState* materialDefault, const bool materialSamplers)
+    {
+        bindSamplerCached(encoder, 0, general);
+        if (!materialSamplers) {
+            return;
+        }
+        for (int i = 0; i < kMaterialSamplerCount; ++i) {
+            MTL::SamplerState* sampler = _materialSamplers[i] ? _materialSamplers[i] : materialDefault;
+            bindSamplerCached(encoder, kFirstMaterialSamplerSlot + i, sampler);
         }
     }
 
@@ -69,9 +85,27 @@ namespace visutwin::canvas
     // Material textures
     // -----------------------------------------------------------------------
 
+    static_assert(MetalTextureBinder::kMaterialSamplerTextureSlots[5] == kLightMapTextureSlot,
+        "the last material sampler slot follows the lightmap");
+
     void MetalTextureBinder::bindMaterialTextures(MTL::RenderCommandEncoder* encoder,
-        const std::vector<TextureSlot>& textureSlots)
+        const std::vector<TextureSlot>& textureSlots, MetalSamplerCache& samplers)
     {
+        // Each material sampler slot takes the sampler of the texture at its material
+        // slot, so the map is read with its own wrap and filter. A slot with no texture
+        // records null and is bound the default sampler; a texture in the default state
+        // resolves to that same sampler object, so it samples exactly as it always did.
+        for (int i = 0; i < kMaterialSamplerCount; ++i) {
+            const Texture* texture = nullptr;
+            for (const auto& [slot, tex] : textureSlots) {
+                if (slot == kMaterialSamplerTextureSlots[i]) {
+                    texture = tex;
+                    break;
+                }
+            }
+            _materialSamplers[i] = texture ? samplers.forTexture(texture) : nullptr;
+        }
+
         // Clear material-owned slots (0,1,3,4,5) not used by this material.
         constexpr int materialSlots[] = {0, 1, 3, 4, 5, 17, 19, 23, 31, 32, 33, 34};
         for (const int s : materialSlots) {
@@ -114,6 +148,9 @@ namespace visutwin::canvas
         for (const int slot : materialSlots) {
             clearCached(encoder, slot);
         }
+        // No material, no maps: their sampler slots go back to the default sampler, so a
+        // later draw cannot read a map through the previous material's sampler.
+        _materialSamplers.fill(nullptr);
     }
 
     // -----------------------------------------------------------------------
@@ -187,6 +224,6 @@ namespace visutwin::canvas
     {
         _boundTextures.fill(nullptr);
         _dirty = true;
-        _boundSampler = nullptr;
+        _boundSamplers.fill(nullptr);
     }
 }

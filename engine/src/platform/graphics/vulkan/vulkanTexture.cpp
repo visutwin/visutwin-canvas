@@ -16,6 +16,7 @@
 #include <optional>
 #include <vector>
 #include "platform/graphics/texture.h"
+#include "platform/graphics/textureSamplerState.h"
 #include "spdlog/spdlog.h"
 
 namespace visutwin::canvas::gpu
@@ -689,24 +690,25 @@ namespace visutwin::canvas::gpu
         VulkanGraphicsDevice* device, VkSampler& sampler) const
     {
         VkSamplerCreateInfo samplerInfo{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-        const VkFilter requestedMag = vulkanMapFilterMode(_owner->magFilter());
-        const VkFilter requestedMin = vulkanMapFilterMode(_owner->minFilter());
+        // The state comes from the mapping Metal's sampler cache keys on, so a texture
+        // wraps and filters identically on both backends, anisotropy included (the
+        // device's ratio: without it oblique ground textures smear into radial lines).
+        const TextureSamplerState state = textureSamplerState(*_owner, device->maxAnisotropy());
+        const auto toVkFilter = [](const TextureSamplerState::Filter filter) {
+            return filter == TextureSamplerState::Filter::Nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+        };
         samplerInfo.magFilter = _supportsLinearSampling
-            ? requestedMag : VK_FILTER_NEAREST;
+            ? toVkFilter(state.magFilter) : VK_FILTER_NEAREST;
         samplerInfo.minFilter = _supportsLinearSampling
-            ? requestedMin : VK_FILTER_NEAREST;
-        samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-        samplerInfo.addressModeU = vulkanMapAddressMode(_owner->addressU());
-        samplerInfo.addressModeV = vulkanMapAddressMode(_owner->addressV());
+            ? toVkFilter(state.minFilter) : VK_FILTER_NEAREST;
+        samplerInfo.mipmapMode = state.mipFilter == TextureSamplerState::Filter::Nearest
+            ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        samplerInfo.addressModeU = vulkanMapAddressMode(state.addressU);
+        samplerInfo.addressModeV = vulkanMapAddressMode(state.addressV);
         samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
         samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
-        // The device's anisotropy ratio, which is the same number the Metal
-        // default sampler uses; without it oblique ground textures smear into
-        // radial lines, and with a different number the two backends filter
-        // differently on every oblique surface.
-        const float anisotropy = device->maxAnisotropy();
-        samplerInfo.anisotropyEnable = anisotropy > 1.0f ? VK_TRUE : VK_FALSE;
-        samplerInfo.maxAnisotropy = std::max(anisotropy, 1.0f);
+        samplerInfo.anisotropyEnable = state.maxAnisotropy > 1.0f ? VK_TRUE : VK_FALSE;
+        samplerInfo.maxAnisotropy = state.maxAnisotropy;
 
         const VkResult result =
             vkCreateSampler(device->device(), &samplerInfo, nullptr, &sampler);

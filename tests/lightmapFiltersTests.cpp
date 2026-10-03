@@ -11,9 +11,9 @@
 //   filterSmoothness), and the block laid out as the GLSL std140 / MSL struct expects —
 //   a float array in std140 strides 16 bytes per element, which is why the kernel is
 //   four vec4s and why its offset is checked;
-// - the ambient virtual lights (bake-light-ambient.js): the sphere distribution
-//   and the LINEAR intensity its Light ends up shading with, in both of the branches
-//   Light._updateLinearColor takes;
+// - the ambient virtual lights (bake-light-ambient.js): the sphere distribution, the
+//   authored intensity, and the LINEAR scale lightRadiance shades it with, in both of
+//   the branches Light._updateLinearColor takes;
 // - bakeLmEnd's occlusion curve, at the values the lights-baked-a-o example uses.
 //
 // The shaders themselves run in the lightmap-bake example on both backends.
@@ -24,6 +24,7 @@
 #include <string>
 
 #include "framework/lightmapper/lightmapFilters.h"
+#include "platform/graphics/lightRadiance.h"
 #include "support/check.h"
 
 using namespace visutwin::canvas;
@@ -82,28 +83,44 @@ namespace
         check(sizeof(LightmapFilterUniforms) == 96, "block is 96 bytes");
     }
 
-    // intensity = (pow(2 pi part, 2.2) / N) ^ (1 / 2.2), shaded as intensity when
-    // it is >= 1 and as intensity ^ 2.2 below that.
-    double referenceAmbientLinear(const int n, const double part)
+    // The authored intensity, (pow(2 pi part, 2.2) / N) ^ (1 / 2.2).
+    double referenceAmbientAuthored(const int n, const double part)
     {
         const double full = 2.0 * 3.14159265358979 * part;
-        const double intensity = std::pow(std::pow(full, 2.2) / n, 1.0 / 2.2);
+        return std::pow(std::pow(full, 2.2) / n, 1.0 / 2.2);
+    }
+
+    // What a white light at that intensity shades with: the intensity when it is >= 1,
+    // its 2.2 power below that.
+    double referenceAmbientLinear(const int n, const double part)
+    {
+        const double intensity = referenceAmbientAuthored(n, part);
         return intensity >= 1.0 ? intensity : std::pow(intensity, 2.2);
+    }
+
+    // The linear scale lightRadiance gives a white light: colour times intensity.
+    double shadedLinear(const float intensity)
+    {
+        const LightRadiance radiance = lightRadiance(Color(1.0f, 1.0f, 1.0f, 1.0f), intensity);
+        return static_cast<double>(radiance.linearColor[0]) * radiance.intensity;
     }
 
     void testAmbientVirtualLights()
     {
         // 20 samples over 0.4 of the sphere (the example's HUD): the < 1 branch, where the
         // N virtual lights sum to exactly pow(2 pi part, 2.2).
-        const float linear20 = ambientVirtualLightIntensity(20, 0.4f);
-        check(nearRelative(linear20, referenceAmbientLinear(20, 0.4), 1e-4), "20 samples, part 0.4");
+        const float authored20 = ambientVirtualLightIntensity(20, 0.4f);
+        check(nearRelative(authored20, referenceAmbientAuthored(20, 0.4), 1e-4), "20 samples, part 0.4: authored");
+        check(authored20 < 1.0f, "which is the < 1 branch");
+        const double linear20 = shadedLinear(authored20);
+        check(nearRelative(linear20, referenceAmbientLinear(20, 0.4), 1e-4), "and shades at its 2.2 power");
         check(nearRelative(linear20 * 20.0, std::pow(2.0 * 3.14159265358979 * 0.4, 2.2), 1e-4),
             "below 1 the virtual lights sum to the full linear intensity");
         // One sample (the default ambientBakeNumSamples): the >= 1 branch.
-        const float linear1 = ambientVirtualLightIntensity(1, 0.4f);
+        const double linear1 = shadedLinear(ambientVirtualLightIntensity(1, 0.4f));
         check(nearRelative(linear1, referenceAmbientLinear(1, 0.4), 1e-4), "1 sample, part 0.4");
         check(nearRelative(linear1, 2.0 * 3.14159265358979 * 0.4, 1e-4), "one light shades with 2 pi part");
-        check(nearRelative(ambientVirtualLightIntensity(64, 1.0f), referenceAmbientLinear(64, 1.0), 1e-4),
+        check(nearRelative(shadedLinear(ambientVirtualLightIntensity(64, 1.0f)), referenceAmbientLinear(64, 1.0), 1e-4),
             "64 samples over the full sphere");
 
         // The distribution: unit vectors from the pole down to y = 1 - 2 part.

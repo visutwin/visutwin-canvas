@@ -44,8 +44,8 @@ namespace visutwin::canvas
             Color color{1.0f, 1.0f, 1.0f, 1.0f};
             float intensity = 1.0f;
             float range = 0.0f;                     // point/spot (0 = infinite for directional)
-            float innerConeCos = 0.9f;              // spot
-            float outerConeCos = 0.8f;              // spot
+            float innerConeCos = 0.76604444f;       // spot: cos 40 deg, LightComponent's default
+            float outerConeCos = 0.70710678f;       // spot: cos 45 deg
             bool castShadows = true;
 
             // Soft baked shadows. Rather than baking N *virtual* copies of the light,

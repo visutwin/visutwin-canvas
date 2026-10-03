@@ -15,6 +15,7 @@
 
 #include "core/math/quaternion.h"
 #include "platform/graphics/uniformBinder.h"
+#include "scene/constants.h"
 
 namespace visutwin::canvas
 {
@@ -55,7 +56,7 @@ namespace visutwin::canvas
             const Vector3& cameraPosition, bool enableNormalMaps, float exposure,
             const FogParams& fogParams, const ShadowParams& shadowParams,
             int toneMapping = 0, const Vector3* ambientSH = nullptr,
-            const Matrix4* viewProjection = nullptr);
+            const Matrix4* viewProjection = nullptr, uint32_t meshLightMask = MASK_AFFECT_DYNAMIC);
 
         /// Pack environment uniforms (skybox, env atlas) into LightingUniforms.
         void setSkyboxRotation(const Quaternion& rotation);
@@ -129,7 +130,7 @@ namespace visutwin::canvas
             _lightingUniforms.clusterParams[3] = static_cast<uint32_t>(maxLightsPerCell);
 
             _lightingUniforms.clusterParams2[0] = static_cast<uint32_t>(numClusteredLights);
-            _lightingUniforms.clusterParams2[1] = 0u;
+            // [1] is the draw's accepted cluster-light mask bit, set by setLightingUniforms.
             _lightingUniforms.clusterParams2[2] = 0u;
             _lightingUniforms.clusterParams2[3] = 0u;
             markLightingChanged();

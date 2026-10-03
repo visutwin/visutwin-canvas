@@ -5,7 +5,7 @@
 //
 // A PhysicsWorld frees every joint touching a body it destroys. A JointComponent
 // that is not told keeps the freed pointer and calls isBroken() on it at its next
-// update — after any rigid-body setter that rebuilds the body (setMass, say) or the
+// update — after any rigid-body setter that rebuilds the body (setType, say) or the
 // destruction of either end's entity — and is never rebuilt against the new body.
 //
 // A use-after-free cannot be seen in a result, so this runs the components against
@@ -44,6 +44,11 @@ namespace
         void applyForce(const Vector3&) override {}
         void applyImpulse(const Vector3&) override {}
         void applyTorque(const Vector3&) override {}
+        void applyTorqueImpulse(const Vector3&) override {}
+        void setFriction(float) override {}
+        void setRestitution(float) override {}
+        void setDamping(float, float) override {}
+        bool setMass(float) override { return true; }
         void activate() override {}
         bool isActive() const override { return true; }
     };
@@ -169,7 +174,7 @@ int main()
     check(world.liveJoints() == 1 && world.joints.size() == 1, "the joint is created once both bodies exist");
 
     std::cout << "\nrebuilding one end's body\n";
-    rigidA->setMass(5.0f);          // marks the body stale: it is destroyed and recreated
+    rigidA->setType(RigidBodyType::Dynamic);   // marks the body stale: it is destroyed and recreated
     frameUpdate();
     frameUpdate();
     check(deadCalls == 0, "no call reaches the joint the world freed with the old body");

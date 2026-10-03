@@ -16,6 +16,7 @@
 #include "core/math/color.h"
 #include "framework/components/light/lightComponent.h"
 #include "platform/graphics/graphicsDevice.h"
+#include "platform/graphics/lightRadiance.h"
 #include "scene/camera.h"
 #include "scene/graphNode.h"
 #include "scene/light.h"
@@ -455,14 +456,14 @@ namespace visutwin::canvas
             position.store(u.lightPosRange);
             u.lightPosRange[3] = std::max(component->range(), 1e-4f);
 
-            // The light's colour, linear, at the surfaces' intensity and the scene exposure.
-            Color linear;
-            linear.linear(&component->color());
+            // The light's colour, linear, at the surfaces' intensity (lightRadiance, the rule
+            // the light loops use) and the scene exposure.
+            const LightRadiance radiance = lightRadiance(component->color(), component->renderIntensity(physicalUnits));
             const float scale = _settings.localIntensity * exposure * component->volumetricScattering() *
-                component->renderIntensity(physicalUnits);
-            u.lightColor[0] = linear.r * scale;
-            u.lightColor[1] = linear.g * scale;
-            u.lightColor[2] = linear.b * scale;
+                radiance.intensity;
+            u.lightColor[0] = radiance.linearColor[0] * scale;
+            u.lightColor[1] = radiance.linearColor[1] * scale;
+            u.lightColor[2] = radiance.linearColor[2] * scale;
 
             const Vector3 axis = isSpot ? component->direction().normalized() : Vector3(0.0f);
             axis.store(u.lightDir);

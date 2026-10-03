@@ -87,7 +87,6 @@ namespace visutwin::canvas
 
     // Enum mapping functions.
     VkFormat vulkanMapPixelFormat(PixelFormat format);
-    VkFilter vulkanMapFilterMode(FilterMode mode);
     VkSamplerAddressMode vulkanMapAddressMode(AddressMode mode);
     VkCullModeFlags vulkanMapCullMode(CullMode mode);
     VkPrimitiveTopology vulkanMapPrimitiveType(PrimitiveType type);

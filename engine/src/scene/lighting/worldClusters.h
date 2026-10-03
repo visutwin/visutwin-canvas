@@ -15,6 +15,7 @@
 #include "core/math/vector3.h"
 #include "core/math/vector4.h"
 #include "core/shape/boundingBox.h"
+#include "scene/constants.h"
 
 namespace visutwin::canvas
 {
@@ -42,7 +43,7 @@ namespace visutwin::canvas
     {
         float positionRange[4] = {};     // xyz=position, w=range
         float directionSpot[4] = {};     // xyz=direction, w=outerConeCos
-        float colorIntensity[4] = {};    // xyz=color(linear), w=intensity
+        float colorIntensity[4] = {};    // xyz=color(linear), w=intensity, from lightRadiance
         // x=innerConeCos, y=isSpot(0/1), z=falloffLinear(0/1), w=cookie: 0 for none,
         // else (CookieChannel + 1) * 2 + intensity (intensity in [0, 1]), the shader's
         // decodeClusterCookie. A cookie reads the same shadowMatrix as the shadow does
@@ -58,6 +59,10 @@ namespace visutwin::canvas
                                          // z=intensity, w=1 spot / 2 omni
         // An area light: the world half axes, and the
         // LightShape in areaHalfWidth.w (0 = punctual, which shades as before).
+        // areaHalfHeight.w carries the light's MASK_AFFECT_DYNAMIC (1) and
+        // MASK_AFFECT_LIGHTMAPPED (2) bits as a float: the shader skips the light for a
+        // draw whose accepted bit (LightingUniforms clusterParams2.y, from the draw's
+        // mesh-instance mask) it lacks.
         float areaHalfWidth[4] = {};
         float areaHalfHeight[4] = {};
     };
@@ -78,6 +83,9 @@ namespace visutwin::canvas
         float outerConeAngle = 45.0f;
         bool isSpot = false;
         bool falloffModeLinear = true;
+        // The light's mask. Only its MASK_AFFECT_DYNAMIC and MASK_AFFECT_LIGHTMAPPED bits
+        // reach the GPU; a light with neither (MASK_BAKE alone) is not clustered at all.
+        uint32_t lightMask = MASK_AFFECT_DYNAMIC;
 
         // Clustered shadow (via LightTextureAtlas). castShadows=false → no shadow.
         bool castShadows = false;
@@ -105,6 +113,14 @@ namespace visutwin::canvas
         Vector3 areaHalfWidth = Vector3(0.0f);
         Vector3 areaHalfHeight = Vector3(0.0f);
     };
+
+    /// Whether a light with this mask is lit at runtime, and so belongs in a cluster grid:
+    /// it must affect dynamic or lightmapped meshes. A bake-only light (MASK_BAKE) lights
+    /// nothing at runtime.
+    inline bool clusterAdmitsLight(const uint32_t lightMask)
+    {
+        return (lightMask & (MASK_AFFECT_DYNAMIC | MASK_AFFECT_LIGHTMAPPED)) != 0u;
+    }
 
     /**
      * CPU-side 3D grid clustering for local lights (point/spot).

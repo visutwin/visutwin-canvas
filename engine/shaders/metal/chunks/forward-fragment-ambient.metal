@@ -310,7 +310,7 @@
     float ao = 1.0;
 #if VT_FEATURE_OCCLUSION_MAP
     if (occlusionTexture.get_width() > 0 && occlusionTexture.get_height() > 0) {
-        const float occ = occlusionTexture.sample(defaultSampler, uvOcclusion).r;
+        const float occ = occlusionTexture.sample(occlusionSampler, uvOcclusion).r;
         ao = mix(1.0, occ, clamp(material.occlusionStrength, 0.0, 1.0));
     }
 #endif

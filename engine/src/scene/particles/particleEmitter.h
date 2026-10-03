@@ -92,7 +92,7 @@ namespace visutwin::canvas
         bool autoPlay = true;             // play when built; false leaves it paused and hidden
 
         ParticleEmitterShape emitterShape = ParticleEmitterShape::EMITTERSHAPE_BOX;
-        Vector3 emitterExtents = Vector3(0.0f, 0.0f, 0.0f);  // box half-extents
+        Vector3 emitterExtents = Vector3(0.0f, 0.0f, 0.0f);  // box size (full extents)
         float emitterRadius = 0.0f;                          // sphere radius
 
         Vector3 initialVelocity = Vector3(0.0f, 0.0f, 0.0f); // base velocity (units/s)
@@ -265,7 +265,7 @@ namespace visutwin::canvas
         static constexpr uint32_t kSimThreadgroupSize = 256u;  // matches local_size_x
 
         void simulate(const GpuParticleSimParams& params);
-        void step(float dt, const Matrix4& emitterTransform, bool onStop);
+        void step(float dt, const Matrix4& emitterTransform, bool onStop, bool clampDt);
 
         std::shared_ptr<Shader> _simShader;
         std::unique_ptr<Compute> _simCompute;

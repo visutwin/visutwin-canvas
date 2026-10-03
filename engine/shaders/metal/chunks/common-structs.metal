@@ -151,7 +151,7 @@ struct ClusteredLight {
     float4x4 shadowMatrix;    // spot: world→atlas-rect shadow VP; omni: [0]=rect(x,y,size,edge), [1]=(near,far,bias,-)
     float4 shadowData;        // x=castShadows, y=normal bias, z=intensity, w=1 spot / 2 omni
     float4 areaHalfWidth;     // an area light: xyz world half-width axis, w LightShape (0 punctual)
-    float4 areaHalfHeight;    // xyz world half-height axis
+    float4 areaHalfHeight;    // xyz world half-height axis, w the light's mask bits (1 dynamic, 2 lightmapped)
 };
 
 // Opacity dither matrices. Must match scene/constants.h :: DitherMode. The active mode arrives
@@ -234,7 +234,7 @@ struct LightingData {
     float4 clusterBoundsRange;              // xyz=grid size (max-min), w=unused
     float4 clusterCellsCountByBoundsSize;   // xyz=cells/range (for world→cell conversion), w=unused
     uint4 clusterParams;                    // x=cellsX, y=cellsY, z=cellsZ, w=maxLightsPerCell
-    uint4 clusterParams2;                   // x=numClusteredLights, y-w=unused
+    uint4 clusterParams2;                   // x=numClusteredLights, y=the cluster-light mask bit this draw accepts, z-w=unused
 
     // Ambient SH light probes: premultiplied irradiance coefficients.
     float4 ambientSH[9];

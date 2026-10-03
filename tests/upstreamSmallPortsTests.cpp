@@ -11,6 +11,8 @@
 //  - BlendState::noBlend / DepthState::noDepth are shared no-blend / no-depth states.
 //  - AnimClip fires its track's events once each as playback passes them: forward,
 //    through a loop wrap inside one step, and backwards.
+//  - A non-looping AnimClip pauses only when a step crosses the end it plays toward, so a
+//    zero-dt update at either end leaves it playing.
 //  - BlueNoise walks its tile from a seed to the expected values.
 
 #include <cmath>
@@ -144,6 +146,44 @@ int main()
         AnimClip silent(trackWithEvents(), 0.0f, 1.0f, true, true);
         silent.update(0.5f);
         check(true, "a clip with no handler plays its events silently");
+    }
+
+    // --- non-looping clip ends ---
+    {
+        auto track = std::make_shared<AnimTrack>("once", 1.0f);
+
+        AnimClip forward(track, 0.0f, 1.0f, true, false);
+        forward.update(0.0f);
+        check(forward.playing() && forward.time() == 0.0f,
+            "a forward clip at time 0 keeps playing through a zero-dt update");
+        forward.update(0.5f);
+        check(forward.playing() && forward.time() == 0.5f, "and then advances");
+        forward.update(0.5f);
+        check(forward.playing() && forward.time() == 1.0f, "landing exactly on the end is not crossing it");
+        forward.update(0.0f);
+        check(forward.playing(), "a zero-dt update at the end does not cross it either");
+        forward.update(0.25f);
+        check(!forward.playing() && forward.time() == 1.0f, "crossing the end clamps to it and pauses");
+
+        AnimClip overshoot(track, 0.8f, 1.0f, true, false);
+        overshoot.update(0.5f);
+        check(!overshoot.playing() && overshoot.time() == 1.0f, "a step past the end clamps and pauses");
+
+        AnimClip backward(track, 1.0f, -1.0f, true, false);
+        backward.update(0.0f);
+        check(backward.playing() && backward.time() == 1.0f,
+            "a reversed clip at its duration keeps playing through a zero-dt update");
+        backward.update(0.25f);
+        check(backward.playing() && backward.time() == 0.75f, "and then runs backwards");
+        backward.update(1.0f);
+        check(!backward.playing() && backward.time() == 0.0f, "crossing time 0 backwards clamps and pauses");
+
+        AnimClip reversedAtStart(track, 0.0f, -1.0f, true, false);
+        reversedAtStart.update(0.0f);
+        check(reversedAtStart.playing(), "a reversed clip sitting at 0 does not pause on a zero-dt update");
+        reversedAtStart.update(0.1f);
+        check(!reversedAtStart.playing() && reversedAtStart.time() == 0.0f,
+            "but the first step below 0 pauses it");
     }
 
     // --- blue noise ---

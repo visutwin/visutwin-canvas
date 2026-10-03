@@ -51,5 +51,15 @@ namespace visutwin::canvas
         float colorLUTIntensity = 1.0f;
         float colorLUTIntensity2 = 1.0f;
         float colorLUTBlend = 0.0f;
+
+        /// True when any setting here changes the composed image, which therefore needs
+        /// the scene rendered through a camera frame for the compose pass to apply it.
+        bool changesImage() const
+        {
+            return vignetteEnabled || fringingIntensity > 0.0f || gradingEnabled ||
+                colorEnhanceShadows != 0.0f || colorEnhanceHighlights != 0.0f ||
+                colorEnhanceVibrance != 0.0f || colorEnhanceDehaze != 0.0f ||
+                colorEnhanceMidtones != 0.0f || colorLUT != nullptr || colorLUT2 != nullptr;
+        }
     };
 }

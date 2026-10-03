@@ -29,7 +29,7 @@
     // Sampled at UV1 (the GLB parser falls back to UV0 when the mesh has no second UV
     // set); stored sRGB → decoded to linear like the other LDR material textures.
     // Lightmaps store LINEAR light (see the bake output above and Lightmapper's encoder).
-    indirectDiffuse = max(lightMapTexture.sample(defaultSampler, rd.uv1).rgb, float3(0.0));
+    indirectDiffuse = max(lightMapTexture.sample(lightMapSampler, rd.uv1).rgb, float3(0.0));
     // occludeDirect (flag bit 13) occludes the bake as well: a second occlusion
     // runs after the lightmap is added. The default path leaves it alone.
     if ((material.flags & (1u << 13)) != 0u) {
@@ -423,7 +423,12 @@
         return float4(max(litLinear, float3(0.0)), alpha);
     }
     const float exposure = max(lighting.skyboxMipAndPad.y, 0.0);
+#if VT_FEATURE_NO_TONEMAP
+    // useTonemap off: TONEMAP_NONE, neither the curve nor exposure; gamma still applies.
+    const float tonemapMode = 6.0;
+#else
     const float tonemapMode = lighting.skyboxMipAndPad.z;
+#endif
     return float4(linearToSrgb(toneMap(max(litLinear, float3(0.0)), exposure, tonemapMode)), alpha);
 #endif
 #endif

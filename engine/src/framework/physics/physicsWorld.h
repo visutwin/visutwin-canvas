@@ -104,6 +104,21 @@ namespace visutwin::canvas
         /// Instantaneous change of momentum, in newton-seconds.
         virtual void applyImpulse(const Vector3& impulse) = 0;
         virtual void applyTorque(const Vector3& torque) = 0;
+        /// Instantaneous change of angular momentum, in newton-metre-seconds.
+        virtual void applyTorqueImpulse(const Vector3& impulse) = 0;
+
+        /// Material and damping of a live body. Each takes effect from the next step and
+        /// keeps the body's pose, velocities and joints; a static body ignores damping.
+        virtual void setFriction(float value) = 0;
+        virtual void setRestitution(float value) = 0;
+        virtual void setDamping(float linear, float angular) = 0;
+
+        /// Rescales a DYNAMIC body's mass, scaling its inertia by the same factor and
+        /// keeping its velocities. A body of another motion type ignores mass and answers
+        /// true. Returns false when the backend cannot change the mass in place (a mass of
+        /// 0, which asks for the mass derived from the shape, say); the caller then
+        /// rebuilds the body from its description.
+        virtual bool setMass(float mass) = 0;
 
         /// A body the solver has put to sleep costs nothing until something touches
         /// it. Setting a velocity or applying an impulse wakes it; moving it with

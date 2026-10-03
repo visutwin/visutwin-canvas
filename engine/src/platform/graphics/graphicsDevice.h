@@ -33,6 +33,7 @@
 #include "core/math/matrix4.h"
 #include "core/math/vector3.h"
 #include "core/eventHandler.h"
+#include "scene/constants.h"
 #include "scene/mesh.h"
 #include "core/scopedTimer.h"
 
@@ -46,7 +47,7 @@ namespace visutwin::canvas
      * volumetric fog's block is 512 bytes. On Vulkan this is the dynamic
      * descriptor's range, and the allocation behind it is padded to match, so a
      * shader can never read past its own allocation. MaterialUniforms itself is
-     * 544 bytes.
+     * 560 bytes.
      */
     inline constexpr size_t kPerDrawUniformCapacity = 640;
 
@@ -409,11 +410,11 @@ namespace visutwin::canvas
             const Vector3& cameraPosition, bool enableNormalMaps, float exposure,
             const FogParams& fogParams = FogParams{}, const ShadowParams& shadowParams = ShadowParams{},
             int toneMapping = 0, const Vector3* ambientSH = nullptr,
-            const Matrix4* viewProjection = nullptr)
+            const Matrix4* viewProjection = nullptr, uint32_t meshLightMask = MASK_AFFECT_DYNAMIC)
         {
             (void)ambientColor; (void)lights; (void)cameraPosition; (void)enableNormalMaps;
             (void)exposure; (void)fogParams; (void)shadowParams; (void)toneMapping;
-            (void)ambientSH; (void)viewProjection;
+            (void)ambientSH; (void)viewProjection; (void)meshLightMask;
             VT_DEVICE_FEATURE_UNSUPPORTED("setLightingUniforms");
         }
         virtual void setEnvironmentUniforms(Texture* envAtlas, float skyboxIntensity, float skyboxMip,

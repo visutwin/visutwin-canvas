@@ -41,6 +41,24 @@ namespace
         void initializeComponentData() override {}
     };
 
+    // Counts the hierarchy state notifications a node receives: what an Entity turns into
+    // onEnable / onDisable on every one of its components.
+    class CountingNode final : public GraphNode
+    {
+    public:
+        using GraphNode::GraphNode;
+        int enables = 0;
+        int disables = 0;
+        void resetCounts() { enables = disables = 0; }
+
+    protected:
+        void onHierarchyStateChanged(const bool enabled) override
+        {
+            GraphNode::onHierarchyStateChanged(enabled);
+            ++(enabled ? enables : disables);
+        }
+    };
+
     constexpr float kTolerance = 1e-5f;
 
     bool expect(const bool condition, const std::string_view message)
@@ -381,6 +399,65 @@ int main()
         }
         passed &= expect(visited == "kid4 walk0 hole walk2 ", "a walk sees the removed sibling as a hole");
         passed &= expect(names() == "kid4 walk0 walk2 ", "which the next read closes");
+    }
+
+    // Moving a node from one parent to another notifies its subtree only when its
+    // enabled-in-hierarchy state actually changes; detaching it (removeChild) still
+    // disables it, which the detach checks above pin.
+    {
+        auto rootA = std::make_unique<GraphNode>("move-root-a");
+        auto rootB = std::make_unique<GraphNode>("move-root-b");
+        auto rootOff = std::make_unique<GraphNode>("move-root-off");
+        rootA->setEnabledInHierarchy(true);
+        rootB->setEnabledInHierarchy(true);
+        rootOff->setEnabledInHierarchy(true);
+        rootOff->setEnabled(false);
+
+        auto owned = std::make_unique<CountingNode>("mover");
+        auto* mover = owned.get();
+        auto ownedChild = std::make_unique<CountingNode>("mover-child");
+        auto* moverChild = ownedChild.get();
+        mover->addChild(std::move(ownedChild));
+        rootA->addChild(std::move(owned));
+        passed &= expect(mover->enabled() && moverChild->enabled() && mover->enables == 1 && moverChild->enables == 1,
+            "attaching under an enabled root enables the subtree once");
+
+        const auto silent = [&] {
+            return mover->enables == 0 && mover->disables == 0 && moverChild->enables == 0 &&
+                   moverChild->disables == 0;
+        };
+
+        mover->resetCounts();
+        moverChild->resetCounts();
+        rootB->addChild(mover);
+        passed &= expect(mover->parent() == rootB.get() && rootA->children().empty() && rootB->children().size() == 1,
+            "a move hands the node to the new parent");
+        passed &= expect(silent() && mover->enabled() && moverChild->enabled(),
+            "a move between two enabled parents notifies nothing");
+
+        rootB->addChild(mover);
+        passed &= expect(silent() && mover->parent() == rootB.get(), "a move to the same parent notifies nothing");
+
+        rootOff->addChild(mover);
+        passed &= expect(!mover->enabled() && !moverChild->enabled() && mover->disables == 1 &&
+                         moverChild->disables == 1 && mover->enables == 0,
+            "a move under a disabled parent disables the subtree once");
+
+        mover->resetCounts();
+        moverChild->resetCounts();
+        rootA->addChild(mover);
+        passed &= expect(mover->enabled() && moverChild->enabled() && mover->enables == 1 &&
+                         moverChild->enables == 1 && mover->disables == 0,
+            "a move back under an enabled parent enables it once, with no disable before it");
+
+        mover->resetCounts();
+        moverChild->resetCounts();
+        auto detachedMover = rootA->removeChild(mover);
+        passed &= expect(!mover->enabled() && mover->disables == 1 && moverChild->disables == 1,
+            "removeChild still disables the detached subtree");
+        rootB->addChild(std::move(detachedMover));
+        passed &= expect(mover->enabled() && mover->enables == 1 && moverChild->enables == 1,
+            "and attaching it again enables it");
     }
 
     return passed ? 0 : 1;

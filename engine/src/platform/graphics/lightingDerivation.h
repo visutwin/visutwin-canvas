@@ -24,13 +24,18 @@
 #include "core/math/color.h"
 #include "core/math/vector3.h"
 #include "platform/graphics/graphicsDevice.h"
+#include "scene/constants.h"
 
 namespace visutwin::canvas
 {
     struct DerivedLight
     {
         const GpuLightData* source = nullptr;   // the renderer's light, for fields copied as they are
-        float linearColor[3] = {0.0f, 0.0f, 0.0f};   // the authored sRGB colour, decoded
+        // The colour and intensity the shader multiplies, from lightRadiance (lightRadiance.h):
+        // below an intensity of 1 the colour is scaled before it is decoded and the
+        // intensity is 1, so pack these two, never the source's colour and intensity.
+        float linearColor[3] = {0.0f, 0.0f, 0.0f};
+        float intensity = 0.0f;
     };
 
     struct DerivedLocalShadow
@@ -75,6 +80,14 @@ namespace visutwin::canvas
 
         bool directionalActive[ShadowParams::kMaxDirectionalShadows] = {};
 
+        // The clustered-light mask bit the draw accepts (clusterParams2.y on both
+        // backends): MASK_AFFECT_DYNAMIC when the draw's mesh-instance mask has it, else
+        // MASK_AFFECT_LIGHTMAPPED. A clustered light is shaded only when its own mask
+        // (GpuClusteredLight areaHalfHeight.w) has this bit, which is what the main array
+        // gets by filtering on the mask; clustered lights share one grid per light set, so
+        // they are filtered in the shader instead.
+        uint32_t clusterLightAccept = MASK_AFFECT_DYNAMIC;
+
         static constexpr float kOmniShadowNear = 0.01f;
         static constexpr float kOmniShadowBias = 0.002f;
         DerivedLocalShadow localShadows[ShadowParams::kMaxLocalShadows];
@@ -86,8 +99,10 @@ namespace visutwin::canvas
     };
 
     /// The lighting block's values for one layer, for a backend holding at most `maxLights`
-    /// lights in its main array.
+    /// lights in its main array. `meshLightMask` is the mask of the draws the block serves
+    /// (the renderer re-issues the block when a draw's mask differs).
     DerivedLighting deriveLighting(const Color& ambientColor, const std::vector<GpuLightData>& lights,
         size_t maxLights, const FogParams& fogParams, const ShadowParams& shadowParams,
-        const Vector3* ambientSH, const Matrix4* viewProjection);
+        const Vector3* ambientSH, const Matrix4* viewProjection,
+        uint32_t meshLightMask = MASK_AFFECT_DYNAMIC);
 }

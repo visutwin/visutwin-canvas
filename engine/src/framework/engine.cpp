@@ -5,6 +5,7 @@
 //
 #include "engine.h"
 
+#include <algorithm>
 #include <cassert>
 
 #include <SDL3/SDL_video.h>
@@ -51,9 +52,10 @@ namespace visutwin::canvas
             }
 
             double ms = currentTime - (app->_time > 0 ? app->_time : currentTime);
-            float dt = static_cast<float>(ms / 1000.0);
-            dt = std::clamp(dt, 0.0f, app->_maxDeltaTime);
-            dt *= app->_timeScale;
+            // The raw step goes to update(), which clamps and scales it; the stats record
+            // the step the frame actually advanced by.
+            const float rawDt = static_cast<float>(ms / 1000.0);
+            const float dt = app->effectiveDeltaTime(rawDt);
 
             app->_time = currentTime;
 
@@ -82,7 +84,7 @@ namespace visutwin::canvas
             }
 
             if (!skipUpdate) {
-                app->update(dt);
+                app->update(rawDt);
 
                 app->fire("framerender");
 
@@ -667,8 +669,16 @@ namespace visutwin::canvas
         }
     }
 
+    float Engine::effectiveDeltaTime(const float rawDt) const
+    {
+        // Clamp the measured time first, then scale it: a stalled frame at half speed
+        // advances by half the clamp, not by the clamp.
+        return std::max(std::min(rawDt, _maxDeltaTime), 0.0f) * _timeScale;
+    }
+
     void Engine::update(float dt)
     {
+        dt = effectiveDeltaTime(dt);
         _frame++;
 
         if (_stats) {
@@ -692,8 +702,10 @@ namespace visutwin::canvas
         bool scriptPostUpdateCalled = false;
 
         _systems->fire(_inTools ? "toolsUpdate" : "update", dt);
-        _systems->fire("animationUpdate", dt);
 
+        // Scripts update with the other systems and BEFORE animation, so an animation
+        // parameter or a node a script sets in update() is what this frame's animation
+        // evaluates; postUpdate scripts run after it, where they see the animated pose.
         if (auto* scriptSystemBase = _systems->getByComponentType<ScriptComponent>()) {
             if (auto* scriptSystem = dynamic_cast<ScriptComponentSystem*>(scriptSystemBase)) {
                 hasScriptSystem = true;
@@ -702,6 +714,7 @@ namespace visutwin::canvas
             }
         }
 
+        _systems->fire("animationUpdate", dt);
         _systems->fire("postUpdate", dt);
 
         if (auto* scriptSystemBase = _systems->getByComponentType<ScriptComponent>()) {

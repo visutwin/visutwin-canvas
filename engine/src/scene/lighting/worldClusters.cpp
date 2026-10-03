@@ -11,6 +11,7 @@
 #include <limits>
 
 #include "lightBounds.h"
+#include "platform/graphics/lightRadiance.h"
 
 #include <algorithm>
 #include <cmath>
@@ -60,7 +61,7 @@ namespace visutwin::canvas
         for (size_t i = 0; i < localLights.size() && _lights.size() < 255; ++i) {
             const auto& ld = localLights[i];
 
-            if (ld.intensity <= 0.0f || ld.range <= 0.0f) {
+            if (ld.intensity <= 0.0f || ld.range <= 0.0f || !clusterAdmitsLight(ld.lightMask)) {
                 continue;
             }
 
@@ -215,14 +216,13 @@ namespace visutwin::canvas
             ld.direction.store(gpu.directionSpot);
             gpu.directionSpot[3] = entry.outerConeCos;
 
-            // Convert sRGB color to linear for GPU.
-            const float r = gammaToLinear(ld.color.r);
-            const float g = gammaToLinear(ld.color.g);
-            const float b = gammaToLinear(ld.color.b);
-            gpu.colorIntensity[0] = r;
-            gpu.colorIntensity[1] = g;
-            gpu.colorIntensity[2] = b;
-            gpu.colorIntensity[3] = ld.intensity;
+            // The linear colour and intensity, by the same rule as the main light array
+            // (lightRadiance: a light under 1 is dimmed before its colour is decoded).
+            const LightRadiance radiance = lightRadiance(ld.color, ld.intensity);
+            gpu.colorIntensity[0] = radiance.linearColor[0];
+            gpu.colorIntensity[1] = radiance.linearColor[1];
+            gpu.colorIntensity[2] = radiance.linearColor[2];
+            gpu.colorIntensity[3] = radiance.intensity;
 
             gpu.params[0] = entry.innerConeCos;
             gpu.params[1] = ld.isSpot ? 1.0f : 0.0f;
@@ -242,7 +242,9 @@ namespace visutwin::canvas
             ld.areaHalfWidth.store(gpu.areaHalfWidth);
             gpu.areaHalfWidth[3] = static_cast<float>(ld.shape);
             ld.areaHalfHeight.store(gpu.areaHalfHeight);
-            gpu.areaHalfHeight[3] = 0.0f;
+            // Which meshes the light affects: the shader accepts it for a draw only when
+            // the draw's accepted bit is set here.
+            gpu.areaHalfHeight[3] = static_cast<float>(ld.lightMask & (MASK_AFFECT_DYNAMIC | MASK_AFFECT_LIGHTMAPPED));
             const bool hasAtlasRect = hasShadow || ld.hasCookie;
             if (hasAtlasRect && !ld.isSpot) {
                 // Omni: no matrix — the rect and the depth range, in the same 64

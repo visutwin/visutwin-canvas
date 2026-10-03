@@ -75,8 +75,24 @@ namespace visutwin::canvas
         // (e.g. on window resize and orientation change events) so that the canvas resolution is immediately updated.
         void updateCanvasSize();
 
-        // Update the engine (variable timestep — called once per frame)
+        /**
+         * Update the engine (variable timestep — called once per frame). `dt` is the
+         * measured frame time in seconds; it is clamped to [0, maxDeltaTime()] and then
+         * multiplied by timeScale() before anything sees it, so every system, script,
+         * the "update" event and the fixed-update accumulator receive the same step.
+         */
         void update(float dt);
+
+        /// Multiplier applied to every frame's time step: 0.5 runs the world at half speed,
+        /// 0 pauses everything that advances with time.
+        float timeScale() const { return _timeScale; }
+        void setTimeScale(float scale) { _timeScale = scale; }
+
+        /// The longest frame time update() passes on, in seconds (0.1 by default). A frame
+        /// that took longer (a stall, a breakpoint, a window drag) advances the world by this
+        /// much instead of jumping.
+        float maxDeltaTime() const { return _maxDeltaTime; }
+        void setMaxDeltaTime(float seconds) { _maxDeltaTime = seconds; }
 
         // Run one fixed-timestep simulation substep (deterministic dt)
         void fixedUpdate(float fixedDt);
@@ -148,6 +164,11 @@ namespace visutwin::canvas
 
         /** Registry owning application assets. */
         const std::shared_ptr<AssetRegistry>& assets() const { return _assets; }
+
+        /// A measured frame time clamped to [0, maxDeltaTime] and multiplied by timeScale:
+        /// what update() hands every phase. Public so an application's own per-frame hook
+        /// can advance on the same clock.
+        float effectiveDeltaTime(float rawDt) const;
 
     protected:
         virtual double processTimestamp(double timestamp) { return timestamp; }

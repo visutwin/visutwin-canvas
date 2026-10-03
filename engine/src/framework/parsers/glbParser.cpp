@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <optional>
 #include <queue>
 #include <set>
 #include <thread>
@@ -285,167 +286,170 @@ namespace visutwin::canvas
             }
         }
 
-        // Reads `count` components of one element into `out`, whatever the accessor's
-        // component type. The accessor's TYPE (VEC2/VEC3/...) still has to be the one
-        // the caller asked for: a reader that quietly accepted a VEC2 where a VEC3 was
-        // wanted would read a neighbouring element's bytes as the third component.
-        bool readElement(const tinygltf::Model& model, const tinygltf::Accessor& accessor,
-            const size_t index, const int expectedType, float* out, const int count)
+        // Reads the elements of one accessor, de-quantised through decodeComponent and
+        // with the accessor's sparse substitution applied, whatever the component type.
+        //
+        // Every reader of glTF accessor data goes through this, vertex attributes
+        // included: a sparse accessor is legal on any of them, and one with NO
+        // bufferView is zeros plus its sparse values (common for morph deltas, and
+        // allowed for POSITION too). Reading only the base view drops the overrides,
+        // and a base-less POSITION then reads nothing at all.
+        //
+        // Built once per accessor: the sparse indices are resolved up front into one
+        // value pointer per element they substitute, so a read is a lookup, never a
+        // scan of the index list. The accessor's TYPE (VEC2/VEC3/...) has to be the
+        // one the caller asked for (`expectedType`, -1 for any): a reader that quietly
+        // accepted a VEC2 where a VEC3 was wanted would read a neighbouring element's
+        // bytes as the third component. `normalized`, when given, replaces the
+        // accessor's own flag (skin weights are unit fractions whatever the file says).
+        class AccessorReader
         {
-            if (accessor.type != expectedType || index >= static_cast<size_t>(accessor.count)) {
-                return false;
-            }
-            const auto* base = getAccessorBase(model, accessor);
-            if (!base) {
-                return false;
-            }
-            const auto stride = accessorStride(model, accessor);
-            const auto* element = base + index * static_cast<size_t>(stride);
-            for (int c = 0; c < count; ++c) {
-                out[c] = decodeComponent(element, accessor.componentType, accessor.normalized, c);
-            }
-            return true;
-        }
+        public:
+            /// An invalid reader: every read fails.
+            AccessorReader() = default;
 
-        bool readFloatVec3(const tinygltf::Model& model, const tinygltf::Accessor& accessor, const size_t index, Vector3& out)
-        {
-            float v[3];
-            if (!readElement(model, accessor, index, TINYGLTF_TYPE_VEC3, v, 3)) {
-                return false;
+            AccessorReader(const tinygltf::Model& model, const tinygltf::Accessor& accessor,
+                const int expectedType = -1, const std::optional<bool> normalized = std::nullopt)
+                : _count(static_cast<size_t>(accessor.count)),
+                  _components(tinygltf::GetNumComponentsInType(accessor.type)),
+                  _componentType(accessor.componentType),
+                  _normalized(normalized.value_or(accessor.normalized))
+            {
+                if ((expectedType >= 0 && accessor.type != expectedType) || _components <= 0 ||
+                    componentBytes(_componentType) <= 0) {
+                    return;
+                }
+                if (accessor.bufferView >= 0) {
+                    _base = getAccessorBase(model, accessor);
+                    if (!_base) {
+                        return;
+                    }
+                    _stride = static_cast<size_t>(accessorStride(model, accessor));
+                }
+                if (accessor.sparse.isSparse && accessor.sparse.count > 0 && !resolveSparse(model, accessor)) {
+                    return;
+                }
+                _valid = true;
             }
-            out = Vector3(v[0], v[1], v[2]);
-            return true;
-        }
 
-        bool readFloatVec2(const tinygltf::Model& model, const tinygltf::Accessor& accessor, const size_t index, float& u, float& v)
-        {
-            float value[2];
-            if (!readElement(model, accessor, index, TINYGLTF_TYPE_VEC2, value, 2)) {
-                return false;
-            }
-            u = value[0];
-            v = value[1];
-            return true;
-        }
+            [[nodiscard]] bool valid() const { return _valid; }
+            [[nodiscard]] size_t count() const { return _count; }
+            [[nodiscard]] int components() const { return _components; }
 
-        bool readFloatVec4(const tinygltf::Model& model, const tinygltf::Accessor& accessor, const size_t index, Vector4& out)
-        {
-            float v[4];
-            if (!readElement(model, accessor, index, TINYGLTF_TYPE_VEC4, v, 4)) {
-                return false;
-            }
-            out = Vector4(v[0], v[1], v[2], v[3]);
-            return true;
-        }
-
-        // Apply glTF sparse-accessor overrides (indices + values bufferViews) on top
-        // of `out`, which already holds the base data (zeros when the accessor has no
-        // base bufferView, as is typical for sparse morph-target deltas).
-        bool applySparseOverrides(const tinygltf::Model& model, const tinygltf::Accessor& accessor,
-            const int numComponents, std::vector<float>& out)
-        {
-            const auto& sparse = accessor.sparse;
-            const auto sparseCount = static_cast<size_t>(sparse.count);
-            if (sparseCount == 0) {
+            /// The first `count` components of element `index` into `out`. False for an
+            /// invalid reader, an index past the end or more components than the type has.
+            bool read(const size_t index, float* out, const int count) const
+            {
+                if (!_valid || index >= _count || count > _components) {
+                    return false;
+                }
+                const uint8_t* element = _base ? _base + index * _stride : nullptr;
+                if (!_sparseValues.empty() && _sparseValues[index]) {
+                    element = _sparseValues[index];
+                }
+                if (!element) {
+                    std::fill(out, out + count, 0.0f);
+                    return true;
+                }
+                for (int c = 0; c < count; ++c) {
+                    out[c] = decodeComponent(element, _componentType, _normalized, c);
+                }
                 return true;
             }
 
-            const auto viewBytes = [&](const int viewIndex, const size_t byteOffset,
-                const size_t byteLength) -> const uint8_t* {
-                if (viewIndex < 0 || viewIndex >= static_cast<int>(model.bufferViews.size())) {
-                    return nullptr;
-                }
-                const auto& view = model.bufferViews[static_cast<size_t>(viewIndex)];
-                if (view.buffer < 0 || view.buffer >= static_cast<int>(model.buffers.size())) {
-                    return nullptr;
-                }
-                const auto& buffer = model.buffers[static_cast<size_t>(view.buffer)];
-                const size_t bufferSize = buffer.data.size();
-                if (view.byteOffset > bufferSize || byteOffset > bufferSize - view.byteOffset) {
-                    return nullptr;
-                }
-                const size_t offset = view.byteOffset + byteOffset;
-                if (byteLength > bufferSize - offset) {
-                    return nullptr;
-                }
-                return buffer.data.data() + offset;
-            };
-
-            const int idxBytes = componentBytes(sparse.indices.componentType);
-            if (idxBytes != 1 && idxBytes != 2 && idxBytes != 4) {
-                return false;
-            }
+        private:
             // The sparse VALUES carry the accessor's own component type, so they are
             // de-quantised exactly like the dense data they override.
-            const int valueBytes = componentBytes(accessor.componentType);
-            if (valueBytes <= 0) {
-                return false;
-            }
-            const auto* idxPtr = viewBytes(sparse.indices.bufferView, sparse.indices.byteOffset,
-                sparseCount * static_cast<size_t>(idxBytes));
-            const auto valueStride = static_cast<size_t>(numComponents) * static_cast<size_t>(valueBytes);
-            const auto* valPtr = viewBytes(sparse.values.bufferView, sparse.values.byteOffset,
-                sparseCount * valueStride);
-            if (!idxPtr || !valPtr) {
-                return false;
-            }
+            bool resolveSparse(const tinygltf::Model& model, const tinygltf::Accessor& accessor)
+            {
+                const auto& sparse = accessor.sparse;
+                const auto sparseCount = static_cast<size_t>(sparse.count);
 
-            const size_t elementCount = out.size() / static_cast<size_t>(numComponents);
-            for (size_t i = 0; i < sparseCount; ++i) {
-                size_t index = 0;
-                switch (idxBytes) {
-                    case 1: index = idxPtr[i]; break;
-                    case 2: index = reinterpret_cast<const uint16_t*>(idxPtr)[i]; break;
-                    default: index = reinterpret_cast<const uint32_t*>(idxPtr)[i]; break;
-                }
-                if (index >= elementCount) {
+                const auto viewBytes = [&](const int viewIndex, const size_t byteOffset,
+                    const size_t byteLength) -> const uint8_t* {
+                    if (viewIndex < 0 || viewIndex >= static_cast<int>(model.bufferViews.size())) {
+                        return nullptr;
+                    }
+                    const auto& view = model.bufferViews[static_cast<size_t>(viewIndex)];
+                    if (view.buffer < 0 || view.buffer >= static_cast<int>(model.buffers.size())) {
+                        return nullptr;
+                    }
+                    const auto& buffer = model.buffers[static_cast<size_t>(view.buffer)];
+                    const size_t bufferSize = buffer.data.size();
+                    if (view.byteOffset > bufferSize || byteOffset > bufferSize - view.byteOffset) {
+                        return nullptr;
+                    }
+                    const size_t offset = view.byteOffset + byteOffset;
+                    if (byteLength > bufferSize - offset) {
+                        return nullptr;
+                    }
+                    return buffer.data.data() + offset;
+                };
+
+                const int idxBytes = componentBytes(sparse.indices.componentType);
+                if (idxBytes != 1 && idxBytes != 2 && idxBytes != 4) {
                     return false;
                 }
-                const auto* element = valPtr + i * valueStride;
-                for (int c = 0; c < numComponents; ++c) {
-                    out[index * static_cast<size_t>(numComponents) + static_cast<size_t>(c)] =
-                        decodeComponent(element, accessor.componentType, accessor.normalized, c);
+                const auto valueStride = static_cast<size_t>(_components) *
+                    static_cast<size_t>(componentBytes(_componentType));
+                const auto* idxPtr = viewBytes(sparse.indices.bufferView, sparse.indices.byteOffset,
+                    sparseCount * static_cast<size_t>(idxBytes));
+                const auto* valPtr = viewBytes(sparse.values.bufferView, sparse.values.byteOffset,
+                    sparseCount * valueStride);
+                if (!idxPtr || !valPtr) {
+                    return false;
                 }
+
+                _sparseValues.assign(_count, nullptr);
+                for (size_t i = 0; i < sparseCount; ++i) {
+                    size_t index = 0;
+                    switch (idxBytes) {
+                        case 1: index = idxPtr[i]; break;
+                        case 2: index = reinterpret_cast<const uint16_t*>(idxPtr)[i]; break;
+                        default: index = reinterpret_cast<const uint32_t*>(idxPtr)[i]; break;
+                    }
+                    if (index >= _count) {
+                        return false;
+                    }
+                    _sparseValues[index] = valPtr + i * valueStride;
+                }
+                return true;
             }
-            return true;
-        }
+
+            const uint8_t* _base = nullptr;   // null when the accessor has no bufferView
+            size_t _stride = 0;
+            size_t _count = 0;
+            int _components = 0;
+            int _componentType = 0;
+            bool _normalized = false;
+            bool _valid = false;
+            // Per element, the sparse value that replaces it, or null; empty when the
+            // accessor is not sparse.
+            std::vector<const uint8_t*> _sparseValues;
+        };
 
         // Read all data from an accessor into a flat vector of floats.
         // Works for SCALAR, VEC2, VEC3, VEC4, and for every component type glTF
-        // allows — the values are de-quantised on the way out.
-        // Supports sparse accessors, including the base-less form (bufferView absent,
-        // base = zeros) that morph-target deltas commonly use.
-        // De-quantises like readElement: an animation sampler's output may be
-        // normalized byte/short in core glTF, and a morph target's deltas may be
-        // quantised under KHR_mesh_quantization.
+        // allows — the values are de-quantised on the way out: an animation sampler's
+        // output may be normalized byte/short in core glTF, and a morph target's deltas
+        // may be quantised under KHR_mesh_quantization. Sparse accessors are honoured,
+        // including the base-less form morph-target deltas commonly use. An accessor
+        // with neither a bufferView nor sparse values is refused rather than read as
+        // zeros: an all-zero inverse bind matrix or keyframe list is never what a file
+        // that forgot its data means.
         bool readFloatArray(const tinygltf::Model& model, const tinygltf::Accessor& accessor, std::vector<float>& out)
         {
-            const int numComponents = tinygltf::GetNumComponentsInType(accessor.type);
-            if (numComponents <= 0 || componentBytes(accessor.componentType) <= 0) {
+            if (accessor.bufferView < 0 && !accessor.sparse.isSparse) {
                 return false;
             }
-            const size_t count = static_cast<size_t>(accessor.count);
-            out.assign(count * static_cast<size_t>(numComponents), 0.0f);
-
-            if (accessor.bufferView >= 0) {
-                const auto* base = getAccessorBase(model, accessor);
-                if (!base) {
-                    return false;
-                }
-                const auto stride = accessorStride(model, accessor);
-                for (size_t i = 0; i < count; ++i) {
-                    const auto* element = base + i * static_cast<size_t>(stride);
-                    for (int c = 0; c < numComponents; ++c) {
-                        out[i * static_cast<size_t>(numComponents) + static_cast<size_t>(c)] =
-                            decodeComponent(element, accessor.componentType, accessor.normalized, c);
-                    }
-                }
-            } else if (!accessor.sparse.isSparse) {
+            const AccessorReader reader(model, accessor);
+            if (!reader.valid()) {
                 return false;
             }
-
-            if (accessor.sparse.isSparse) {
-                return applySparseOverrides(model, accessor, numComponents, out);
+            const auto components = static_cast<size_t>(reader.components());
+            out.assign(reader.count() * components, 0.0f);
+            for (size_t i = 0; i < reader.count(); ++i) {
+                reader.read(i, out.data() + i * components, reader.components());
             }
             return true;
         }
@@ -456,6 +460,12 @@ namespace visutwin::canvas
         /// blendIndices (4) = 88 bytes. Matches the STRIDE_SKINNED vertex descriptor
         /// (attributes 11/12) and the VT_FEATURE_SKINNING shader path.
         constexpr size_t SKINNED_VERTEX_STRIDE = sizeof(PackedVertex) + 8 * sizeof(float);
+
+        /// Vertex-coloured layout: PackedVertex (14 floats) + an RGBA colour (4) = 72
+        /// bytes, the colour at offset 56 — the layout both backends' vertex-colour
+        /// paths read (attribute 5). Static meshes only: neither backend has a vertex
+        /// stage that reads a colour beside skin weights or morph deltas.
+        constexpr size_t COLORED_VERTEX_STRIDE = sizeof(PackedVertex) + 4 * sizeof(float);
 
         /// Per-vertex skin influences read from JOINTS_0/WEIGHTS_0 (4 per vertex each).
         struct SkinAttributes
@@ -483,50 +493,29 @@ namespace visutwin::canvas
                 spdlog::warn("GLB skin attributes present but malformed — skinning skipped");
                 return out;
             }
-            const auto* jointsBase = getAccessorBase(model, *jointsAccessor);
-            const auto* weightsBase = getAccessorBase(model, *weightsAccessor);
-            if (!jointsBase || !weightsBase) {
+            // Joints are integers and weights unit fractions whatever the accessor's
+            // normalized flag says; the spec allows only these component types.
+            const int jointsType = jointsAccessor->componentType;
+            const int weightsType = weightsAccessor->componentType;
+            if ((jointsType != TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE &&
+                 jointsType != TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) ||
+                (weightsType != TINYGLTF_COMPONENT_TYPE_FLOAT &&
+                 weightsType != TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE &&
+                 weightsType != TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT)) {
                 return out;
             }
-            const auto jointsStride = static_cast<size_t>(accessorStride(model, *jointsAccessor));
-            const auto weightsStride = static_cast<size_t>(accessorStride(model, *weightsAccessor));
+            const AccessorReader joints(model, *jointsAccessor, TINYGLTF_TYPE_VEC4, false);
+            const AccessorReader weights(model, *weightsAccessor, TINYGLTF_TYPE_VEC4, true);
+            if (!joints.valid() || !weights.valid()) {
+                return out;
+            }
 
             out.joints.resize(vertexCount * 4);
             out.weights.resize(vertexCount * 4);
             for (size_t i = 0; i < vertexCount; ++i) {
-                const auto* jointsPtr = jointsBase + i * jointsStride;
-                for (int c = 0; c < 4; ++c) {
-                    float joint = 0.0f;
-                    switch (jointsAccessor->componentType) {
-                        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
-                            joint = static_cast<float>(jointsPtr[c]);
-                            break;
-                        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
-                            joint = static_cast<float>(reinterpret_cast<const uint16_t*>(jointsPtr)[c]);
-                            break;
-                        default:
-                            return out;  // Spec allows only u8/u16 joints.
-                    }
-                    out.joints[i * 4 + static_cast<size_t>(c)] = joint;
-                }
-
-                const auto* weightsPtr = weightsBase + i * weightsStride;
+                joints.read(i, out.joints.data() + i * 4, 4);
                 float w[4] = {0, 0, 0, 0};
-                for (int c = 0; c < 4; ++c) {
-                    switch (weightsAccessor->componentType) {
-                        case TINYGLTF_COMPONENT_TYPE_FLOAT:
-                            w[c] = reinterpret_cast<const float*>(weightsPtr)[c];
-                            break;
-                        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
-                            w[c] = static_cast<float>(weightsPtr[c]) / 255.0f;
-                            break;
-                        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
-                            w[c] = static_cast<float>(reinterpret_cast<const uint16_t*>(weightsPtr)[c]) / 65535.0f;
-                            break;
-                        default:
-                            return out;
-                    }
-                }
+                weights.read(i, w, 4);
                 // Renormalize (quantized weights rarely sum to exactly 1); a degenerate
                 // all-zero vertex binds fully to its first joint instead of collapsing
                 // to the origin.
@@ -955,8 +944,13 @@ namespace visutwin::canvas
             return mesh.GetAttributeByUniqueId(uniqueId);
         }
 
+        // Decodes a KHR_draco_mesh_compression primitive into vertices and a triangle
+        // list. `outHasNormals` / `outHasTangents` say whether the payload carried those
+        // attributes (the caller derives what is missing), and `outColors` receives
+        // COLOR_0 as RGBA per vertex, or stays empty.
         bool decodeDracoPrimitive(const tinygltf::Model& model, const tinygltf::Primitive& primitive,
-            std::vector<PackedVertex>& outVertices, std::vector<uint32_t>& outIndices, Vector3& outMinPos, Vector3& outMaxPos)
+            std::vector<PackedVertex>& outVertices, std::vector<uint32_t>& outIndices, Vector3& outMinPos, Vector3& outMaxPos,
+            bool& outHasNormals, bool& outHasTangents, std::vector<float>& outColors)
         {
             const auto extIt = primitive.extensions.find("KHR_draco_mesh_compression");
             if (extIt == primitive.extensions.end()) {
@@ -1016,9 +1010,17 @@ namespace visutwin::canvas
             const auto* uvAttr = getDracoAttribute(*dracoMesh, dracoExt, "TEXCOORD_0");
             const auto* uv1Attr = getDracoAttribute(*dracoMesh, dracoExt, "TEXCOORD_1");
             const auto* tangentAttr = getDracoAttribute(*dracoMesh, dracoExt, "TANGENT");
+            const auto* colorAttr = getDracoAttribute(*dracoMesh, dracoExt, "COLOR_0");
+            outHasNormals = normalAttr && normalAttr->num_components() >= 3;
+            outHasTangents = tangentAttr && tangentAttr->num_components() >= 4;
+            const bool hasColors = colorAttr && colorAttr->num_components() >= 3;
 
             const int32_t pointCount = dracoMesh->num_points();
             outVertices.resize(static_cast<size_t>(pointCount));
+            outColors.clear();
+            if (hasColors) {
+                outColors.assign(static_cast<size_t>(pointCount) * 4, 1.0f);
+            }
 
             outMinPos = Vector3(std::numeric_limits<float>::max());
             outMaxPos = Vector3(std::numeric_limits<float>::lowest());
@@ -1037,8 +1039,9 @@ namespace visutwin::canvas
                     return false;
                 }
 
+                // Overwritten by generated face normals when the payload has none.
                 std::array<float, 3> normal{0.0f, 1.0f, 0.0f};
-                if (normalAttr && normalAttr->num_components() >= 3) {
+                if (outHasNormals) {
                     const draco::AttributeValueIndex normalValueIndex = normalAttr->mapped_index(pointIndex);
                     if (normalValueIndex >= 0) {
                         normalAttr->ConvertValue<float, 3>(normalValueIndex, normal.data());
@@ -1064,7 +1067,7 @@ namespace visutwin::canvas
                 }
 
                 std::array<float, 4> tangent{0.0f, 0.0f, 0.0f, 1.0f};
-                if (tangentAttr && tangentAttr->num_components() >= 4) {
+                if (outHasTangents) {
                     const draco::AttributeValueIndex tangentValueIndex = tangentAttr->mapped_index(pointIndex);
                     if (tangentValueIndex >= 0) {
                         tangentAttr->ConvertValue<float, 4>(tangentValueIndex, tangent.data());
@@ -1081,6 +1084,16 @@ namespace visutwin::canvas
                     uv1[0], uv1[1]
                 };
 
+                if (hasColors) {
+                    const draco::AttributeValueIndex colorValueIndex = colorAttr->mapped_index(pointIndex);
+                    std::array<float, 4> color{1.0f, 1.0f, 1.0f, 1.0f};
+                    if (colorValueIndex >= 0) {
+                        colorAttr->ConvertValue<float, 4>(colorValueIndex, color.data());
+                    }
+                    // A three-component colour comes back with a zero fourth component.
+                    std::copy_n(color.data(), 3, outColors.data() + static_cast<size_t>(i) * 4);
+                }
+
                 const Vector3 position = Vector3::load(pos.data());
                 outMinPos = Vector3::min(outMinPos, position);
                 outMaxPos = Vector3::max(outMaxPos, position);
@@ -1094,11 +1107,6 @@ namespace visutwin::canvas
                 outIndices.push_back(face[1].value());
                 outIndices.push_back(face[2].value());
             }
-
-            if (!tangentAttr && primitive.mode == TINYGLTF_MODE_TRIANGLES) {
-                generateTangents(outVertices, outIndices);
-            }
-
             return true;
         }
 
@@ -1435,7 +1443,7 @@ namespace visutwin::canvas
     // the node's local space, packed as the 64-byte default instancing format. The
     // count is the first attribute's; an attribute that is absent is identity. Every
     // component type the spec allows (normalized rotations included) goes through
-    // readElement's de-quantisation. Empty when the node has no usable extension.
+    // AccessorReader's de-quantisation. Empty when the node has no usable extension.
     static std::vector<float> gltfInstanceMatrices(const tinygltf::Model& model, const tinygltf::Node& node)
     {
         const auto ext = node.extensions.find("EXT_mesh_gpu_instancing");
@@ -1462,20 +1470,22 @@ namespace visutwin::canvas
             return {};
         }
 
+        const AccessorReader translationReader = translations
+            ? AccessorReader(model, *translations, TINYGLTF_TYPE_VEC3) : AccessorReader();
+        const AccessorReader rotationReader = rotations
+            ? AccessorReader(model, *rotations, TINYGLTF_TYPE_VEC4) : AccessorReader();
+        const AccessorReader scaleReader = scales
+            ? AccessorReader(model, *scales, TINYGLTF_TYPE_VEC3) : AccessorReader();
         std::vector<float> matrices(count * 16);
         for (size_t i = 0; i < count; ++i) {
+            // A read that fails (an absent attribute, or one shorter than the first)
+            // leaves the identity component in place.
             float t[3] = {0.0f, 0.0f, 0.0f};
             float r[4] = {0.0f, 0.0f, 0.0f, 1.0f};
             float sc[3] = {1.0f, 1.0f, 1.0f};
-            if (translations) {
-                readElement(model, *translations, i, TINYGLTF_TYPE_VEC3, t, 3);
-            }
-            if (rotations) {
-                readElement(model, *rotations, i, TINYGLTF_TYPE_VEC4, r, 4);
-            }
-            if (scales) {
-                readElement(model, *scales, i, TINYGLTF_TYPE_VEC3, sc, 3);
-            }
+            translationReader.read(i, t, 3);
+            rotationReader.read(i, r, 4);
+            scaleReader.read(i, sc, 3);
             const Matrix4 matrix = Matrix4::trs(Vector3(t[0], t[1], t[2]),
                 Quaternion(r[0], r[1], r[2], r[3]).normalized(), Vector3(sc[0], sc[1], sc[2]));
             matrix.store(matrices.data() + i * 16);
@@ -1779,6 +1789,12 @@ namespace visutwin::canvas
         }
         if (const int idx = textureIndex("clearcoatNormalTexture"); idx >= 0) {
             if (const auto tex = getOrCreateTexture(idx)) material->setClearCoatNormalMap(tex.get());
+            // The texture info's scale scales the coat normal map's XY, as the base
+            // normalTexture.scale does the base normal map (spec default 1).
+            const auto info = cc.Get("clearcoatNormalTexture");
+            material->setClearCoatBumpiness(
+                info.Has("scale") && info.Get("scale").IsNumber()
+                    ? static_cast<float>(info.Get("scale").GetNumberAsDouble()) : 1.0f);
         }
     }
 
@@ -1921,34 +1937,32 @@ namespace visutwin::canvas
 
         const auto& sg = sgIt->second;
 
-        // diffuseFactor → baseColorFactor (4th component is alpha/opacity)
+        // diffuseFactor → the diffuse colour and the opacity (its 4th component), white
+        // and opaque when absent. Opacity only: whether the material blends is the
+        // file's alphaMode, which createGltfMaterial has already applied. An alpha
+        // below 1 does not turn an OPAQUE material into a blended one, and a BLEND
+        // material keeps exactly the alpha the file gives it.
+        Color diffColor(1.0f, 1.0f, 1.0f, 1.0f);
         if (sg.Has("diffuseFactor")) {
-            auto df = sg.Get("diffuseFactor");
+            const auto df = sg.Get("diffuseFactor");
             if (df.IsArray() && df.ArrayLen() >= 3) {
-                float alpha = df.ArrayLen() >= 4 ? static_cast<float>(df.Get(3).GetNumberAsDouble()) : 1.0f;
-                Color diffColor(
-                    static_cast<float>(df.Get(0).IsNumber() ? df.Get(0).GetNumberAsDouble() : 1.0),
-                    static_cast<float>(df.Get(1).IsNumber() ? df.Get(1).GetNumberAsDouble() : 1.0),
-                    static_cast<float>(df.Get(2).IsNumber() ? df.Get(2).GetNumberAsDouble() : 1.0),
-                    alpha);
-                material->setBaseColorFactor(diffColor);
-                Color gammaColor(diffColor);
-                gammaColor.gamma();
-                material->setDiffuse(gammaColor);
-                material->setOpacity(alpha);
-                // Enable transparency if alpha < 1
-                if (alpha < 1.0f) {
-                    material->setAlphaMode(AlphaMode::BLEND);
-                    material->setTransparent(true);
-                }
+                const auto component = [&df](const int i) {
+                    return df.Get(i).IsNumber() ? static_cast<float>(df.Get(i).GetNumberAsDouble()) : 1.0f;
+                };
+                diffColor = Color(component(0), component(1), component(2), df.ArrayLen() >= 4 ? component(3) : 1.0f);
             }
         }
+        material->setBaseColorFactor(diffColor);
+        Color gammaColor(diffColor);
+        gammaColor.gamma();
+        material->setDiffuse(gammaColor);
+        material->setOpacity(diffColor.a);
 
         // diffuseTexture → baseColorTexture
         if (sg.Has("diffuseTexture")) {
-            auto dt = sg.Get("diffuseTexture");
+            const auto dt = sg.Get("diffuseTexture");
             if (dt.IsObject() && dt.Has("index")) {
-                int texIdx = dt.Get("index").GetNumberAsInt();
+                const int texIdx = dt.Get("index").GetNumberAsInt();
                 if (auto tex = getOrCreateTexture(texIdx)) {
                     // Set on BOTH base Material and StandardMaterial paths
                     material->setBaseColorTexture(tex.get());
@@ -1956,25 +1970,11 @@ namespace visutwin::canvas
                     material->setDiffuseMap(tex.get());
                     if (dt.Has("texCoord"))
                         material->setBaseColorUvSet(dt.Get("texCoord").GetNumberAsInt());
-                    // Check pixel data
-                    {
-                        auto* px = static_cast<const uint8_t*>(tex->getLevel(0));
-                        if (px) {
-                            uint32_t w = tex->width(), h = tex->height();
-                            size_t mid = (static_cast<size_t>(h/2) * w + w/2) * 4;
-                            size_t q1 = (static_cast<size_t>(h/4) * w + w/4) * 4;
-                            spdlog::info("    specGloss diffuseTex OK: texIdx={}, {}x{}, center=({},{},{},{}), q1=({},{},{},{})",
-                                texIdx, w, h, px[mid],px[mid+1],px[mid+2],px[mid+3], px[q1],px[q1+1],px[q1+2],px[q1+3]);
-                        } else {
-                            spdlog::warn("    specGloss diffuseTex OK but NO pixel data on CPU: texIdx={}, {}x{}", texIdx, tex->width(), tex->height());
-                        }
-                    }
                 } else {
-                    spdlog::warn("    specGloss diffuseTex FAILED: texIdx={}", texIdx);
+                    spdlog::warn("GLB material '{}': spec-gloss diffuse texture {} could not be created",
+                        material->name(), texIdx);
                 }
             }
-        } else {
-            spdlog::info("    specGloss: no diffuseTexture field");
         }
 
         // The specular workflow of the KHR_materials_pbrSpecularGlossiness
@@ -2020,18 +2020,6 @@ namespace visutwin::canvas
         }
         material->setGloss(gloss);
         material->setRoughnessFactor(1.0f - gloss);
-
-        // If material is BLEND but opacity is still 1.0, set a reasonable glass opacity.
-        // This handles glass materials that rely on BLEND mode for transparency
-        // but don't have an explicit low alpha in diffuseFactor.
-        if (material->alphaMode() == AlphaMode::BLEND && material->opacity() >= 1.0f) {
-            material->setOpacity(0.15f);
-            material->setBaseColorFactor(Color(
-                material->baseColorFactor().r,
-                material->baseColorFactor().g,
-                material->baseColorFactor().b,
-                0.15f));
-        }
     }
 
     // The material a primitive with no material gets.
@@ -2232,7 +2220,7 @@ namespace visutwin::canvas
         }
 
         // KHR_gaussian_splatting: the splat attributes of a
-        // POINTS primitive, read through readElement so every component type the file
+        // POINTS primitive, read through AccessorReader so every component type the file
         // may use is de-quantised. The values are ACTIVATED — linear scale, post-sigmoid
         // opacity. Null, with an error, when a required attribute is missing or its
         // count does not match POSITION's. SH bands count only while complete.
@@ -2263,9 +2251,10 @@ namespace visutwin::canvas
                 if (!accessor || accessor->count != count || accessor->type != type) {
                     return false;
                 }
+                const AccessorReader reader(model, *accessor, type);
                 out.resize(count * static_cast<size_t>(components));
                 for (size_t i = 0; i < count; ++i) {
-                    if (!readElement(model, *accessor, i, type, out.data() + i * static_cast<size_t>(components), components)) {
+                    if (!reader.read(i, out.data() + i * static_cast<size_t>(components), components)) {
                         return false;
                     }
                 }
@@ -2504,29 +2493,27 @@ namespace visutwin::canvas
             const size_t base = out.size();
             const auto count = static_cast<size_t>(positions.count);
             out.resize(base + count);
+            const AccessorReader positionReader(model, positions, TINYGLTF_TYPE_VEC3);
+            // COLOR_0 is VEC3 or VEC4; a VEC3 colour keeps alpha 1.
+            const AccessorReader colorReader = colors &&
+                (colors->type == TINYGLTF_TYPE_VEC3 || colors->type == TINYGLTF_TYPE_VEC4)
+                ? AccessorReader(model, *colors) : AccessorReader();
+            const int colorComponents = colorReader.valid() ? colorReader.components() : 0;
             for (size_t i = 0; i < count; ++i) {
-                Vector3 pos;
-                if (!readFloatVec3(model, positions, i, pos)) {
+                float p[3] = {0.0f, 0.0f, 0.0f};
+                if (!positionReader.read(i, p, 3)) {
                     continue;
                 }
+                Vector3 pos = Vector3::load(p);
                 if (transform) {
                     pos = transform->transformPoint(pos);
                 }
-                float cr = 1.0f, cg = 1.0f, cb = 1.0f, ca = 1.0f;
-                if (colors) {
-                    if (colors->type == TINYGLTF_TYPE_VEC4) {
-                        Vector4 color;
-                        if (readFloatVec4(model, *colors, i, color)) {
-                            cr = color.getX(); cg = color.getY(); cb = color.getZ(); ca = color.getW();
-                        }
-                    } else if (colors->type == TINYGLTF_TYPE_VEC3) {
-                        Vector3 color;
-                        if (readFloatVec3(model, *colors, i, color)) {
-                            cr = color.getX(); cg = color.getY(); cb = color.getZ();
-                        }
-                    }
+                float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+                if (colorComponents > 0) {
+                    colorReader.read(i, color, colorComponents);
                 }
-                out[base + i] = PackedPointVertex{pos.getX(), pos.getY(), pos.getZ(), cr, cg, cb, ca};
+                out[base + i] = PackedPointVertex{pos.getX(), pos.getY(), pos.getZ(),
+                    color[0], color[1], color[2], color[3]};
                 boundsMin = Vector3::min(boundsMin, pos);
                 boundsMax = Vector3::max(boundsMax, pos);
             }
@@ -2572,127 +2559,333 @@ namespace visutwin::canvas
             return result;
         }
 
+        // The glTF triangle modes: a list, a strip and a fan.
+        bool isTriangleMode(const int mode)
+        {
+            return mode == TINYGLTF_MODE_TRIANGLES || mode == TINYGLTF_MODE_TRIANGLE_STRIP ||
+                mode == TINYGLTF_MODE_TRIANGLE_FAN;
+        }
+
+        // The triangles of a triangle-mode primitive as corner vertex indices, three per
+        // triangle, in the order the glTF specification defines for each mode: a strip
+        // swaps the last two corners of every odd triangle, so all of them face the way
+        // the first one does, and a fan turns around its first vertex. `indices` empty
+        // means the vertices in order. A triangle naming a vertex past the end is dropped.
+        std::vector<uint32_t> triangleCorners(const int mode, const std::vector<uint32_t>& indices,
+            const size_t vertexCount)
+        {
+            const size_t n = indices.empty() ? vertexCount : indices.size();
+            const auto at = [&](const size_t i) {
+                return indices.empty() ? static_cast<uint32_t>(i) : indices[i];
+            };
+            std::vector<uint32_t> corners;
+            const auto add = [&](const uint32_t a, const uint32_t b, const uint32_t c) {
+                if (a < vertexCount && b < vertexCount && c < vertexCount) {
+                    corners.insert(corners.end(), {a, b, c});
+                }
+            };
+            if (mode == TINYGLTF_MODE_TRIANGLES) {
+                corners.reserve(n - n % 3);
+                for (size_t i = 0; i + 2 < n; i += 3) {
+                    add(at(i), at(i + 1), at(i + 2));
+                }
+            } else if (mode == TINYGLTF_MODE_TRIANGLE_STRIP) {
+                for (size_t i = 0; i + 2 < n; ++i) {
+                    const bool odd = (i & 1) != 0;
+                    add(at(i), at(i + (odd ? 2 : 1)), at(i + (odd ? 1 : 2)));
+                }
+            } else if (mode == TINYGLTF_MODE_TRIANGLE_FAN) {
+                for (size_t i = 1; i + 1 < n; ++i) {
+                    add(at(i), at(i + 1), at(0));
+                }
+            }
+            return corners;
+        }
+
+        // A triangle primitive without NORMAL is FLAT shaded, as the glTF specification
+        // requires: every triangle gets three vertices of its own carrying its face
+        // normal, cross(p1 - p0, p2 - p0) normalised (a zero-area triangle takes +Y).
+        // On return the primitive is a non-indexed triangle list. Returns the source
+        // vertex each resulting vertex was copied from, so the streams read beside the
+        // vertices (skin influences, morph deltas, colours) can be re-indexed the same
+        // way; empty when the vertices already were one triple per triangle and only
+        // their normals changed.
+        //
+        // DEVIATION: upstream keeps smoothly averaged normals in the vertex buffer and
+        // flat shades through a material flag (normals from screen-space derivatives),
+        // which this engine's materials do not have. Unwelding gives the same facets
+        // without a shader change, at the cost of three vertices per triangle, and the
+        // flat look cannot be switched back to smooth normals afterwards.
+        std::vector<uint32_t> applyFlatNormals(std::vector<PackedVertex>& vertices, std::vector<uint32_t>& indices,
+            int& mode)
+        {
+            std::vector<uint32_t> corners = triangleCorners(mode, indices, vertices.size());
+            const bool inPlace = mode == TINYGLTF_MODE_TRIANGLES && indices.empty() &&
+                corners.size() == vertices.size();
+            if (inPlace) {
+                corners.clear();
+            } else {
+                std::vector<PackedVertex> unwelded;
+                unwelded.reserve(corners.size());
+                for (const uint32_t source : corners) {
+                    unwelded.push_back(vertices[source]);
+                }
+                vertices = std::move(unwelded);
+            }
+            for (size_t t = 0; t + 2 < vertices.size(); t += 3) {
+                const Vector3 p0 = Vector3::load(&vertices[t].px);
+                const Vector3 faceNormal = (Vector3::load(&vertices[t + 1].px) - p0).cross(
+                    Vector3::load(&vertices[t + 2].px) - p0);
+                const float length = faceNormal.length();
+                const Vector3 normal = length > 0.0f ? faceNormal * (1.0f / length) : Vector3(0.0f, 1.0f, 0.0f);
+                for (size_t k = 0; k < 3; ++k) {
+                    vertices[t + k].nx = normal.getX();
+                    vertices[t + k].ny = normal.getY();
+                    vertices[t + k].nz = normal.getZ();
+                }
+            }
+            indices.clear();
+            mode = TINYGLTF_MODE_TRIANGLES;
+            return corners;
+        }
+
+        // Re-indexes a per-vertex stream of `width` values per vertex after
+        // applyFlatNormals (`source` empty: nothing to do). A stream shorter than the
+        // `sourceCount` vertices it should cover cannot be re-indexed and is cleared.
+        void remapPerVertex(std::vector<float>& values, const std::vector<uint32_t>& source,
+            const size_t sourceCount, const size_t width)
+        {
+            if (source.empty() || values.empty()) {
+                return;
+            }
+            if (values.size() < sourceCount * width) {
+                values.clear();
+                return;
+            }
+            std::vector<float> remapped(source.size() * width);
+            for (size_t i = 0; i < source.size(); ++i) {
+                std::copy_n(values.data() + static_cast<size_t>(source[i]) * width, width, remapped.data() + i * width);
+            }
+            values = std::move(remapped);
+        }
+
+        // Interleaves the vertices with COLOR_0 (RGBA per vertex) into the 72-byte
+        // vertex-coloured layout. glTF vertex colours are LINEAR, while both backends'
+        // vertex stages decode a vertex colour as gamma 2.2 (pow 2.2) before the
+        // fragment stage multiplies it into the linear base colour. The colour is
+        // therefore stored pre-encoded with the inverse curve, which the decode turns
+        // back into the file's linear value. Alpha is written as 1: the colour tints
+        // the diffuse only, and opacity is not taken from it.
+        std::vector<uint8_t> packColoredVertices(const std::vector<PackedVertex>& vertices,
+            const std::vector<float>& colors)
+        {
+            std::vector<uint8_t> bytes(vertices.size() * COLORED_VERTEX_STRIDE);
+            for (size_t i = 0; i < vertices.size(); ++i) {
+                auto* dst = bytes.data() + i * COLORED_VERTEX_STRIDE;
+                std::memcpy(dst, &vertices[i], sizeof(PackedVertex));
+                float color[4];
+                for (size_t c = 0; c < 3; ++c) {
+                    color[c] = std::pow(std::max(colors[i * 4 + c], 0.0f), 1.0f / 2.2f);
+                }
+                color[3] = 1.0f;
+                std::memcpy(dst + sizeof(PackedVertex), color, sizeof(color));
+            }
+            return bytes;
+        }
+
         // Vertices, indices, skin attributes and morph targets of one non-POINTS
         // primitive. False when the primitive has nothing drawable.
+        //
+        // Every attribute is read through AccessorReader (sparse and quantised data
+        // included). A triangle primitive without NORMAL is flat shaded
+        // (applyFlatNormals), and the tangents a primitive without TANGENT gets are
+        // derived afterwards, from the final normals. COLOR_0 takes the 72-byte
+        // vertex-coloured layout on a static mesh; on a skinned or morphed one it is
+        // dropped with a warning, and a colour that is white everywhere is dropped
+        // silently, since it multiplies by one and would only cost the mesh its
+        // batchable layout.
         bool extractTrianglePrimitive(const tinygltf::Model& model, const tinygltf::Mesh& mesh,
             const tinygltf::Primitive& primitive, const size_t meshIndex, PreparedGlbData& counters,
             PreparedGlbData::PrimitiveData& pd)
         {
-            pd.mode = primitive.mode;
+            // An absent mode is TRIANGLES (the specification's default).
+            int mode = primitive.mode < 0 ? TINYGLTF_MODE_TRIANGLES : primitive.mode;
             pd.materialIndex = primitive.material;
             pd.variantMaterials = primitiveVariantMaterials(primitive);
 
             std::vector<PackedVertex> vertices;
             std::vector<uint32_t> parsedIndices;
+            std::vector<float> colors;   // RGBA per vertex, empty without COLOR_0
+            bool hasNormals = false;
+            bool hasTangents = false;
             Vector3 minPos(std::numeric_limits<float>::max());
             Vector3 maxPos(std::numeric_limits<float>::lowest());
 
             bool decodedDraco = false;
             if (primitiveUsesDraco(primitive)) {
                 counters.dracoPrimitiveCount++;
-                decodedDraco = decodeDracoPrimitive(model, primitive, vertices, parsedIndices, minPos, maxPos);
+                decodedDraco = decodeDracoPrimitive(model, primitive, vertices, parsedIndices, minPos, maxPos,
+                    hasNormals, hasTangents, colors);
                 if (!decodedDraco) {
                     counters.dracoDecodeFailureCount++;
                     spdlog::warn("Skipping glTF primitive due to Draco decode failure (mesh={})", meshIndex);
                     return false;
                 }
                 counters.dracoDecodeSuccessCount++;
+                // A Draco payload is always a triangle list.
+                mode = TINYGLTF_MODE_TRIANGLES;
             }
 
             if (!decodedDraco) {
-                const auto* positions = readablePositions(model, primitive);
-                if (!positions) {
+                const auto* positionAccessor = readablePositions(model, primitive);
+                if (!positionAccessor) {
                     return false;
                 }
-                const auto* normals = primitiveAttribute(model, primitive, "NORMAL");
-                const auto* uvs = primitiveAttribute(model, primitive, "TEXCOORD_0");
-                const auto* uvs1 = primitiveAttribute(model, primitive, "TEXCOORD_1");
-                const auto* tangents = primitiveAttribute(model, primitive, "TANGENT");
+                const AccessorReader positions(model, *positionAccessor, TINYGLTF_TYPE_VEC3);
+                if (!positions.valid()) {
+                    spdlog::warn("Skipping glTF primitive with unreadable POSITION data (mesh={})", meshIndex);
+                    return false;
+                }
+                const auto vertexCount = positions.count();
+                // An attribute that cannot be read, or covers fewer vertices than
+                // POSITION, counts as absent.
+                const auto attribute = [&](const char* name, const int type) {
+                    const auto* accessor = primitiveAttribute(model, primitive, name);
+                    if (!accessor) {
+                        return AccessorReader();
+                    }
+                    AccessorReader reader(model, *accessor, type);
+                    if (!reader.valid() || reader.count() < vertexCount) {
+                        return AccessorReader();
+                    }
+                    return reader;
+                };
+                const AccessorReader normals = attribute("NORMAL", TINYGLTF_TYPE_VEC3);
+                const AccessorReader uvs = attribute("TEXCOORD_0", TINYGLTF_TYPE_VEC2);
+                const AccessorReader uvs1 = attribute("TEXCOORD_1", TINYGLTF_TYPE_VEC2);
+                const AccessorReader tangents = attribute("TANGENT", TINYGLTF_TYPE_VEC4);
+                hasNormals = normals.valid();
+                hasTangents = tangents.valid();
 
-                const auto vertexCount = static_cast<size_t>(positions->count);
+                // COLOR_0 is VEC3 or VEC4; a VEC3 colour reads with alpha 1.
+                AccessorReader colorReader = attribute("COLOR_0", TINYGLTF_TYPE_VEC4);
+                if (!colorReader.valid()) {
+                    colorReader = attribute("COLOR_0", TINYGLTF_TYPE_VEC3);
+                }
+                if (colorReader.valid()) {
+                    colors.assign(vertexCount * 4, 1.0f);
+                }
+
                 vertices.resize(vertexCount);
                 for (size_t i = 0; i < vertexCount; ++i) {
-                    Vector3 pos;
-                    if (!readFloatVec3(model, *positions, i, pos)) {
-                        continue;
-                    }
-                    Vector3 normal(0.0f, 1.0f, 0.0f);
-                    if (normals) {
-                        Vector3 n;
-                        if (readFloatVec3(model, *normals, i, n)) normal = n;
-                    }
+                    float pos[3] = {0.0f, 0.0f, 0.0f};
+                    positions.read(i, pos, 3);
+                    // Overwritten by generated face normals when the file has none.
+                    float normal[3] = {0.0f, 1.0f, 0.0f};
+                    normals.read(i, normal, 3);
                     // glTF UVs are authored for GL-style sampling conventions. Texture
                     // sampling here uses a top-left origin, so V is flipped.
-                    float u = 0.0f, v = 0.0f;
-                    if (uvs) {
-                        readFloatVec2(model, *uvs, i, u, v);
-                        v = 1.0f - v;
+                    float uv[2] = {0.0f, 0.0f};
+                    if (uvs.read(i, uv, 2)) {
+                        uv[1] = 1.0f - uv[1];
                     }
-                    float u1 = u, v1 = v;
-                    if (uvs1) {
-                        readFloatVec2(model, *uvs1, i, u1, v1);
-                        v1 = 1.0f - v1;
+                    float uv1[2] = {uv[0], uv[1]};
+                    if (uvs1.read(i, uv1, 2)) {
+                        uv1[1] = 1.0f - uv1[1];
                     }
                     // Leave the tangent zero when the file carries none; triangle
                     // primitives get one generated below (generateTangents), and the
                     // shaders skip normal mapping on a degenerate tangent rather than
                     // building a bogus fixed basis. There is no derivative-based TBN
                     // fallback in this port.
-                    Vector4 tangent(0.0f, 0.0f, 0.0f, 1.0f);
-                    if (tangents) {
-                        Vector4 t;
-                        if (readFloatVec4(model, *tangents, i, t)) {
-                            // V is flipped above, so an imported tangent flips handedness.
-                            tangent = Vector4(t.getX(), t.getY(), t.getZ(), -t.getW());
-                        }
+                    float tangent[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+                    if (tangents.read(i, tangent, 4)) {
+                        // V is flipped above, so an imported tangent flips handedness.
+                        tangent[3] = -tangent[3];
+                    }
+                    if (!colors.empty()) {
+                        colorReader.read(i, colors.data() + i * 4, colorReader.components());
                     }
                     vertices[i] = PackedVertex{
-                        pos.getX(), pos.getY(), pos.getZ(),
-                        normal.getX(), normal.getY(), normal.getZ(),
-                        u, v,
-                        tangent.getX(), tangent.getY(), tangent.getZ(), tangent.getW(),
-                        u1, v1
+                        pos[0], pos[1], pos[2],
+                        normal[0], normal[1], normal[2],
+                        uv[0], uv[1],
+                        tangent[0], tangent[1], tangent[2], tangent[3],
+                        uv1[0], uv1[1]
                     };
-                    minPos = Vector3::min(minPos, pos);
-                    maxPos = Vector3::max(maxPos, pos);
+                    const Vector3 position = Vector3::load(pos);
+                    minPos = Vector3::min(minPos, position);
+                    maxPos = Vector3::max(maxPos, position);
                 }
 
-                if (!tangents && primitive.mode == TINYGLTF_MODE_TRIANGLES) {
-                    if (primitive.indices >= 0) {
-                        if (const auto* indexAccessor = getAccessor(model, primitive.indices)) {
-                            readIndices(model, *indexAccessor, parsedIndices);
-                        }
+                if (primitive.indices >= 0) {
+                    if (const auto* indexAccessor = getAccessor(model, primitive.indices)) {
+                        readIndices(model, *indexAccessor, parsedIndices);
                     }
-                    generateTangents(vertices, parsedIndices);
                 }
             }
 
             if (vertices.empty()) {
                 return false;
             }
-            if (!decodedDraco && primitive.indices >= 0 && parsedIndices.empty()) {
-                if (const auto* indexAccessor = getAccessor(model, primitive.indices)) {
-                    readIndices(model, *indexAccessor, parsedIndices);
+            const size_t sourceVertexCount = vertices.size();
+
+            // Flat shading for a triangle primitive without normals, then tangents for
+            // one without tangents, derived from the normals the vertices now carry.
+            std::vector<uint32_t> unweldSource;
+            if (!hasNormals && isTriangleMode(mode)) {
+                unweldSource = applyFlatNormals(vertices, parsedIndices, mode);
+                if (vertices.empty()) {
+                    return false;
                 }
+                remapPerVertex(colors, unweldSource, sourceVertexCount, 4);
             }
+            if (!hasTangents && mode == TINYGLTF_MODE_TRIANGLES) {
+                generateTangents(vertices, parsedIndices);
+            }
+            pd.mode = mode;
 
             // GPU skinning: JOINTS_0/WEIGHTS_0 present → the 88-byte skinned layout
             // (the Draco path never carries skin attributes here).
             pd.vertexCount = static_cast<int>(vertices.size());
-            const auto skinAttributes = decodedDraco
-                ? SkinAttributes{} : readSkinAttributes(model, primitive, vertices.size());
-            if (skinAttributes.valid) {
-                pd.skinned = true;
-                pd.vertexBytes = packSkinnedVertices(vertices, skinAttributes);
-            } else {
-                pd.vertexBytes.resize(vertices.size() * sizeof(PackedVertex));
-                std::memcpy(pd.vertexBytes.data(), vertices.data(), pd.vertexBytes.size());
+            auto skinAttributes = decodedDraco
+                ? SkinAttributes{} : readSkinAttributes(model, primitive, sourceVertexCount);
+            if (skinAttributes.valid && !unweldSource.empty()) {
+                remapPerVertex(skinAttributes.weights, unweldSource, sourceVertexCount, 4);
+                remapPerVertex(skinAttributes.joints, unweldSource, sourceVertexCount, 4);
             }
 
             // Morph targets (skipped for Draco primitives — vertex order differs).
             if (!decodedDraco && !primitive.targets.empty()) {
-                pd.morphTargets = readMorphTargets(model, primitive, vertices.size());
+                pd.morphTargets = readMorphTargets(model, primitive, sourceVertexCount);
                 pd.morphInitialWeights.assign(mesh.weights.begin(), mesh.weights.end());
+                for (auto& target : pd.morphTargets) {
+                    remapPerVertex(target.deltaPositions, unweldSource, sourceVertexCount, 3);
+                    remapPerVertex(target.deltaNormals, unweldSource, sourceVertexCount, 3);
+                }
+            }
+
+            bool coloursMatter = false;
+            for (size_t i = 0; i + 3 < colors.size() && !coloursMatter; i += 4) {
+                coloursMatter = colors[i] != 1.0f || colors[i + 1] != 1.0f || colors[i + 2] != 1.0f;
+            }
+            if (coloursMatter && (skinAttributes.valid || !pd.morphTargets.empty())) {
+                static std::atomic<bool> warned{false};
+                if (!warned.exchange(true)) {
+                    spdlog::warn("GLB: COLOR_0 on a skinned or morphed primitive is not supported and is "
+                        "ignored (mesh={}); further cases are not reported", meshIndex);
+                }
+            }
+
+            if (skinAttributes.valid) {
+                pd.skinned = true;
+                pd.vertexBytes = packSkinnedVertices(vertices, skinAttributes);
+            } else if (coloursMatter && pd.morphTargets.empty()) {
+                pd.vertexColors = true;
+                pd.vertexBytes = packColoredVertices(vertices, colors);
+            } else {
+                pd.vertexBytes.resize(vertices.size() * sizeof(PackedVertex));
+                std::memcpy(pd.vertexBytes.data(), vertices.data(), pd.vertexBytes.size());
             }
 
             pd.drawCount = static_cast<int>(vertices.size());
@@ -2992,6 +3185,11 @@ namespace visutwin::canvas
             static_cast<int>(SKINNED_VERTEX_STRIDE), VertexFormat::skinnedElements(), true, false);
         const auto pointVertexFormat = std::make_shared<VertexFormat>(
             static_cast<int>(sizeof(PackedPointVertex)), VertexFormat::pointElements(), true, false);
+        auto coloredElements = VertexFormat::standardElements();
+        coloredElements.push_back({VertexSemantic::SEMANTIC_COLOR, VertexDataType::TYPE_FLOAT32, 4,
+            static_cast<uint32_t>(sizeof(PackedVertex))});
+        const auto coloredVertexFormat = std::make_shared<VertexFormat>(
+            static_cast<int>(COLORED_VERTEX_STRIDE), std::move(coloredElements), true, false);
 
         // ── Textures, created on first reference by a material ───────
         std::vector<std::shared_ptr<Texture>> gltfTextures(model.textures.size());
@@ -3042,6 +3240,28 @@ namespace visutwin::canvas
             }
         }
 
+        // A primitive with vertex colours draws with a COPY of its material that
+        // compiles the vertex-colour variant: the variant reads the colour attribute,
+        // which a mesh without one does not have, so it cannot go on the shared
+        // material. One copy per source material, shared by every coloured primitive
+        // using it. An invalid index falls back to the first material.
+        std::vector<std::shared_ptr<Material>> vertexColorMaterials(gltfMaterials.size());
+        const auto primitiveMaterial = [&](const int materialIndex, const bool vertexColors) {
+            const size_t index = (materialIndex >= 0 && materialIndex < static_cast<int>(gltfMaterials.size()))
+                ? static_cast<size_t>(materialIndex) : 0;
+            if (!vertexColors) {
+                return gltfMaterials[index];
+            }
+            auto& copy = vertexColorMaterials[index];
+            if (!copy) {
+                auto material = std::make_shared<StandardMaterial>(
+                    *std::static_pointer_cast<StandardMaterial>(gltfMaterials[index]));
+                material->setShaderVariantKey(material->shaderVariantKey() | (1ull << 21));  // VT_FEATURE_VERTEX_COLORS
+                copy = material;
+            }
+            return copy;
+        };
+
         // ── Meshes ───────────────────────────────────────────────────
         std::vector<std::vector<size_t>> meshToPayloadIndices(model.meshes.size());
         size_t nextPayloadIndex = 0;
@@ -3051,7 +3271,8 @@ namespace visutwin::canvas
                     continue;
                 }
                 const auto& format = pd.pointCloud ? pointVertexFormat
-                    : pd.skinned ? skinnedVertexFormat : vertexFormat;
+                    : pd.skinned ? skinnedVertexFormat
+                    : pd.vertexColors ? coloredVertexFormat : vertexFormat;
                 auto mesh = createPreparedMesh(pd, device, format);
                 if (!mesh) {
                     spdlog::warn("GLB [{}]: vertex buffer creation failed (mesh {})", debugName, meshIndex);
@@ -3064,12 +3285,11 @@ namespace visutwin::canvas
                     payload.material = pointCloudMaterial(gltfMaterials, pd.materialIndex, true);
                     payload.castShadow = false;
                 } else {
-                    payload.material = (pd.materialIndex >= 0 && pd.materialIndex < static_cast<int>(gltfMaterials.size()))
-                        ? gltfMaterials[static_cast<size_t>(pd.materialIndex)] : gltfMaterials.front();
+                    payload.material = primitiveMaterial(pd.materialIndex, pd.vertexColors);
                 }
                 for (const auto& [variant, materialIndex] : pd.variantMaterials) {
                     if (materialIndex >= 0 && materialIndex < static_cast<int>(gltfMaterials.size())) {
-                        payload.variantMaterials[variant] = gltfMaterials[static_cast<size_t>(materialIndex)];
+                        payload.variantMaterials[variant] = primitiveMaterial(materialIndex, pd.vertexColors);
                     }
                 }
                 // Morph deltas were extracted by the prepare half; the GPU buffer is built here.

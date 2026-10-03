@@ -14,7 +14,7 @@ vec3 uncharted2Tonemap(vec3 x) {
 
 vec3 toneMapFilmic(vec3 color) {
     const float W = 11.2;
-    color = uncharted2Tonemap(color * 2.0);
+    color = uncharted2Tonemap(color);
     return color * (1.0 / uncharted2Tonemap(vec3(W)));
 }
 
@@ -91,7 +91,13 @@ vec3 toneMapExposed(vec3 color, float exposure, int mode) {
 // with no lighting block (gsplat.vert) defines VT_TONEMAP_OPERATORS_ONLY before
 // including this file and calls toneMapByMode itself.
 #ifndef VT_TONEMAP_OPERATORS_ONLY
+// A material with useTonemap off (UI) compiles VT_FEATURE_NO_TONEMAP and takes
+// TONEMAP_NONE here: neither the curve nor exposure. Every forward return path that
+// tone maps comes through this function; the gamma encode after it still runs.
 vec3 applyToneMap(vec3 color) {
+    if (vtFeatureEnabled(VT_FEATURE_NO_TONEMAP_BIT)) {
+        return color;
+    }
     return toneMapExposed(color, lighting.cameraPosExposure.w, int(lighting.shadowParams2.z + 0.5));
 }
 #endif

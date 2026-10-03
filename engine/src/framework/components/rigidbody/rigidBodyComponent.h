@@ -32,8 +32,14 @@ namespace visutwin::canvas
      * The component holds the settings; the body itself is created lazily on the
      * first update, from this component's values and the sibling
      * CollisionComponent's shape. Change a setting before that and it is simply
-     * part of the description; change one after and the component recreates the
-     * body, so authoring order does not matter.
+     * part of the description, so authoring order does not matter. After it, mass,
+     * friction, restitution and damping update the live body in place (a body that
+     * cannot take a new mass in place is rebuilt with its velocities carried over);
+     * the type rebuilds it.
+     *
+     * Velocities, impulses and forces given before the body exists are held and
+     * applied when it is created, so a body spawned and launched in the same frame
+     * is launched. A force still applies over one step only: the first.
      *
      * With no world supplied nothing is created and nothing moves — the component
      * is inert but still answers `type()` and friends, which is what the
@@ -74,6 +80,7 @@ namespace visutwin::canvas
         float angularDamping() const { return _angularDamping; }
         void setAngularDamping(float value);
 
+        /// The body's velocity; before the body exists, the velocity it will be given.
         Vector3 linearVelocity() const;
         void setLinearVelocity(const Vector3& value);
         Vector3 angularVelocity() const;
@@ -84,6 +91,8 @@ namespace visutwin::canvas
         /// Instantaneous change of momentum, in newton-seconds.
         void applyImpulse(const Vector3& impulse);
         void applyTorque(const Vector3& torque);
+        /// Instantaneous change of angular momentum, in newton-metre-seconds.
+        void applyTorqueImpulse(const Vector3& impulse);
 
         /// Move the body outright and stop it. Use this rather than setting the
         /// entity's transform, which the simulation would overwrite on the next
@@ -96,7 +105,8 @@ namespace visutwin::canvas
 
         CollisionComponent* collision() const;
 
-        /// The simulated body, or null before the first update has created it.
+        /// The simulated body, or null before the first update has created it. A body
+        /// marked for rebuilding is still returned until the rebuild replaces it.
         /// JointComponent needs this to name the ends of a constraint.
         [[nodiscard]] PhysicsBody* physicsBody() const { return _body; }
 
@@ -116,6 +126,12 @@ namespace visutwin::canvas
     private:
         void markBodyStale() { _bodyStale = true; }
 
+        // The body calls should reach: null before creation and while a rebuild is
+        // pending, when they are held for the new body instead.
+        [[nodiscard]] PhysicsBody* liveBody() const { return _bodyStale ? nullptr : _body; }
+        void applyPendingTo(PhysicsBody& body);
+        void clearPending();
+
         inline static ComponentInstanceList<RigidBodyComponent> _instanceList;
 
         RigidBodyType _type = RigidBodyType::Static;
@@ -124,6 +140,18 @@ namespace visutwin::canvas
         float _restitution = 0.0f;
         float _linearDamping = 0.0f;
         float _angularDamping = 0.0f;
+
+        // Held for a body that does not exist yet. A velocity set replaces any impulse
+        // held before it, as it would have overwritten the velocity that impulse gave.
+        Vector3 _pendingLinearVelocity = Vector3(0.0f, 0.0f, 0.0f);
+        Vector3 _pendingAngularVelocity = Vector3(0.0f, 0.0f, 0.0f);
+        bool _hasPendingLinearVelocity = false;
+        bool _hasPendingAngularVelocity = false;
+        Vector3 _pendingImpulse = Vector3(0.0f, 0.0f, 0.0f);
+        Vector3 _pendingTorqueImpulse = Vector3(0.0f, 0.0f, 0.0f);
+        Vector3 _pendingForce = Vector3(0.0f, 0.0f, 0.0f);
+        Vector3 _pendingTorque = Vector3(0.0f, 0.0f, 0.0f);
+        bool _hasPendingPushes = false;
 
         PhysicsBody* _body = nullptr;
         PhysicsWorld* _world = nullptr;

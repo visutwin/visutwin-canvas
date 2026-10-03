@@ -241,23 +241,34 @@ namespace visutwin::canvas
         _imageElement = element;
         _imageHandles.push_back(element->on("beforeremove", [this](const EventArgs&) { unbindImageElement(true); }));
         // The application changing the image's look changes its DEFAULT look; the button's
-        // own changes are told apart by the applying flags.
-        const auto tintChanged = [this](const EventArgs&) {
-            if (!_isApplyingTint) {
-                storeDefaultVisualState();
+        // own changes are told apart by the applying flags. Each handler stores only the
+        // property that changed: the element may be showing a hover or pressed look in the
+        // others, and re-reading all of them would make that look the default.
+        _imageHandles.push_back(element->on("set:color", [this](const EventArgs&) {
+            if (!_isApplyingTint && _imageElement) {
+                const Color& color = _imageElement->color();
+                _defaultTint = Color(color.r, color.g, color.b, _defaultTint.a);
                 forceReapplyVisualState();
             }
-        };
-        const auto spriteChanged = [this](const EventArgs&) {
-            if (!_isApplyingSprite) {
-                storeDefaultVisualState();
+        }));
+        _imageHandles.push_back(element->on("set:opacity", [this](const EventArgs&) {
+            if (!_isApplyingTint && _imageElement) {
+                _defaultTint.a = _imageElement->opacity();
                 forceReapplyVisualState();
             }
-        };
-        _imageHandles.push_back(element->on("set:color", tintChanged));
-        _imageHandles.push_back(element->on("set:opacity", tintChanged));
-        _imageHandles.push_back(element->on("set:sprite", spriteChanged));
-        _imageHandles.push_back(element->on("set:spriteFrame", spriteChanged));
+        }));
+        _imageHandles.push_back(element->on("set:sprite", [this](const EventArgs&) {
+            if (!_isApplyingSprite && _imageElement) {
+                _defaultSprite = _imageElement->sprite();
+                forceReapplyVisualState();
+            }
+        }));
+        _imageHandles.push_back(element->on("set:spriteFrame", [this](const EventArgs&) {
+            if (!_isApplyingSprite && _imageElement) {
+                _defaultSpriteFrame = _imageElement->spriteFrame();
+                forceReapplyVisualState();
+            }
+        }));
         storeDefaultVisualState();
         forceReapplyVisualState();
     }

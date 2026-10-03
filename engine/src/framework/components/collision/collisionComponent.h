@@ -70,7 +70,7 @@ namespace visutwin::canvas
         std::string _type = "box";
         Vector3 _halfExtents = Vector3(0.5f, 0.5f, 0.5f);
         float _radius = 0.5f;
-        float _height = 1.0f;
+        float _height = 2.0f;
         std::vector<std::shared_ptr<Mesh>> _render;
         bool _convexHull = false;
     };

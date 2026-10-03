@@ -257,7 +257,7 @@ namespace visutwin::canvas
         float _intensity = 1.0f;
         float _luminance = 0.0f;
         float _range = 10.0f;
-        float _innerConeAngle = 30.0f;
+        float _innerConeAngle = 40.0f;
         float _outerConeAngle = 45.0f;
         // programmatic lights default to linear falloff.
         // GLB-loaded lights use inverse-squared.

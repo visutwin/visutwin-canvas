@@ -320,7 +320,9 @@ namespace visutwin::canvas
 
         std::unique_ptr<GraphNode> ownership;
         if (node->_parent) {
-            ownership = node->_parent->removeChild(node);
+            // A move: the node keeps its enabled-in-hierarchy state across the detach, and
+            // onInsertChild notifies the subtree only if the new parent changes it.
+            ownership = node->_parent->detachChild(node, false);
         } else {
             ownership.reset(node);
         }
@@ -387,6 +389,17 @@ namespace visutwin::canvas
 
     std::unique_ptr<GraphNode> GraphNode::removeChild(GraphNode* child)
     {
+        // DEVIATION: a detached subtree is disabled in hierarchy here, where upstream leaves
+        // it enabled. Rendering, lighting and the other per-frame gathers walk global
+        // component lists filtered by active(), not the scene graph, so a detached entity
+        // that stayed active would keep rendering, lighting and simulating while in no
+        // scene. Moving a node between parents with addChild does not pass through this
+        // state (detachChild with disableDetached false).
+        return detachChild(child, true);
+    }
+
+    std::unique_ptr<GraphNode> GraphNode::detachChild(GraphNode* child, const bool disableDetached)
+    {
         const size_t slot = childSlot(child);
         if (slot == SIZE_MAX) {
             return nullptr;
@@ -403,7 +416,7 @@ namespace visutwin::canvas
         child->_parent = nullptr;
         child->updateGraphDepth();
         child->dirtifyWorld();
-        if (child->_enabledInHierarchy) {
+        if (disableDetached && child->_enabledInHierarchy) {
             child->notifyHierarchyStateChanged(child, false);
         }
         child->fireOnHierarchy("remove", "removehierarchy", this);

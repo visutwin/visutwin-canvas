@@ -3,7 +3,7 @@
     float3 emissiveLinear = max(material.emissiveColor.rgb, float3(0.0));
 #if VT_FEATURE_EMISSIVE_MAP
     if (emissiveTexture.get_width() > 0 && emissiveTexture.get_height() > 0) {
-        emissiveLinear *= srgbToLinear(emissiveTexture.sample(defaultSampler, uvEmissive).rgb);
+        emissiveLinear *= srgbToLinear(emissiveTexture.sample(emissiveSampler, uvEmissive).rgb);
     }
 #endif
 #if VT_FEATURE_VERTEX_COLORS

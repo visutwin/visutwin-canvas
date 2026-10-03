@@ -28,6 +28,12 @@
 
                 const ClusteredLight cl = clusterLights[lightIdx];
 
+                // The light's mask bits (areaHalfHeight.w: 1 affects dynamic meshes, 2
+                // lightmapped ones) against the bit this draw accepts, from its
+                // mesh-instance mask: a dynamic-only light does not light a lightmapped
+                // mesh, nor a lightmapped-only light a dynamic one.
+                if ((uint(cl.areaHalfHeight.w + 0.5) & lighting.clusterParams2.y) == 0u) continue;
+
                 // 5. Compute attenuation (reuse existing falloff functions from common.metal).
                 // A shaped light (areaHalfWidth.w, the LightShape; 0 punctual — the CPU
                 // leaves it 0 unless clustered area lights are enabled) takes only the

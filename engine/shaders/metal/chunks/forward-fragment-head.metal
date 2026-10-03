@@ -116,6 +116,16 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
                                   depth2d<float> shadowTexture1 [[texture(35)]],
 #endif
                                   sampler defaultSampler [[sampler(0)]],
+                                  // Each of these maps is read through the sampler its own
+                                  // texture describes (wrap and filter), bound per material
+                                  // (MetalTextureBinder::kMaterialSamplerTextureSlots). Every
+                                  // other texture reads through defaultSampler or a constexpr one.
+                                  sampler baseColorSampler [[sampler(1)]],
+                                  sampler normalSampler [[sampler(2)]],
+                                  sampler metallicRoughnessSampler [[sampler(3)]],
+                                  sampler occlusionSampler [[sampler(4)]],
+                                  sampler emissiveSampler [[sampler(5)]],
+                                  sampler lightMapSampler [[sampler(6)]],
                                   bool isFrontFace [[front_facing]])
 {
 #if VT_FEATURE_SKYBOX

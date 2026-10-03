@@ -64,7 +64,10 @@ namespace visutwin::canvas
             _attached = true;
             const MouseButton button = mouseButtonFromSdl(event.button.button);
             const size_t i = index(button);
-            _releasedThisFrame[i] = true;
+            // Only a held button records the edge, for the reason Keyboard gives for keys.
+            if (_buttons[i]) {
+                _releasedThisFrame[i] = true;
+            }
             _buttons[i] = false;
             _x = event.button.x;
             _y = event.button.y;

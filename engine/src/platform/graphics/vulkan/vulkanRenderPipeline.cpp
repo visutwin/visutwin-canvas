@@ -731,7 +731,11 @@ namespace visutwin::canvas
             depthStencil.depthTestEnable = VK_TRUE;
             depthStencil.depthWriteEnable = VK_TRUE;
         } else if (depthState) {
-            depthStencil.depthTestEnable = depthState->depthTest() ? VK_TRUE : VK_FALSE;
+            // A depth write does not depend on the test: with the test off the fragment
+            // still writes its depth. Vulkan only writes while depthTestEnable is set, so a
+            // write without a test enables the test with an ALWAYS compare (below).
+            depthStencil.depthTestEnable =
+                (depthState->depthTest() || depthState->depthWrite()) ? VK_TRUE : VK_FALSE;
             depthStencil.depthWriteEnable = depthState->depthWrite() ? VK_TRUE : VK_FALSE;
         } else {
             depthStencil.depthTestEnable = VK_TRUE;
@@ -744,7 +748,9 @@ namespace visutwin::canvas
         // where the atlas already held 1.0, so every caster depth from an earlier frame
         // would survive and a moving spot light would drag a trail of its past shadows.
         depthStencil.depthCompareOp = depthState
-            ? vulkanMapStencilCompare(depthState->func())
+            ? (depthState->depthTest() || depthOnly
+                ? vulkanMapStencilCompare(depthState->func())
+                : VK_COMPARE_OP_ALWAYS)
             : VK_COMPARE_OP_LESS_OR_EQUAL;
         depthStencil.depthBoundsTestEnable = VK_FALSE;
         const bool hasStencil = vulkanFormatHasStencil(depthFormat);

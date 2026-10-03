@@ -6,7 +6,7 @@ the [README](README.md).
 
 ## Rendering & materials
 - **Forward PBR renderer** (metalness/roughness) with multi-light support (directional, point, spot, rectangular/disk/spherical **area lights** via LTC) and a frame-graph pass scheduler
-- **StandardMaterial** with clearcoat, anisotropy, sheen, iridescence, transmission, **parallax occlusion mapping** (height base + self-shadowing), **spec-gloss** (KHR_materials_pbrSpecularGlossiness), **Oren-Nayar** diffuse, **detail normals** (UDN), and vertex-stage **displacement mapping**
+- **StandardMaterial** with clearcoat, anisotropy, sheen, iridescence, transmission, **parallax occlusion mapping** (height base + self-shadowing), **spec-gloss** (KHR_materials_pbrSpecularGlossiness), **Oren-Nayar** diffuse, **detail normals** (reoriented blend), and vertex-stage **displacement mapping**
 - **Wide lines**: connected polylines with per-point colour and width, caps, joins and dash patterns, batched into one instanced draw
 - **Rigid-body physics** behind an application-supplied `PhysicsWorld` seam, with a Jolt backend: box/sphere/capsule/cylinder shapes, static/dynamic/kinematic bodies, forces, impulses, raycasts, and **joints** (fixed, ball, hinge, slider, 6dof) with limits, motors and break impulses
 - **Image-based lighting**: environment atlas (GGX/Lambert prefiltered), HDR cubemap skybox, **ambient SH light probes**, and **box-projected cubemap reflection probes** (parallax-corrected local reflections)
@@ -91,4 +91,4 @@ Known Limitations, and `AGENTS.md` records the remaining parity items.
 - Texture streaming is partial (no progressive mip-level budgeting)
 - Lightmap baking: the CPU baker is LDR and single-bounce with no colour+direction output or automatic UV unwrap; the GPU baker has no colour+direction (BAKE_COLORDIR) output
 - Screen-space reflections have no HiZ acceleration and no temporal accumulation; the roughness cone reads the colour grab's mips rather than tracing a cone, and geometry thinner than one march step can be skipped
-- Animation: no animation events
+- Animation: the legacy `AnimationComponent` fires no animation events (the state-graph `AnimComponent` does)

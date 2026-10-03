@@ -86,7 +86,7 @@ static inline float3 uncharted2Tonemap(float3 x)
 static inline float3 toneMapFilmic(float3 color, float exposure)
 {
     const float W = 11.2; // linear white point
-    color = uncharted2Tonemap(color * exposure * 2.0);
+    color = uncharted2Tonemap(color * exposure);
     const float3 whiteScale = 1.0 / uncharted2Tonemap(float3(W));
     return color * whiteScale;
 }

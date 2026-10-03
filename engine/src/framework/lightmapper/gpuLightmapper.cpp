@@ -23,6 +23,7 @@
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/depthState.h"
 #include "platform/graphics/graphicsDevice.h"
+#include "platform/graphics/lightRadiance.h"
 #include "platform/graphics/renderPass.h"
 #include "platform/graphics/renderTarget.h"
 #include "platform/graphics/shader.h"
@@ -552,12 +553,15 @@ namespace visutwin::canvas
                 const float half = _options.directionalBakeArea * 0.5f;
                 node->rotateLocal(dx * half, 0.0f, dy * half);
             }
-            // The lightmap accumulates in linear space, so the copies simply split the
-            // authored intensity. (A pow-based split compensates for gamma-space
-            // accumulation; doing that here would multiply the sun by N^0.55.)
+            // The lightmap accumulates in linear space, so the copies split the LINEAR
+            // scale the light shades with, and the N of them sum to the live light. A
+            // light under an intensity of 1 shades at its 2.2 power (lightRadiance), so
+            // the split goes through that curve and back rather than dividing the
+            // authored intensity, which would make each copy far too dark. A directional
+            // light's unit conversion is 1, so its luminance splits the same way.
             const float share = 1.0f / static_cast<float>(std::max(_dirSampleCount, 1));
-            lightComponent->setIntensity(intensity * share);
-            lightComponent->setLuminance(luminance * share);
+            lightComponent->setIntensity(intensityForLinearScale(linearScaleForIntensity(intensity) * share));
+            lightComponent->setLuminance(intensityForLinearScale(linearScaleForIntensity(luminance) * share));
         }
     }
 

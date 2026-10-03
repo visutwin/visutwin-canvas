@@ -338,6 +338,10 @@ namespace visutwin::canvas
             auto material = std::make_shared<StandardMaterial>();
             material->setUseLighting(false);
             material->setUseSkybox(false);
+            // UI colours are display colours: no tone mapping and no exposure (the
+            // gamma encode of a gamma target still applies), and no fog.
+            material->setUseTonemap(false);
+            material->setUseFog(false);
             material->setTransparent(true);
             material->setCullMode(CullMode::CULLFACE_NONE);
             material->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
@@ -353,21 +357,15 @@ namespace visutwin::canvas
             return material;
         }
 
-        /// The text shadow's UV offset. It has TWO conventions:
-        /// - the uniform one, for text without markup tags: 0.005 of the page per unit, the
-        ///   y term scaled by -width/height. It is NOT sign-flipped for this engine's v-down
-        ///   glyph UVs, although upstream writes its glyph UVs v-up: measured on upstream's
-        ///   own ui-text thumbnail, a (0.25, -0.25) shadow sits right of and BELOW the
-        ///   glyphs (rim below 23 : above 6), and the flipped value drew it above;
-        /// - the per-vertex one, which is used for EVERY
-        ///   symbol of a text with tags, the element's own included: 0.005 per unit on both
-        ///   axes, with no aspect and no minus sign. For a square page the two point y in
-        ///   opposite directions; that is upstream's behaviour, reproduced.
-        Vector2 msdfShadowUvOffset(const Vector2& offset, const Texture* page, const bool perVertexConvention)
+        /// The text shadow's UV offset, per page: 0.005 of the page per unit, the y term
+        /// scaled by -width/height. Text with markup tags uses the same offset (its
+        /// per-symbol styles only choose WHICH offset). It is NOT sign-flipped for this
+        /// engine's v-down glyph UVs, although upstream writes its glyph UVs v-up:
+        /// measured on upstream's own ui-text thumbnail, a (0.25, -0.25) shadow sits right
+        /// of and BELOW the glyphs (rim below 23 : above 6), and the flipped value drew it
+        /// above.
+        Vector2 msdfShadowUvOffset(const Vector2& offset, const Texture* page)
         {
-            if (perVertexConvention) {
-                return Vector2(0.005f * offset.x, 0.005f * offset.y);
-            }
             const float aspect = page && page->height() > 0
                 ? static_cast<float>(page->width()) / static_cast<float>(page->height()) : 1.0f;
             return Vector2(0.005f * offset.x, -aspect * 0.005f * offset.y);
@@ -532,7 +530,7 @@ namespace visutwin::canvas
         key.outlineColor = style.outlineColor;
         key.outlineThickness = 0.2f * style.outlineThickness;
         key.shadowColor = style.shadowColor;
-        key.shadowUvOffset = msdfShadowUvOffset(style.shadowOffset, part.texture, visual.markupStyles);
+        key.shadowUvOffset = msdfShadowUvOffset(style.shadowOffset, part.texture);
         return key;
     }
 
@@ -907,7 +905,6 @@ namespace visutwin::canvas
                         visual.parts.push_back(std::move(part));
                     }
                     visual.styles = std::move(text.styles);
-                    visual.markupStyles = !element->markupTags().empty();
                     element->clearTextDirty();
                 } else {
                     const ImageMeshData image = buildImageMeshData(element);

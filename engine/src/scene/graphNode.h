@@ -112,7 +112,10 @@ namespace visutwin::canvas
 
         /**
          * Adopt a heap-allocated node. If it already has a parent, ownership is
-         * transferred from that parent. Prefer the unique_ptr overload in new code.
+         * transferred from that parent: a MOVE, which notifies the subtree's enable state
+         * only when it actually changes (an enabled node moved between two enabled parents
+         * keeps every component enabled throughout). Prefer the unique_ptr overload in new
+         * code.
          */
         void addChild(GraphNode* node);
 
@@ -142,7 +145,10 @@ namespace visutwin::canvas
 
         GraphNode* parent() const { return _parent; }
 
-        /** Detach a child and transfer ownership to the caller. */
+        /**
+         * Detach a child and transfer ownership to the caller. The detached subtree is
+         * disabled in hierarchy (see the note at the definition).
+         */
         [[nodiscard]] std::unique_ptr<GraphNode> removeChild(GraphNode* child);
 
         /**
@@ -208,6 +214,10 @@ namespace visutwin::canvas
         void validateInsertChild(const GraphNode* node) const;
 
         void onInsertChild(GraphNode* node);
+
+        /// removeChild's work; `disableDetached` false leaves the subtree's hierarchy
+        /// state alone for a move, whose insert then notifies only a real change.
+        std::unique_ptr<GraphNode> detachChild(GraphNode* child, bool disableDetached);
 
         void updateGraphDepth();
 

@@ -261,6 +261,9 @@ namespace visutwin::canvas
         // A StandardMaterial with lighting disabled (decals, debug visualizers, holograms).
         options.unlit = !stdMat.useLighting();
         options.msdf = stdMat.msdfMap() != nullptr;
+        // useTonemap off (UI text and images): neither the curve nor exposure, while
+        // the gamma encode of a gamma target still applies.
+        options.noTonemap = !stdMat.useTonemap();
         options.shadowCatcher = stdMat.shadowCatcher();
         // DEVIATION: planar reflection is handled at the application level as a script;
         // here it's a material property that triggers a shader variant.
@@ -438,6 +441,7 @@ namespace visutwin::canvas
             options.planarReflectionDepthPass);
         set(ShaderFeature::ScreenSpace, options.screenSpace);
         set(ShaderFeature::Msdf, options.msdf);
+        set(ShaderFeature::NoTonemap, options.noTonemap);
         set(ShaderFeature::LightmapBake, options.lightmapBake);
         set(ShaderFeature::LightmapBakeAccum, options.lightmapBakeAccum);
         set(ShaderFeature::DebugPass, options.debugPass);

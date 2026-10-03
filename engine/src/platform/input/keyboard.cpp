@@ -35,8 +35,13 @@ namespace visutwin::canvas
         case SDL_EVENT_KEY_UP: {
             _attached = true;
             const int scancode = static_cast<int>(event.key.scancode);
-            _releasedThisFrame[scancode] = true;
-            _keys[scancode] = false;
+            // Only a key that was held records the edge: a key-up whose key-down never
+            // arrived (pressed before the window had focus) or whose release detach()
+            // already recorded at a focus loss is not a second release.
+            if (const auto it = _keys.find(scancode); it != _keys.end() && it->second) {
+                _releasedThisFrame[scancode] = true;
+                it->second = false;
+            }
             fire("keyup", KeyboardEvent{
                 .key = static_cast<Key>(scancode),
                 .character = event.key.key < SDLK_SCANCODE_MASK ? event.key.key : 0u,

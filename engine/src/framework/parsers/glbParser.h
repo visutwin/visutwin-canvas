@@ -54,12 +54,15 @@ namespace visutwin::canvas
         /// Pre-built vertex/index byte buffers for one mesh primitive.
         struct PrimitiveData
         {
-            std::vector<uint8_t> vertexBytes;  ///< PackedVertex data (88-byte skinned layout when skinned).
+            std::vector<uint8_t> vertexBytes;  ///< PackedVertex data (88-byte skinned layout when skinned, 72-byte with vertexColors).
             std::vector<uint8_t> indexBytes;    ///< uint32_t index data.
             int vertexCount = 0;
             int drawCount   = 0;
             bool indexed    = false;
             bool skinned    = false;           ///< vertexBytes use the skinned layout (weights+joints).
+            /// vertexBytes use the 72-byte layout with COLOR_0 after the packed vertex,
+            /// and the primitive draws with the vertex-colour variant of its material.
+            bool vertexColors = false;
             int mode        = 4;               ///< glTF primitive mode.
             Vector3 boundsMin;
             Vector3 boundsMax;

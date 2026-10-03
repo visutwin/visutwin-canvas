@@ -716,6 +716,25 @@ int main()
         input->onMouseMove(10.0f, 10.0f);
         check(near(element->color().g, 0.9f, kTolerance), "a colour the application sets becomes the default");
 
+        // Setting ONE property while hovered stores that property alone: the hover tint the
+        // element is showing in its colour must not become the default colour.
+        input->onMouseMove(150.0f, 80.0f);
+        check(near(element->color().g, 0.7f, kTolerance), "hovered again, the hover tint is shown");
+        element->setOpacity(0.5f);
+        check(near(element->color().g, 0.7f, kTolerance) && near(element->opacity(), 1.0f, kTolerance),
+            "an opacity set while hovered is overridden by the hover tint for as long as it hovers");
+        input->onMouseMove(10.0f, 10.0f);
+        check(near(element->color().r, 0.2f, kTolerance) && near(element->color().g, 0.9f, kTolerance) &&
+              near(element->color().b, 0.3f, kTolerance) && near(element->opacity(), 0.5f, kTolerance),
+            "leaving restores the default colour with the new opacity, not the hover tint");
+        input->onMouseMove(150.0f, 80.0f);
+        element->setColor(Color(0.4f, 0.6f, 0.8f, 1.0f));
+        input->onMouseMove(10.0f, 10.0f);
+        check(near(element->color().g, 0.6f, kTolerance) && near(element->opacity(), 0.5f, kTolerance),
+            "a colour set while hovered keeps the default opacity");
+        element->setColor(Color(0.2f, 0.9f, 0.3f, 1.0f));
+        element->setOpacity(1.0f);
+
         b->setFadeDuration(100.0f);
         input->onMouseMove(150.0f, 80.0f);
         check(near(element->color().g, 0.9f, kTolerance), "with a fade the tint does not jump");

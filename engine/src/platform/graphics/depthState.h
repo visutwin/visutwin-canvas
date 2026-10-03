@@ -62,9 +62,9 @@ namespace visutwin::canvas
 
         // Constant depth bias added to each fragment's depth in hardware depth-buffer units.
         // Useful for decals and similar coplanar overlays to prevent z-fighting with the
-        // surface they sit on. Negative values pull fragments toward the camera (in
-        // reverse-Z, the engine's convention, "more positive depth" = closer; -0.1 nudges
-        // decals on top).
+        // surface they sit on. Negative values pull fragments toward the camera (depth is
+        // standard [0,1], cleared to 1 and tested LESS_EQUAL, so smaller is closer; -0.1
+        // nudges decals on top).
         // Combined with slopeDepthBias to handle slanted surfaces.
         float depthBias() const { return _depthBias; }
         void setDepthBias(float value) { _depthBias = value; }

@@ -219,7 +219,8 @@ void main() {
         if (vtFeatureEnabled(VT_FEATURE_MSDF_BIT)) {
             // MSDF, as the Metal chunk: fill, outline and shadow composited
             // premultiplied in linear, the straight colour encoded at the end. The fill
-            // is tone mapped unless compose owes it that; outline and shadow are not.
+            // is tone mapped unless compose owes it that (applyToneMap is a no-op for a UI
+            // material); outline and shadow are not.
             vec3 unlitColor = max(albedo.rgb + unlitEmissive, vec3(0.0));
             vec3 fill = linearHdrTarget ? unlitColor : applyToneMap(unlitColor);
             vec4 color = vec4(fill * albedo.a, albedo.a);
@@ -268,11 +269,15 @@ void main() {
         roughness = 1.0 - material.specGlossParams.w;
     }
     roughness = clamp(roughness, 0.04, 1.0);
-    // Gloss map: one channel scales the gloss FACTOR, and the
-    // result replaces the roughness above, as the Metal chunk does.
+    // Gloss map: one channel scales the authored gloss FACTOR, the product is
+    // inverted under glossInvert, and the result replaces the roughness above, as
+    // the Metal chunk does.
     if (material.mapChannelParams.y >= 0.0) {
         vec4 glossSample = texture(glossMap, fragUV0);
         float glossValue = material.mapChannelParams.x * glossSample[int(material.mapChannelParams.y)];
+        if (material.glossMapParams.x > 0.5) {
+            glossValue = 1.0 - glossValue;
+        }
         roughness = clamp(1.0 - glossValue, 0.04, 1.0);
     }
     // Anisotropic GGX frame, mirrored from forward-fragment-surface.metal; the math
@@ -424,8 +429,13 @@ void main() {
     if ((material.flags & (1u << 14)) != 0u) {
         ccSpecularity *= texture(clearCoatMap, uvBase)[int(material.clearCoatMapChannels.x)];
     }
+    // The gloss map multiplies the AUTHORED factor, and an inverted coat gloss is
+    // flipped after the multiply, so roughness = factor x texel under the flag.
     if ((material.flags & (1u << 15)) != 0u) {
-        ccGlossiness *= texture(clearCoatGloss, uvBase)[int(material.clearCoatMapChannels.y)];
+        ccGlossiness = material.glossMapParams.z * texture(clearCoatGloss, uvBase)[int(material.clearCoatMapChannels.y)];
+        if (material.glossMapParams.y > 0.5) {
+            ccGlossiness = 1.0 - ccGlossiness;
+        }
     }
     ccGlossiness += 0.0000001; // prevent divide-by-zero
     // Clearcoat normal: the shading normal unless a coat normal map overrides it,

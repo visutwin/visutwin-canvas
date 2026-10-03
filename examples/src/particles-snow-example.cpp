@@ -5,7 +5,7 @@
 //
 // Port of upstream graphics/particles-snow.
 //
-// A hundred snowflakes fall for ten seconds each from a 14 x 4 x 14 box five units above
+// A hundred snowflakes fall for ten seconds each from a 7 x 2 x 7 box five units above
 // a flat disc, each at a random speed between 0.4 and 0.7 and spinning at a random rate
 // between -100 and 100 degrees a second. Depth softening fades a flake as it nears the
 // ground, which needs the camera's scene depth (requestSceneDepthMap).

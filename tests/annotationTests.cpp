@@ -99,7 +99,8 @@ namespace
         press(x, y, false);
     }
 
-    /// One frame as far as the annotations see it: update, then prerender.
+    /// One frame as far as the annotations see it: update, then prerender. The steps here
+    /// reach 0.25 s, past the engine's default 0.1 s clamp; main() raises the clamp.
     void frame(const float dt = 0.0f)
     {
         engine->update(dt);
@@ -127,6 +128,7 @@ int main()
         options.elementInput = input;
         options.mouse = mouse;
     });
+    engine->setMaxDeltaTime(1.0f);   // the fade cases step by up to 0.25 s
 
     std::cout << "script lifecycle events\n";
     {

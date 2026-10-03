@@ -228,9 +228,6 @@ namespace visutwin::canvas
             std::vector<VisualPart> parts;
             /// Text: the styles its parts draw in (resolved at the last rebuild).
             std::vector<TextStyle> styles;
-            /// Text with markup tags: its shadow offsets take the PER-VERTEX
-            /// convention, which differs from the uniform one (see msdfShadowUvOffset).
-            bool markupStyles = false;
             ElementType type = ElementType::Group;
             /// The sync that last saw the element (ElementInput::_syncSerial).
             uint64_t syncSerial = 0;

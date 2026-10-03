@@ -196,8 +196,8 @@ namespace visutwin::canvas
             const bool needsSceneTarget =
                 _rendering.samples > 1 || _rendering.renderTargetScale != 1.0f;
             return (_dof.enabled || _taa.enabled || _ssao.enabled || _volumetricFog.enabled ||
-                    _rendering.bloomIntensity > 0.0f || _rendering.vignetteEnabled ||
-                    needsSceneTarget)
+                    _rendering.bloomIntensity > 0.0f || _rendering.sharpness > 0.0f ||
+                    _rendering.changesImage() || needsSceneTarget)
                 ? const_cast<CameraComponent*>(this) : nullptr;
         }
 

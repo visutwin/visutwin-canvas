@@ -296,18 +296,6 @@ namespace visutwin::canvas
         return VK_FORMAT_UNDEFINED;
     }
 
-    VkFilter vulkanMapFilterMode(FilterMode mode)
-    {
-        switch (mode) {
-        case FilterMode::FILTER_NEAREST:
-        case FilterMode::FILTER_NEAREST_MIPMAP_NEAREST:
-        case FilterMode::FILTER_NEAREST_MIPMAP_LINEAR:
-            return VK_FILTER_NEAREST;
-        default:
-            return VK_FILTER_LINEAR;
-        }
-    }
-
     VkSamplerAddressMode vulkanMapAddressMode(AddressMode mode)
     {
         switch (mode) {

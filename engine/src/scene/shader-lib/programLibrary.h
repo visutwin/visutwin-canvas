@@ -250,6 +250,7 @@ namespace visutwin::canvas
             bool unlit = false;             // KHR_materials_unlit — skip PBR lighting
             bool pick = false;              // Picker id pass: write the packed id after the alpha test
             bool msdf = false;              // StandardMaterial::msdfMap: the base slot is a distance field
+            bool noTonemap = false;         // StandardMaterial::useTonemap false: TONEMAP_NONE, no exposure
         };
 
         /// Exact identity of a compiled variant. Compared in full by the cache,

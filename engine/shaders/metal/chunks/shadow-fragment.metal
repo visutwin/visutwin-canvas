@@ -7,7 +7,10 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
 #if VT_FEATURE_VSM_SHADOWS
                                   constant SceneData &scene [[buffer(1)]],
 #endif
-                                  sampler defaultSampler [[sampler(0)]])
+                                  sampler defaultSampler [[sampler(0)]],
+                                  // The base colour map's own sampler, as the forward pass
+                                  // reads it, so a cut-out's shadow is cut where its surface is.
+                                  sampler baseColorSampler [[sampler(1)]])
 {
 #if VT_FEATURE_ALPHA_TEST || VT_FEATURE_SHADOW_DITHER
     // Opacity frontend, run before depth is written: the material is evaluated
@@ -25,7 +28,7 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
     if (baseColorTexture.get_width() > 0 && baseColorTexture.get_height() > 0) {
         float2 uvBase = ((material.flags & (1u << 4)) != 0u) ? rd.uv1 : rd.uv0;
         uvBase = applyUvTransform(uvBase, material.baseColorTransform0, material.baseColorTransform1);
-        shadowAlpha *= baseColorTexture.sample(defaultSampler, uvBase).a;
+        shadowAlpha *= baseColorTexture.sample(baseColorSampler, uvBase).a;
     }
 #endif
     // Opacity map, the same product the forward pass tests (flags bit 19, slot 34).
@@ -40,6 +43,7 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
     (void)baseColorTexture;
     (void)opacityTexture;
     (void)defaultSampler;
+    (void)baseColorSampler;
 #endif
 
 #if VT_FEATURE_ALPHA_TEST

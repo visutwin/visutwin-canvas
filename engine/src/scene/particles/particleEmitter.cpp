@@ -349,17 +349,18 @@ namespace visutwin::canvas
             constexpr int kPrewarmSteps = 32;
             const float lifetime = std::max(std::max(_options.lifetime, _options.lifetime2), 1e-4f);
             for (int i = 0; i < kPrewarmSteps; ++i) {
-                step(lifetime / kPrewarmSteps, emitterTransform, false);
+                step(lifetime / kPrewarmSteps, emitterTransform, false, false);
             }
         }
         if (!_playing || dt <= 0.0f) {
             return;
         }
-        step(dt, emitterTransform, _stopPending);
+        step(dt, emitterTransform, _stopPending, true);
         _stopPending = false;
     }
 
-    void ParticleEmitter::step(const float dt, const Matrix4& emitterTransform, const bool onStop)
+    void ParticleEmitter::step(const float dt, const Matrix4& emitterTransform, const bool onStop,
+        const bool clampDt)
     {
         _time += dt;
 
@@ -376,14 +377,17 @@ namespace visutwin::canvas
             params.shapeParams[2] = 0.0f;
             params.shapeParams[3] = 1.0f;
         } else {
-            _options.emitterExtents.store(params.shapeParams);
+            // The kernel spawns at [-1, 1] times these, so the box SIZE goes in halved.
+            (_options.emitterExtents * 0.5f).store(params.shapeParams);
             params.shapeParams[3] = 0.0f;
         }
         _options.initialVelocity.store(params.velocityBase);
         params.velocityBase[3] = _options.localSpace ? 1.0f : 0.0f;
         _options.velocitySpread.store(params.velocitySpread);
         params.velocitySpread[3] = _loop ? 1.0f : 0.0f;
-        params.timeParams[0] = std::min(dt, 0.1f);   // clamp huge hitches
+        // A frame's step is clamped against huge hitches; the pre-warm's steps are not,
+        // since together they have to cover a whole lifetime.
+        params.timeParams[0] = clampDt ? std::min(dt, 0.1f) : dt;
         params.timeParams[1] = _time;
         params.timeParams[2] = static_cast<float>(_options.numParticles) * std::max(_options.rate, 0.0f);
         params.graphParams[3] = std::max(_options.rate2.value_or(_options.rate), 0.0f) - std::max(_options.rate, 0.0f);

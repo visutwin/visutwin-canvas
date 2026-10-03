@@ -34,10 +34,12 @@ namespace visutwin::canvas
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Core/JobSystemThreadPool.h>
 #include <Jolt/Core/TempAllocator.h>
+#include <Jolt/Physics/Body/Body.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Body/BodyLockMulti.h>
+#include <Jolt/Physics/Body/MotionProperties.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
@@ -186,6 +188,12 @@ namespace visutwin::canvas
                 const Vector3& start, const Vector3& end) const override;
 
             JPH::BodyInterface& bodies() { return _system.GetBodyInterface(); }
+            /// For the body state the body interface does not expose. Never call
+            /// bodies() while holding one of these locks.
+            [[nodiscard]] const JPH::BodyLockInterface& locks() const
+            {
+                return _system.GetBodyLockInterface();
+            }
             [[nodiscard]] const JPH::BodyInterface& bodies() const
             {
                 return _system.GetBodyInterface();
@@ -259,6 +267,52 @@ namespace visutwin::canvas
             void applyTorque(const Vector3& torque) override
             {
                 _world->bodies().AddTorque(_id, toJolt(torque));
+            }
+            void applyTorqueImpulse(const Vector3& impulse) override
+            {
+                _world->bodies().AddAngularImpulse(_id, toJolt(impulse));
+            }
+            void setFriction(const float value) override
+            {
+                _world->bodies().SetFriction(_id, value);
+            }
+            void setRestitution(const float value) override
+            {
+                _world->bodies().SetRestitution(_id, value);
+            }
+            void setDamping(const float linear, const float angular) override
+            {
+                // Damping lives on the motion properties, which the body interface does
+                // not expose; a static body has none.
+                JPH::BodyLockWrite lock(_world->locks(), _id);
+                if (!lock.Succeeded()) {
+                    return;
+                }
+                if (JPH::MotionProperties* motion = lock.GetBody().GetMotionPropertiesUnchecked()) {
+                    motion->SetLinearDamping(std::max(linear, 0.0f));
+                    motion->SetAngularDamping(std::max(angular, 0.0f));
+                }
+            }
+            bool setMass(const float mass) override
+            {
+                JPH::BodyLockWrite lock(_world->locks(), _id);
+                if (!lock.Succeeded()) {
+                    return false;
+                }
+                JPH::Body& body = lock.GetBody();
+                if (!body.IsDynamic()) {
+                    return true;
+                }
+                // A mass of 0 asks for the mass derived from the shape, which only body
+                // creation computes.
+                JPH::MotionProperties* motion = body.GetMotionProperties();
+                if (mass <= 0.0f || motion == nullptr || motion->GetInverseMassUnchecked() <= 0.0f) {
+                    return false;
+                }
+                // Scales the inverse inertia by the same factor as the inverse mass, so the
+                // shape's mass distribution is kept.
+                motion->ScaleToMass(mass);
+                return true;
             }
             void activate() override { _world->bodies().ActivateBody(_id); }
             [[nodiscard]] bool isActive() const override

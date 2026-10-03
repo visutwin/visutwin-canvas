@@ -103,7 +103,7 @@ namespace visutwin::canvas
 
         inline static ComponentInstanceList<JointComponent> _instanceList;
 
-        PhysicsJointType _type = PhysicsJointType::Ball;
+        PhysicsJointType _type = PhysicsJointType::Fixed;
         Entity* _entityA = nullptr;
         Entity* _entityB = nullptr;
 

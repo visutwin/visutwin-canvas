@@ -75,7 +75,7 @@
 #if VT_FEATURE_BASE_COLOR_MAP && !VT_FEATURE_MSDF
     // Under MSDF the base slot holds a distance field, read by the unlit path below.
     if (baseColorTexture.get_width() > 0 && baseColorTexture.get_height() > 0) {
-        const float4 baseSample = baseColorTexture.sample(defaultSampler, uvBase);
+        const float4 baseSample = baseColorTexture.sample(baseColorSampler, uvBase);
         baseLinear *= srgbToLinear(baseSample.rgb);
         alpha *= baseSample.a;
     }
@@ -85,7 +85,9 @@
     // Gated on the flag AND the runtime size: an unbound Metal texture reports a
     // nonzero width and samples zero, which would make the whole surface vanish.
     // Its UV is computed the way the shadow frontend computes it, so the forward
-    // alpha and the shadow alpha stay the same product.
+    // alpha and the shadow alpha stay the same product. It reads through defaultSampler,
+    // not its texture's own sampler: Vulkan reads it as a separate image through one
+    // shared sampler in the default state, and the two backends must filter it alike.
     if ((material.flags & (1u << 19)) != 0u && opacityMap.get_width() > 0 && opacityMap.get_height() > 0) {
         float2 uvOpacity = ((material.flags & (1u << 4)) != 0u) ? rd.uv1 : rd.uv0;
         uvOpacity = applyUvTransform(uvOpacity, material.baseColorTransform0, material.baseColorTransform1);
@@ -166,7 +168,7 @@
         float3 unlitEmissive = max(material.emissiveColor.rgb, float3(0.0));
 #if VT_FEATURE_EMISSIVE_MAP
         if (emissiveTexture.get_width() > 0 && emissiveTexture.get_height() > 0) {
-            unlitEmissive *= srgbToLinear(emissiveTexture.sample(defaultSampler, uvEmissive).rgb);
+            unlitEmissive *= srgbToLinear(emissiveTexture.sample(emissiveSampler, uvEmissive).rgb);
         }
 #endif
 #if VT_FEATURE_VERTEX_COLORS
@@ -177,21 +179,27 @@
         const float3 unlitColor = baseLinear + unlitEmissive;
         const bool linearHdrTarget = (lighting.flagsAndPad.x & (1u << 5)) != 0u;
         const float exposure = max(lighting.skyboxMipAndPad.y, 0.0);
+#if VT_FEATURE_NO_TONEMAP
+        // useTonemap off (UI): TONEMAP_NONE, which applies neither the curve nor
+        // exposure; the gamma encode below still runs.
+        const float tonemapMode = 6.0;
+#else
         const float tonemapMode = lighting.skyboxMipAndPad.z;
+#endif
 #if VT_FEATURE_MSDF
         {
             // MSDF compositing runs on the tone-mapped
             // output: fill, outline and shadow are composited PREMULTIPLIED in linear,
             // then the straight colour is encoded. The fill is this path's colour, tone
-            // mapped unless compose owes it that; outline and shadow colours arrive
-            // linear and are not tone mapped.
+            // mapped unless compose owes it that (a UI material's mode is NONE, above);
+            // outline and shadow colours arrive linear and are not tone mapped.
             const float3 fill = linearHdrTarget ? max(unlitColor, float3(0.0))
                                                 : toneMap(max(unlitColor, float3(0.0)), exposure, tonemapMode);
             const float4 color = float4(fill * alpha, alpha);
             const float2 uv = uvBase;
             const float2 uvShadow = uv - material.msdfOutlineShadow.yz;
-            const float3 tsample = baseColorTexture.sample(defaultSampler, uv).rgb;
-            const float3 ssample = baseColorTexture.sample(defaultSampler, uvShadow).rgb;
+            const float3 tsample = baseColorTexture.sample(baseColorSampler, uv).rgb;
+            const float3 ssample = baseColorTexture.sample(baseColorSampler, uvShadow).rgb;
             const float sigDist = max(min(tsample.r, tsample.g), min(max(tsample.r, tsample.g), tsample.b));
             const float sigDistShdw = max(min(ssample.r, ssample.g), min(max(ssample.r, ssample.g), ssample.b));
             const float edge = 0.5 - 0.5 * material.msdfParams.y;
@@ -237,7 +245,7 @@
         bool haveSample = false;
 #if VT_FEATURE_NORMAL_MAP
         if (normalTexture.get_width() > 0 && normalTexture.get_height() > 0) {
-            normalSample = normalTexture.sample(defaultSampler, uvNormal).xyz * 2.0 - 1.0;
+            normalSample = normalTexture.sample(normalSampler, uvNormal).xyz * 2.0 - 1.0;
             // blend toward flat (0,0,1) by bumpiness/normalScale.
             // At normalScale=1.0 → full normal map; at 0.0 → geometric surface normal.
             // NOT normalized here: the TBN product is normalized
@@ -286,7 +294,7 @@
     float3 specularColor = clamp(material.specGlossParams.rgb, 0.0, 1.0);
     float glossiness = clamp(material.specGlossParams.w, 0.0, 1.0);
     if ((material.flags & (1u << 21)) != 0u && metallicRoughnessTexture.get_width() > 0) {
-        const float4 sg = metallicRoughnessTexture.sample(defaultSampler, uvMetalRough);
+        const float4 sg = metallicRoughnessTexture.sample(metallicRoughnessSampler, uvMetalRough);
         specularColor *= srgbToLinear(sg.rgb);
         glossiness *= sg.a;
     }
@@ -302,7 +310,7 @@
     float roughness = clamp(material.roughnessFactor, 0.04, 1.0);
 #if VT_FEATURE_METAL_ROUGHNESS_MAP
     if (metallicRoughnessTexture.get_width() > 0 && metallicRoughnessTexture.get_height() > 0) {
-        const float4 mr = metallicRoughnessTexture.sample(defaultSampler, uvMetalRough);
+        const float4 mr = metallicRoughnessTexture.sample(metallicRoughnessSampler, uvMetalRough);
         roughness = clamp(roughness * mr.g, 0.04, 1.0);
         metallic = clamp(metallic * mr.b, 0.0, 1.0);
     }
@@ -315,13 +323,17 @@
     const float3 F0 = mix(material.metalnessSpecular.rgb, baseLinear, metallic);
 #endif
 
-    // Gloss map: one channel scales the gloss FACTOR, and
-    // the result replaces the roughness derived above — the gloss and the
-    // metal-rough map's roughness are alternative sources, not multiplied together.
+    // Gloss map: one channel scales the authored gloss FACTOR, the product is
+    // inverted under glossInvert, and the result replaces the roughness derived
+    // above — the gloss and the metal-rough map's roughness are alternative
+    // sources, not multiplied together.
     if (material.mapChannelParams.y >= 0.0) {
         const float4 glossSample = glossMap.sample(defaultSampler, rd.uv0);
-        const float glossValue = material.mapChannelParams.x *
+        float glossValue = material.mapChannelParams.x *
             glossSample[int(material.mapChannelParams.y)];
+        if (material.glossMapParams.x > 0.5) {
+            glossValue = 1.0 - glossValue;
+        }
         roughness = clamp(1.0 - glossValue, 0.04, 1.0);
     }
 
@@ -339,8 +351,14 @@
         ccSpecularity *= clearCoatTexture.sample(defaultSampler, uvBase)[int(material.clearCoatMapChannels.x)];
     }
 
+    // The gloss map multiplies the AUTHORED factor, and an inverted coat gloss is
+    // flipped after the multiply, so roughness = factor x texel under the flag.
     if ((material.flags & (1u << 15)) != 0u && clearCoatGlossTexture.get_width() > 0) {
-        ccGlossiness *= clearCoatGlossTexture.sample(defaultSampler, uvBase)[int(material.clearCoatMapChannels.y)];
+        ccGlossiness = material.glossMapParams.z *
+            clearCoatGlossTexture.sample(defaultSampler, uvBase)[int(material.clearCoatMapChannels.y)];
+        if (material.glossMapParams.y > 0.5) {
+            ccGlossiness = 1.0 - ccGlossiness;
+        }
     }
 
     ccGlossiness += 0.0000001; // prevent divide-by-zero

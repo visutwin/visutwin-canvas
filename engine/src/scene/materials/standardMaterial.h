@@ -367,6 +367,12 @@ namespace visutwin::canvas
         // --- Rendering flags ---
         bool useFog() const { return _useFog; }
         void setUseFog(const bool value) { _useFog = value; markUniformsDirty(); }
+        /// Whether the scene's tone mapping and exposure apply to this material. Off, it
+        /// renders as TONEMAP_NONE (neither curve nor exposure) while a gamma target still
+        /// gets its gamma encode; UI text and images turn it off. A shader variant
+        /// (VT_FEATURE_NO_TONEMAP), so the setter marks the uniforms dirty.
+        bool useTonemap() const { return _useTonemap; }
+        void setUseTonemap(const bool value) { _useTonemap = value; markUniformsDirty(); }
         bool useLighting() const { return _useLighting; }
         void setUseLighting(const bool value) { _useLighting = value; markUniformsDirty(); }
         bool useSkybox() const { return _useSkybox; }
@@ -591,6 +597,7 @@ namespace visutwin::canvas
         bool _useOrenNayar = false;
 
         bool _useFog = true;
+        bool _useTonemap = true;
         bool _useLighting = true;
         bool _useSkybox = true;
         bool _twoSidedLighting = false;

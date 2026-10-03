@@ -99,7 +99,7 @@ layout(set = 2, binding = 0) uniform LightingData {
     vec4 clusterBoundsRange;
     vec4 clusterCellsCountByBoundsSize;
     uvec4 clusterParams;
-    uvec4 clusterParams2;
+    uvec4 clusterParams2;   // x numClusteredLights, y the cluster-light mask bit this draw accepts
     vec4 reflectionProbeBoxMin;
     vec4 reflectionProbeBoxMax;
     vec4 reflectionProbePosition;
@@ -181,7 +181,7 @@ struct ClusterLight {
     mat4 shadowMatrix;
     vec4 shadowData;
     vec4 areaHalfWidth;     // an area light: xyz world half-width axis, w LightShape (0 punctual)
-    vec4 areaHalfHeight;    // xyz world half-height axis
+    vec4 areaHalfHeight;    // xyz world half-height axis, w the light's mask bits (1 dynamic, 2 lightmapped)
 };
 layout(std430, set = 5, binding = 0) readonly buffer ClusterLights {
     ClusterLight values[];

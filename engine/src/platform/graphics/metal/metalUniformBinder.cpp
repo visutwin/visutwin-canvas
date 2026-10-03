@@ -97,14 +97,16 @@ namespace visutwin::canvas
         const std::vector<GpuLightData>& lights, const Vector3& cameraPosition,
         const bool enableNormalMaps, const float exposure,
         const FogParams& fogParams, const ShadowParams& shadowParams,
-        const int toneMapping, const Vector3* ambientSH, const Matrix4* viewProjection)
+        const int toneMapping, const Vector3* ambientSH, const Matrix4* viewProjection,
+        const uint32_t meshLightMask)
     {
         // The values are decided in deriveLighting, shared with the Vulkan backend; this only
         // lays them out in LightingUniforms.
         markLightingChanged();
         auto& lu = _lightingUniforms;
         const DerivedLighting derived = deriveLighting(ambientColor, lights, std::size(lu.lights),
-            fogParams, shadowParams, ambientSH, viewProjection);
+            fogParams, shadowParams, ambientSH, viewProjection, meshLightMask);
+        lu.clusterParams2[1] = derived.clusterLightAccept;
 
         std::memcpy(lu.ambientSH, derived.ambientSH, sizeof(lu.ambientSH));
         std::memcpy(lu.viewProjection, derived.viewProjection, sizeof(lu.viewProjection));
@@ -128,7 +130,7 @@ namespace visutwin::canvas
             dst.colorIntensity[0] = light.linearColor[0];
             dst.colorIntensity[1] = light.linearColor[1];
             dst.colorIntensity[2] = light.linearColor[2];
-            dst.colorIntensity[3] = src.intensity;
+            dst.colorIntensity[3] = light.intensity;
             dst.directionCone[3] = src.outerConeCos;
             dst.coneAngles[0] = src.innerConeCos;
             dst.coneAngles[1] = src.outerConeCos;

@@ -186,22 +186,15 @@ namespace visutwin::canvas
         spdlog::info("Metal limits: {} samples, texture {}, cube {}, anisotropy {}",
             maxSamples(), maxTextureSize(), maxCubeMapSize(), maxAnisotropy());
 
-        auto* samplerDesc = MTL::SamplerDescriptor::alloc()->init();
-        samplerDesc->setMinFilter(MTL::SamplerMinMagFilterLinear);
-        samplerDesc->setMagFilter(MTL::SamplerMinMagFilterLinear);
-        // Enable trilinear mipmap filtering so textures with multiple mip levels get proper
-        // minification; without it Metal only ever samples mip 0 → aliasing + radial streaks
-        // at glancing view angles (e.g. ground planes viewed from low camera height).
-        samplerDesc->setMipFilter(MTL::SamplerMipFilterLinear);
-        // Anisotropic filtering preserves detail on textures viewed at oblique angles —
-        // essential for ground/floor textures that otherwise smear into radial lines from the
-        // viewer's nadir point. The ratio comes from maxAnisotropy() so this sampler and the
-        // Vulkan backend's per-texture samplers filter identically.
-        samplerDesc->setMaxAnisotropy(static_cast<NS::UInteger>(maxAnisotropy()));
-        samplerDesc->setSAddressMode(MTL::SamplerAddressModeRepeat);
-        samplerDesc->setTAddressMode(MTL::SamplerAddressModeRepeat);
-        _defaultSampler = _device->newSamplerState(samplerDesc);
-        samplerDesc->release();
+        // The default sampler: linear min and mag with trilinear mips (without a mip filter
+        // Metal only ever samples mip 0 — aliasing and radial streaks at glancing angles),
+        // repeat on S and T, and the device's anisotropy ratio, which keeps oblique ground
+        // textures from smearing into radial lines. It is the sampler cache's entry for a
+        // texture in its default state (defaultTextureSamplerState), and the cache maps
+        // every texture's state the way the Vulkan backend's per-texture samplers do, so a
+        // material map filters and wraps identically on both.
+        _samplerCache.init(_device, maxAnisotropy());
+        _defaultSampler = _samplerCache.defaultSampler();
 
         // Screen-space post passes (TAA/SSAO/CoC/DOF/blur/compose) must NOT use
         // the repeat-mode scene sampler: their kernels tap past [0,1] at frame
@@ -288,10 +281,9 @@ namespace visutwin::canvas
         // owns pipeline states and releases them in its destructor.
         _pipelineState = nullptr;
 
-        if (_defaultSampler) {
-            _defaultSampler->release();
-            _defaultSampler = nullptr;
-        }
+        // Borrowed from the sampler cache, which releases it with the rest.
+        _defaultSampler = nullptr;
+        _samplerCache.release();
 
         if (_postSampler) {
             _postSampler->release();
@@ -1007,11 +999,11 @@ namespace visutwin::canvas
     void MetalGraphicsDevice::setLightingUniforms(const Color& ambientColor, const std::vector<GpuLightData>& lights,
         const Vector3& cameraPosition, const bool enableNormalMaps, const float exposure,
         const FogParams& fogParams, const ShadowParams& shadowParams, const int toneMapping,
-        const Vector3* ambientSH, const Matrix4* viewProjection)
+        const Vector3* ambientSH, const Matrix4* viewProjection, const uint32_t meshLightMask)
     {
         _uniformBinder.setLightingUniforms(ambientColor, lights, cameraPosition,
             enableNormalMaps, exposure, fogParams, shadowParams, toneMapping, ambientSH,
-            viewProjection);
+            viewProjection, meshLightMask);
     }
 
     void MetalGraphicsDevice::setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
@@ -1341,7 +1333,7 @@ namespace visutwin::canvas
             textureSlots.clear();
             boundMaterial->getTextureSlots(textureSlots);
             applyInstanceLightMap(textureSlots, instanceLightMap());
-            _textureBinder.bindMaterialTextures(passEncoder, textureSlots);
+            _textureBinder.bindMaterialTextures(passEncoder, textureSlots, _samplerCache);
             _boundInstanceLightMap = instanceLightMap();
         }
         return uniforms;
@@ -1431,9 +1423,17 @@ namespace visutwin::canvas
         // linear (mips included), clamp-to-edge, no aniso. The scene sampler REPEATS, so a
         // kernel that taps past [0,1] wraps to the opposite edge — visible as
         // wrong pixels along the frame border (CAS in compose does exactly this).
-        // So every quad pass (bloom downsample and outline included) gets it.
-        _textureBinder.bindSamplerCached(passEncoder,
-            quadRenderActive() ? _postSampler : _defaultSampler);
+        // So every quad pass (bloom downsample and outline included) gets it, and only
+        // it: quad shaders declare sampler slot 0 alone.
+        //
+        // Every other draw gets the default sampler at slot 0 and, at slots 1-6, the
+        // samplers of its material's maps (MetalTextureBinder::kMaterialSamplerTextureSlots),
+        // each the one its Texture's wrap and filter describe. Recorded when the material's
+        // textures are bound; issued here, where only a slot that differs from what the
+        // encoder holds is set.
+        const bool quad = quadRenderActive();
+        _textureBinder.bindDrawSamplers(passEncoder, quad ? _postSampler : _defaultSampler,
+            _defaultSampler, !quad);
 
         // After the first draw in a pass has established all texture/sampler state,
         // subsequent draws can rely on the cache for deduplication.

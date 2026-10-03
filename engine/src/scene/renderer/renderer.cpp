@@ -1533,9 +1533,17 @@ namespace visutwin::canvas
 
             for (const auto& dispatchEntry : localLights) {
                 const auto& ld = dispatchEntry.light;
-                // Every spot and omni light is in the grid, shadowed from the atlas
-                // when it holds a slot for it and unshadowed otherwise.
+                // Every spot and omni light lit at runtime is in the grid, shadowed from
+                // the atlas when it holds a slot for it and unshadowed otherwise. A
+                // bake-only light (neither MASK_AFFECT_DYNAMIC nor _LIGHTMAPPED) lights
+                // nothing at runtime, so it stays out of the grid and out of the set's key.
+                if (!clusterAdmitsLight(dispatchEntry.mask)) {
+                    continue;
+                }
                 ClusterLightData lcd;
+                // The shader accepts the light per draw by these bits against the draw's
+                // mesh-instance mask (dynamic or lightmapped).
+                lcd.lightMask = dispatchEntry.mask;
                 // A shaped light is an area light in the grid only with clustered area
                 // lights enabled; otherwise it shades as punctual.
                 if (clusteredAreaLights && ld.shape != 0u) {
@@ -1988,9 +1996,11 @@ namespace visutwin::canvas
                 const bool drawReceivesShadow = !meshInstance || meshInstance->receiveShadow();
                 if (!lightingSet || drawLightMask != lightingSetMask ||
                     drawReceivesShadow != lightingSetReceivesShadow) {
+                    // The draw's mask also picks which clustered lights it accepts (dynamic
+                    // or lightmapped), which is why the block follows the mask.
                     device.setLightingUniforms(ambientColor, maskedLights, ctx.view.position, true, exposure,
                         fogParams, drawReceivesShadow ? ctx.lights.shadowParams : noShadow,
-                        ctx.view.toneMapping, ambientSH, &ctx.view.viewProjection);
+                        ctx.view.toneMapping, ambientSH, &ctx.view.viewProjection, drawLightMask);
                     lightingSet = true;
                     lightingSetMask = drawLightMask;
                     lightingSetReceivesShadow = drawReceivesShadow;

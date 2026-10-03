@@ -85,7 +85,8 @@
     X(Skybox,                    "VT_FEATURE_SKYBOX") \
     X(TransparentPass,           "VT_FEATURE_TRANSPARENT_PASS") \
     X(ScreenSpace,               "VT_FEATURE_SCREEN_SPACE") \
-    X(Msdf,                      "VT_FEATURE_MSDF")
+    X(Msdf,                      "VT_FEATURE_MSDF") \
+    X(NoTonemap,                 "VT_FEATURE_NO_TONEMAP")
 
 namespace visutwin::canvas
 {

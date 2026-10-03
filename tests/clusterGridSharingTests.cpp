@@ -13,6 +13,10 @@
 // order-independent hash of the light set and pooled across frames, and every layer
 // binds its own grid or zeroes the params.
 //
+// Also the light masks: a light that affects neither dynamic nor lightmapped meshes (a
+// MASK_BAKE light) stays out of the grid, and each clustered light carries its dynamic
+// and lightmapped bits for the shader to accept per draw.
+//
 // CPU only: a stub device records what the renderer binds.
 
 #include <iostream>
@@ -20,6 +24,7 @@
 #include <string>
 #include <vector>
 
+#include "scene/constants.h"
 #include "scene/lighting/worldClusters.h"
 #include "scene/renderer/renderer.h"
 #include "support/check.h"
@@ -150,6 +155,40 @@ int main()
         check(first->lightCount() == 1, "rebuilt for this frame's set");
         RendererTestAccess::grid(renderer, keyAB, twoLights);
         check(RendererTestAccess::poolSize(renderer) == 3, "no new allocation while the pool has grids to spare");
+    }
+
+    std::cout << "\nlight masks\n";
+    {
+        check(!clusterAdmitsLight(MASK_BAKE) && !clusterAdmitsLight(MASK_NONE),
+            "a bake-only light, or one with no mask, lights nothing at runtime");
+        check(clusterAdmitsLight(MASK_AFFECT_DYNAMIC) && clusterAdmitsLight(MASK_AFFECT_LIGHTMAPPED) &&
+                  clusterAdmitsLight(MASK_AFFECT_LIGHTMAPPED | MASK_BAKE),
+            "a light affecting dynamic or lightmapped meshes does");
+
+        ClusterLightData dynamicLight = omni(0.0f, 5.0f);
+        ClusterLightData lightmappedLight = omni(10.0f, 5.0f);
+        lightmappedLight.lightMask = MASK_AFFECT_LIGHTMAPPED;
+        ClusterLightData bothLight = omni(20.0f, 5.0f);
+        bothLight.lightMask = MASK_AFFECT_DYNAMIC | MASK_AFFECT_LIGHTMAPPED | MASK_BAKE;
+        ClusterLightData bakeLight = omni(30.0f, 5.0f);
+        bakeLight.lightMask = MASK_BAKE;
+
+        WorldClusters clusters;
+        clusters.update({dynamicLight, bakeLight, lightmappedLight, bothLight});
+        if (check(clusters.lightCount() == 3, "the MASK_BAKE light is left out of the grid")) {
+            const GpuClusteredLight* packed = clusters.lightData();
+            check(packed[0].areaHalfHeight[3] == 1.0f, "a dynamic light packs bit 1");
+            check(packed[1].areaHalfHeight[3] == 2.0f, "a lightmapped light packs bit 2");
+            check(packed[2].areaHalfHeight[3] == 3.0f, "a light affecting both packs 3, MASK_BAKE dropped");
+            check(packed[2].positionRange[0] == 20.0f, "and the survivors keep their order");
+            // The bake light's grid bound must not have reached the grid either.
+            check(clusters.boundsMin().getX() + clusters.boundsRange().getX() < 30.0f - 5.0f + 1.0f,
+                "nor does its bound size the grid");
+        }
+
+        WorldClusters onlyBake;
+        onlyBake.update({bakeLight});
+        check(onlyBake.lightCount() == 0, "a set of bake-only lights builds an empty grid");
     }
 
     return finish("cluster grid sharing");

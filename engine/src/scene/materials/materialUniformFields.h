@@ -92,7 +92,8 @@
     /* x=dispersion strength, y=alphaDither (<0 = unset, dither follows opacity), zw=pad */ \
     X(vec4, dispersionParams, {0, -1.0f, 0, 0}) \
     /* --- Scalar maps (gloss / thickness / refraction) --- */ \
-    /* x = the gloss factor that the gloss map modulates; y,z,w = which channel of */ \
+    /* x = the AUTHORED gloss factor that the gloss map modulates, before any */ \
+    /* inversion (glossMapParams.x says whether to invert); y,z,w = which channel of */ \
     /* the gloss / thickness / refraction map to read (0=r,1=g,2=b,3=a). A NEGATIVE */ \
     /* channel means "no map bound": presence rides in the sign because the flags */ \
     /* word was full when these were added (25-27 and 29-31 carry the two dither */ \
@@ -132,7 +133,13 @@
     /* --- Clearcoat map channels --- */ \
     /* x = channel of the clearcoat intensity map, y = of the clearcoat gloss map */ \
     /* (0=r,1=g,2=b,3=a; default g, the glTF parser picks r for intensity), zw = pad */ \
-    X(vec4, clearCoatMapChannels, {1.0f, 1.0f, 0.0f, 0.0f})
+    X(vec4, clearCoatMapChannels, {1.0f, 1.0f, 0.0f, 0.0f}) \
+    /* --- Gloss map inversion --- */ \
+    /* A gloss map multiplies the AUTHORED factor and the product is inverted after, */ \
+    /* so under an invert flag roughness = factor x texel. Read only with a map bound. */ \
+    /* x = 1 when the base gloss is inverted, y = 1 when the clearcoat gloss is, */ \
+    /* z = the authored clearcoat gloss factor (before inversion), w = pad. */ \
+    X(vec4, glossMapParams, {0.0f, 0.0f, 1.0f, 0.0f})
 
 namespace visutwin::canvas
 {

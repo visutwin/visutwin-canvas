@@ -204,6 +204,54 @@ int main()
         }
     }
 
+    // Settings change on the LIVE body. A mass change rescales mass and inertia in place
+    // and keeps the velocity, so an impulse afterwards changes the velocity by impulse /
+    // new mass and a torque impulse by the inertia scaled to match; a mass of 0 cannot be
+    // applied in place. Damping takes effect from the next step.
+    {
+        const Vector3 savedGravity = world->gravity();
+        world->setGravity(Vector3(0.0f, 0.0f, 0.0f));
+        PhysicsBodyDesc desc;
+        desc.shape = PhysicsShapeType::Sphere;
+        desc.motion = PhysicsMotionType::Dynamic;
+        desc.radius = 0.5f;
+        desc.mass = 2.0f;
+        desc.position = Vector3(60.0f, 50.0f, 0.0f);
+        PhysicsBody* ball = world->createBody(desc);
+        check(ball != nullptr, "the world creates a 2 kg sphere");
+        if (ball != nullptr) {
+            ball->setLinearVelocity(Vector3(3.0f, 0.0f, 0.0f));
+            check(ball->setMass(4.0f), "a dynamic body takes a new mass in place");
+            check(std::abs(ball->linearVelocity().getX() - 3.0f) < 1e-4f, "the mass change keeps the velocity");
+            ball->applyImpulse(Vector3(8.0f, 0.0f, 0.0f));
+            check(std::abs(ball->linearVelocity().getX() - 5.0f) < 1e-3f,
+                "an impulse then changes the velocity by impulse / NEW mass");
+            // A solid sphere's inertia is 2/5 m r^2: 0.4 at 4 kg and 0.5 m.
+            ball->applyTorqueImpulse(Vector3(0.0f, 0.0f, 1.0f));
+            check(std::abs(ball->angularVelocity().getZ() - 2.5f) < 1e-2f,
+                "the inertia was scaled with the mass");
+            check(!ball->setMass(0.0f), "a mass of 0 is refused in place");
+
+            ball->setAngularVelocity(Vector3(0.0f, 0.0f, 0.0f));
+            ball->setFriction(0.9f);
+            ball->setRestitution(0.3f);
+            stepSeconds(*world, 0.5f);
+            check(std::abs(ball->linearVelocity().getX() - 5.0f) < 1e-2f, "undamped, the velocity holds");
+            ball->setDamping(5.0f, 5.0f);
+            stepSeconds(*world, 0.5f);
+            check(ball->linearVelocity().getX() < 2.5f, "linear damping set on the live body slows it");
+            world->destroyBody(ball);
+        }
+
+        PhysicsBody* ground = addGround(*world);
+        if (ground != nullptr) {
+            ground->setDamping(1.0f, 1.0f);   // a static body has no damping to set
+            check(ground->setMass(10.0f), "a static body ignores a mass and reports success");
+            world->destroyBody(ground);
+        }
+        world->setGravity(savedGravity);
+    }
+
     // A ray into empty space reports nothing.
     {
         const auto miss = world->raycastFirst(Vector3(100.0f, 100.0f, 100.0f),

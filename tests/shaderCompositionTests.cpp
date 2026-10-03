@@ -150,6 +150,16 @@ int main()
         check(!(registry == base), "a registry override re-keys every material");
         msl.chunks().remove("common-utils");
         check(ProgramLibraryTestAccess::key(msl, &a) == base, "and removing it returns to the old key");
+
+        // useTonemap off (UI materials) is a variant of its own, and the default is on.
+        check(a.useTonemap() && !base.features.test(ShaderFeature::NoTonemap),
+            "a default material is tone mapped");
+        a.setUseTonemap(false);
+        const auto untonemapped = ProgramLibraryTestAccess::key(msl, &a);
+        check(untonemapped.features.test(ShaderFeature::NoTonemap) && !(untonemapped == base),
+            "useTonemap(false) compiles VT_FEATURE_NO_TONEMAP");
+        a.setUseTonemap(true);
+        check(ProgramLibraryTestAccess::key(msl, &a) == base, "and turning it back on returns to the old key");
     }
 
     return finish("shader composition");

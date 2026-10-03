@@ -88,20 +88,18 @@ namespace visutwin::canvas::lightmap_filters
         return Vector3(std::cos(theta) * radius, y, std::sin(theta) * radius);
     }
 
-    /// The LINEAR intensity of one ambient-bake virtual light, whose authored intensity is
-    /// `(pow(2 pi spherePart, 2.2) / N) ^ (1 / 2.2)`. Upstream's Light shades with
-    /// `linear(color) * intensity` when the intensity is at least 1 and with
-    /// `linear(color * intensity)` below it; this engine multiplies the decoded colour by
-    /// the intensity in both cases, so the virtual light is given the value upstream ends
-    /// up shading with — white, so the colour drops out.
+    /// The AUTHORED intensity of one ambient-bake virtual light,
+    /// `(pow(2 pi spherePart, 2.2) / N) ^ (1 / 2.2)`. The light is shaded through
+    /// lightRadiance (platform/graphics/lightRadiance.h), which decodes then scales at 1
+    /// or more and scales then decodes below it, so for a white light the value it shades
+    /// with is this intensity at 1 or more and its 2.2 power below; with more than one
+    /// light that makes the N virtual lights sum to exactly `pow(2 pi spherePart, 2.2)`.
     inline float ambientVirtualLightIntensity(const int numVirtualLights, const float spherePart)
     {
         constexpr float kGamma = 2.2f;
         constexpr float kPi = 3.14159265358979f;
         const float fullIntensity = 2.0f * kPi * spherePart;
         const float linearIntensity = std::pow(fullIntensity, kGamma);
-        const float intensity = std::pow(linearIntensity / static_cast<float>(std::max(numVirtualLights, 1)),
-            1.0f / kGamma);
-        return intensity >= 1.0f ? intensity : std::pow(intensity, kGamma);
+        return std::pow(linearIntensity / static_cast<float>(std::max(numVirtualLights, 1)), 1.0f / kGamma);
     }
 }

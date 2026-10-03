@@ -20,6 +20,7 @@
 #include "metalGpuProfiler.h"
 #include "metalFrameGate.h"
 #include "metalPaletteRingBuffer.h"
+#include "metalSamplerCache.h"
 #include "metalTextureBinder.h"
 #include "metalUniformBinder.h"
 #include "metalUniformRingBuffer.h"
@@ -53,7 +54,7 @@ namespace visutwin::canvas
             const Vector3& cameraPosition, bool enableNormalMaps, float exposure,
             const FogParams& fogParams = FogParams{}, const ShadowParams& shadowParams = ShadowParams{},
             int toneMapping = 0, const Vector3* ambientSH = nullptr,
-            const Matrix4* viewProjection = nullptr) override;
+            const Matrix4* viewProjection = nullptr, uint32_t meshLightMask = MASK_AFFECT_DYNAMIC) override;
         void setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
             const Vector3& boxMax, bool boxProjection, float intensity, float maxLod) override;
         void setCameraClipPlanes(float nearClip, float farClip) override;
@@ -389,6 +390,11 @@ namespace visutwin::canvas
         MTL::Buffer* _pendingParticleMeshBuffer = nullptr;
         std::array<uint8_t, sizeof(GpuParticleRenderParams)> _pendingParticleParams{};
         size_t _pendingParticleParamsSize = 0;
+        // Material sampler states, keyed on each texture's own wrap and filter. It owns
+        // the default sampler below too, which is borrowed from it.
+        MetalSamplerCache _samplerCache;
+        // Repeat, trilinear, anisotropic: slot 0 of every non-quad draw, and every material
+        // sampler slot whose map is absent or in the default state. Owned by _samplerCache.
         MTL::SamplerState* _defaultSampler = nullptr;
         // Clamp-to-edge sampler for screen-space post passes (no mips/aniso) —
         // the repeat-mode default sampler wraps kernel taps at frame borders.

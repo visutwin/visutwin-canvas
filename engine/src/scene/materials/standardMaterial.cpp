@@ -95,6 +95,7 @@ namespace visutwin::canvas
         _useOrenNayar = false;
 
         _useFog = true;
+        _useTonemap = true;
         _useLighting = true;
         _useSkybox = true;
         _twoSidedLighting = false;
@@ -184,10 +185,11 @@ namespace visutwin::canvas
         uniforms.normalScale = _bumpiness;
 
         // Scalar maps modulate their factor by one channel of a texture. The gloss
-        // factor travels separately because the packed uniform carries ROUGHNESS, and
-        // the map has to scale gloss before the inversion.
-        // glossInvert means the authored value already IS roughness, so undo it here.
-        uniforms.mapChannelParams[0] = _glossInvert ? (1.0f - _gloss) : _gloss;
+        // factor travels separately, AUTHORED, because the map multiplies the factor
+        // before glossInvert flips the product: under glossInvert a gloss map gives
+        // roughness = factor x texel, not (1 - factor) x texel as gloss.
+        uniforms.mapChannelParams[0] = _gloss;
+        uniforms.glossMapParams[0] = _glossInvert ? 1.0f : 0.0f;
         uniforms.mapChannelParams[1] = _glossMap
             ? static_cast<float>(_glossMapChannel) : -1.0f;
         uniforms.mapChannelParams[2] = _thicknessMap
@@ -333,6 +335,10 @@ namespace visutwin::canvas
             uniforms.clearCoatFactor = _clearCoat;
             const float ccGloss = _clearCoatGlossInvert ? (1.0f - _clearCoatGloss) : _clearCoatGloss;
             uniforms.clearCoatRoughness = 1.0f - ccGloss;
+            // A clearcoat gloss map multiplies the AUTHORED factor and inverts after,
+            // so it needs the factor and the flag rather than the packed roughness.
+            uniforms.glossMapParams[1] = _clearCoatGlossInvert ? 1.0f : 0.0f;
+            uniforms.glossMapParams[2] = _clearCoatGloss;
             uniforms.clearCoatBumpiness = _clearCoatBumpiness;
             uniforms.clearCoatMapChannels[0] = static_cast<float>(_clearCoatMapChannel);
             uniforms.clearCoatMapChannels[1] = static_cast<float>(_clearCoatGlossMapChannel);

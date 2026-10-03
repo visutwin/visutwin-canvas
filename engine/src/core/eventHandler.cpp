@@ -5,27 +5,16 @@
 //
 #include "eventHandler.h"
 
+#include <cassert>
+
 namespace visutwin::canvas
 {
-    namespace
+    EventCallbackIdentity EventHandler::identityOf(const HandleEventCallback& callback)
     {
-        bool callbacksEquivalent(const HandleEventCallback& lhs, const HandleEventCallback& rhs)
-        {
-            if (!lhs || !rhs) {
-                return false;
-            }
-
-            if (lhs.target_type() != rhs.target_type()) {
-                return false;
-            }
-
-            if (const auto lhsFn = lhs.template target<void(*)(const EventArgs&)>()) {
-                const auto rhsFn = rhs.template target<void(*)(const EventArgs&)>();
-                return rhsFn && *lhsFn == *rhsFn;
-            }
-
-            return false;
+        if (const auto* fn = callback.target<void (*)(const EventArgs&)>()) {
+            return reinterpret_cast<EventCallbackIdentity>(*fn);
         }
+        return nullptr;
     }
 
     void EventHandle::setRemoved(const bool value)
@@ -50,7 +39,8 @@ namespace visutwin::canvas
     }
 
     EventHandle::EventHandle(EventHandler* handler, const std::string& name, HandleEventCallback callback, void* scope,
-            bool once): _handler(handler), _name(name), _callback(std::move(callback)), _scope(scope), _once(once), _removed(false) {}
+            bool once, EventCallbackIdentity identity): _handler(handler), _name(name), _callback(std::move(callback)),
+            _scope(scope), _once(once), _removed(false), _identity(identity) {}
 
     EventHandler::~EventHandler()
     {
@@ -65,15 +55,18 @@ namespace visutwin::canvas
 
     EventHandlePtr EventHandler::on(const std::string& name, HandleEventCallback callback, void* scope)
     {
-        return addCallback(name, callback, scope, false);
+        const EventCallbackIdentity identity = identityOf(callback);
+        return addCallback(name, std::move(callback), scope, false, identity);
     }
 
     EventHandlePtr EventHandler::once(const std::string& name, HandleEventCallback callback, void* scope)
     {
-        return addCallback(name, callback, scope, true);
+        const EventCallbackIdentity identity = identityOf(callback);
+        return addCallback(name, std::move(callback), scope, true, identity);
     }
 
-    EventHandlePtr EventHandler::addCallback(const std::string& name, HandleEventCallback callback, void* scope, bool once)
+    EventHandlePtr EventHandler::addCallback(const std::string& name, HandleEventCallback callback, void* scope, bool once,
+        EventCallbackIdentity identity)
     {
         if (_callbacks.find(name) == _callbacks.end()) {
             _callbacks[name] = std::vector<EventHandle*>();
@@ -89,7 +82,7 @@ namespace visutwin::canvas
             }
         }
 
-        auto evt = std::make_shared<EventHandle>(this, name, std::move(callback), scope, once);
+        auto evt = std::make_shared<EventHandle>(this, name, std::move(callback), scope, once, identity);
         _eventHandles.push_back(evt);
 
         _callbacks[name].push_back(evt.get());
@@ -97,6 +90,17 @@ namespace visutwin::canvas
     }
 
     EventHandler* EventHandler::off(const std::string& name, const HandleEventCallback& callback, void* scope)
+    {
+        const EventCallbackIdentity identity = identityOf(callback);
+        // A non-empty std::function that is not a plain handler pointer names no function,
+        // so it can find nothing; that is a caller's mistake, not a request to remove all.
+        assert((!callback || identity) && "off(name, callback): this std::function cannot be compared; "
+            "keep the EventHandlePtr that on() returned, or remove by scope");
+        return removeCallbacks(name, identity, !callback, scope);
+    }
+
+    EventHandler* EventHandler::removeCallbacks(const std::string& name, const EventCallbackIdentity identity,
+        const bool matchAll, void* scope)
     {
         auto preserveActiveList = [this](const std::string& eventName) {
             auto activeIt = _callbackActive.find(eventName);
@@ -119,11 +123,11 @@ namespace visutwin::canvas
                 return false;
             }
 
-            if (!callback) {
+            if (matchAll) {
                 return true;
             }
 
-            return callbacksEquivalent(evt->_callback, callback);
+            return identity && evt->_identity == identity;
         };
 
         if (name.empty()) {

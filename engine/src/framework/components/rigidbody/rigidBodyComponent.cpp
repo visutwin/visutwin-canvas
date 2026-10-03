@@ -78,67 +78,190 @@ namespace visutwin::canvas
 
     void RigidBodyComponent::setMass(const float value)
     {
-        _mass = std::max(value, 0.0f);
-        markBodyStale();
+        const float mass = std::max(value, 0.0f);
+        if (mass == _mass) {
+            return;
+        }
+        _mass = mass;
+        // Only a dynamic body reads its mass; any other type picks the new value up
+        // when a type change rebuilds it.
+        PhysicsBody* body = liveBody();
+        if (body != nullptr && _type == RigidBodyType::Dynamic && !body->setMass(mass)) {
+            markBodyStale();
+        }
     }
 
     void RigidBodyComponent::setFriction(const float value)
     {
-        _friction = std::clamp(value, 0.0f, 1.0f);
-        markBodyStale();
+        const float friction = std::clamp(value, 0.0f, 1.0f);
+        if (friction == _friction) {
+            return;
+        }
+        _friction = friction;
+        if (PhysicsBody* body = liveBody()) {
+            body->setFriction(friction);
+        }
     }
 
     void RigidBodyComponent::setRestitution(const float value)
     {
-        _restitution = std::clamp(value, 0.0f, 1.0f);
-        markBodyStale();
+        const float restitution = std::clamp(value, 0.0f, 1.0f);
+        if (restitution == _restitution) {
+            return;
+        }
+        _restitution = restitution;
+        if (PhysicsBody* body = liveBody()) {
+            body->setRestitution(restitution);
+        }
     }
 
     void RigidBodyComponent::setLinearDamping(const float value)
     {
-        _linearDamping = std::max(value, 0.0f);
-        markBodyStale();
+        const float damping = std::max(value, 0.0f);
+        if (damping == _linearDamping) {
+            return;
+        }
+        _linearDamping = damping;
+        if (PhysicsBody* body = liveBody()) {
+            body->setDamping(_linearDamping, _angularDamping);
+        }
     }
 
     void RigidBodyComponent::setAngularDamping(const float value)
     {
-        _angularDamping = std::max(value, 0.0f);
-        markBodyStale();
+        const float damping = std::max(value, 0.0f);
+        if (damping == _angularDamping) {
+            return;
+        }
+        _angularDamping = damping;
+        if (PhysicsBody* body = liveBody()) {
+            body->setDamping(_linearDamping, _angularDamping);
+        }
     }
 
     Vector3 RigidBodyComponent::linearVelocity() const
     {
+        if (const PhysicsBody* body = liveBody()) {
+            return body->linearVelocity();
+        }
+        if (_hasPendingLinearVelocity) {
+            return _pendingLinearVelocity;
+        }
+        // A body awaiting its rebuild still moves as it did; the rebuild carries that over.
         return _body ? _body->linearVelocity() : Vector3(0.0f, 0.0f, 0.0f);
     }
 
     void RigidBodyComponent::setLinearVelocity(const Vector3& value)
     {
-        if (_body) { _body->setLinearVelocity(value); }
+        if (PhysicsBody* body = liveBody()) {
+            body->setLinearVelocity(value);
+            return;
+        }
+        _pendingLinearVelocity = value;
+        _hasPendingLinearVelocity = true;
+        _pendingImpulse = Vector3(0.0f, 0.0f, 0.0f);
     }
 
     Vector3 RigidBodyComponent::angularVelocity() const
     {
+        if (const PhysicsBody* body = liveBody()) {
+            return body->angularVelocity();
+        }
+        if (_hasPendingAngularVelocity) {
+            return _pendingAngularVelocity;
+        }
         return _body ? _body->angularVelocity() : Vector3(0.0f, 0.0f, 0.0f);
     }
 
     void RigidBodyComponent::setAngularVelocity(const Vector3& value)
     {
-        if (_body) { _body->setAngularVelocity(value); }
+        if (PhysicsBody* body = liveBody()) {
+            body->setAngularVelocity(value);
+            return;
+        }
+        _pendingAngularVelocity = value;
+        _hasPendingAngularVelocity = true;
+        _pendingTorqueImpulse = Vector3(0.0f, 0.0f, 0.0f);
     }
 
     void RigidBodyComponent::applyForce(const Vector3& force)
     {
-        if (_body) { _body->applyForce(force); }
+        if (PhysicsBody* body = liveBody()) {
+            body->applyForce(force);
+            return;
+        }
+        _pendingForce += force;
+        _hasPendingPushes = true;
     }
 
     void RigidBodyComponent::applyImpulse(const Vector3& impulse)
     {
-        if (_body) { _body->applyImpulse(impulse); }
+        if (PhysicsBody* body = liveBody()) {
+            body->applyImpulse(impulse);
+            return;
+        }
+        _pendingImpulse += impulse;
+        _hasPendingPushes = true;
     }
 
     void RigidBodyComponent::applyTorque(const Vector3& torque)
     {
-        if (_body) { _body->applyTorque(torque); }
+        if (PhysicsBody* body = liveBody()) {
+            body->applyTorque(torque);
+            return;
+        }
+        _pendingTorque += torque;
+        _hasPendingPushes = true;
+    }
+
+    void RigidBodyComponent::applyTorqueImpulse(const Vector3& impulse)
+    {
+        if (PhysicsBody* body = liveBody()) {
+            body->applyTorqueImpulse(impulse);
+            return;
+        }
+        _pendingTorqueImpulse += impulse;
+        _hasPendingPushes = true;
+    }
+
+    void RigidBodyComponent::applyPendingTo(PhysicsBody& body)
+    {
+        // Velocities first: an impulse held after a velocity was set adds to it.
+        if (_hasPendingLinearVelocity) {
+            body.setLinearVelocity(_pendingLinearVelocity);
+        }
+        if (_hasPendingAngularVelocity) {
+            body.setAngularVelocity(_pendingAngularVelocity);
+        }
+        if (_hasPendingPushes) {
+            if (_pendingImpulse.lengthSquared() > 0.0f) {
+                body.applyImpulse(_pendingImpulse);
+            }
+            if (_pendingTorqueImpulse.lengthSquared() > 0.0f) {
+                body.applyTorqueImpulse(_pendingTorqueImpulse);
+            }
+            if (_pendingForce.lengthSquared() > 0.0f) {
+                body.applyForce(_pendingForce);
+            }
+            if (_pendingTorque.lengthSquared() > 0.0f) {
+                body.applyTorque(_pendingTorque);
+            }
+        }
+        clearPending();
+    }
+
+    void RigidBodyComponent::clearPending()
+    {
+        const Vector3 zero(0.0f, 0.0f, 0.0f);
+        _pendingLinearVelocity = zero;
+        _pendingAngularVelocity = zero;
+        _hasPendingLinearVelocity = false;
+        _hasPendingAngularVelocity = false;
+        _pendingImpulse = zero;
+        _pendingTorqueImpulse = zero;
+        _pendingForce = zero;
+        _pendingTorque = zero;
+        _hasPendingPushes = false;
     }
 
     void RigidBodyComponent::teleport(const Vector3& position)
@@ -146,14 +269,19 @@ namespace visutwin::canvas
         if (entity()) {
             entity()->setPosition(position);
         }
-        if (_body) {
+        if (PhysicsBody* body = liveBody()) {
             // setTransform deliberately does not wake the body, so a teleported
             // body would otherwise sit frozen in mid-air until something hit it.
-            _body->setTransform(position, entity() ? entity()->rotation() : Quaternion());
-            _body->setLinearVelocity(Vector3(0.0f, 0.0f, 0.0f));
-            _body->setAngularVelocity(Vector3(0.0f, 0.0f, 0.0f));
-            _body->activate();
+            body->setTransform(position, entity() ? entity()->rotation() : Quaternion());
+            body->setLinearVelocity(Vector3(0.0f, 0.0f, 0.0f));
+            body->setAngularVelocity(Vector3(0.0f, 0.0f, 0.0f));
+            body->activate();
+            return;
         }
+        // The body yet to be created starts at the entity's new position; stopped means
+        // no velocity and no impulse waiting to give it one.
+        setLinearVelocity(Vector3(0.0f, 0.0f, 0.0f));
+        setAngularVelocity(Vector3(0.0f, 0.0f, 0.0f));
     }
 
     void RigidBodyComponent::activate()
@@ -179,6 +307,18 @@ namespace visutwin::canvas
         }
 
         if (_bodyStale && _body != nullptr) {
+            // A rebuilt dynamic body keeps moving as the old one did, unless a velocity
+            // was set since the rebuild was asked for.
+            if (_type == RigidBodyType::Dynamic) {
+                if (!_hasPendingLinearVelocity) {
+                    _pendingLinearVelocity = _body->linearVelocity();
+                    _hasPendingLinearVelocity = true;
+                }
+                if (!_hasPendingAngularVelocity) {
+                    _pendingAngularVelocity = _body->angularVelocity();
+                    _hasPendingAngularVelocity = true;
+                }
+            }
             // A joint on this body is freed with it; let it go first (see
             // JointComponent::bodyWillBeDestroyed).
             JointComponent::bodyWillBeDestroyed(owner);
@@ -223,6 +363,9 @@ namespace visutwin::canvas
                 spdlog::warn("RigidBodyComponent: the physics world refused a body");
                 return;
             }
+            // What was asked of the body before it existed; this runs before the step,
+            // so a held force acts on the body's first step.
+            applyPendingTo(*_body);
         }
 
         if (_type == RigidBodyType::Static) {
@@ -286,6 +429,7 @@ namespace visutwin::canvas
         }
         _world = nullptr;
         _bodyStale = false;
+        clearPending();
     }
 
     void RigidBodyComponent::cloneFrom(const Component* source)

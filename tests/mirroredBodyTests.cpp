@@ -52,6 +52,11 @@ namespace
         void applyForce(const Vector3&) override {}
         void applyImpulse(const Vector3&) override {}
         void applyTorque(const Vector3&) override {}
+        void applyTorqueImpulse(const Vector3&) override {}
+        void setFriction(float) override {}
+        void setRestitution(float) override {}
+        void setDamping(float, float) override {}
+        bool setMass(float) override { return true; }
         void activate() override {}
         bool isActive() const override { return true; }
     };

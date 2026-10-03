@@ -120,6 +120,52 @@ int main()
             "glossInvert applies to the specular workflow's gloss too");
     }
 
+    // A gloss map multiplies the AUTHORED factor and the product is inverted after:
+    // under glossInvert, roughness = factor x texel. The shaders compute
+    // gloss = factor x texel, then 1 - gloss when the flag is set; this mirrors them
+    // so the packed values are checked against the result they produce. The no-map
+    // packing (roughnessFactor, clearCoatRoughness) is unchanged.
+    {
+        const auto shadedRoughness = [](const float factor, const float invert, const float texel) {
+            float gloss = factor * texel;
+            if (invert > 0.5f) gloss = 1.0f - gloss;
+            return 1.0f - gloss;
+        };
+        const auto glossTexture = makeTexture(&device);
+
+        StandardMaterial base;
+        base.setGlossMap(glossTexture.get());
+        base.setGlossInvert(true);
+        base.setGloss(1.0f);
+        const MaterialUniforms& u = base.packedUniforms();
+        check(u.mapChannelParams[0] == 1.0f, "a gloss map's factor is packed as authored, not inverted");
+        check(u.glossMapParams[0] == 1.0f, "glossInvert packs the base invert flag");
+        check(nearStrict(shadedRoughness(u.mapChannelParams[0], u.glossMapParams[0], 0.3f), 0.3f, kTolerance),
+            "an inverted gloss map with factor 1 and texel 0.3 gives roughness 0.3");
+        check(u.roughnessFactor == 1.0f, "the inverted factor still packs roughness = factor with no map read");
+
+        base.setGlossInvert(false);
+        base.setGloss(0.5f);
+        const MaterialUniforms& v = base.packedUniforms();
+        check(v.glossMapParams[0] == 0.0f, "no glossInvert, no invert flag");
+        check(nearStrict(shadedRoughness(v.mapChannelParams[0], v.glossMapParams[0], 0.6f), 0.7f, kTolerance),
+            "a plain gloss map gives roughness 1 - factor x texel");
+
+        // The glTF clearcoat route: coat roughness as the gloss factor, inverted.
+        StandardMaterial coat;
+        coat.setClearCoat(1.0f);
+        coat.setClearCoatGloss(1.0f);
+        coat.setClearCoatGlossInvert(true);
+        coat.setClearCoatGlossMap(glossTexture.get());
+        const MaterialUniforms& c = coat.packedUniforms();
+        check(c.glossMapParams[1] == 1.0f && c.glossMapParams[2] == 1.0f,
+            "an inverted clearcoat gloss packs the invert flag and the authored factor");
+        check(nearStrict(shadedRoughness(c.glossMapParams[2], c.glossMapParams[1], 0.3f), 0.3f, kTolerance),
+            "an inverted clearcoat gloss map with factor 1 and texel 0.3 gives coat roughness 0.3");
+        check(c.clearCoatRoughness == 1.0f, "the no-map coat roughness is still the inverted factor");
+        check((c.flags & (1u << 15)) != 0u, "a clearcoat gloss map sets flags bit 15");
+    }
+
     // The scalars apply with a base-colour texture bound on the base Material, the
     // way the GLB parser binds one.
     {

@@ -20,13 +20,27 @@ namespace visutwin::canvas
     using EventArgs = std::vector<std::any>;
     using HandleEventCallback = std::function<void(const EventArgs&)>;
 
+    /// The function a callback was made from, when it was made from one: what
+    /// EventHandler::off(name, callback) compares, since the wrapped std::function
+    /// holding it cannot be compared. Every function pointer type converts to this one
+    /// and back unchanged, so two callbacks have the same identity exactly when they
+    /// were made from the same function.
+    using EventCallbackIdentity = void (*)();
+
+    /// A callable that has an identity: a function pointer, a function, or a lambda
+    /// without captures (which converts to a pointer to one function per lambda).
+    template<typename Fn>
+    concept ComparableEventCallback = requires(Fn& fn) { +fn; } &&
+        std::is_pointer_v<decltype(+std::declval<Fn&>())> &&
+        std::is_function_v<std::remove_pointer_t<decltype(+std::declval<Fn&>())>>;
+
     class EventHandler;
 
     class EventHandle
     {
     public:
         EventHandle(EventHandler* handler, const std::string& name, HandleEventCallback callback, void* scope = nullptr,
-            bool once = false);
+            bool once = false, EventCallbackIdentity identity = nullptr);
 
         void callback(const EventArgs& args) const;
 
@@ -52,6 +66,10 @@ namespace visutwin::canvas
         bool _once;
 
         bool _removed;
+
+        // The function the callback was made from, or null when it was made from
+        // something that cannot be compared (a capturing lambda, a std::function).
+        EventCallbackIdentity _identity;
     };
 
     // Shared ownership: the EventHandler keeps a reference while subscribed;
@@ -77,26 +95,41 @@ namespace visutwin::canvas
         EventHandlePtr on(const std::string& name, Callback&& callback, void* scope = nullptr)
             requires(!std::is_same_v<std::decay_t<Callback>, HandleEventCallback>)
         {
-            return on(name, adaptCallback(std::forward<Callback>(callback)), scope);
+            const EventCallbackIdentity identity = identityOf(callback);
+            return addCallback(name, adaptCallback(std::forward<Callback>(callback)), scope, false, identity);
         }
 
         template<typename Callback>
         EventHandlePtr once(const std::string& name, Callback&& callback, void* scope = nullptr)
             requires(!std::is_same_v<std::decay_t<Callback>, HandleEventCallback>)
         {
-            return once(name, adaptCallback(std::forward<Callback>(callback)), scope);
+            const EventCallbackIdentity identity = identityOf(callback);
+            return addCallback(name, adaptCallback(std::forward<Callback>(callback)), scope, true, identity);
         }
 
-        // Removes callbacks. If name is empty, all events are removed.
+        /**
+         * Removes callbacks. An empty name removes from every event; an empty callback
+         * removes every callback (within `scope` when one is given). A non-empty
+         * HandleEventCallback removes the callbacks registered with the same function,
+         * which it can name only when it holds a plain `void(*)(const EventArgs&)`; any
+         * other non-empty std::function identifies nothing (a debug build asserts).
+         */
         EventHandler* off(const std::string& name = "", const HandleEventCallback& callback = HandleEventCallback(),
                           void* scope = nullptr);
         EventHandler* offByHandle(EventHandle* handle);
 
+        /// Removes the callbacks registered with the same function pointer or the same
+        /// captureless lambda (the same lambda OBJECT: two lambda expressions are two
+        /// functions, however alike they read).
         template<typename Callback>
         EventHandler* off(const std::string& name, Callback&& callback, void* scope = nullptr)
             requires(!std::is_same_v<std::decay_t<Callback>, HandleEventCallback>)
         {
-            return off(name, adaptCallback(std::forward<Callback>(callback)), scope);
+            static_assert(ComparableEventCallback<std::decay_t<Callback>>,
+                "off(name, callback) can only find a callback made from a function pointer or a captureless lambda. "
+                "Keep the EventHandlePtr that on() returned and call off() on it, or subscribe with a scope and "
+                "call off(name, HandleEventCallback(), scope).");
+            return removeCallbacks(name, identityOf(callback), false, scope);
         }
 
         void initEventHandler();
@@ -107,10 +140,34 @@ namespace visutwin::canvas
         [[nodiscard]] bool hasEvent(const std::string& name) const;
 
     protected:
-        EventHandlePtr addCallback(const std::string& name, HandleEventCallback callback, void* scope = nullptr, bool once = false);
+        EventHandlePtr addCallback(const std::string& name, HandleEventCallback callback, void* scope = nullptr,
+            bool once = false, EventCallbackIdentity identity = nullptr);
 
     private:
         void compactRemovedHandles();
+
+        /// Removes the callbacks of `name` (every event when empty) within `scope` (any
+        /// when null): all of them when `matchAll`, otherwise those whose identity is
+        /// `identity`, so a null identity removes nothing.
+        EventHandler* removeCallbacks(const std::string& name, EventCallbackIdentity identity, bool matchAll,
+            void* scope);
+
+        /// The function a std::function holding a plain handler pointer was made from.
+        static EventCallbackIdentity identityOf(const HandleEventCallback& callback);
+
+        // Constrained away from HandleEventCallback: a non-const std::function argument
+        // would otherwise bind to this template better than to the const& overload above
+        // and come back with no identity.
+        template<typename Callback>
+        static EventCallbackIdentity identityOf(Callback& callback)
+            requires(!std::is_same_v<std::decay_t<Callback>, HandleEventCallback>)
+        {
+            if constexpr (ComparableEventCallback<std::decay_t<Callback>>) {
+                return reinterpret_cast<EventCallbackIdentity>(+callback);
+            } else {
+                return nullptr;
+            }
+        }
 
         template<typename T>
         struct function_traits;

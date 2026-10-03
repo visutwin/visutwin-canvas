@@ -180,6 +180,7 @@ int main()
     for (size_t i = 0; i < instances.size() && i < 2; ++i) {
         auto* material = dynamic_cast<StandardMaterial*>(instances[i]->material());
         const std::string page = "page " + std::to_string(i) + ": ";
+        check(material && !material->useTonemap(), page + "a UI text material is not tone mapped");
         check(material && material->msdfMap() == msdf->pages[i], page + "its material samples its own page as MSDF");
         if (!material) {
             continue;
@@ -362,11 +363,23 @@ int main()
 
         marked->setShadowOffset(Vector2(1.0f, 2.0f));
         elementInput->syncElements();
+        // Tagged text packs a per-vertex offset whose y carries -width/height of the page,
+        // so it lands on the same value as the uniform path: 0.005 x, -(aspect) 0.005 y,
+        // for the tagged run and the element's own run alike.
         const auto shadowed = visualInstances(marked->entity());
-        auto* material = shadowed.empty() ? nullptr : dynamic_cast<StandardMaterial*>(shadowed[0]->material());
-        check(material && near(material->packedUniforms().msdfOutlineShadow[1], 0.005f, kTolerance) &&
-              near(material->packedUniforms().msdfOutlineShadow[2], 0.01f, kTolerance),
-              "with tags, the shadow takes upstream's per-vertex convention (0.005 x, 0.005 y)");
+        check(shadowed.size() == 2, "the shadowed markup text still draws as two parts");
+        for (auto* instance : shadowed) {
+            auto* material = dynamic_cast<StandardMaterial*>(instance->material());
+            check(material != nullptr, "each markup part has a standard material");
+            if (!material) {
+                continue;
+            }
+            const MaterialUniforms& u = material->packedUniforms();
+            const float aspect = u.msdfParams[2] / u.msdfParams[3];
+            check(near(u.msdfOutlineShadow[1], 0.005f, kTolerance) &&
+                  near(u.msdfOutlineShadow[2], -aspect * 0.005f * 2.0f, kTolerance),
+                  "with tags, the shadow offset matches the untagged one (0.005 x, -(page aspect) 0.005 y)");
+        }
 
         ElementComponent* broken = addText(msdf);
         broken->setEnableMarkup(true);

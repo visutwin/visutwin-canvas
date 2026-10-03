@@ -317,6 +317,9 @@ namespace visutwin::canvas
         if (const char* value = std::getenv("VISUTWIN_FIXED_DT"); value && *value) {
             fixedDt = std::max(std::strtof(value, nullptr), 0.0f);
             spdlog::info("Fixed frame time {} s from VISUTWIN_FIXED_DT", fixedDt);
+            // A large fixed step is deliberate (it magnifies a timing difference), so the
+            // engine's per-frame clamp must not cut it back to its default 0.1 s.
+            _engine->setMaxDeltaTime(std::max(_engine->maxDeltaTime(), fixedDt));
         }
 
         // VISUTWIN_CPU_STATS=first,last collects the CPU side of frames [first, last] and
@@ -345,7 +348,10 @@ namespace visutwin::canvas
             const auto dt = fixedDt > 0.0f ? fixedDt : static_cast<float>(
                 static_cast<double>(nowCounter - previousCounter) / static_cast<double>(perfFrequency));
             previousCounter = nowCounter;
-            _elapsed += dt;
+            // The example's own hook advances on the engine's clock: clamped and scaled as
+            // Engine::update will clamp it, so a stall does not reach one and not the other.
+            const float frameDt = _engine->effectiveDeltaTime(dt);
+            _elapsed += frameDt;
 
             // A click on the HUD is the HUD's (it switches its view) and must not also
             // orbit the camera. A pointer on the panel should never reach the scene;
@@ -358,7 +364,7 @@ namespace visutwin::canvas
                     _overlay && _miniStats && _miniStats->enabled() && _overlay->wantCaptureMouse());
             }
 
-            update(dt);
+            update(frameDt);
             const auto updateStart = std::chrono::steady_clock::now();
             _engine->update(dt);
             const double updateMs = std::chrono::duration<double, std::milli>(

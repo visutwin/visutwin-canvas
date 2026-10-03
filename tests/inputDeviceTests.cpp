@@ -197,6 +197,41 @@ namespace
         check(!mouse.isPressed(MouseButton::Middle), "losing focus releases held buttons");
     }
 
+    void releaseEdgesOnlyForHeldInputs()
+    {
+        Keyboard keyboard;
+        int ups = 0;
+        keyboard.on("keyup", [&](const KeyboardEvent&) { ++ups; });
+
+        // A key-up whose key-down never arrived: the key went down before the window
+        // had focus. It was never held here, so there is nothing to release.
+        keyboard.handleEvent(keyEvent(false, SDL_SCANCODE_Q));
+        check(!keyboard.wasReleased(Key::Q), "a key-up for a key never held records no release edge");
+        check(ups == 1, "the keyup event still fires");
+
+        // Focus loss records the release of a held key; the real key-up arriving later
+        // must not record a second one.
+        keyboard.handleEvent(keyEvent(true, SDL_SCANCODE_E));
+        keyboard.update();
+        keyboard.handleEvent(focusLostEvent());
+        check(keyboard.wasReleased(Key::E), "losing focus records the held key's release edge");
+        keyboard.update();
+        keyboard.handleEvent(keyEvent(false, SDL_SCANCODE_E));
+        check(!keyboard.wasReleased(Key::E), "the key-up after a focus loss is not a second release");
+
+        Mouse mouse;
+        mouse.handleEvent(mouseButtonEvent(false, SDL_BUTTON_RIGHT, 0.0f, 0.0f));
+        check(!mouse.wasReleased(MouseButton::Right), "a button-up for a button never held records no release edge");
+
+        mouse.handleEvent(mouseButtonEvent(true, SDL_BUTTON_LEFT, 0.0f, 0.0f));
+        mouse.update();
+        mouse.handleEvent(focusLostEvent());
+        check(mouse.wasReleased(MouseButton::Left), "losing focus records the held button's release edge");
+        mouse.update();
+        mouse.handleEvent(mouseButtonEvent(false, SDL_BUTTON_LEFT, 0.0f, 0.0f));
+        check(!mouse.wasReleased(MouseButton::Left), "the button-up after a focus loss is not a second release");
+    }
+
     void touchTracksFingers()
     {
         TouchDevice touch;
@@ -291,6 +326,7 @@ int main()
     keyboardModifiersAndFocus();
     keyboardEvents();
     mouseButtonsPositionAndWheel();
+    releaseEdgesOnlyForHeldInputs();
     touchTracksFingers();
     controllerActionsAndAxes();
     gamePadsWithNoPad();
