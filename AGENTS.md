@@ -115,7 +115,12 @@ ctest --preset default
   example harness logs, because the drawable follows the display the window opens on (an
   external 1x monitor, or a sleeping display that comes back at 1x). A density with no set
   SKIPS its cases; `--update` writes the set for the density it runs at, so a rendering change
-  that is intended needs re-capturing at BOTH densities, on two displays. Both backends reproduce every reference bit for bit run to run, and
+  that is intended needs re-capturing at BOTH densities, on two displays, and on BOTH
+  backends: a change re-captured for Metal alone leaves the Vulkan set failing for a
+  reason nobody remembers, and the next real Vulkan difference hides behind it (skybox
+  rotation did this to four Vulkan cases, which then masked a Metal-only clearcoat bug).
+  Before re-capturing either set, compare its capture with the OTHER backend's: they agree
+  to a fraction of a count, so a disagreement is a bug, not a new reference. Both backends reproduce every reference bit for bit run to run, and
   a 1.03 factor on every lit colour fails all eight original cases, so a failure is
   real. When a
   rendering change is intended, look at the images it writes to
@@ -305,7 +310,10 @@ new map Vulkan binds as a combined sampler needs a sampler slot there, within th
 comment in `metalTextureBinder.h`; a separate-image map keeps `defaultSampler` on both. Slots 0-38 are taken today
 (31-33 the gloss, thickness and refraction maps, 34 the opacity map; 35 is the
 second directional shadow map, 36 the clustered cookie atlas and 37-38 the VSM spot
-moments, scene slots, not material ones).
+moments, scene slots, not material ones). The SCENE slots are 2 and 6 and those listed
+from 35; slot 7 is the clearcoat intensity map, a MATERIAL slot (a scene depth bound there
+overwrote it on every draw and Metal rendered every clearcoat map as absent), so check
+`bindSceneTextures` for a collision before giving a scene texture a slot.
 On Vulkan, MoltenVK inherits a 16-SAMPLER-per-stage limit across all sets and the
 fragment stage is at it, so a new material texture is a SEPARATE image
 (`texture2D`) read through the shared sampler at set-1 binding 24, the treatment

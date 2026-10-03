@@ -71,8 +71,9 @@ namespace visutwin::canvas
             const std::vector<TextureSlot>& textureSlots, MetalSamplerCache& samplers);
 
         /// Clear the material's slots among 0-7 (used when no material is bound). The
-        /// scene slots in that range (2, 6, 7) are bindSceneTextures' to set. The
-        /// material sampler slots go back to the default sampler.
+        /// scene slots in that range (2, 6) are bindSceneTextures' to set; 7 is the
+        /// clearcoat intensity map, a material slot. The material sampler slots go back
+        /// to the default sampler.
         void clearMaterialSlots(MTL::RenderCommandEncoder* encoder);
 
         /// Issue the draw's samplers: `general` at slot 0 and, unless `materialSamplers`
@@ -85,7 +86,7 @@ namespace visutwin::canvas
 
         /// Bind scene-global textures (envAtlas, shadow, sceneDepth, skybox cubemap, reflection, reflectionDepth, ssao).
         void bindSceneTextures(MTL::RenderCommandEncoder* encoder,
-            Texture* envAtlas, Texture* shadow, Texture* sceneDepth, Texture* skyboxCubeMap,
+            Texture* envAtlas, Texture* shadow, Texture* skyboxCubeMap,
             Texture* reflection = nullptr, Texture* reflectionDepth = nullptr,
             Texture* ssao = nullptr, Texture* areaLightLut1 = nullptr, Texture* areaLightLut2 = nullptr,
             Texture* sceneColor = nullptr, Texture* reflectionProbeCube = nullptr,

@@ -1347,7 +1347,7 @@ namespace visutwin::canvas
         }
         _textureBinder.bindSceneTextures(passEncoder,
             _uniformBinder.envAtlasTexture(), _uniformBinder.shadowTexture(),
-            sceneDepthMap(), _uniformBinder.skyboxCubeMapTexture(),
+            _uniformBinder.skyboxCubeMapTexture(),
             reflectionMap(), reflectionDepthMap(), ssaoForwardTexture(),
             _areaLightLut1, _areaLightLut2, sceneColorMap(),
             _uniformBinder.reflectionProbeCubeTexture(), sceneDepthGrabMap());

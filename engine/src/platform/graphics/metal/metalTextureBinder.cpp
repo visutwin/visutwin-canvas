@@ -106,8 +106,8 @@ namespace visutwin::canvas
             _materialSamplers[i] = texture ? samplers.forTexture(texture) : nullptr;
         }
 
-        // Clear material-owned slots (0,1,3,4,5) not used by this material.
-        constexpr int materialSlots[] = {0, 1, 3, 4, 5, 17, 19, 23, 31, 32, 33, 34};
+        // Clear material-owned slots not used by this material.
+        constexpr int materialSlots[] = {0, 1, 3, 4, 5, 7, 13, 14, 17, 19, 23, 31, 32, 33, 34};
         for (const int s : materialSlots) {
             bool used = false;
             for (const auto& [slot, tex] : textureSlots) {
@@ -140,11 +140,11 @@ namespace visutwin::canvas
 
     void MetalTextureBinder::clearMaterialSlots(MTL::RenderCommandEncoder* encoder)
     {
-        // The material's slots among 0-7, NOT 2, 6 and 7: those are the environment
-        // atlas, the shadow map and the scene depth, which bindSceneTextures binds right
-        // after this for the same draw. Clearing them here cost a clear and a rebind of
+        // The material's slots among 0-7, NOT 2 and 6: those are the environment atlas
+        // and the shadow map, which bindSceneTextures binds right after this for the same
+        // draw. Clearing them here cost a clear and a rebind of
         // each on every material-less draw — every opaque shadow caster.
-        constexpr int materialSlots[] = {0, 1, 3, 4, 5};
+        constexpr int materialSlots[] = {0, 1, 3, 4, 5, 7};
         for (const int slot : materialSlots) {
             clearCached(encoder, slot);
         }
@@ -158,14 +158,17 @@ namespace visutwin::canvas
     // -----------------------------------------------------------------------
 
     void MetalTextureBinder::bindSceneTextures(MTL::RenderCommandEncoder* encoder,
-        Texture* envAtlas, Texture* shadow, Texture* sceneDepth, Texture* skyboxCubeMap,
+        Texture* envAtlas, Texture* shadow, Texture* skyboxCubeMap,
         Texture* reflection, Texture* reflectionDepth, Texture* ssao,
         Texture* areaLightLut1, Texture* areaLightLut2, Texture* sceneColor,
         Texture* reflectionProbeCube, Texture* sceneDepthGrab)
     {
         bindCached(encoder, 2, envAtlas);
         bindCached(encoder, 6, shadow);
-        bindCached(encoder, 7, sceneDepth);
+        // Slot 7 is NOT a scene slot: it is the material's clearcoat intensity map, bound
+        // by bindMaterialTextures before this runs. The scene depth that used to be bound
+        // here, which no forward shader reads (particles and SSR take the depth grab at
+        // 25), overwrote that map on every draw, and the shader skipped the unbound map.
         bindCached(encoder, 8, skyboxCubeMap);
         bindCached(encoder, 9, reflection);
         bindCached(encoder, 10, reflectionDepth);
