@@ -168,3 +168,4 @@ visutwin_add_unit_test(visutwin-i18n-tests i18n i18nTests.cpp DEFINITIONS VISUTW
 visutwin_add_unit_test(visutwin-gizmo-tests gizmo gizmoTests.cpp)
 visutwin_add_unit_test(visutwin-event-handler-off-tests event-handler-off eventHandlerOffTests.cpp)
 visutwin_add_unit_test(visutwin-engine-update-tests engine-update engineUpdateTests.cpp)
+visutwin_add_unit_test(visutwin-texture-outlives-device-tests texture-outlives-device textureOutlivesDeviceTests.cpp)

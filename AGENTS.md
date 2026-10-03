@@ -1157,6 +1157,27 @@ present, but the rule below never depends on reading it.
   turns `refraction`'s capsules into a flat opaque wash. Settle it by setting a
   CONSTANT value on both sides. `textures/checkboard.png` and the whole seaside-rocks01
   set (`seaside-rocks01-gloss.jpg` included) are upstream's exact bytes.
+- **A loop waits for the next frame BEFORE it polls input** (`Engine::waitForNextFrame`):
+  Metal takes the frame-gate slot and the drawable there, Vulkan the frame fence. Waited
+  for inside `render()` instead (where the drawable used to be taken, at the first
+  back-buffer pass), every frame shows input one display interval older than it need be:
+  input sampled to frame complete measured 18 ms at 120 Hz, 7 ms with the wait moved, at an
+  unchanged 120 fps. `ExampleApp` does it; an application with its own loop owes the call.
+  It is optional and idempotent. The camera's own smoothing is separate: rotate, move and
+  zoom damping default to 0.9 (DEVIATION from upstream's 0.98, which trails a drag by ~75 ms
+  and settles in ~0.25 s; 0.9 settles in ~45 ms; the focus glide keeps 0.98). UI interaction
+  is UNDAMPED while the pointer is down: a dragged element or scroll content follows the
+  pointer exactly from its first movement, and the annotation tooltip shows and hides at
+  once (`setTooltipFadeSeconds`, DEVIATION from upstream's 0.2 s fade). A scroll view's
+  friction and bounce act only after release.
+- **A Texture may outlive its GraphicsDevice.** The device keeps a registry of live
+  textures and detaches them in `releaseGpuReferences` (both backends call it first thing in
+  their destructors) and again in `~GraphicsDevice`: each releases its GPU texture while the
+  device can still free it, gives back its VRAM share and forgets the device, after which
+  upload, resize and read are no-ops. Without it, a texture held by a global (an asset
+  destroyed after `main` returns) wrote the freed device's VRAM counters.
+  `tests/textureOutlivesDeviceTests.cpp` fails under ASan with the detach disabled. Render
+  targets and vertex/index buffers do NOT have this yet.
 - **Metal frame pacing is display sync ON with THREE drawables.** Display sync
   is what gives an even dt (SDL's renderer, whose layer the device borrows, may
   have switched it off); the drawable count does not affect pacing once sync is

@@ -57,9 +57,6 @@ namespace visutwin::canvas
             // Camera controls
             _controls = addOrbitControls(_cameraEntity, Vector3(0.0f, 0.0f, 0.0f));
             if (_controls) {
-                _controls->setRotateDamping(0.95f);
-                _controls->setMoveDamping(0.95f);
-                _controls->setZoomDamping(0.95f);
                 _controls->setPitchRange(Vector2(-89.999f, 89.999f));
                 _controls->setZoomRange(Vector2(2.0f, 10.0f));
                 _controls->setEnableFly(false);

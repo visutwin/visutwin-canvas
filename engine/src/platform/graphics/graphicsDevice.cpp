@@ -53,6 +53,10 @@ namespace visutwin::canvas
     }
 
     GraphicsDevice::~GraphicsDevice() {
+        // A backend detaches its textures at the top of its own destructor, where it can
+        // still free their GPU objects; this catches a device that did not (a test stub).
+        detachTextures();
+
         // Clean up resources
         if (_quadVertexBuffer) {
             _quadVertexBuffer.reset();
@@ -73,6 +77,21 @@ namespace visutwin::canvas
         _backBuffer.reset();
         _textures.clear();
         _gpuProfiler.reset();
+        detachTextures();
+    }
+
+    void GraphicsDevice::detachTextures()
+    {
+        // Taken out of the registry first: a texture's destructor (which detaching does
+        // not run) and this loop must not both walk it.
+        std::unordered_set<Texture*> live;
+        {
+            std::lock_guard lock(_liveTexturesMutex);
+            live.swap(_liveTextures);
+        }
+        for (Texture* texture : live) {
+            texture->detachFromDevice();
+        }
     }
 
     uint64_t GraphicsDevice::nextPaletteVersion()

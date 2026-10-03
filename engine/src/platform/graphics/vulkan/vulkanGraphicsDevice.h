@@ -324,6 +324,7 @@ namespace visutwin::canvas
 
     private:
         void onFrameStart() override;
+        void waitForNextFrame() override;
         void onFrameEnd() override;
 
         // Backbuffer capture. recordScreenshotCopy appends a swapchain →

@@ -133,7 +133,8 @@ protected:
         // oranges
         const ButtonProps tints{.hoverTint = Color(1.0f, 0.7f, 0.45f, 1.0f),
                                 .pressedTint = Color(0.8f, 0.4f, 0.1f, 1.0f),
-                                .inactiveTint = Color(0.3f, 0.32f, 0.37f, 1.0f), .fadeDuration = 100.0f};
+                                .inactiveTint = Color(0.3f, 0.32f, 0.37f, 1.0f)};
+        // DEVIATION: no tint fade, where upstream's example fades over 100 ms.
         ButtonComponent* play = createButton("Play", 100.0f, rounded, ORANGE, tints);
         ButtonProps inactiveTints = tints;
         inactiveTints.active = false;

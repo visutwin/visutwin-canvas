@@ -224,10 +224,21 @@ int main()
 
         click(150.0f, 75.0f);
         check(manager->activeAnnotation() == nullptr, "a second click on it hides it");
+        frame(0.0f);
+        check(*events == std::vector<std::string>{"show", "hide"},
+              "with no fade (the default) the hide completes on the next update");
+
+        // With a fade set, the hide waits for it.
+        events->clear();
+        manager->setTooltipFadeSeconds(0.2f);
+        engine->update(0.0f);
+        click(150.0f, 75.0f);
+        click(150.0f, 75.0f);
         frame(0.1f);
-        check(events->size() == 1, "hide waits for the 0.2 s fade");
+        check(*events == std::vector<std::string>{"show"}, "a hide waits for a 0.2 s fade");
         frame(0.15f);
         check(*events == std::vector<std::string>{"show", "hide"}, "then fires");
+        manager->setTooltipFadeSeconds(0.0f);
 
         events->clear();
         click(150.0f, 75.0f);

@@ -374,6 +374,17 @@ namespace visutwin::canvas
         }
     }
 
+    void VulkanGraphicsDevice::waitForNextFrame()
+    {
+        // The frame's fence: the wait for the GPU to finish the frame that last used this
+        // slot. onFrameStart waits on it again, which costs nothing once it is signalled.
+        // The swapchain acquire stays in onFrameStart, beside the recreation it may need.
+        if (_renderingDisabled || _swapchainRecreationPending || _device == VK_NULL_HANDLE) {
+            return;
+        }
+        vkWaitForFences(_device, 1, &_frames[_frameIndex].inFlightFence, VK_TRUE, UINT64_MAX);
+    }
+
     void VulkanGraphicsDevice::onFrameStart()
     {
         _frameActive = false;

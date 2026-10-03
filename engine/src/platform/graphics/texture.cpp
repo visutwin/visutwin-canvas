@@ -30,6 +30,13 @@ namespace visutwin::canvas
         _compressed = isCompressedPixelFormat(_format);
         _integerFormat = isIntegerPixelFormat(_format);
 
+        // Registered with the device, so its teardown can detach this texture should it
+        // outlive the device.
+        if (_device) {
+            std::lock_guard lock(_device->_liveTexturesMutex);
+            _device->_liveTextures.insert(this);
+        }
+
         if (_integerFormat) {
             _minFilter = FilterMode::FILTER_NEAREST;
             _magFilter = FilterMode::FILTER_NEAREST;
@@ -72,7 +79,7 @@ namespace visutwin::canvas
         _gpuSize = TextureUtils::calcGpuSize(_width, _height, _depth, _numLevels,
             _cubemap, _arrayLength, _format);
         if (_gpuSize > 0) {
-            adjustVramSizeTracking(_device->_vram, static_cast<int64_t>(_gpuSize));
+            trackVram(static_cast<int64_t>(_gpuSize));
         }
 
         spdlog::trace("Alloc: Id %u %s: %ux%u [Format:%u]%s%s%s[MipLevels:%u]",
@@ -85,10 +92,38 @@ namespace visutwin::canvas
 
     Texture::~Texture()
     {
+        // A texture the device already detached has nothing left to give back: it holds no
+        // GPU texture, no VRAM share and no device (which may be gone).
+        if (!_device) {
+            return;
+        }
+        {
+            std::lock_guard lock(_device->_liveTexturesMutex);
+            _device->_liveTextures.erase(this);
+        }
         // Release this texture's share of the tracked VRAM.
         if (_gpuSize > 0) {
-            adjustVramSizeTracking(_device->_vram, -static_cast<int64_t>(_gpuSize));
+            trackVram(-static_cast<int64_t>(_gpuSize));
             _gpuSize = 0;
+        }
+    }
+
+    void Texture::detachFromDevice()
+    {
+        // The registry entry is already gone (detachTextures took the whole set). The GPU
+        // texture is released first, while the device can still free it.
+        _impl.reset();
+        if (_gpuSize > 0) {
+            trackVram(-static_cast<int64_t>(_gpuSize));
+            _gpuSize = 0;
+        }
+        _device = nullptr;
+    }
+
+    void Texture::trackVram(const int64_t size)
+    {
+        if (_device) {
+            adjustVramSizeTracking(_device->_vram, size);
         }
     }
 
@@ -152,6 +187,12 @@ namespace visutwin::canvas
     {
         // destroy existing
         _impl.reset();
+
+        // A detached texture's device is gone: there is nothing to create the GPU
+        // texture on.
+        if (!_device) {
+            return;
+        }
 
         // create new
         _impl = _device->createGPUTexture(this);
@@ -300,7 +341,7 @@ namespace visutwin::canvas
     {
         // Update VRAM tracking
         if (_gpuSize > 0) {
-            adjustVramSizeTracking(_device->_vram, -static_cast<int64_t>(_gpuSize));
+            trackVram(-static_cast<int64_t>(_gpuSize));
         }
 
         // Clear levels
@@ -316,10 +357,11 @@ namespace visutwin::canvas
         // to run first: a resize changes the mip count, and sizing against the old
         // count would leave the running total drifting by the difference every time
         // a render target is resized.
-        _gpuSize = TextureUtils::calcGpuSize(_width, _height, _depth, _numLevels,
-            _cubemap, _arrayLength, _format);
+        // A detached texture has no GPU texture to count, so it records no size.
+        _gpuSize = _device ? TextureUtils::calcGpuSize(_width, _height, _depth, _numLevels,
+            _cubemap, _arrayLength, _format) : 0;
         if (_gpuSize > 0) {
-            adjustVramSizeTracking(_device->_vram, static_cast<int64_t>(_gpuSize));
+            trackVram(static_cast<int64_t>(_gpuSize));
         }
 
         dirtyAll();
@@ -416,6 +458,8 @@ namespace visutwin::canvas
         {
             _impl->propertyChanged(flag);
         }
-        _renderVersionDirty = _device->renderVersion();
+        if (_device) {
+            _renderVersionDirty = _device->renderVersion();
+        }
     }
 }

@@ -25,7 +25,9 @@
 //   appeared; those events do not exist here, so the scroll view system looks for them after
 //   each update (`refreshBindings`), as the button system does;
 // - upstream leaves `horizontal`, `vertical`, `scrollMode`, `bounceAmount` and `friction`
-//   undefined until set; here they default to both axes, Bounce, 0.1 and 0.05;
+//   undefined until set; here they default to both axes, Bounce, 0.1 and 0.05. Both act
+//   only AFTER release (the fling and the spring-back): while pressed, the content follows
+//   the pointer exactly from the first movement;
 // - the mouse wheel's deltas are the browser's in pixels upstream; here a wheel notch is
 //   100 pixels (`ElementInputEvent::wheelPixels`).
 //

@@ -339,6 +339,9 @@ namespace visutwin::canvas
         int frameIndex = 0;
 
         while (_running) {
+            // Wait for the frame slot and the display BEFORE polling input, so the frame
+            // shows input as fresh as it can be.
+            _engine->waitForNextFrame();
             SDL_Event event;
             while (SDL_PollEvent(&event)) {
                 handleEvent(event);

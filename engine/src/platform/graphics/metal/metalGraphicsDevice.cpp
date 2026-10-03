@@ -271,6 +271,10 @@ namespace visutwin::canvas
 
     MetalGraphicsDevice::~MetalGraphicsDevice()
     {
+        if (_preparedDrawable) {
+            _preparedDrawable->release();
+            _preparedDrawable = nullptr;
+        }
         if (_renderPassEncoder) {
             if (_encoderDebugGroupOpen) { _renderPassEncoder->popDebugGroup(); _encoderDebugGroupOpen = false; }
             _renderPassEncoder->endEncoding();
@@ -416,8 +420,12 @@ namespace visutwin::canvas
         _frameEverStarted = true;
 
         // Wait until the frame kMaxInflightFrames back has completed, then advance the
-        // rings onto the region it used.
-        _frameGate.waitForFrame();
+        // rings onto the region it used. waitForNextFrame may already have taken the slot,
+        // before the application polled input.
+        if (!_frameSlotTaken) {
+            _frameGate.waitForFrame();
+        }
+        _frameSlotTaken = false;
         _transformRing->beginFrame();
         _uniformRing->beginFrame();
         _paletteRing->beginFrame();
@@ -446,6 +454,48 @@ namespace visutwin::canvas
         const CGSize drawableSize = _metalLayer->drawableSize();
         if (static_cast<int>(drawableSize.width) != w || static_cast<int>(drawableSize.height) != h) {
             _metalLayer->setDrawableSize(CGSize{static_cast<CGFloat>(w), static_cast<CGFloat>(h)});
+        }
+
+        // A drawable waitForNextFrame acquired becomes this frame's, owned by the frame's
+        // pool like one acquired here. One acquired before a resize is the old size and is
+        // given back; the first back-buffer pass then acquires one at the new size.
+        if (_preparedDrawable) {
+            const MTL::Texture* texture = _preparedDrawable->texture();
+            if (texture && static_cast<int>(texture->width()) == w && static_cast<int>(texture->height()) == h) {
+                _frameDrawable = _preparedDrawable;
+                _frameDrawable->autorelease();
+            } else {
+                _preparedDrawable->release();
+            }
+            _preparedDrawable = nullptr;
+        }
+    }
+
+    void MetalGraphicsDevice::waitForNextFrame()
+    {
+        if (!_metalLayer || _insideFrame) {
+            return;
+        }
+        // The frame slot first: its wait is the GPU catching up, which is also what frees
+        // the drawable below.
+        if (!_frameSlotTaken) {
+            _frameGate.waitForFrame();
+            _frameSlotTaken = true;
+        }
+        // Then the drawable, which is where a display-synced frame waits for the display.
+        // Acquired at the size the frame will render, under a pool of its own (the frame's
+        // is not pushed yet) and retained past it.
+        if (!_preparedDrawable) {
+            const auto [w, h] = size();
+            const CGSize drawableSize = _metalLayer->drawableSize();
+            if (static_cast<int>(drawableSize.width) != w || static_cast<int>(drawableSize.height) != h) {
+                _metalLayer->setDrawableSize(CGSize{static_cast<CGFloat>(w), static_cast<CGFloat>(h)});
+            }
+            NS::AutoreleasePool* pool = NS::AutoreleasePool::alloc()->init();
+            if (CA::MetalDrawable* drawable = _metalLayer->nextDrawable()) {
+                _preparedDrawable = drawable->retain();
+            }
+            pool->release();
         }
     }
 

@@ -242,6 +242,7 @@ namespace visutwin::canvas
         };
 
         void onFrameStart() override;
+        void waitForNextFrame() override;
         void onFrameEnd() override;
 
         // Blits the finished drawable into a shared-storage staging texture and
@@ -326,6 +327,10 @@ namespace visutwin::canvas
         // within a single frame must share the same drawable (Metal's nextDrawable()
         // returns a different drawable each call, unlike WebGL's persistent back buffer).
         CA::MetalDrawable* _frameDrawable = nullptr;
+        // Taken by waitForNextFrame before the frame starts: the frame gate's slot and a
+        // drawable (retained, adopted by the frame's autorelease pool in onFrameStart).
+        bool _frameSlotTaken = false;
+        CA::MetalDrawable* _preparedDrawable = nullptr;
 
         // What the CURRENT render encoder holds, so a draw re-issues only the state that
         // differs from the previous draw's. draw() is the only writer of each of these on

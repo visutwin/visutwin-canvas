@@ -170,10 +170,22 @@ namespace visutwin::canvas
         virtual void propertyChanged(TextureProperty flag);
 
     private:
+        // The device detaches every texture still alive when it is torn down.
+        friend class GraphicsDevice;
+
         void updateNumLevels();
         void clearLevels();
 
         void recreateImpl(bool enableUpload = true);
+
+        /// Called by the device while it is torn down: releases the GPU texture while the
+        /// device can still free it, gives back this texture's share of the tracked VRAM and
+        /// forgets the device. The texture keeps its CPU data and options, so it can be
+        /// destroyed at any time later; with no device it can no longer upload or read back.
+        void detachFromDevice();
+
+        /// Adds `size` bytes to the device's texture VRAM figure; nothing once detached.
+        void trackVram(int64_t size);
 
         void dirtyAll();
 

@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -377,6 +378,17 @@ namespace visutwin::canvas
 
         // Function which executes at the start of the frame
         void frameStart();
+
+        /**
+         * Block until the next frame can begin: a frame slot is free and, where the backend
+         * paces to the display, the display has handed back a surface to draw into. Call it
+         * at the TOP of the loop, BEFORE input is polled (Engine::waitForNextFrame). The
+         * frame then starts without waiting, so the input it shows is as fresh as it can
+         * be; waited for inside render() instead, every frame shows input one display
+         * interval older than it need be. Calling it is optional and calling it twice
+         * before a frame is harmless.
+         */
+        virtual void waitForNextFrame() {}
 
         // Function which executes at the end of the frame
         void frameEnd();
@@ -1166,8 +1178,14 @@ namespace visutwin::canvas
 
         void clearVertexBuffer();
         // Backends that destroy their native device in the derived destructor
-        // must release base-owned GPU objects first.
+        // must release base-owned GPU objects first. This also detaches every texture
+        // still alive (detachTextures), so one that outlives the device is safe.
         void releaseGpuReferences();
+
+        /// Detach every live texture from this device: each releases its GPU texture now,
+        /// while the device can still free it, and forgets the device. Called from
+        /// releaseGpuReferences and again from the destructor (a no-op the second time).
+        void detachTextures();
 
         std::shared_ptr<Shader> _shader;
 
@@ -1278,6 +1296,12 @@ namespace visutwin::canvas
         bool _textureFloatRenderable = false;
 
         std::unordered_set<RenderTarget*> _targets;
+
+        // Every texture created on this device and not yet destroyed, so teardown can
+        // detach those that outlive it (a texture held by a global, an asset unloaded
+        // late). Textures register in their constructor and leave in their destructor.
+        std::unordered_set<Texture*> _liveTextures;
+        std::mutex _liveTexturesMutex;
 
         DeviceVRAM _vram;
         int _storageVertexBufferBytes = 0;   // VertexBuffers bound as storage (in _vram.sb)

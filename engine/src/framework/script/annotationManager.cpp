@@ -62,7 +62,6 @@ namespace visutwin::canvas
         constexpr int kFontSize = 14;
         // CSS `line-height: normal` for a 14 px sans-serif.
         constexpr float kLineHeight = 17.0f;
-        constexpr float kFadeSeconds = 0.2f;
 
         // The hotspot texture: a 64 px canvas, a radius-28 disc with a 6 px ring
         // and "bold 32px" text centred on (32, 33).
@@ -406,9 +405,9 @@ namespace visutwin::canvas
         _activeAnnotation = nullptr;
         _tooltipShown = false;
 
-        // Wait for fade out before hiding
+        // Wait for the fade out (none by default) before hiding
         _hidePending = annotation;
-        _hideTimer = kFadeSeconds;
+        _hideTimer = _tooltipFadeSeconds;
     }
 
     void AnnotationManager::hideAnnotationElements(Annotation* annotation, Resources& resources)
@@ -890,8 +889,9 @@ namespace visutwin::canvas
 
     void AnnotationManager::update(const float dt)
     {
-        // The tooltip's `transition: opacity 0.2s ease-in-out`
-        const float step = dt / kFadeSeconds;
+        // The tooltip fades over tooltipFadeSeconds, eased; with no fade it shows and
+        // hides at once.
+        const float step = _tooltipFadeSeconds > 0.0f ? dt / _tooltipFadeSeconds : 1.0f;
         _fade = std::clamp(_tooltipShown ? _fade + step : _fade - step, 0.0f, 1.0f);
         if (_tooltip && _fade != _appliedFade) {
             _appliedFade = _fade;
@@ -902,7 +902,9 @@ namespace visutwin::canvas
             _text->setOpacity(eased);
         }
 
-        if (_hideTimer > 0.0f) {
+        // Driven by the pending hide, not by the timer: with no fade the timer starts at 0
+        // and the hide completes on the next update.
+        if (_hidePending) {
             _hideTimer -= dt;
             if (_hideTimer <= 0.0f) {
                 _hideTimer = 0.0f;

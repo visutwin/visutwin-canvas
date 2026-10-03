@@ -103,6 +103,11 @@ namespace visutwin::canvas
         // Render the application's scene for one frame
         void render();
 
+        /// Block until the next frame can begin (GraphicsDevice::waitForNextFrame). A loop
+        /// calls it at the top, before polling input, so the frame shows the freshest input
+        /// rather than input one display interval old.
+        void waitForNextFrame();
+
         // Fixed timestep configuration
         float fixedDeltaTime() const { return _fixedDeltaTime; }
         void setFixedDeltaTime(float dt) { _fixedDeltaTime = dt; }

@@ -17,8 +17,11 @@ namespace visutwin::canvas
     class FlyController : public InputController
     {
     public:
-        float rotateDamping = 0.98f;
-        float moveDamping = 0.98f;
+        // DEVIATION: 0.9 where upstream uses 0.98. Smoothing time constant ~9.5 ms (settles in
+        // ~45 ms after the pointer stops) instead of ~50 ms (~230 ms), so the camera follows the
+        // pointer instead of trailing it. damp() reads these per millisecond.
+        float rotateDamping = 0.9f;
+        float moveDamping = 0.9f;
 
         void setPitchRange(const Vector2& range);
         [[nodiscard]] const Vector2& pitchRange() const { return _targetPose.pitchRange; }

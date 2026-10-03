@@ -373,6 +373,13 @@ namespace visutwin::canvas
         tick();
     }
 
+    void Engine::waitForNextFrame()
+    {
+        if (_graphicsDevice) {
+            _graphicsDevice->waitForNextFrame();
+        }
+    }
+
     void Engine::render()
     {
         assert(_graphicsDevice && "Engine::render requires a valid graphics device");

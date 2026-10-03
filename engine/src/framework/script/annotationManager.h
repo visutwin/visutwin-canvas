@@ -33,6 +33,7 @@
 //
 #pragma once
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
@@ -97,6 +98,11 @@ namespace visutwin::canvas
         float behindOpacity() const { return _behindOpacity; }
         void setBehindOpacity(const float value) { _behindOpacity = value; }
 
+        /// How long the tooltip takes to fade in or out, in seconds. DEVIATION: 0 (it shows
+        /// and hides at once) where upstream's tooltip has a 0.2 s CSS opacity transition.
+        float tooltipFadeSeconds() const { return _tooltipFadeSeconds; }
+        void setTooltipFadeSeconds(const float seconds) { _tooltipFadeSeconds = std::max(seconds, 0.0f); }
+
         /// DEVIATION: the fonts the tooltip text and the title (and hotspot label) are
         /// drawn with; upstream uses the browser's. Set before the engine starts, or at
         /// least before the first annotation registers. Borrowed: they must outlive this.
@@ -151,6 +157,7 @@ namespace visutwin::canvas
         Color _hoverColor = Color(1.0f, 0.4f, 0.0f, 1.0f);
         float _opacity = 1.0f;
         float _behindOpacity = 0.25f;
+        float _tooltipFadeSeconds = 0.0f;
 
         FontResource* _regularFont = nullptr;
         FontResource* _boldFont = nullptr;
