@@ -158,6 +158,7 @@ visutwin_add_unit_test(visutwin-script-lifetime-tests script-lifetime scriptLife
 visutwin_add_unit_test(visutwin-annotation-tests annotation annotationTests.cpp)
 visutwin_add_unit_test(visutwin-script-phase-tests script-phases scriptPhaseTests.cpp)
 visutwin_add_unit_test(visutwin-ui-visual-sharing-tests ui-visual-sharing uiVisualSharingTests.cpp)
+visutwin_add_unit_test(visutwin-render2d-tests render2d render2dTests.cpp)
 visutwin_add_unit_test(visutwin-picker-tests picker pickerTests.cpp)
 visutwin_add_unit_test(visutwin-particle-color-graph-tests particle-color-graph particleColorGraphTests.cpp)
 visutwin_add_unit_test(visutwin-upstream-small-ports-tests upstream-small-ports upstreamSmallPortsTests.cpp)

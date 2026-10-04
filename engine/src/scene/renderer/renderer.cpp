@@ -1014,7 +1014,8 @@ namespace visutwin::canvas
         }
 
         void collectDrawEntries(const std::vector<MeshInstance*>& bucket, const ForwardView& view,
-            Material* defaultMaterial, ObjectPool<ForwardDrawEntry>& pool, std::vector<ForwardDrawEntry*>& out)
+            Material* defaultMaterial, const int renderVersion, ObjectPool<ForwardDrawEntry>& pool,
+            std::vector<ForwardDrawEntry*>& out)
         {
             for (auto* meshInstance : bucket) {
                 auto* mesh = meshInstance ? meshInstance->mesh() : nullptr;
@@ -1048,6 +1049,11 @@ namespace visutwin::canvas
                         : forwardSortDistance(worldBounds.center(), view.position, view.forward);
                 } else {
                     entry->sortDistance = 0.0f;
+                }
+                // Claimed last, by an entry that will draw: a drawOncePerFrame instance
+                // skipped above for a missing material must not use up its frame.
+                if (!meshInstance->claimDrawThisFrame(renderVersion)) {
+                    continue;
                 }
                 out.push_back(entry);
             }
@@ -2277,7 +2283,7 @@ namespace visutwin::canvas
         view.frustum = view.hasFrustum ? buildCameraFrustum(camera, view.cameraNode) : Frustum{};
 
         collectDrawEntries(transparent ? visible.transparent : visible.opaque, view,
-            defaultMaterial.get(), drawEntryPool, drawEntries);
+            defaultMaterial.get(), _device->renderVersion(), drawEntryPool, drawEntries);
         {
             const ScopedMilliseconds sortTimer(counters.sortTime);
             sortDrawEntries(drawEntries, *layer, transparent);

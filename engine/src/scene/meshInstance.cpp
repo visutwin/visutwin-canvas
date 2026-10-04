@@ -40,6 +40,7 @@ namespace visutwin::canvas
         clone->_castShadow = _castShadow;
         clone->_receiveShadow = _receiveShadow;
         clone->_cull = _cull;
+        clone->_drawOncePerFrame = _drawOncePerFrame;
         clone->_mask = _mask;
         clone->_drawBucket = _drawBucket;
         clone->_drawOrder = _drawOrder;

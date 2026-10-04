@@ -156,6 +156,29 @@ namespace visutwin::canvas
         void setVisibleThisFrame(const bool value) { _visibleThisFrame = value; }
 
         /**
+         * Drawn by the first forward pass of a frame that collects it, and skipped by every
+         * later one: an overlay on a layer several cameras render (the performance HUD) is
+         * drawn once, by the first camera to reach it, instead of once per camera. The gate
+         * is at draw time because culling has already run by then.
+         */
+        bool drawOncePerFrame() const { return _drawOncePerFrame; }
+        void setDrawOncePerFrame(const bool value) { _drawOncePerFrame = value; }
+
+        /// True the first time it is asked in the frame `renderVersion`, false after that.
+        /// Always true for an instance that is not drawOncePerFrame.
+        bool claimDrawThisFrame(const int renderVersion)
+        {
+            if (!_drawOncePerFrame) {
+                return true;
+            }
+            if (_drawnRenderVersion == renderVersion) {
+                return false;
+            }
+            _drawnRenderVersion = renderVersion;
+            return true;
+        }
+
+        /**
          * Application-authored order, used only by SORTMODE_MANUAL.
          * Lower draws first.
          */
@@ -460,6 +483,9 @@ namespace visutwin::canvas
         bool _cull = true;
         bool _screenSpace = false;
         bool _visibleThisFrame = false;
+        bool _drawOncePerFrame = false;
+        // renderVersion starts at 0 and only grows, so -1 is never a frame drawn.
+        int _drawnRenderVersion = -1;
         double _drawOrder = 0.0;
         std::shared_ptr<StencilParameters> _stencilFront;
         std::shared_ptr<StencilParameters> _stencilBack;
