@@ -65,6 +65,21 @@ namespace visutwin::canvas
         _allocator = vkDev->vmaAllocator();
     }
 
+    void VulkanVertexBuffer::releaseGpuBuffer()
+    {
+        // The device is being torn down and has gone idle; its deferred destroys are
+        // drained before the allocator goes. Nothing is left for the destructor.
+        if (_ownsBuffer && _deviceRef && _allocator != VK_NULL_HANDLE && _buffer != VK_NULL_HANDLE) {
+            _deviceRef->deferDestroy(
+                [allocator = _allocator, buffer = _buffer, allocation = _allocation] {
+                    vmaDestroyBuffer(allocator, buffer, allocation);
+                });
+        }
+        _buffer = VK_NULL_HANDLE;
+        _allocation = VK_NULL_HANDLE;
+        _allocator = VK_NULL_HANDLE;
+    }
+
     VulkanVertexBuffer::~VulkanVertexBuffer()
     {
         if (_deviceRef && _deviceAlive.expired()) {

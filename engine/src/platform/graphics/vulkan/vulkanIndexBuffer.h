@@ -32,6 +32,9 @@ namespace visutwin::canvas
         [[nodiscard]] VkBuffer buffer() const { return _buffer; }
         [[nodiscard]] VkIndexType indexType() const { return _indexType; }
 
+    protected:
+        void releaseGpuBuffer() override;
+
     private:
         bool uploadStaging(const void* data, size_t size, size_t destinationOffset = 0);
 

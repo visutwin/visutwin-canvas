@@ -120,7 +120,11 @@ ctest --preset default
   reason nobody remembers, and the next real Vulkan difference hides behind it (skybox
   rotation did this to four Vulkan cases, which then masked a Metal-only clearcoat bug).
   Before re-capturing either set, compare its capture with the OTHER backend's: they agree
-  to a fraction of a count, so a disagreement is a bug, not a new reference. Both backends reproduce every reference bit for bit run to run, and
+  to a fraction of a count, so a disagreement is a bug, not a new reference.
+  A capture ignores the person at the machine: while `VISUTWIN_SCREENSHOT` is set the
+  example harness drops every keyboard, mouse, touch, pen and gamepad event before anything
+  sees it (window and quit events still arrive; `VISUTWIN_ISOLATE_INPUT=0/1` overrides), so a
+  drag across the window no longer orbits the camera and fails a case for nothing. Both backends reproduce every reference bit for bit run to run, and
   a 1.03 factor on every lit colour fails all eight original cases, so a failure is
   real. When a
   rendering change is intended, look at the images it writes to
@@ -1181,14 +1185,22 @@ present, but the rule below never depends on reading it.
   pointer exactly from its first movement, and the annotation tooltip shows and hides at
   once (`setTooltipFadeSeconds`, DEVIATION from upstream's 0.2 s fade). A scroll view's
   friction and bounce act only after release.
-- **A Texture may outlive its GraphicsDevice.** The device keeps a registry of live
-  textures and detaches them in `releaseGpuReferences` (both backends call it first thing in
-  their destructors) and again in `~GraphicsDevice`: each releases its GPU texture while the
-  device can still free it, gives back its VRAM share and forgets the device, after which
-  upload, resize and read are no-ops. Without it, a texture held by a global (an asset
-  destroyed after `main` returns) wrote the freed device's VRAM counters.
-  `tests/textureOutlivesDeviceTests.cpp` fails under ASan with the detach disabled. Render
-  targets and vertex/index buffers do NOT have this yet.
+- **A Texture, RenderTarget, VertexBuffer or IndexBuffer may outlive its GraphicsDevice.**
+  The device keeps a registry of each (`_liveTextures` and siblings, one mutex) and detaches
+  them in `releaseGpuReferences` (both backends call it first thing in their destructors) and
+  again in `~GraphicsDevice` (`detachResources`): targets first, then buffers, then textures
+  (a target's attachments are textures). Each releases its GPU objects while the device can
+  still free them (a target through `destroyFrameBuffers`, a buffer through the backend's
+  `releaseGpuBuffer`; Vulkan defers the frees and drains them right after), gives back its
+  VRAM share and forgets the device; after that upload, resize and read are no-ops and the
+  CPU copy stays. Without it, a resource held by a global (a mesh or asset destroyed after
+  `main` returns) wrote the freed device's VRAM counters, and a backend target asked the
+  freed device for its native handles. A new subclass that owns GPU memory overrides the
+  release hook, and its upload and read paths must check for the detached state.
+  `tests/textureOutlivesDeviceTests.cpp` and `tests/resourcesOutliveDeviceTests.cpp` fail
+  under ASan with the detach disabled. Shaders are not registered and need not be: Metal's
+  objects are reference counted, and a Vulkan shader skips its frees once the device's alive
+  token has expired.
 - **Metal frame pacing is display sync ON with THREE drawables.** Display sync
   is what gives an even dt (SDL's renderer, whose layer the device borrows, may
   have switched it off); the drawable count does not affect pacing once sync is

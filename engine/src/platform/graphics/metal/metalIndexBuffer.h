@@ -24,5 +24,7 @@ namespace visutwin::canvas
 
         void* nativeBuffer() const override { return raw(); }
 
+    protected:
+        void releaseGpuBuffer() override { releaseBuffer(); }
     };
 }

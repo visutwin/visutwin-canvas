@@ -26,6 +26,13 @@ namespace visutwin::canvas
 
         assert(_device != nullptr && "Failed to obtain the device, colorBuffer nor depthBuffer store it.");
 
+        // Registered with the device, so its teardown can detach this target should it
+        // outlive the device.
+        if (_device) {
+            std::lock_guard lock(_device->_liveResourcesMutex);
+            _device->_liveRenderTargets.insert(this);
+        }
+
         // Samples
         int maxSamples = _device->maxSamples();
         _samples = std::min(options.samples, maxSamples);
@@ -130,17 +137,24 @@ namespace visutwin::canvas
         spdlog::trace("DeAlloc: Id " + std::to_string(_id) + " " + _name);
 
         if (_device) {
-            _device->removeTarget(this);
-
-            if (_device->renderTarget().get() == this) {
-                _device->setRenderTarget(nullptr);
-            }
+            std::lock_guard lock(_device->_liveResourcesMutex);
+            _device->_liveRenderTargets.erase(this);
         }
+    }
+
+    void RenderTarget::detachFromDevice()
+    {
+        // The registry entry is already gone (detachResources took the whole set). The
+        // backend's attachments go first, while the device can still free them; the
+        // backend's own destructor then finds nothing left to destroy.
+        destroyFrameBuffers();
+        _device = nullptr;
     }
 
     int RenderTarget::width() const
     {
-        auto width = _colorBuffer != nullptr ? _colorBuffer->width() : _depthBuffer != nullptr ? _depthBuffer->width() : _device->size().first;
+        auto width = _colorBuffer != nullptr ? _colorBuffer->width() : _depthBuffer != nullptr ? _depthBuffer->width() :
+            (_device ? _device->size().first : 0);
         if (_mipLevel > 0) {
             width = TextureUtils::calcLevelDimension(width, _mipLevel);
         }
@@ -149,7 +163,8 @@ namespace visutwin::canvas
 
     int RenderTarget::height() const
     {
-        int height = _colorBuffer ? _colorBuffer->height() : (_depthBuffer ? _depthBuffer->height() : _device->size().second);
+        int height = _colorBuffer ? _colorBuffer->height() : (_depthBuffer ? _depthBuffer->height() :
+            (_device ? _device->size().second : 0));
         if (_mipLevel > 0) {
             height = TextureUtils::calcLevelDimension(height, _mipLevel);
         }
@@ -158,6 +173,9 @@ namespace visutwin::canvas
 
     void RenderTarget::resize(int width, int height)
     {
+        if (!_device) {
+            return;
+        }
         if (this->width() != width || this->height() != height) {
             if (_mipLevel > 0) {
                 spdlog::warn("Only a render target rendering to mipLevel 0 can be resized, ignoring.");

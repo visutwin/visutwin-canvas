@@ -67,12 +67,26 @@ namespace visutwin::canvas
         /** CPU-side index data. Used by BatchManager to read indices for merging. */
         const std::vector<uint8_t>& storage() const { return _storage; }
 
+    protected:
+        /// Releases the backend's GPU buffer now, while the device can still free it; the
+        /// device is torn down next. Afterwards setData and writeRange must do nothing.
+        virtual void releaseGpuBuffer() {}
+
     private:
+        // The device detaches every buffer still alive when it is torn down.
+        friend class GraphicsDevice;
+
+        /// Called by the device while it is torn down: releases the GPU buffer, gives back
+        /// this buffer's share of the tracked VRAM and forgets the device. The CPU copy
+        /// stays, so the buffer can be destroyed, or read through storage(), at any time.
+        void detachFromDevice();
+
         static int _nextId;
 
         static void adjustVramSizeTracking(DeviceVRAM& vram, int size);
 
     protected:
+        /// Null once the device has been torn down (detachFromDevice).
         GraphicsDevice* _device = nullptr;
         std::vector<uint8_t> _storage;
 

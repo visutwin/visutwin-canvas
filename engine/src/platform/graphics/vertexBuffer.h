@@ -93,11 +93,27 @@ namespace visutwin::canvas
         /// can send a part overrides it; the default sends the whole buffer.
         virtual void uploadRange(size_t /*offset*/, size_t /*size*/) { unlock(); }
 
+        /// Releases the backend's GPU buffer now, while the device can still free it; the
+        /// device is torn down next. Afterwards uploads and reads must do nothing.
+        virtual void releaseGpuBuffer() {}
+
+        /// Null once the device has been torn down (detachFromDevice).
         GraphicsDevice* _device;
 
         std::vector<uint8_t> _storage;
 
     private:
+        // The device detaches every buffer still alive when it is torn down.
+        friend class GraphicsDevice;
+
+        /// Called by the device while it is torn down: releases the GPU buffer, gives back
+        /// this buffer's share of the tracked VRAM and forgets the device. The CPU copy
+        /// stays, so the buffer can be destroyed, or read through storage(), at any time.
+        void detachFromDevice();
+
+        /// Registers with the device and counts the bytes; both constructors call it.
+        void attachToDevice();
+
         void adjustVramSizeTracking(DeviceVRAM& vram, int size);
 
         bool _storageUse = false;

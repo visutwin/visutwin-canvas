@@ -26,8 +26,7 @@ namespace visutwin::canvas
         // Calculate the size. If format contains verticesByteSize (non-interleaved format), use it
         _numBytes = format->verticesByteSize() ? format->verticesByteSize() : format->size() * numVertices;
 
-        // Track VRAM usage
-        adjustVramSizeTracking(_device->_vram, _numBytes);
+        attachToDevice();
 
         // Allocate the storage
         if (!options.data.empty()) {
@@ -47,19 +46,40 @@ namespace visutwin::canvas
     : _device(device), _format(std::move(format)), _numVertices(numVertices),
       _numBytes(numBytes), _usage(BUFFER_STATIC), _id(_nextId++) {
         // Zero-copy: _storage intentionally left empty — GPU buffer provided externally.
-        adjustVramSizeTracking(_device->_vram, _numBytes);
+        attachToDevice();
     }
 
     VertexBuffer::~VertexBuffer()
     {
-        const auto it = std::find(_device->_buffers.begin(), _device->_buffers.end(), this);
-        if (it != _device->_buffers.end())
-        {
-            _device->_buffers.erase(it);
+        // A buffer the device already detached has nothing left to give back.
+        if (!_device) {
+            return;
         }
-
+        {
+            std::lock_guard lock(_device->_liveResourcesMutex);
+            _device->_liveVertexBuffers.erase(this);
+        }
         // Use _numBytes (not _storage.size()) — correct for both regular and zero-copy paths.
         adjustVramSizeTracking(_device->_vram, -_numBytes);
+    }
+
+    void VertexBuffer::attachToDevice()
+    {
+        // Registered with the device, so its teardown can detach this buffer should it
+        // outlive the device.
+        {
+            std::lock_guard lock(_device->_liveResourcesMutex);
+            _device->_liveVertexBuffers.insert(this);
+        }
+        adjustVramSizeTracking(_device->_vram, _numBytes);
+    }
+
+    void VertexBuffer::detachFromDevice()
+    {
+        // The registry entry is already gone (detachResources took the whole set).
+        releaseGpuBuffer();
+        adjustVramSizeTracking(_device->_vram, -_numBytes);
+        _device = nullptr;
     }
 
     void VertexBuffer::adjustVramSizeTracking(DeviceVRAM& vram, int size) {
@@ -83,7 +103,7 @@ namespace visutwin::canvas
 
     bool VertexBuffer::writeRange(const size_t offset, const void* data, const size_t size)
     {
-        if (!data || size == 0 || offset + size > _storage.size()) {
+        if (!_device || !data || size == 0 || offset + size > _storage.size()) {
             return false;
         }
         std::memcpy(_storage.data() + offset, data, size);
@@ -100,7 +120,9 @@ namespace visutwin::canvas
         }
 
         _storage = data;
-        unlock();
+        if (_device) {
+            unlock();
+        }
         return true;
     }
 }

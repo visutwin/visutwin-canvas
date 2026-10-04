@@ -68,6 +68,9 @@ namespace visutwin::canvas::gpu
         /// (e.g., GPU compute output buffers).
         void adoptBuffer(MTL::Buffer* buffer);
 
+        /// Releases the MTL::Buffer now (the owner's device is going away).
+        void releaseBuffer() { adoptBuffer(nullptr); }
+
     private:
         BufferUsage _usageFlags;
         MTL::Buffer* _buffer = nullptr;

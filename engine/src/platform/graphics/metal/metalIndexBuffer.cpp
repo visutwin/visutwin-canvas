@@ -36,7 +36,7 @@ namespace visutwin::canvas
     bool MetalIndexBuffer::setData(const std::vector<uint8_t>& data)
     {
         const auto expectedSize = static_cast<size_t>(numIndices()) * indexElementSize(format());
-        if (data.size() != expectedSize) {
+        if (!_device || data.size() != expectedSize) {
             return false;
         }
 

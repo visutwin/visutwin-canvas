@@ -93,6 +93,7 @@ namespace visutwin::canvas
         int key() const { return _id; }
 
     protected:
+        /// Null once the device has been torn down (detachFromDevice).
         GraphicsDevice* device() const { return _device; }
 
         // Lower the sample count after construction. A backend calls this when
@@ -109,6 +110,16 @@ namespace visutwin::canvas
         virtual void createFrameBuffers() = 0;
 
     private:
+        // The device detaches every render target still alive when it is torn down.
+        friend class GraphicsDevice;
+
+        /// Called by the device while it is torn down: releases the backend's attachments
+        /// while the device can still free them and forgets the device. The target keeps its
+        /// options and attachment pointers, so it can be destroyed at any time later; with
+        /// no device it no longer resizes, and its size falls back to 0 where it would ask
+        /// the device.
+        void detachFromDevice();
+
         GraphicsDevice* _device;
 
         int _mipLevel;

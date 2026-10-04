@@ -53,9 +53,9 @@ namespace visutwin::canvas
     }
 
     GraphicsDevice::~GraphicsDevice() {
-        // A backend detaches its textures at the top of its own destructor, where it can
+        // A backend detaches its resources at the top of its own destructor, where it can
         // still free their GPU objects; this catches a device that did not (a test stub).
-        detachTextures();
+        detachResources();
 
         // Clean up resources
         if (_quadVertexBuffer) {
@@ -77,19 +77,35 @@ namespace visutwin::canvas
         _backBuffer.reset();
         _textures.clear();
         _gpuProfiler.reset();
-        detachTextures();
+        detachResources();
     }
 
-    void GraphicsDevice::detachTextures()
+    void GraphicsDevice::detachResources()
     {
-        // Taken out of the registry first: a texture's destructor (which detaching does
-        // not run) and this loop must not both walk it.
-        std::unordered_set<Texture*> live;
+        // Taken out of the registries first: a resource's destructor (which detaching does
+        // not run) and these loops must not both walk them. Targets go before textures,
+        // because a target's attachments are textures.
+        std::unordered_set<RenderTarget*> targets;
+        std::unordered_set<VertexBuffer*> vertexBuffers;
+        std::unordered_set<IndexBuffer*> indexBuffers;
+        std::unordered_set<Texture*> textures;
         {
-            std::lock_guard lock(_liveTexturesMutex);
-            live.swap(_liveTextures);
+            std::lock_guard lock(_liveResourcesMutex);
+            targets.swap(_liveRenderTargets);
+            vertexBuffers.swap(_liveVertexBuffers);
+            indexBuffers.swap(_liveIndexBuffers);
+            textures.swap(_liveTextures);
         }
-        for (Texture* texture : live) {
+        for (RenderTarget* target : targets) {
+            target->detachFromDevice();
+        }
+        for (VertexBuffer* buffer : vertexBuffers) {
+            buffer->detachFromDevice();
+        }
+        for (IndexBuffer* buffer : indexBuffers) {
+            buffer->detachFromDevice();
+        }
+        for (Texture* texture : textures) {
             texture->detachFromDevice();
         }
     }
@@ -206,11 +222,6 @@ namespace visutwin::canvas
         auto size = this->size();
         _clientRect.first = size.first;
         _clientRect.second = size.second;
-    }
-
-    void GraphicsDevice::removeTarget(RenderTarget* target)
-    {
-        _targets.erase(target);
     }
 
     std::shared_ptr<VertexBuffer> GraphicsDevice::quadVertexBuffer()

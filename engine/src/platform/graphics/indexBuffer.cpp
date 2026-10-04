@@ -24,8 +24,13 @@ namespace visutwin::canvas
 
         _numBytes = indexFormatBytes(format) * numIndices;
 
-        // Track VRAM usage, as VertexBuffer does.
+        // Track VRAM usage, as VertexBuffer does, and register with the device, so its
+        // teardown can detach this buffer should it outlive the device.
         if (_device) {
+            {
+                std::lock_guard lock(_device->_liveResourcesMutex);
+                _device->_liveIndexBuffers.insert(this);
+            }
             adjustVramSizeTracking(_device->_vram, _numBytes);
         }
     }
@@ -34,9 +39,22 @@ namespace visutwin::canvas
     {
         // Guarded rather than asserted: the constructor's assert is compiled out in
         // a release build, so a null device must not take the destructor with it.
+        // A detached buffer has none left to give back.
         if (_device) {
+            {
+                std::lock_guard lock(_device->_liveResourcesMutex);
+                _device->_liveIndexBuffers.erase(this);
+            }
             adjustVramSizeTracking(_device->_vram, -_numBytes);
         }
+    }
+
+    void IndexBuffer::detachFromDevice()
+    {
+        // The registry entry is already gone (detachResources took the whole set).
+        releaseGpuBuffer();
+        adjustVramSizeTracking(_device->_vram, -_numBytes);
+        _device = nullptr;
     }
 
     void IndexBuffer::adjustVramSizeTracking(DeviceVRAM& vram, const int size)

@@ -31,6 +31,9 @@ namespace visutwin::canvas
 
     void MetalVertexBuffer::unlock()
     {
+        if (!_device) {
+            return;   // detached: the device is gone
+        }
         MetalBuffer::unlock(static_cast<MetalGraphicsDevice*>(_device), _storage);
     }
 

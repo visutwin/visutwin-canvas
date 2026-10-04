@@ -45,6 +45,17 @@
 
 namespace visutwin::canvas
 {
+    namespace
+    {
+        /// Keyboard, text, mouse, joystick, gamepad, touch, pinch and pen events: what a
+        /// person at the machine produces. Window, display and quit events are not input.
+        bool isUserInputEvent(const Uint32 type)
+        {
+            return (type >= SDL_EVENT_KEY_DOWN && type < SDL_EVENT_CLIPBOARD_UPDATE)
+                || (type >= SDL_EVENT_PEN_PROXIMITY_IN && type < SDL_EVENT_CAMERA_DEVICE_ADDED);
+        }
+    }
+
     ExampleApp::ExampleApp(ExampleOptions options)
         : _options(std::move(options))
     {
@@ -338,12 +349,29 @@ namespace visutwin::canvas
         std::vector<std::array<double, 10>> cpuSamples;
         int frameIndex = 0;
 
+        // A scripted capture (VISUTWIN_SCREENSHOT) ignores the person at the machine: a drag
+        // across the window while a golden image renders orbits the camera and fails the
+        // case for nothing, and a stray key can switch a mode. User input is dropped before
+        // anything sees it (the devices, UI, camera controls, the example); window and quit
+        // events still arrive. VISUTWIN_ISOLATE_INPUT=0/1 overrides it either way.
+        const char* screenshotPath = std::getenv("VISUTWIN_SCREENSHOT");
+        bool isolateInput = screenshotPath && *screenshotPath;
+        if (const char* value = std::getenv("VISUTWIN_ISOLATE_INPUT"); value && *value) {
+            isolateInput = *value != '0';
+        }
+        if (isolateInput) {
+            spdlog::info("User input ignored for this run (scripted capture)");
+        }
+
         while (_running) {
             // Wait for the frame slot and the display BEFORE polling input, so the frame
             // shows input as fresh as it can be.
             _engine->waitForNextFrame();
             SDL_Event event;
             while (SDL_PollEvent(&event)) {
+                if (isolateInput && isUserInputEvent(event.type)) {
+                    continue;
+                }
                 handleEvent(event);
             }
 

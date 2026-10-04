@@ -33,7 +33,7 @@ namespace visutwin::canvas
         // Registered with the device, so its teardown can detach this texture should it
         // outlive the device.
         if (_device) {
-            std::lock_guard lock(_device->_liveTexturesMutex);
+            std::lock_guard lock(_device->_liveResourcesMutex);
             _device->_liveTextures.insert(this);
         }
 
@@ -98,7 +98,7 @@ namespace visutwin::canvas
             return;
         }
         {
-            std::lock_guard lock(_device->_liveTexturesMutex);
+            std::lock_guard lock(_device->_liveResourcesMutex);
             _device->_liveTextures.erase(this);
         }
         // Release this texture's share of the tracked VRAM.
@@ -110,7 +110,7 @@ namespace visutwin::canvas
 
     void Texture::detachFromDevice()
     {
-        // The registry entry is already gone (detachTextures took the whole set). The GPU
+        // The registry entry is already gone (detachResources took the whole set). The GPU
         // texture is released first, while the device can still free it.
         _impl.reset();
         if (_gpuSize > 0) {

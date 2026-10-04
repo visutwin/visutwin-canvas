@@ -936,8 +936,6 @@ namespace visutwin::canvas
          */
         virtual int maxFramesInFlight() const { return 1; }
 
-        void removeTarget(RenderTarget* target);
-
         std::shared_ptr<RenderTarget> renderTarget() const { return _renderTarget; }
         void setRenderTarget(const std::shared_ptr<RenderTarget>& target) { _renderTarget = target; }
         bool insideRenderPass() const { return _insideRenderPass; }
@@ -1178,14 +1176,17 @@ namespace visutwin::canvas
 
         void clearVertexBuffer();
         // Backends that destroy their native device in the derived destructor
-        // must release base-owned GPU objects first. This also detaches every texture
-        // still alive (detachTextures), so one that outlives the device is safe.
+        // must release base-owned GPU objects first. This also detaches every texture,
+        // render target and buffer still alive (detachResources), so one that outlives
+        // the device is safe.
         void releaseGpuReferences();
 
-        /// Detach every live texture from this device: each releases its GPU texture now,
-        /// while the device can still free it, and forgets the device. Called from
-        /// releaseGpuReferences and again from the destructor (a no-op the second time).
-        void detachTextures();
+        /// Detach every live render target, vertex and index buffer and texture from this
+        /// device, in that order (a target's attachments are textures): each releases its
+        /// GPU objects now, while the device can still free them, and forgets the device.
+        /// Called from releaseGpuReferences and again from the destructor (a no-op the
+        /// second time).
+        void detachResources();
 
         std::shared_ptr<Shader> _shader;
 
@@ -1236,6 +1237,7 @@ namespace visutwin::canvas
         // released.
         friend class IndexBuffer;
         friend class Texture;
+        friend class RenderTarget;
 
         // Index of the currently active render pass
         int _renderPassIndex;
@@ -1281,7 +1283,6 @@ namespace visutwin::canvas
 
         std::unordered_set<std::map<void*, void*>*> _mapsToClear;
 
-        std::vector<VertexBuffer*> _buffers;
 
         std::array<int, PRIMITIVE_TRIFAN + 1> _primsPerFrame{};
 
@@ -1295,13 +1296,16 @@ namespace visutwin::canvas
         bool _textureHalfFloatRenderable = false;
         bool _textureFloatRenderable = false;
 
-        std::unordered_set<RenderTarget*> _targets;
-
-        // Every texture created on this device and not yet destroyed, so teardown can
-        // detach those that outlive it (a texture held by a global, an asset unloaded
-        // late). Textures register in their constructor and leave in their destructor.
+        // Every texture, render target and buffer created on this device and not yet
+        // destroyed, so teardown can detach those that outlive it (a resource held by a
+        // global, an asset unloaded late). Each registers in its constructor and leaves in
+        // its destructor; the mutex covers all four, since textures and buffers may be
+        // created off the main thread.
         std::unordered_set<Texture*> _liveTextures;
-        std::mutex _liveTexturesMutex;
+        std::unordered_set<RenderTarget*> _liveRenderTargets;
+        std::unordered_set<VertexBuffer*> _liveVertexBuffers;
+        std::unordered_set<IndexBuffer*> _liveIndexBuffers;
+        std::mutex _liveResourcesMutex;
 
         DeviceVRAM _vram;
         int _storageVertexBufferBytes = 0;   // VertexBuffers bound as storage (in _vram.sb)

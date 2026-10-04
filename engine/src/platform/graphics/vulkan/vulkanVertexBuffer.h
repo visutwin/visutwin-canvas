@@ -37,6 +37,7 @@ namespace visutwin::canvas
 
     protected:
         void uploadRange(size_t offset, size_t size) override;
+        void releaseGpuBuffer() override;
 
     private:
         VkBuffer _buffer = VK_NULL_HANDLE;
