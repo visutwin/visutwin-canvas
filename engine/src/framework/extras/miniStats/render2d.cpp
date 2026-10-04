@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <utility>
 
 #include <spdlog/spdlog.h>
 
@@ -37,40 +38,40 @@ namespace visutwin::canvas
         setCullMode(CullMode::CULLFACE_NONE);
     }
 
-    void Render2dMaterial::setTextures(Texture* regularPage, Texture* boldPage, Texture* graph)
+    void Render2dMaterial::setTextures(const Textures& textures)
     {
-        if (regularPage == _regularPage && boldPage == _boldPage && graph == _graph) {
+        if (textures == _textures) {
             return;
         }
-        _regularPage = regularPage;
-        _boldPage = boldPage;
-        _graph = graph;
+        _textures = textures;
         // A texture setter must move the version: both backends skip rebinding the
         // textures of a material whose version they have already seen.
         markUniformsDirty();
     }
 
-    void Render2dMaterial::setUniforms(const std::array<float, 4>& clr, const std::array<float, 4>& params)
+    void Render2dMaterial::setUniforms(const std::array<float, 4>& clr, const std::array<float, 4>& params,
+                                       const std::array<float, 4>& pages)
     {
-        if (clr == _data.clr && params == _data.params) {
+        if (clr == _data.clr && params == _data.params && pages == _data.pages) {
             return;
         }
         _data.clr = clr;
         _data.params = params;
+        _data.pages = pages;
         markUniformsDirty();
     }
 
     void Render2dMaterial::getTextureSlots(std::vector<TextureSlot>& slots) const
     {
         slots.clear();
-        if (_regularPage) {
-            slots.push_back({kRegularPageSlot, _regularPage});
-        }
-        if (_boldPage) {
-            slots.push_back({kBoldPageSlot, _boldPage});
-        }
-        if (_graph) {
-            slots.push_back({kGraphSlot, _graph});
+        const std::pair<int, Texture*> bound[] = {
+            {kRegularPage0Slot, _textures.regularPage0}, {kBoldPage0Slot, _textures.boldPage0},
+            {kGraphSlot, _textures.graph}, {kRegularPage1Slot, _textures.regularPage1},
+            {kBoldPage1Slot, _textures.boldPage1}};
+        for (const auto& [slot, texture] : bound) {
+            if (texture) {
+                slots.push_back({slot, texture});
+            }
         }
     }
 
@@ -201,16 +202,19 @@ namespace visutwin::canvas
                     textureWidth, textureHeight, Mode::Graph, color);
     }
 
-    void Render2d::setTextures(Texture* regularPage, Texture* boldPage, Texture* graph)
+    void Render2d::setTextures(const Render2dMaterial::Textures& textures)
     {
-        _material->setTextures(regularPage, boldPage, graph);
+        _material->setTextures(textures);
     }
 
-    void Render2d::setMsdf(const float pixelRange, const float atlasWidth, const float atlasHeight)
+    void Render2d::setMsdf(const float pixelRange, const float page0Width, const float page0Height,
+                           const float page1Width, const float page1Height)
     {
         _params[1] = pixelRange;
-        _params[2] = atlasWidth;
-        _params[3] = atlasHeight;
+        _params[2] = page0Width;
+        _params[3] = page0Height;
+        _pages[0] = page1Width;
+        _pages[1] = page1Height;
     }
 
     void Render2d::setGraphCursor(const float texels, const float textureWidth)
@@ -283,7 +287,7 @@ namespace visutwin::canvas
         if (_dirty) {
             commit();
         }
-        _material->setUniforms(_clr, _params);
+        _material->setUniforms(_clr, _params, _pages);
         setLayer(layer);
     }
 

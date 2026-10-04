@@ -167,21 +167,42 @@ int main()
     std::cout << "\nmaterial\n";
     {
         Render2d r(device);
-        Texture regular(device.get());
-        Texture bold(device.get());
+        Texture regular0(device.get());
+        Texture bold0(device.get());
+        Texture regular1(device.get());
+        Texture bold1(device.get());
         Texture graph(device.get());
         const uint64_t before = r.material()->uniformsVersion();
-        r.setTextures(&regular, &bold, &graph);
+        r.setTextures({.regularPage0 = &regular0, .boldPage0 = &bold0, .regularPage1 = &regular1,
+                       .boldPage1 = &bold1, .graph = &graph});
         std::vector<TextureSlot> slots;
         r.material()->getTextureSlots(slots);
-        check(slots.size() == 3 && slots[0].slot == 0 && slots[0].texture == &regular &&
-              slots[1].slot == 1 && slots[1].texture == &bold && slots[2].slot == 3 && slots[2].texture == &graph,
-              "font pages at slots 0 and 1, the graph at 3");
+        const auto at = [&slots](const int slot) -> const Texture* {
+            for (const auto& s : slots) {
+                if (s.slot == slot) {
+                    return s.texture;
+                }
+            }
+            return nullptr;
+        };
+        check(slots.size() == 5 && at(0) == &regular0 && at(1) == &bold0 && at(3) == &graph &&
+              at(4) == &regular1 && at(5) == &bold1,
+              "page 0 at slots 0 and 1, the graph at 3, page 1 at 4 and 5");
+        const uint64_t afterTextures = r.material()->uniformsVersion();
+        r.setTextures({.regularPage0 = &regular0, .boldPage0 = &bold0, .regularPage1 = &regular1,
+                       .boldPage1 = &bold1, .graph = &graph});
+        check(r.material()->uniformsVersion() == afterTextures, "the same textures again move nothing");
         check(r.material()->uniformsVersion() != before,
               "a texture change moves the version, so neither backend keeps the old binding");
         size_t size = 0;
         r.material()->customUniformData(size);
-        check(size == 32, "the uniform block is two vec4s");
+        check(size == 48, "the uniform block is three vec4s");
+        r.setMsdf(8.0f, 1024.0f, 1024.0f, 1024.0f, 512.0f);
+        r.render(nullptr);
+        check(r.material()->params()[1] == 8.0f && r.material()->params()[3] == 1024.0f &&
+              r.material()->pages()[1] == 512.0f, "each page's own size reaches the block");
+        check(Render2d::textMode(true, 1) == Render2d::Mode::TextBoldPage1 &&
+              Render2d::textMode(false, 0) == Render2d::Mode::Text, "text modes by style and page");
         check(r.material()->transparent() && !r.material()->depthState()->depthTest() &&
               !r.material()->depthState()->depthWrite(), "blended, no depth test, no depth write");
     }

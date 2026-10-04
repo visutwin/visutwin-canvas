@@ -26,19 +26,36 @@ namespace visutwin::canvas
     class Render2dMaterial final : public ShaderMaterial
     {
     public:
-        /// Material texture slots: the same numbers on both backends.
-        static constexpr int kRegularPageSlot = 0;
-        static constexpr int kBoldPageSlot = 1;
+        /// Material texture slots: the same numbers on both backends, and all of them
+        /// combined image samplers on Vulkan (the texture's own sampler).
+        static constexpr int kRegularPage0Slot = 0;
+        static constexpr int kBoldPage0Slot = 1;
         static constexpr int kGraphSlot = 3;
+        static constexpr int kRegularPage1Slot = 4;
+        static constexpr int kBoldPage1Slot = 5;
+
+        /// The textures, each may be null while unused.
+        struct Textures
+        {
+            Texture* regularPage0 = nullptr;
+            Texture* boldPage0 = nullptr;
+            Texture* regularPage1 = nullptr;
+            Texture* boldPage1 = nullptr;
+            Texture* graph = nullptr;
+
+            bool operator==(const Textures&) const = default;
+        };
 
         explicit Render2dMaterial(const std::shared_ptr<GraphicsDevice>& device);
 
-        void setTextures(Texture* regularPage, Texture* boldPage, Texture* graph);
+        void setTextures(const Textures& textures);
         /// Moves the uniforms version only when a value changed.
-        void setUniforms(const std::array<float, 4>& clr, const std::array<float, 4>& params);
+        void setUniforms(const std::array<float, 4>& clr, const std::array<float, 4>& params,
+                         const std::array<float, 4>& pages);
 
         [[nodiscard]] const std::array<float, 4>& clr() const { return _data.clr; }
         [[nodiscard]] const std::array<float, 4>& params() const { return _data.params; }
+        [[nodiscard]] const std::array<float, 4>& pages() const { return _data.pages; }
 
         void getTextureSlots(std::vector<TextureSlot>& slots) const override;
         const void* customUniformData(size_t& outSize) const override;
@@ -48,16 +65,15 @@ namespace visutwin::canvas
         {
             std::array<float, 4> clr = {1.0f, 1.0f, 1.0f, 1.0f};
             std::array<float, 4> params = {0.0f, 4.0f, 1.0f, 1.0f};
+            std::array<float, 4> pages = {1.0f, 1.0f, 0.0f, 0.0f};
         } _data;
-        Texture* _regularPage = nullptr;
-        Texture* _boldPage = nullptr;
-        Texture* _graph = nullptr;
+        Textures _textures;
     };
 
     /**
      * A list of screen-space quads drawn as ONE mesh instance with one material: solid
-     * rectangles, MSDF glyphs from two font pages, and graph rows scrolling across a
-     * history texture. The performance HUD is drawn with it.
+     * rectangles, MSDF glyphs from pages 0 and 1 of a regular and a bold font, and graph
+     * rows scrolling across a history texture. The performance HUD is drawn with it.
      *
      * Positions are in points from the target's bottom-left corner (setTargetSize gives
      * the target in points). Texture coordinates are in texels from the texture's top-left
@@ -82,10 +98,21 @@ namespace visutwin::canvas
         enum class Mode : uint8_t
         {
             Solid = 0,
-            Text = 1,       // the regular font page
+            Text = 1,           // regular, font page 0
             Graph = 2,
-            TextBold = 3    // the bold font page
+            TextBold = 3,       // bold, font page 0
+            TextPage1 = 4,      // regular, font page 1
+            TextBoldPage1 = 5   // bold, font page 1
         };
+
+        /// The text mode drawing `page` (0 or 1) of the regular or bold font.
+        static Mode textMode(bool bold, int page)
+        {
+            if (page == 1) {
+                return bold ? Mode::TextBoldPage1 : Mode::TextPage1;
+            }
+            return bold ? Mode::TextBold : Mode::Text;
+        }
 
         /// The most quads a list may hold; a quad past it is dropped with one warning.
         static constexpr int kMaxQuads = 8192;
@@ -127,10 +154,10 @@ namespace visutwin::canvas
 
         [[nodiscard]] int quadCount() const { return static_cast<int>(_quads.size()); }
 
-        /// The two font pages and the graph history (any may be null while unused).
-        void setTextures(Texture* regularPage, Texture* boldPage, Texture* graph);
-        /// The MSDF pixel range and the atlas size of the font pages.
-        void setMsdf(float pixelRange, float atlasWidth, float atlasHeight);
+        /// The font pages and the graph history.
+        void setTextures(const Render2dMaterial::Textures& textures);
+        /// The MSDF pixel range, and the size of each font page (shared by both styles).
+        void setMsdf(float pixelRange, float page0Width, float page0Height, float page1Width, float page1Height);
         /// Where the history texture's write cursor is, in texels.
         void setGraphCursor(float texels, float textureWidth);
         /// Multiplies every fragment.
@@ -178,6 +205,8 @@ namespace visutwin::canvas
         std::array<float, 4> _clr = {1.0f, 1.0f, 1.0f, 1.0f};
         // (graph cursor u, MSDF pixel range, MSDF atlas width, MSDF atlas height)
         std::array<float, 4> _params = {0.0f, 4.0f, 1.0f, 1.0f};
+        // (page 1 width, page 1 height, 0, 0)
+        std::array<float, 4> _pages = {1.0f, 1.0f, 0.0f, 0.0f};
 
         float _targetWidth = 1.0f;
         float _targetHeight = 1.0f;

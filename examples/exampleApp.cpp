@@ -91,6 +91,13 @@ namespace visutwin::canvas
             return -1;
         }
 
+        // The HUD draws on the UI layer: give that layer a camera in the examples that have
+        // none drawing it. After create(), which builds the example's own cameras.
+        if (_miniStats) {
+            createUiCamera();
+        }
+
+
         // VISUTWIN_AMBIENT_SH=r,g,b puts a UNIFORM SH light probe of that radiance on
         // the scene, which switches every forward variant to VT_FEATURE_LIGHT_PROBES
         // without touching the example. A uniform probe is the one whose diffuse is
@@ -402,6 +409,7 @@ namespace visutwin::canvas
             const double updateMs = std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - updateStart).count();
             preRender();
+            syncUiCamera();
             _engine->render();
             postRender();
 
@@ -683,6 +691,57 @@ namespace visutwin::canvas
         camera->setLocalEulerAngles(eulerAngles.getX(), eulerAngles.getY(), eulerAngles.getZ());
         _engine->root()->addChild(camera);
         return camera;
+    }
+
+    void ExampleApp::createUiCamera()
+    {
+        _uiCamera = new Entity();
+        _uiCamera->setEngine(_engine.get());
+        _uiCamera->setName("HUD UI camera");
+        auto* component = static_cast<CameraComponent*>(_uiCamera->addComponent<CameraComponent>());
+        component->setLayers({LAYERID_UI});
+        // Last, over whatever the example drew, and keeping it: no colour, depth or
+        // stencil clear (the UI layer clears depth for itself).
+        component->setPriority(1000000);
+        if (Camera* camera = component->camera()) {
+            camera->setClearColorBuffer(false);
+            camera->setClearDepthBuffer(false);
+            camera->setClearStencilBuffer(false);
+        }
+        _uiCamera->setEnabled(false);
+        _engine->root()->addChild(_uiCamera);
+    }
+
+    void ExampleApp::syncUiCamera()
+    {
+        if (!_uiCamera) {
+            return;
+        }
+        // Covered when an active camera of the example renders the UI layer over the whole
+        // back buffer. Checked every frame because examples switch cameras at runtime.
+        bool covered = false;
+        for (const auto* candidate : instancesOf<CameraComponent>(&_engine->components())) {
+            if (!candidate || candidate->entity() == _uiCamera || !candidate->active()) {
+                continue;
+            }
+            const Camera* camera = candidate->camera();
+            if (!camera || camera->renderTarget()) {
+                continue;
+            }
+            const Vector4& rect = camera->rect();
+            const bool fullWindow = rect.getX() <= 0.0f && rect.getY() <= 0.0f &&
+                rect.getZ() >= 1.0f && rect.getW() >= 1.0f;
+            const auto& layers = candidate->layers();
+            if (fullWindow && std::find(layers.begin(), layers.end(), LAYERID_UI) != layers.end()) {
+                covered = true;
+                break;
+            }
+        }
+        if (_uiCamera->enabled() == covered) {
+            _uiCamera->setEnabled(!covered);
+            spdlog::info("HUD UI camera {}: {} camera of the example renders the UI layer",
+                covered ? "off" : "on", covered ? "a" : "no");
+        }
     }
 
     void ExampleApp::registerUi(AppOptions& options, const UiSystems systems)

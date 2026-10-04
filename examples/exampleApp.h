@@ -246,6 +246,8 @@ namespace visutwin::canvas
         bool initEngine();
         void handleEvent(const SDL_Event& event);
         void shutdown();
+        void createUiCamera();
+        void syncUiCamera();
 
         ExampleOptions _options;
 
@@ -265,6 +267,9 @@ namespace visutwin::canvas
         // example, so all 46 get it without carrying a line for it.
         std::unique_ptr<ImGuiOverlay> _overlay;
         std::unique_ptr<MiniStats> _miniStats;
+        // Renders the UI layer, and nothing else, when no camera of the example does, so the
+        // HUD drawn on that layer is on screen in every example. Enabled only then.
+        Entity* _uiCamera = nullptr;
 
         bool _running = true;
         float _elapsed = 0.0f;
