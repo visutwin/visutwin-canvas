@@ -483,68 +483,71 @@ backend `#ifdef`:
 
 The harness also owns the **performance HUD**, for the same reason: upstream's
 example harness puts ministats on every example, so it belongs to the host and no
-example carries a line for it. `ExampleApp` holds the `ImGuiOverlay` and the
-`MiniStats` that draws through it, forwards every SDL event to the overlay (which
-consumes none — the camera controls and each example's own bindings must keep
-working), and toggles it with F1, which is free where every useful letter is
+example carries a line for it. `ExampleApp` loads the two Roboto MSDF fonts, holds the
+`MiniStats` (`framework/extras/miniStats/`), passes it every SDL event before the
+example sees it, and toggles it with F1, which is free where every useful letter is
 already some example's binding.
 
-- It is SUPPRESSED while `VISUTWIN_SCREENSHOT` is armed. The capture happens inside
-  `frameEnd`, AFTER the `postrender` hook the HUD draws on, so otherwise every
-  parity screenshot would carry a translucent window over the corner of the frame.
-  `VISUTWIN_MINISTATS=0/1` overrides the decision either way, and `1` is the only
-  way to capture a screenshot WITH the HUD, since capture and suppression key off
-  the same variable; `VISUTWIN_MINISTATS=detailed` opens the detailed view, which a
-  screenshot cannot click its way to.
+**It is drawn by the engine, as upstream's is**: one `Render2d` quad list, one mesh
+instance, one material, one draw, on the UI layer. Three pieces:
+
+- `Render2d` (`render2d.h`, shader in `render2dShaders.h`, MSL and GLSL): solid rects,
+  MSDF glyphs from pages 0 and 1 of a regular and a bold font (material slots 0, 1, 4,
+  5, combined samplers on both backends), and graph rows (slot 3). The vertices reuse
+  the 56-byte packed layout (`position.z` is the mode, the normal the colour). Colours
+  are display space, written as they are. The list lives in its own `UiGeometryArena`
+  and is committed only when it changes; a graph scrolls through a uniform cursor
+  instead of rewritten vertices (DEVIATION), because a vertex rewritten in place on
+  Metal lands in memory the frames in flight still read. The mesh instance is
+  `setDrawOncePerFrame`: the first camera to render the UI layer draws it, the others
+  skip it (the forward pass claims it as it collects it, `claimDrawThisFrame`).
+- `MiniStatsText` places glyphs with text layout's formula, kerned, cut at a width
+  with the texture cut too, and ended with an ellipsis (page 1 in Roboto). DEVIATION:
+  upstream rasterises system fonts into its own atlas.
+- `MiniStatsGraph` / `MiniStatsHistory`: upstream's Graph (the mean and peak over
+  `textRefreshMs`, a history column per frame, a count row's scale growing and
+  rescaling what it holds), over one RGBA8 history texture uploaded once a frame into
+  the next of `maxFramesInFlight()` textures, for the same Metal reason.
+
+- **Somebody has to render the UI layer.** `ExampleApp` adds a camera that renders
+  ONLY the UI layer, last and clearing nothing, and enables it each frame only when no
+  active camera of the example renders that layer over the whole back buffer
+  (`syncUiCamera`; `multi-view` is the one example that needs it, and the log says so).
+  A UI-layer camera with a sub-rectangle still draws the HUD into its rectangle.
+- It is SUPPRESSED while `VISUTWIN_SCREENSHOT` is armed, so golden and parity
+  captures carry no panel and get no extra camera. `VISUTWIN_MINISTATS=0/1` overrides
+  that either way, and `1` is the only way to capture a screenshot WITH the HUD;
+  `VISUTWIN_MINISTATS=detailed` opens the size with graphs.
+- **Upstream's three sizes**: compact counters (draw calls, frame, CPU, GPU, VRAM),
+  grouped averages, and grouped averages with peaks and history. A click goes to the
+  next size; in a detailed size a click on a heading collapses its section, and the
+  wheel scrolls a panel taller than the window. `MiniStats::handleEvent` takes a press
+  on the panel, its release and the wheel steps it uses, and `ExampleApp` returns
+  without passing those to the example; the camera controls, which read the mouse
+  DEVICE (fed first, unconditionally), are blocked while `capturesPointer()`.
 - **The per-pass rows are keyed by pass NAME, summed and aged.** Passes sharing a
-  name are one row holding their sum, as upstream's gpu-profiler accumulates them
-  (the forward pass draws the scene and then the UI layer; a separable blur runs
-  twice) — keyed on the last of them the row would show the 0.1 ms UI pass and hide
-  the 3 ms scene pass. A row whose pass has not reported for 60 resolved frames is
-  dropped, or a one-shot shadow pass keeps showing its first-frame figure as if it
-  still ran. A pass that sets no `_name` reports its class name
-  (`RenderPass::name()`), so the quad passes do not collapse into one "pass".
-- The HUD is torn down BEFORE the engine and the device: MiniStats unhooks itself
-  from `postrender`, and the overlay's shutdown still needs the device, because the
-  Vulkan path waits the device idle before freeing ImGui's font texture and pipeline.
-- The two backends reach the back buffer differently, and only the overlay knows it.
-  Metal encodes into the device's open command buffer (`openCommandBuffer()`), after
-  the frame's passes and before the present; a buffer of its own, committed, would run
-  ahead of the frame and be drawn over.
-  Vulkan records into the frame's command buffer, which is still OPEN at
-  `postrender`, through `VulkanGraphicsDevice::beginOverlayRendering()` — a command
-  buffer of its own could not work, since `frameEnd` transitions the swapchain image
-  to PRESENT_SRC on that same buffer and a separately submitted overlay would race
-  the present it belongs to. That pass loads rather than clears, leaves depth
-  unattached, and clears the device's cached pipeline afterwards, because ImGui
-  bound one of its own.
-
-- **The default view is upstream's first size, row for row**: draw calls, frame,
-  CPU, GPU and VRAM, no graphs, anchored 8 px in from the bottom-left corner, each
-  figure the mean over the last half second (upstream's `textRefreshRate`; a figure
-  rewritten at 60 Hz is a blur). A CLICK on the panel switches to the detailed view
-  — the frame-rate line, the rolling graphs, the draw-call and texture breakdowns
-  and the per-pass GPU timings — and back; that is what a click does upstream, where
-  it cycles the sizes. While the pointer is on the panel `ExampleApp` blocks the
-  camera controls for the frame, so the click does not also orbit the camera:
-  upstream's panel is a DOM element over the canvas and a pointer on it never
-  reaches the canvas at all.
+  name are one row holding their sum (the forward pass draws the scene and then the
+  UI layer; a separable blur runs twice) — keyed on the last of them the row would
+  show the 0.1 ms UI pass and hide the 3 ms scene pass. A row first appears when its
+  pass reports more than zero and is dropped 240 frames after it last did, or a
+  one-shot shadow pass keeps its first-frame figure forever.
 - **The CPU row is upstream's CpuTimer**: the update phase plus the render phase on
-  the CPU. The render half is `FrameStats::renderTime`, which `Engine::render`
-  writes as its own wall time LESS `GraphicsDevice::displayWaitMilliseconds()` —
-  the time the backend spent blocked on the display (Metal's `nextDrawable`;
-  Vulkan's frame fence, acquire, submit and present). Under vsync that wait is the
-  frame pacing and it happens INSIDE `render()`: Metal acquires its drawable lazily
-  in the first back-buffer pass, and MoltenVK takes it at the queue SUBMIT that
-  renders into it — about 16 ms in the submit against under 0.1 ms in the
-  acquire and present together, so timing only the acquire would leave the
-  Vulkan CPU row echoing the frame time. The uniform-ring semaphores are not counted: the display
-  wait throttles the CPU before they ever block.
-
-DEVIATION: upstream draws its rows through a word atlas on the UI layer and cycles
-THREE sizes on click (compact counters, grouped averages, grouped averages with
-peaks and graph history); this is an ImGui window with two views, compact matching
-upstream's first size and detailed folding the other two into one.
+  the CPU, the previous frame's. The render half is `FrameStats::renderTime`, which
+  `Engine::render` writes as its own wall time LESS
+  `GraphicsDevice::displayWaitMilliseconds()` — the time the backend spent blocked on
+  the display (Metal's `nextDrawable`; Vulkan's frame fence, acquire, submit and
+  present). Under vsync that wait is the frame pacing and it happens INSIDE
+  `render()`: MoltenVK takes the drawable at the queue SUBMIT that renders into it, so
+  timing only the acquire would leave the Vulkan CPU row echoing the frame time.
+  DEVIATION: the CPU section's rows are Update, Render and Physics (upstream: script
+  update and post-update, animation, physics, render, splat sort), the VRAM parts are
+  always textures, geometry and buffers, and the Resources rows count the device's
+  live textures, render targets and vertex, storage and index buffers.
+- The HUD is torn down BEFORE the engine: MiniStats unhooks itself from `postrender`
+  and takes its quads off the UI layer, then its fonts go.
+- It costs about 0.01 ms of CPU a frame compact and 0.05 ms with graphs (median,
+  `postRender` timed directly on `ambient-occlusion`; frames that rebuild the quad
+  list reach 0.04 / 0.15 ms).
 
 `visutwin_add_example(<name>)` builds `src/<name>-example.cpp`. Adding an example
 is one source file and one line.

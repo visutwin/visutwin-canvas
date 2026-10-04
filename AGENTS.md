@@ -2336,6 +2336,14 @@ present, but the rule below never depends on reading it.
   It costs a few floats per child per frame and nothing more while nothing changes: the
   inputs are gathered into a buffer the group keeps (`_currentInputs`, swapped with
   `_lastInputs` when they differ), so the comparison allocates nothing.
+- **The performance HUD is ONE draw on the UI layer, made by the FIRST camera that
+  renders it** (`MeshInstance::setDrawOncePerFrame`, claimed in `collectDrawEntries` as
+  the forward pass collects it). A new path that draws a forward layer's instances must
+  claim them the same way, or the HUD draws once per camera. `ExampleApp` adds a
+  UI-only camera, enabled while no camera of the example renders the UI layer over the
+  whole window. Its quads and history texture follow the frames-in-flight rule (own
+  arena, committed only on change; a ring of `maxFramesInFlight()` textures). Detail in
+  ARCHITECTURE.md, examples harness.
 - **UI visuals SHARE their buffers and their materials; nothing reached through an
   element's mesh instance is that element's alone.** `ElementInput::syncElements` builds
   each element's visual, and three things about it are shared. (1) GEOMETRY lives in
@@ -2775,8 +2783,9 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
     backends from an empty scene to 20k draws, vsync on and off), and
     the renderer's per-phase frame statistics (cull, sort, forward, shadow, skin and morph,
     clusters). `VISUTWIN_NO_VSYNC=1` turns off Metal's display sync for such a run; Vulkan
-    always presents FIFO. The HUD costs 0.03-0.06 ms a frame (`MiniStats::draw`, timed
-    directly); one HUD-on run against one HUD-off run says nothing. Trust the PHASE
+    always presents FIFO. The HUD costs about 0.01 ms a frame compact and 0.05 ms with
+    graphs (`MiniStats::postRender`, timed directly); one HUD-on run against one HUD-off
+    run says nothing. Trust the PHASE
     timers over the whole-render
     figure: a GPU-bound frame's render time swings 1.0-3.2 ms between identical runs
     (back-pressure outside the recorded display wait), while forward and shadow hold to a
@@ -2832,7 +2841,8 @@ What stays HERE is only what bites during UNRELATED work.
   under-count, not a drift — the same figure is added and subtracted — but nothing
   may present this as an exact allocation total. The HUD's compact view labels
   the sum `VRAM`, as upstream labels its `vram.totalUsed`, and it is that same
-  lower bound; the detailed view spells the parts out.
+  lower bound; the detailed sizes split it into textures, geometry (vb + ib) and
+  buffers (ub + sb).
 
   The `texShadow` / `texAsset` / `texLightmap` SPLIT is live too, and the three
   sub-buckets DELIBERATELY DO NOT SUM to `tex`. A texture joins one
@@ -2842,9 +2852,10 @@ What stays HERE is only what bites during UNRELATED work.
   shadow atlas are SHADOWMAP; both lightmap bakes are LIGHTMAP. Everything else —
   render targets, the post-processing chain, env atlases, area-light LUTs,
   reflection probes, scene grab — stays `TEXHINT_NONE` on purpose, because it is
-  none of those things. So the HUD shows the remainder as "other" rather than
-  letting a subtraction that does not balance read as a bug. **Add the hint when you
-  add a texture creation site**, or its bytes land only in the undifferentiated total.
+  none of those things. Nothing on screen shows the split today; anything that does
+  must show the remainder as "other" rather than let a subtraction that does not
+  balance read as a bug. **Add the hint when you add a texture creation site**, or its
+  bytes land only in the undifferentiated total.
 - **Under MSAA the sampleable scene depth is the PREPASS's texture, not an
   attachment of the scene target, so a resize has to resize it by hand.**
   `RenderPassCameraFrame::frameUpdate` resizes the scene target from the device

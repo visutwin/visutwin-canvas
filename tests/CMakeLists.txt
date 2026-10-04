@@ -160,6 +160,7 @@ visutwin_add_unit_test(visutwin-script-phase-tests script-phases scriptPhaseTest
 visutwin_add_unit_test(visutwin-ui-visual-sharing-tests ui-visual-sharing uiVisualSharingTests.cpp)
 visutwin_add_unit_test(visutwin-render2d-tests render2d render2dTests.cpp)
 visutwin_add_unit_test(visutwin-mini-stats-text-tests mini-stats-text miniStatsTextTests.cpp)
+visutwin_add_unit_test(visutwin-mini-stats-tests mini-stats miniStatsTests.cpp)
 visutwin_add_unit_test(visutwin-picker-tests picker pickerTests.cpp)
 visutwin_add_unit_test(visutwin-particle-color-graph-tests particle-color-graph particleColorGraphTests.cpp)
 visutwin_add_unit_test(visutwin-upstream-small-ports-tests upstream-small-ports upstreamSmallPortsTests.cpp)

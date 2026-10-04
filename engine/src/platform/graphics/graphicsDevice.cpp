@@ -80,6 +80,19 @@ namespace visutwin::canvas
         detachResources();
     }
 
+    GraphicsDevice::LiveResourceCounts GraphicsDevice::liveResourceCounts()
+    {
+        LiveResourceCounts counts;
+        std::lock_guard lock(_liveResourcesMutex);
+        counts.textures = static_cast<int>(_liveTextures.size());
+        counts.renderTargets = static_cast<int>(_liveRenderTargets.size());
+        counts.indexBuffers = static_cast<int>(_liveIndexBuffers.size());
+        for (const VertexBuffer* buffer : _liveVertexBuffers) {
+            ++(buffer->storageUse() ? counts.storageBuffers : counts.vertexBuffers);
+        }
+        return counts;
+    }
+
     void GraphicsDevice::detachResources()
     {
         // Taken out of the registries first: a resource's destructor (which detaching does

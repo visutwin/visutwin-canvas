@@ -39,9 +39,9 @@
 #include "framework/input/elementInput.h"
 #include "framework/constants.h"
 #include "scene/materials/standardMaterial.h"
-#include "framework/extras/miniStats.h"
+#include "framework/extras/miniStats/miniStats.h"
+#include "framework/handlers/fontResource.h"
 #include "core/log.h"
-#include "overlay/imguiOverlay.h"
 #include "framework/components/componentRegistry.h"
 
 namespace visutwin::canvas
@@ -392,15 +392,10 @@ namespace visutwin::canvas
             const float frameDt = _engine->effectiveDeltaTime(dt);
             _elapsed += frameDt;
 
-            // A click on the HUD is the HUD's (it switches its view) and must not also
-            // orbit the camera. A pointer on the panel should never reach the scene;
-            // this is that rule scoped to
-            // the camera controls, the one consumer of a bare click. Consulted only while
-            // the HUD draws: ImGui refreshes its answer in NewFrame, and a hidden HUD would
-            // leave the last answer standing.
+            // A click on the HUD is the HUD's (it changes its size) and must not also orbit
+            // the camera, which reads the mouse device that saw the click first.
             if (_cameraControls) {
-                _cameraControls->setInputBlocked(
-                    _overlay && _miniStats && _miniStats->enabled() && _overlay->wantCaptureMouse());
+                _cameraControls->setInputBlocked(_miniStats && _miniStats->capturesPointer());
             }
 
             update(frameDt);
@@ -558,19 +553,15 @@ namespace visutwin::canvas
             spdlog::info("Back buffer pixel ratio {} ({}x{} points)", gd->pixelRatio(), pw, ph);
         }
 
-        // The performance HUD. It is on every
-        // example, so it belongs to the host here rather than to any one scene —
-        // and MiniStats hooks "postrender", which is the only place either backend
-        // can still reach the back buffer.
+        // The performance HUD. It is on every example, so it belongs to the host here
+        // rather than to any one scene. It draws on the UI layer (run() gives that layer a
+        // camera where the example has none) with the two Roboto MSDF fonts.
         //
-        // Suppressed while VISUTWIN_SCREENSHOT is armed. The capture happens inside
-        // frameEnd, AFTER the hook the HUD draws on, so every parity screenshot
-        // would otherwise carry a translucent window over the top-left of the frame
-        // — exactly the region the parity comparisons sample.
-        // VISUTWIN_MINISTATS=0/1 overrides that either way — which is also the only
-        // way to capture a screenshot WITH the HUD in it, since the capture and the
-        // suppression key off the same variable. VISUTWIN_MINISTATS=detailed opens
-        // it in the detailed view, the one a screenshot cannot click its way to.
+        // Suppressed while VISUTWIN_SCREENSHOT is armed, so parity screenshots and golden
+        // images carry no panel. VISUTWIN_MINISTATS=0/1 overrides that either way — which
+        // is also the only way to capture a screenshot WITH the HUD in it, since the
+        // capture and the suppression key off the same variable. VISUTWIN_MINISTATS=detailed
+        // opens it in the size with graphs, the one a screenshot cannot click its way to.
         const char* screenshotPath = std::getenv("VISUTWIN_SCREENSHOT");
         const bool screenshotArmed = screenshotPath && *screenshotPath;
         const char* hudOverride = std::getenv("VISUTWIN_MINISTATS");
@@ -578,17 +569,22 @@ namespace visutwin::canvas
             ? (*hudOverride != '0')
             : !screenshotArmed;
         if (wantHud) {
-            _overlay = std::make_unique<ImGuiOverlay>();
-            _overlay->init(_device.get(), _window);
-            if (_overlay->isInitialized()) {
-                _miniStats = std::make_unique<MiniStats>(_engine, _overlay.get());
+            const auto loadFont = [this](const char* path) {
+                return std::shared_ptr<FontResource>(
+                    loadBitmapFontResource(assetPath(path), _device).value_or(nullptr));
+            };
+            _hudRegularFont = loadFont("fonts/roboto-regular.json");
+            _hudBoldFont = loadFont("fonts/roboto-bold.json");
+            if (_hudRegularFont && _hudBoldFont) {
+                MiniStatsOptions options;
+                options.regularFont = _hudRegularFont.get();
+                options.boldFont = _hudBoldFont.get();
                 if (hudOverride && std::string_view(hudOverride) == "detailed") {
-                    _miniStats->setDetailed(true);
+                    options.startSizeIndex = static_cast<int>(options.sizes.size()) - 1;
                 }
+                _miniStats = std::make_unique<MiniStats>(_engine, std::move(options));
             } else {
-                // init() has already logged the reason. Drop the overlay rather
-                // than keep a dead one that every frame would have to test.
-                _overlay.reset();
+                spdlog::warn("Performance HUD: the Roboto fonts did not load; the HUD is off");
             }
         }
 
@@ -609,12 +605,11 @@ namespace visutwin::canvas
             _engine->handleInputEvent(event);
         }
 
-        // The HUD sees every event too, and CONSUMES none: the camera controls and
-        // each example's own bindings have to keep working while it is on screen.
-        // The one exception, a click landing ON the panel, is handled in run() by
-        // blocking the camera controls for that frame rather than by eating events.
-        if (_overlay) {
-            _overlay->processEvent(event);
+        // The HUD next. It takes only a press on the panel, its release and a wheel step
+        // it scrolls with: the example does not see those (a click on the panel must not
+        // also pick in the scene). Everything else passes through.
+        if (_miniStats && _miniStats->handleEvent(event)) {
+            return;
         }
 
         // The example sees every event next, so it can override a default
@@ -651,12 +646,11 @@ namespace visutwin::canvas
         // it goes first and SDL last.
         _cameraControls = nullptr;
 
-        // The HUD goes first and in this order: MiniStats unhooks itself from the
-        // engine's "postrender" event, and the overlay's shutdown still needs the
-        // device — the Vulkan path waits the device idle before freeing ImGui's
-        // font texture and pipeline, which it cannot do once _device is gone.
+        // The HUD first: it unhooks itself from the engine's "postrender" event and takes
+        // its quads off the UI layer. Its fonts after it, which it draws with.
         _miniStats.reset();
-        _overlay.reset();
+        _hudRegularFont.reset();
+        _hudBoldFont.reset();
 
         _engine.reset();
         _device.reset();

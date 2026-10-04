@@ -21,6 +21,7 @@
 #include "framework/handlers/fontResource.h"
 #include "platform/graphics/texture.h"
 #include "support/check.h"
+#include "support/msdfTestFont.h"
 #include "support/stubDevice.h"
 
 using namespace visutwin::canvas;
@@ -38,46 +39,6 @@ namespace
     }
 
     int quads(const Render2d& r) { return static_cast<int>(r.vertices().size()) / (4 * kStride); }
-
-    // A 64-texel cell per glyph, the pen 20 texels into it and the baseline 40 down.
-    std::unique_ptr<FontResource> makeFont(GraphicsDevice* device, const float digitAdvance)
-    {
-        auto font = std::make_unique<FontResource>();
-        font->msdf = true;
-        font->pxRange = 8.0f;
-        TextureOptions page0;
-        page0.width = 1024;
-        page0.height = 1024;
-        TextureOptions page1 = page0;
-        page1.height = 512;
-        font->pages = {new Texture(device, page0), new Texture(device, page1)};
-        font->texture = font->pages[0];
-        const auto add = [&font](const char32_t code, const float x, const float y, const float advance, const int page) {
-            FontGlyph g;
-            g.id = static_cast<int>(code);
-            g.x = x;
-            g.y = y;
-            g.width = 64.0f;
-            g.height = 64.0f;
-            g.xadvance = advance;
-            g.xoffset = 20.0f;
-            g.yoffset = 40.0f;
-            g.page = page;
-            font->glyphs[g.id] = g;
-        };
-        for (char32_t c = U'0'; c <= U'9'; ++c) {
-            add(c, 64.0f * static_cast<float>(c - U'0'), 0.0f, digitAdvance, 0);
-        }
-        add(U'A', 0.0f, 64.0f, 20.0f, 0);
-        add(U'V', 64.0f, 64.0f, 20.0f, 0);
-        add(U'.', 128.0f, 64.0f, 5.0f, 0);
-        add(U'?', 192.0f, 64.0f, 14.0f, 0);
-        add(U'W', 256.0f, 64.0f, 30.0f, 2);          // on a page the renderer does not bind
-        add(0x2026, 320.0f, 128.0f, 24.0f, 1);       // the ellipsis, page 1
-        // A kerning pair, in font units.
-        font->kerning[(static_cast<uint64_t>(U'A') << 32u) | U'V'] = -4.0f;
-        return font;
-    }
 }
 
 int main()
@@ -85,8 +46,8 @@ int main()
     std::cout << std::unitbuf;
 
     auto device = std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{.size = {200, 100}, .cpuBuffers = true});
-    auto regular = makeFont(device.get(), 18.0f);
-    auto bold = makeFont(device.get(), 18.0f);
+    auto regular = makeMsdfTestFont(device.get());
+    auto bold = makeMsdfTestFont(device.get());
     // Size 16 regular (scale 0.5), 32 bold (scale 1): the numbers stay whole.
     const MiniStatsText text(regular.get(), bold.get(), 16.0f, 32.0f);
     check(text.valid(), "two MSDF fonts with a page each are valid");
@@ -100,7 +61,7 @@ int main()
         check(text.measure("AV", MiniStatsText::Style::Bold) == 20.0f - 4.0f + 20.0f, "kerning between a pair");
         check(text.measure("A\xE2\x80\xA6", MiniStatsText::Style::Bold) == 20.0f + 24.0f,
               "UTF-8: the ellipsis is one code point");
-        check(text.measure("x", MiniStatsText::Style::Bold) == 14.0f, "a missing code point measures as '?'");
+        check(text.measure("\xE2\x82\xAC", MiniStatsText::Style::Bold) == 14.0f, "a missing code point measures as '?'");
         check(text.measure("W", MiniStatsText::Style::Bold) == 14.0f, "so does one on a page beyond 1");
     }
 

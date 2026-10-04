@@ -853,6 +853,18 @@ namespace visutwin::canvas
         /// "VRAM" total.
         [[nodiscard]] const DeviceVRAM& vram() const { return _vram; }
 
+        /// How many of each resource this device has alive, the performance HUD's
+        /// Resources rows. A vertex buffer bound as storage counts as a storage buffer.
+        struct LiveResourceCounts
+        {
+            int textures = 0;
+            int renderTargets = 0;
+            int vertexBuffers = 0;
+            int storageBuffers = 0;
+            int indexBuffers = 0;
+        };
+        [[nodiscard]] LiveResourceCounts liveResourceCounts();
+
     protected:
         /// A backend reports the uniform and storage memory it owns itself (see DeviceVRAM::ub
         /// and ::sb); the storage VertexBuffers are counted apart and added to sb here.

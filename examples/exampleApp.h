@@ -70,8 +70,8 @@ namespace visutwin::canvas
 {
     class CameraControls;
     class ElementInput;
-    class ImGuiOverlay;
     class MiniStats;
+    struct FontResource;
 
     /// Window and host configuration, passed up from the derived example's
     /// constructor. Designated initialisers keep the call site readable:
@@ -264,9 +264,10 @@ namespace visutwin::canvas
         std::shared_ptr<ElementInput> _elementInput;
 
         // The performance HUD every example shows. Owned by the host rather than by each
-        // example, so all 46 get it without carrying a line for it.
-        std::unique_ptr<ImGuiOverlay> _overlay;
+        // example, so every example gets it without carrying a line for it.
         std::unique_ptr<MiniStats> _miniStats;
+        std::shared_ptr<FontResource> _hudRegularFont;
+        std::shared_ptr<FontResource> _hudBoldFont;
         // Renders the UI layer, and nothing else, when no camera of the example does, so the
         // HUD drawn on that layer is on screen in every example. Enabled only then.
         Entity* _uiCamera = nullptr;
