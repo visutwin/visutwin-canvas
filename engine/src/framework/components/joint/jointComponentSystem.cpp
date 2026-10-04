@@ -5,6 +5,8 @@
 //
 #include "jointComponentSystem.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include "framework/engine.h"
 #include "framework/entity.h"
 #include "framework/physics/physicsWorld.h"
@@ -30,7 +32,7 @@ namespace visutwin::canvas
             }
             // Inactive joints are visited too: the sync drops the constraint of a joint
             // that is no longer active.
-            for (auto* joint : JointComponent::instances()) {
+            for (auto* joint : instancesOf<JointComponent>(componentRegistry())) {
                 if (joint && joint->entity()) {
                     joint->syncToSimulation(*_world);
                 }
@@ -44,7 +46,7 @@ namespace visutwin::canvas
             _engine->systems()->off("update", HandleEventCallback(), this);
         }
         if (_world != nullptr) {
-            for (auto* joint : JointComponent::instances()) {
+            for (auto* joint : instancesOf<JointComponent>(componentRegistry())) {
                 if (joint) { joint->releaseJoint(*_world); }
             }
         }

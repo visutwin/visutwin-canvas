@@ -8,6 +8,11 @@
 // compacted instance buffer are read back and compared with the same cull done on the
 // CPU. No example renders with GPU culling on, so this is the only thing that runs it.
 //
+// Then through the renderer: two cameras that see different stretches of one instanced
+// mesh each get an output of their own, culled to their own frustum, and a camera that
+// drew nothing this frame gets none (its draw takes the whole buffer). With one output
+// per mesh shared by every camera, each view would draw the other's set.
+//
 // It needs a GPU and a window, so it carries the `gpu` label, which the CI test presets
 // exclude; run it with `ctest --preset gpu` (or `ctest -L gpu` in a Vulkan build).
 //
@@ -31,12 +36,20 @@
 
 #include <SDL3/SDL.h>
 
+#include "framework/components/camera/cameraComponent.h"
+#include "framework/components/camera/cameraComponentSystem.h"
+#include "framework/components/render/renderComponent.h"
+#include "framework/components/render/renderComponentSystem.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
 #include "platform/graphics/instanceCuller.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "platform/graphics/vertexFormat.h"
+#include "scene/mesh.h"
+#include "scene/meshInstance.h"
+#include "scene/renderer/forwardRenderer.h"
 #include "support/check.h"
+#include "support/testEngine.h"
 
 using namespace visutwin::canvas;
 using namespace visutwin::canvas::test;
@@ -85,7 +98,7 @@ int main()
         if (renderer) {
             options.swapChain = SDL_GetRenderMetalLayer(renderer);
         }
-        std::unique_ptr<GraphicsDevice> device = createGraphicsDevice(options);
+        std::shared_ptr<GraphicsDevice> device = createGraphicsDevice(options);
         check(device != nullptr, std::string("a ") + backendName(backend) + " device is created");
         if (!device) {
             return 1;
@@ -173,6 +186,104 @@ int main()
             std::sort(survivors.begin(), survivors.end());
             check(survivors == expected, "run " + std::to_string(run) + ": exactly the instances in range survive");
             check(intact, "run " + std::to_string(run) + ": each survivor is copied whole (matrix and colour)");
+        }
+
+        std::cout << "\nper camera, through the renderer\n";
+        {
+            auto engine = makeTestEngine<RenderComponentSystem, CameraComponentSystem>(device);
+
+            // The same 64 instances, now centred on x = 0 and 10 units in front of two
+            // cameras at x = -20 and x = +20, each looking down -z with a narrow view.
+            std::vector<Instance> row = instances;
+            for (uint32_t i = 0; i < kCount; ++i) {
+                row[i].matrix[12] = static_cast<float>(i) - 32.0f;
+                row[i].matrix[14] = -10.0f;
+            }
+            VertexBufferOptions rowOptions;
+            rowOptions.data.resize(kCount * sizeof(Instance));
+            std::memcpy(rowOptions.data.data(), row.data(), rowOptions.data.size());
+            auto rowBuffer = device->createVertexBuffer(format, kCount, rowOptions);
+
+            auto mesh = std::make_shared<Mesh>();
+            Primitive primitive;
+            primitive.count = 36;
+            mesh->setPrimitive(primitive);
+            auto* holder = addTo(engine->root(), newEntity(engine.get(), "instances"));
+            auto* render = static_cast<RenderComponent*>(holder->addComponent<RenderComponent>());
+            auto* meshInstance = render->addMeshInstance(std::make_unique<MeshInstance>(mesh.get(), nullptr, holder));
+            meshInstance->setInstancing(rowBuffer, static_cast<int>(kCount));
+            meshInstance->enableGpuInstanceCulling(device.get(), 0.5f);
+            check(meshInstance->gpuCullingEnabled(), "culling is enabled on the mesh instance");
+
+            const auto makeCamera = [&](const char* name, const float x) {
+                auto* entity = addTo(engine->root(), newEntity(engine.get(), name));
+                entity->setPosition(x, 0.0f, 0.0f);
+                auto* component = static_cast<CameraComponent*>(entity->addComponent<CameraComponent>());
+                Camera* camera = component->camera();
+                camera->setFov(40.0f);
+                camera->setAspectRatioMode(AspectRatioMode::ASPECT_MANUAL);
+                camera->setAspectRatio(1.0f);
+                return camera;
+            };
+            Camera* left = makeCamera("left", -20.0f);
+            Camera* right = makeCamera("right", 20.0f);
+            Camera* idle = makeCamera("idle", 0.0f);
+
+            // What each frustum keeps, by the same sphere-against-planes rule the kernel uses.
+            const auto expectedFor = [&](Camera* camera) {
+                const Matrix4 vp = camera->projectionMatrix() * camera->node()->worldTransform().inverse();
+                float planes[6][4];
+                InstanceCuller::extractFrustumPlanes(reinterpret_cast<const float*>(&vp), planes);
+                std::vector<uint32_t> kept;
+                for (uint32_t i = 0; i < kCount; ++i) {
+                    bool inside = true;
+                    for (const auto& plane : planes) {
+                        inside = inside && plane[0] * row[i].matrix[12] + plane[1] * row[i].matrix[13] +
+                            plane[2] * row[i].matrix[14] + plane[3] >= -0.5f;
+                    }
+                    if (inside) {
+                        kept.push_back(i);
+                    }
+                }
+                return kept;
+            };
+            const auto survivorsOf = [&](const MeshInstance::GpuCullOutput* output) {
+                std::vector<uint32_t> result;
+                if (!output) {
+                    return result;
+                }
+                const auto argsFormat = std::make_shared<VertexFormat>(static_cast<int>(sizeof(DrawArgs)), true, false);
+                auto args = device->createVertexBufferFromNativeBuffer(argsFormat, 1,
+                    output->culler->indirectArgsNativeBuffer());
+                DrawArgs drawArgs{};
+                if (!args || !args->read(0, sizeof(DrawArgs), &drawArgs)) {
+                    return result;
+                }
+                std::vector<Instance> out(std::min<uint32_t>(drawArgs.instanceCount, kCount));
+                if (!out.empty() && output->compacted->read(0, out.size() * sizeof(Instance), out.data())) {
+                    for (const Instance& instance : out) {
+                        result.push_back(static_cast<uint32_t>(instance.matrix[12] + 32.0f));
+                    }
+                }
+                std::sort(result.begin(), result.end());
+                return result;
+            };
+
+            engine->renderer()->dispatchGpuInstanceCulling({left, right});
+            const int version = device->renderVersion();
+            const auto* leftOutput = meshInstance->culledOutput(left, version);
+            const auto* rightOutput = meshInstance->culledOutput(right, version);
+            check(leftOutput && rightOutput && leftOutput != rightOutput, "each camera has an output of its own");
+            check(meshInstance->culledOutput(idle, version) == nullptr,
+                "a camera that was not culled for has none, so its draw takes every instance");
+
+            const auto leftExpected = expectedFor(left);
+            const auto rightExpected = expectedFor(right);
+            check(!leftExpected.empty() && !rightExpected.empty() && leftExpected != rightExpected,
+                "the two cameras see different, non-empty stretches of the row");
+            check(survivorsOf(leftOutput) == leftExpected, "the left camera's output keeps what it sees");
+            check(survivorsOf(rightOutput) == rightExpected,
+                "and the right camera's what it sees, not the left camera's");
         }
     }
 

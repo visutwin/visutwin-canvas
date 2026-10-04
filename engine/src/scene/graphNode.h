@@ -136,6 +136,18 @@ namespace visutwin::canvas
             return _children;
         }
 
+        /// Visits the children in order WITHOUT closing the holes children() would close,
+        /// for a walk that may run inside someone's loop over a children() list.
+        template <class Visitor>
+        void forEachChild(Visitor&& visit) const
+        {
+            for (size_t i = 0; i < _children.size(); ++i) {
+                if (GraphNode* child = _children[i].get()) {
+                    visit(child);
+                }
+            }
+        }
+
         GraphNode* findByName(const std::string& name);
 
         /// Find all descendants (and self) matching a predicate.
@@ -189,6 +201,11 @@ namespace visutwin::canvas
 
     protected:
         virtual void onHierarchyStateChanged(bool enabled);
+
+        /// Called on a node as it is inserted under a parent, before the enabled state of its
+        /// subtree is worked out: Entity lists the components of the subtree with the engine
+        /// it has just reached.
+        virtual void onInsertedIntoParent() {}
 
         void notifyHierarchyStateChanged(GraphNode* node, bool enabled);
 

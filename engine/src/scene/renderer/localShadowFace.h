@@ -12,6 +12,7 @@
 namespace visutwin::canvas
 {
     class Camera;
+    class ComponentRegistry;
     class GraphicsDevice;
     class Light;
     class ProgramLibrary;
@@ -43,7 +44,8 @@ namespace visutwin::canvas
      * the single clustered atlas pass, so the two cannot drift.
      */
     void drawLocalShadowFace(GraphicsDevice* device, ProgramLibrary* programLibrary,
-        DepthOnlyShaders& shaders, Light* light, int face, Camera* shadowCamera);
+        DepthOnlyShaders& shaders, Light* light, int face, Camera* shadowCamera,
+        ComponentRegistry* registry);
 
     /**
      * Clears the depth of `rect` (pixels) in the bound depth-only target to 1.0,

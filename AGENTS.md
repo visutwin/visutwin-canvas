@@ -447,7 +447,7 @@ systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
   visit INACTIVE components too, so the sync can remove them.
 - **A joint lets go of its constraint BEFORE the world frees it.** The world destroys
   every joint touching a body it destroys, so `RigidBodyComponent` calls
-  `JointComponent::bodyWillBeDestroyed(entity)` before each `destroyBody` (a setter
+  `JointComponent::bodyWillBeDestroyed(registry(), entity)` before each `destroyBody` (a setter
   that rebuilds the body, `releaseBody`, the destructor); each joint naming that entity
   drops its constraint and is rebuilt against the new body. A joint also watches its
   ends' `destroy` events: a destroyed end drops the joint and clears the reference, and
@@ -1760,21 +1760,40 @@ present, but the rule below never depends on reading it.
   leave the original alive, owned and still subscribed behind an id that no longer
   resolves to it. `remove` erases from the owning vector and both
   maps together — partial erasure is the bug this pairing exists to prevent.
-- **A component type's `instances()` list keeps CREATION order, and a destroyed
+- **Component lists are PER ENGINE** (`Engine::components()`, a `ComponentRegistry`:
+  `components().instances<RenderComponent>()`; `instancesOf<T>(registry)` when the registry
+  may be null). Two engines in one process never see each other's components. Code reaches
+  the registry through what it already holds: a system through `componentRegistry()`, a
+  component through `registry()`, the renderer and the composition through the scene
+  (`Scene::componentRegistry()`, set by the engine), the shadow passes through
+  `ShadowRenderer::componentRegistry()`, which `collectShadowCasters` and
+  `JointComponent::bodyWillBeDestroyed` take explicitly. A component joins its engine's
+  registry from its constructor (`listInstance(this)`, resolved from its system's engine or
+  its entity's hierarchy); one built in no engine's hierarchy — every glTF container entity
+  — joins when its entity is inserted under an engine's root
+  (`Entity::onInsertedIntoParent`), and moves with it to another engine. A component that
+  outlives its engine is let go by the registry's destructor. A new component type calls
+  `listInstance(this)` / `unlistInstance()` and includes `componentRegistry.h` in its .cpp;
+  a test with no engine gives its components and composition a `ComponentRegistry` of its
+  own (`joinRegistry`, `LayerComposition::setComponentRegistry`), or they are in no list
+  at all. The batch mesh instances live there too
+  (`ComponentRegistry::batchMeshInstances`), filled by the engine's `BatchManager`.
+- **A component type's list keeps CREATION order, and a destroyed
   component leaves a NULL in it until the list is next read**
-  (`framework/components/componentInstanceList.h`). Every component type registers in a
-  `ComponentInstanceList<T>` from its constructor and leaves it from its destructor;
-  removal finds the slot by binary search on a creation serial and nulls it, and
+  (`framework/components/componentInstanceList.h`). The order is a process-wide creation
+  serial, so a component listed LATE (a container inserted after newer components were
+  made) is inserted at its creation position rather than appended;
+  removal finds the slot by binary search on that serial and nulls it, and
   `items()` closes the holes in one ordered pass. A `std::erase` on a vector — a scan
   and a shift per removal — would make destroying K of N components cost K x N. Two
-  rules follow. Every loop over `instances()` checks each entry for null — the list
+  rules follow. Every loop over a component list checks each entry for null — the list
   never hands out a hole, but a component destroyed during the loop becomes one under
   it (where an erase would shift the survivors and the loop skip one). And a destructor
   or teardown hook that
   walks its own type's list uses `forEachLive`, which does not compact, because it may
   run inside someone else's loop over `items()`. A new component type registers the
-  same way; `tests/componentInstanceListTests.cpp` holds order, holes and a destroy
-  mid-walk. `ElementComponent`'s destructor sweeps the elements for `_maskedBy` only
+  same way; `tests/componentInstanceListTests.cpp` holds order, holes, a destroy
+  mid-walk, late listing, two engines and a component outliving its engine. `ElementComponent`'s destructor sweeps the elements for `_maskedBy` only
   if it was ever handed out as a mask.
 - **A node's `children()` follows the same contract.** Each child knows its slot
   (`_slotInParent`); `removeChild` (and deleting an attached node) leaves a NULL in the
@@ -2036,12 +2055,15 @@ present, but the rule below never depends on reading it.
   indirect draws. `tests/gpuInstanceCullTests.cpp` (label `gpu`) culls on the real device
   and compares the read-back arguments and instances with a CPU cull; no example
   renders with GPU culling on.
-- **GPU instance culling has ONE output per mesh instance and runs once a frame, before
-  anything draws.** With exactly one camera drawing, it culls to that camera's frustum;
-  with more, it keeps every instance so each view is complete. Culled per camera into
-  the one output, every view would draw the LAST camera's set. A per-camera output is
-  the open item
-  if multi-camera scenes need the saving.
+- **GPU instance culling has one output PER CAMERA and runs once a frame, before
+  anything draws.** `dispatchGpuInstanceCulling` culls every GPU-culled mesh instance once
+  for each camera in the frame's render actions, into that camera's own output
+  (`MeshInstance::gpuCullOutputFor`), and a draw binds the output culled for ITS camera in
+  this frame (`culledOutput(camera, renderVersion)`); a camera with none — a picker, a
+  bake, an appended pass — draws the whole instance buffer, as do the shadow passes. One
+  output shared by the cameras made every view draw the last camera's set. An output not
+  culled for 120 frames is dropped. `tests/gpuInstanceCullTests.cpp` (label `gpu`) culls
+  for two cameras through the renderer and reads each output back.
 - **An `ASPECT_AUTO` camera's aspect is resolved BEFORE culling**
   (`Renderer::resolveAutoAspectRatio` at the top of the graph build); the draw-time
   assignment from the actual target stays and the cull cache's frustum compare still
@@ -2531,8 +2553,8 @@ present, but the rule below never depends on reading it.
   change that rebuilds render targets both destroy one.
 - **Every caster sweep goes through `collectShadowCasters`, and it takes the
   CAMERA.** Batch mesh instances belong to no `RenderComponent` — `BatchManager`
-  registers them straight with the scene layers — so a hand-written sweep of
-  `RenderComponent::instances()` misses them. A directional FIT and PASS with their own
+  registers them straight with the scene layers — so a hand-written sweep of the
+  engine's render components misses them. A directional FIT and PASS with their own
   sweeps disagree about exactly that: the fit sizes the shadow map's depth range to the
   unbatched scene while the pass draws batches into it, so a batch outside that range
   is clipped out of the map and its shadow is simply absent (`dynamic-batching` shows
@@ -2907,10 +2929,7 @@ What stays HERE is only what bites during UNRELATED work.
   hides it; a ribbed coat normal map shows it). Reference: `clearcoat` on Vulkan reads
   a mean absolute difference of 0.002 counts against Metal on the whole 900x700 frame,
   with 12 pixels above 8 counts — isolated specular glints.
-- **Queued — none a correctness bug:** component `_instances`
-  lists are process-global (two engines in one process see each other's components; NOT a
-  simple move to per-engine lists, because entities instantiated from a glTF container have
-  no engine when their RenderComponents are constructed — see the 2026-09-30 log entry); the
+- **Queued — none a correctness bug:** the
   binding footprint exceeds WebGPU's defaults (Metal 36 texture slots, Vulkan 7 sets). The
   parsers derive tangents through one `generateTangents` / `tangentFromNormal`
   (`packedVertex.h`), whose sign rule is opposite to `calculateTangents`; glTF animation

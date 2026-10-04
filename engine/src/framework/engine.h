@@ -29,6 +29,7 @@ namespace visutwin::canvas
 {
     class PhysicsWorld;
     class ComponentSystemRegistry;
+    class ComponentRegistry;
 
     /**
      * @brief Central application orchestrator managing scenes, rendering, input, and resource loading.
@@ -54,6 +55,11 @@ namespace visutwin::canvas
         void start();
 
         const std::shared_ptr<Scene>& scene() const { return _scene; }
+
+        /// This engine's live components, a creation-ordered list per type
+        /// (`components().instances<RenderComponent>()`). Another engine in the process
+        /// has its own.
+        ComponentRegistry& components() const { return *_components; }
         const std::shared_ptr<GraphicsDevice>& graphicsDevice() const { return _graphicsDevice; }
         const std::shared_ptr<ForwardRenderer>& renderer() const { return _renderer; }
 
@@ -199,6 +205,10 @@ namespace visutwin::canvas
         void fillFrameStats();
 
         std::shared_ptr<GraphicsDevice> _graphicsDevice;
+
+        // Declared before the root, so it outlives the components the root's teardown
+        // destroys (each takes itself out of it on the way).
+        std::unique_ptr<ComponentRegistry> _components;
 
         std::unique_ptr<Entity> _root;
         std::shared_ptr<ForwardRenderer> _renderer;

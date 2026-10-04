@@ -24,6 +24,7 @@ namespace visutwin::canvas
 
     template <class T>
     class ComponentInstanceList;
+    class ComponentRegistry;
 
     inline ComponentTypeID nextComponentTypeID() {
         static ComponentTypeID lastID = 0;
@@ -114,7 +115,24 @@ namespace visutwin::canvas
             return it != map.end() ? static_cast<T*>(it->second) : node;
         }
 
+        /// The registry of the engine this component belongs to, or null while its entity is
+        /// in no engine's hierarchy (and for a type no registry lists).
+        [[nodiscard]] ComponentRegistry* registry() const { return _registry; }
+
+        /// Moves this component into `registry` (out of the one it was in), at its creation
+        /// position. Entity calls it when its hierarchy lands under an engine's root.
+        void joinRegistry(ComponentRegistry* registry);
+
     protected:
+        /// Lists this component in its engine's registry under type T, from T's constructor
+        /// (defined in componentRegistry.h, which that constructor's file includes). A
+        /// component whose engine is not known yet is listed when it is.
+        template <class T>
+        void listInstance(T* self);
+
+        /// Takes this component out of its registry for good, from T's destructor.
+        void unlistInstance();
+
         // Called internally when the enabled setter changes the value.
         // Only fires onEnable/onDisable if entity is also enabled.
         virtual void onSetEnabled(bool oldValue, bool newValue);
@@ -123,11 +141,23 @@ namespace visutwin::canvas
         bool _enabled = true;
 
     private:
-        // Which entry of its type's instance list this component is; ComponentInstanceList
-        // finds the slot by it.
+        friend class ComponentRegistry;
         template <class T>
         friend class ComponentInstanceList;
+
+        /// The registry this component's engine owns, resolved from its system or from its
+        /// entity's hierarchy; null when neither leads to an engine yet.
+        [[nodiscard]] ComponentRegistry* resolveRegistry() const;
+
+        // Process-wide creation order: a list keeps its components sorted by it, so a
+        // component listed late still lands where its creation put it.
+        inline static std::uint64_t _lastInstanceSerial = 0;
         std::uint64_t _instanceSerial = 0;
+
+        ComponentRegistry* _registry = nullptr;
+        // Set by listInstance<T>: how to add to and remove from T's list in a registry.
+        void (*_listAdd)(ComponentRegistry&, Component*) = nullptr;
+        void (*_listRemove)(ComponentRegistry&, Component*) = nullptr;
 
         IComponentSystem* _system;
     };

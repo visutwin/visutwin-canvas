@@ -11,6 +11,8 @@
 #include <spdlog/spdlog.h>
 
 #include "layoutGroupComponent.h"
+
+#include "framework/components/componentRegistry.h"
 #include "layoutGroupComponentData.h"
 #include "framework/components/componentSystem.h"
 #include "framework/engine.h"
@@ -42,7 +44,7 @@ namespace visutwin::canvas
             constexpr int kMaxIterations = 100;
             for (int iteration = 0; iteration < kMaxIterations; ++iteration) {
                 std::vector<LayoutGroupComponent*> groups;
-                for (LayoutGroupComponent* group : LayoutGroupComponent::instances()) {
+                for (LayoutGroupComponent* group : instancesOf<LayoutGroupComponent>(componentRegistry())) {
                     if (group && group->entity() && group->entity()->engine() == _engine && group->active()) {
                         groups.push_back(group);
                     }

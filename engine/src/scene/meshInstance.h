@@ -27,6 +27,7 @@ namespace visutwin::canvas
     class GSplatInstance;
     class ParticleEmitter;
     class InstanceCuller;
+    class Camera;
     class SkinBatchInstance;
 }
 
@@ -239,14 +240,17 @@ namespace visutwin::canvas
         // renderer tests each instance's bounding sphere against the camera
         // frustum via a backend compute pass and writes only the visible
         // instances into a compacted buffer; the draw call then uses indirect
-        // instancing (see Renderer::dispatchGpuInstanceCulling).
+        // instancing (see Renderer::dispatchGpuInstanceCulling). Each camera that draws
+        // the frame gets an output of its own, so every view draws what IT sees; a draw
+        // for a camera that was not culled this frame (a picker, a bake) takes the whole
+        // instance buffer.
         //
         // boundingSphereRadius is the per-instance bounding sphere radius in
         // local space — typically the mesh's own bounding sphere radius
         // multiplied by the largest instance scale, plus a safety margin.
         //
-        // Re-call this method if the source instance count changes — the
-        // compacted buffer wrapper is sized once at enable time.
+        // Re-call this method if the source instance count changes — each camera's
+        // compacted buffer is sized for the count at enable time.
         void enableGpuInstanceCulling(GraphicsDevice* device, float boundingSphereRadius);
 
         bool gpuCullingEnabled() const { return _gpuCullingEnabled; }
@@ -254,7 +258,30 @@ namespace visutwin::canvas
         /// dispatch sweeps the whole scene for them, and skips the sweep at zero.
         static int gpuCulledInstanceCount() { return GpuCullingCount::live; }
         float instanceCullRadius() const { return _instanceCullRadius; }
-        InstanceCuller* instanceCuller() const { return _instanceCuller.get(); }
+
+        /// One camera's GPU-culled view of the instances: the culler, whose indirect
+        /// arguments the draw reads, and its compacted visible set wrapped for slot 5.
+        struct GpuCullOutput
+        {
+            const Camera* camera = nullptr;
+            std::unique_ptr<InstanceCuller> culler;
+            std::shared_ptr<VertexBuffer> compacted;
+            // GraphicsDevice::renderVersion() of the frame it was last culled in.
+            int culledVersion = -1;
+        };
+
+        /// The output for `camera`, created on first use; null when the device cannot
+        /// make one. A pointer into a list a later call may grow: use it at once.
+        GpuCullOutput* gpuCullOutputFor(const Camera* camera);
+
+        /// The output culled for `camera` in frame `renderVersion`, or null: the draw then
+        /// takes the whole instance buffer.
+        const GpuCullOutput* culledOutput(const Camera* camera, int renderVersion) const;
+
+        /// Drops the outputs not culled since frame `oldestVersion` (a camera gone, or no
+        /// longer drawing). A camera address reused by a new camera only ever gets an
+        /// output culled again for it before it is drawn.
+        void pruneGpuCullOutputs(int oldestVersion);
 
         // --- GPU skinning ---
 
@@ -406,12 +433,10 @@ namespace visutwin::canvas
         SkinBatchInstance* _skinBatchInstance = nullptr;
         InstancingData _instancingData;
 
-        // GPU instance culling: per-instance culler owning compacted output +
-        // indirect args buffers. _cachedCompactedVb wraps the culler's
-        // compacted native buffer as a VertexBuffer so the existing indirect
-        // draw path at renderer.cpp:818 can bind it at slot 5.
-        std::unique_ptr<InstanceCuller> _instanceCuller;
-        std::shared_ptr<VertexBuffer> _cachedCompactedVb;
+        // GPU instance culling: one output per camera that draws, made on the device
+        // culling was enabled with.
+        GraphicsDevice* _gpuCullDevice = nullptr;
+        std::vector<GpuCullOutput> _gpuCullOutputs;
         float _instanceCullRadius = 0.0f;
         bool _gpuCullingEnabled = false;
         // Counts this instance in gpuCulledInstanceCount() for as long as it lives with

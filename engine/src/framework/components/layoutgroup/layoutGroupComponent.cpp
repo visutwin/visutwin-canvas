@@ -5,6 +5,8 @@
 //
 #include "layoutGroupComponent.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include <algorithm>
 #include <bit>
 #include <limits>
@@ -40,12 +42,12 @@ namespace visutwin::canvas
     LayoutGroupComponent::LayoutGroupComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
-        _instanceList.add(this);
+        listInstance(this);
     }
 
     LayoutGroupComponent::~LayoutGroupComponent()
     {
-        _instanceList.remove(this);
+        unlistInstance();
     }
 
     void LayoutGroupComponent::cloneFrom(const Component* source)

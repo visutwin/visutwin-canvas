@@ -24,6 +24,7 @@
 #include "scene/constants.h"
 #include "scene/graphics/renderPassConstants.h"
 #include "scene/materials/standardMaterial.h"
+#include "framework/components/componentRegistry.h"
 
 using namespace visutwin::canvas;
 
@@ -73,7 +74,7 @@ protected:
         root()->addChild(labEntity);
 
         // set up materials — enable shadows, disable baked AO, disable blending
-        for (auto* render : RenderComponent::instances()) {
+        for (auto* render : engine()->components().instances<RenderComponent>()) {
             if (!render || !render->entity()) continue;
             auto* owner = render->entity();
             if (owner != labEntity && !owner->isDescendantOf(labEntity)) continue;

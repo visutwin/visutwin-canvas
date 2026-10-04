@@ -175,6 +175,11 @@ namespace visutwin::canvas
          */
         void onHierarchyStateChanged(bool enabled) override;
 
+        /// Lists every component of this subtree in the registry of the engine it is now
+        /// under (a glTF container's components wait for this: they are built in no engine's
+        /// hierarchy), moving any from another engine's registry.
+        void onInsertedIntoParent() override;
+
         /**
          * Deep copy of this entity and its Entity descendants: name,
          * tags, local transform, enabled flag, and every component through

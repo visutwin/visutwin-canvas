@@ -15,6 +15,7 @@
 
 namespace visutwin::canvas
 {
+    class ComponentRegistry;
     class GraphicsDevice;
     class Scene;
 
@@ -40,6 +41,9 @@ namespace visutwin::canvas
     {
     public:
         explicit BatchManager(GraphicsDevice* device);
+        /// Takes its batch mesh instances out of the registry that lists them for the
+        /// shadow passes, which would otherwise keep pointers into freed batches.
+        ~BatchManager();
 
         /** Register a batch group configuration. */
         void addGroup(const BatchGroup& group);
@@ -102,17 +106,6 @@ namespace visutwin::canvas
 
         const std::vector<std::unique_ptr<Batch>>& batches() const { return _batches; }
 
-        /**
-         * Every live batch MeshInstance, across all BatchManagers.
-         *
-         * Batch mesh instances belong to no RenderComponent — they are registered
-         * straight with the scene layers — so passes that sweep
-         * RenderComponent::instances() (the shadow passes) would otherwise never see
-         * them and batched geometry would cast no shadows. Maintained by
-         * prepare()/destroy().
-         */
-        static const std::vector<MeshInstance*>& batchMeshInstances() { return _batchMeshInstances; }
-
         /** Get a batch group by id. Returns nullptr if not found. */
         const BatchGroup* getGroupById(int groupId) const;
 
@@ -148,6 +141,10 @@ namespace visutwin::canvas
         std::unordered_map<int, BatchGroup> _groups;
         std::vector<std::unique_ptr<Batch>> _batches;
 
-        static std::vector<MeshInstance*> _batchMeshInstances;
+        // Where this manager's batch mesh instances are listed for the shadow passes
+        // (ComponentRegistry::batchMeshInstances): the registry of the scene it last
+        // generated into. They belong to no RenderComponent, so a sweep of the render
+        // components would miss them and batched geometry would cast no shadows.
+        ComponentRegistry* _batchRegistry = nullptr;
     };
 }

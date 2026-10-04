@@ -139,41 +139,9 @@ namespace visutwin::canvas
             return;
         }
 
-        _instanceCuller = device->createInstanceCuller();
-        if (!_instanceCuller) {
-            spdlog::warn("[MeshInstance] Failed to create InstanceCuller");
-            return;
-        }
-
-        // Pre-allocate the compacted buffer so we can wrap it as a VertexBuffer
-        // before the first frame. The underlying native buffer stays stable
-        // unless the instance count grows beyond this capacity.
-        const uint32_t capacity = static_cast<uint32_t>(_instancingData.count);
-        _instanceCuller->reserve(capacity);
-
-        void* compactedNative = _instanceCuller->compactedNativeBuffer();
-        void* indirectNative  = _instanceCuller->indirectArgsNativeBuffer();
-        if (!compactedNative || !indirectNative) {
-            spdlog::warn("[MeshInstance] Culler did not allocate buffers after reserve()");
-            _instanceCuller.reset();
-            return;
-        }
-
-        // Wrap the compacted MTL::Buffer* as a VertexBuffer. Reuse the same
-        // instancing-formatted layout the source buffer has so the vertex
-        // descriptor treats it identically (slot 5, per-instance step).
-        auto format = _instancingData.vertexBuffer->format();
-        _cachedCompactedVb = device->createVertexBufferFromNativeBuffer(
-            format, _instancingData.count, compactedNative);
-        if (!_cachedCompactedVb) {
-            spdlog::warn("[MeshInstance] Failed to wrap compacted buffer as VertexBuffer");
-            _instanceCuller.reset();
-            return;
-        }
-
-        // Wire the indirect draw path: renderer.cpp:818 takes the indirect
-        // branch iff all three of these are set.
-        setIndirectInstancing(_cachedCompactedVb, indirectNative, /*slot=*/0);
+        // Each camera's output is made when the renderer first culls for it.
+        _gpuCullDevice = device;
+        _gpuCullOutputs.clear();
 
         _instanceCullRadius = boundingSphereRadius;
         _gpuCullingEnabled = true;
@@ -181,6 +149,64 @@ namespace visutwin::canvas
 
         spdlog::info("[MeshInstance] GPU instance culling enabled: {} instances, radius={:.2f}",
             _instancingData.count, boundingSphereRadius);
+    }
+
+    MeshInstance::GpuCullOutput* MeshInstance::gpuCullOutputFor(const Camera* camera)
+    {
+        for (auto& output : _gpuCullOutputs) {
+            if (output.camera == camera) {
+                return &output;
+            }
+        }
+        if (!_gpuCullingEnabled || !_gpuCullDevice || !_instancingData.vertexBuffer) {
+            return nullptr;
+        }
+
+        GpuCullOutput output;
+        output.camera = camera;
+        output.culler = _gpuCullDevice->createInstanceCuller();
+        if (!output.culler) {
+            spdlog::warn("[MeshInstance] Failed to create InstanceCuller");
+            return nullptr;
+        }
+        // Allocated for every instance, so the native buffer stays put while the
+        // count does.
+        output.culler->reserve(static_cast<uint32_t>(_instancingData.count));
+        void* compactedNative = output.culler->compactedNativeBuffer();
+        if (!compactedNative || !output.culler->indirectArgsNativeBuffer()) {
+            spdlog::warn("[MeshInstance] Culler did not allocate buffers after reserve()");
+            return nullptr;
+        }
+        // The source buffer's layout, so the vertex stage reads the compacted copy the
+        // same way (slot 5, per-instance step).
+        output.compacted = _gpuCullDevice->createVertexBufferFromNativeBuffer(
+            _instancingData.vertexBuffer->format(), _instancingData.count, compactedNative);
+        if (!output.compacted) {
+            spdlog::warn("[MeshInstance] Failed to wrap compacted buffer as VertexBuffer");
+            return nullptr;
+        }
+        _gpuCullOutputs.push_back(std::move(output));
+        return &_gpuCullOutputs.back();
+    }
+
+    const MeshInstance::GpuCullOutput* MeshInstance::culledOutput(const Camera* camera,
+        const int renderVersion) const
+    {
+        for (const auto& output : _gpuCullOutputs) {
+            if (output.camera == camera) {
+                return output.culledVersion == renderVersion ? &output : nullptr;
+            }
+        }
+        return nullptr;
+    }
+
+    void MeshInstance::pruneGpuCullOutputs(const int oldestVersion)
+    {
+        // The buffers outlive any frame still reading them: Metal's command buffers
+        // retain what they bind, and Vulkan defers the destroy past the frames in flight.
+        std::erase_if(_gpuCullOutputs, [oldestVersion](const GpuCullOutput& output) {
+            return output.culledVersion < oldestVersion;
+        });
     }
 
     void MeshInstance::setSkinInstance(const std::shared_ptr<SkinInstance>& skinInstance)

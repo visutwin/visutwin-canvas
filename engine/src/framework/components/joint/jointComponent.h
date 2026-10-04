@@ -14,7 +14,6 @@
 #include "core/math/vector3.h"
 #include "framework/components/component.h"
 #include "framework/physics/physicsWorld.h"
-#include "framework/components/componentInstanceList.h"
 
 namespace visutwin::canvas
 {
@@ -49,7 +48,6 @@ namespace visutwin::canvas
         void onDisable() override;
         void resolveClonedReferences(const Component* source, const CloneNodeMap& map) override;
 
-        static const std::vector<JointComponent*>& instances() { return _instanceList.items(); }
 
         PhysicsJointType type() const { return _type; }
         void setType(PhysicsJointType type);
@@ -97,17 +95,16 @@ namespace visutwin::canvas
         void releaseJoint(PhysicsWorld& world);
 
         /// Called by RigidBodyComponent BEFORE it destroys the physics body of
-        /// `owner`. The world frees every constraint touching a body it destroys, so
+        /// `owner`, with the registry of the body's engine. The world frees every constraint touching a body it destroys, so
         /// each joint naming `owner` as an end releases its own first, while the
         /// pointer is still good, and is rebuilt against the new body once it exists.
-        static void bodyWillBeDestroyed(const Entity* owner);
+        static void bodyWillBeDestroyed(ComponentRegistry* registry, const Entity* owner);
 
     private:
         void markStale() { _stale = true; }
         void dropJoint();
         void watchEnd(Entity* entity, DestroyWatch& watch, bool isA);
 
-        inline static ComponentInstanceList<JointComponent> _instanceList;
 
         PhysicsJointType _type = PhysicsJointType::Fixed;
         Entity* _entityA = nullptr;

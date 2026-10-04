@@ -6,6 +6,8 @@
 #pragma once
 
 #include "buttonComponent.h"
+
+#include "framework/components/componentRegistry.h"
 #include "buttonComponentData.h"
 #include "framework/components/componentSystem.h"
 #include "framework/engine.h"
@@ -22,7 +24,7 @@ namespace visutwin::canvas
             if (engine && engine->systems()) {
                 engine->systems()->on("update", [engine](const float dt) {
                     // By index: a handler may add a button.
-                    const auto& buttons = ButtonComponent::instances();
+                    const auto& buttons = engine->components().instances<ButtonComponent>();
                     for (size_t i = 0; i < buttons.size(); ++i) {
                         ButtonComponent* button = buttons[i];
                         if (!button || !button->entity() || button->entity()->engine() != engine || !button->active()) {

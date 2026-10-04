@@ -77,7 +77,6 @@ namespace visutwin::canvas
             return;
         }
         drawLocalShadowFace(_graphicsDevice.get(), programLibrary.get(), shaders,
-            _light, _face, _shadowCamera);
-        (void)_shadowRenderer;
+            _light, _face, _shadowCamera, _shadowRenderer->componentRegistry());
     }
 }

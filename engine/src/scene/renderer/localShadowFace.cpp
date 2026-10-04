@@ -147,7 +147,8 @@ void main() {}
     }
 
     void drawLocalShadowFace(GraphicsDevice* device, ProgramLibrary* programLibrary,
-        DepthOnlyShaders& shaders, Light* light, const int face, Camera* shadowCamera)
+        DepthOnlyShaders& shaders, Light* light, const int face, Camera* shadowCamera,
+        ComponentRegistry* registry)
     {
         if (!device || !programLibrary || !light || !shadowCamera || !shadowCamera->node()) {
             return;
@@ -175,7 +176,7 @@ void main() {}
         // to no RenderComponent and would otherwise cast no shadow.
         const Frustum shadowFrustum = buildCameraFrustum(shadowCamera, shadowCamera->node());
         std::vector<MeshInstance*> casters;
-        collectShadowCasters(casters);
+        collectShadowCasters(casters, registry);
         for (auto* meshInstance : casters) {
             if (!meshInstance || !meshInstance->visible()) {
                 continue;

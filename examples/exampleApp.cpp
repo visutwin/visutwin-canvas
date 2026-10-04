@@ -42,6 +42,7 @@
 #include "framework/extras/miniStats.h"
 #include "core/log.h"
 #include "overlay/imguiOverlay.h"
+#include "framework/components/componentRegistry.h"
 
 namespace visutwin::canvas
 {
@@ -214,7 +215,7 @@ namespace visutwin::canvas
             int value = -1;
             if (std::sscanf(type, "%d", &value) == 1 && value >= 0) {
                 int lights = 0;
-                for (auto* light : LightComponent::instances()) {
+                for (auto* light : _engine->components().instances<LightComponent>()) {
                     if (light && light->type() == LightType::LIGHTTYPE_DIRECTIONAL && light->castShadows()) {
                         light->setShadowType(static_cast<ShadowType>(value));
                         ++lights;
@@ -233,7 +234,7 @@ namespace visutwin::canvas
             int value = -1;
             if (std::sscanf(type, "%d", &value) == 1 && value >= 0) {
                 int lights = 0;
-                for (auto* light : LightComponent::instances()) {
+                for (auto* light : _engine->components().instances<LightComponent>()) {
                     if (light && light->castShadows() && (light->type() == LightType::LIGHTTYPE_SPOT ||
                         light->type() == LightType::LIGHTTYPE_OMNI)) {
                         light->setShadowType(static_cast<ShadowType>(value));
@@ -262,7 +263,7 @@ namespace visutwin::canvas
             int shadows = 0;
             if (std::sscanf(fill, "%f,%f,%f,%d", &pitch, &yaw, &intensity, &shadows) >= 3) {
                 const LightComponent* key = nullptr;
-                for (const auto* light : LightComponent::instances()) {
+                for (const auto* light : _engine->components().instances<LightComponent>()) {
                     if (light && light->type() == LightType::LIGHTTYPE_DIRECTIONAL && light->castShadows()) {
                         key = light;
                         break;
@@ -750,7 +751,7 @@ namespace visutwin::canvas
         }
 
         bool hasAny = false;
-        for (auto* render : RenderComponent::instances()) {
+        for (auto* render : entity->findComponents<RenderComponent>()) {
             if (!render || !render->entity()) {
                 continue;
             }

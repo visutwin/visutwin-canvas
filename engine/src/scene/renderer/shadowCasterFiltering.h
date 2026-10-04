@@ -15,22 +15,21 @@ namespace visutwin::canvas
 {
     class Camera;
     class CameraComponent;
+    class ComponentRegistry;
     class Material;
     class MeshInstance;
     class ProgramLibrary;
     class RenderComponent;
     class Shader;
 
-    // Checks component/entity state and camera layer compatibility for shadow casting.
-    bool shouldRenderShadowRenderComponent(const RenderComponent* renderComponent, const Camera* camera);
-
-    // The same test for a whole sweep: what it needs to know about the camera — its
-    // component, found by a search of every camera — is resolved ONCE here instead of
-    // once per render component.
+    // Checks component/entity state and camera layer compatibility for shadow casting,
+    // for a whole sweep: what it needs to know about the camera — its component, found by
+    // a search of the engine's cameras — is resolved ONCE here instead of once per render
+    // component.
     class ShadowCasterComponentFilter
     {
     public:
-        explicit ShadowCasterComponentFilter(const Camera* camera);
+        ShadowCasterComponentFilter(ComponentRegistry* registry, const Camera* camera);
         [[nodiscard]] bool accepts(const RenderComponent* renderComponent) const;
 
     private:
@@ -39,16 +38,18 @@ namespace visutwin::canvas
         const CameraComponent* _cameraComponent = nullptr;
     };
 
-    // Collects every shadow caster in the scene: each enabled RenderComponent's mesh
-    // instances plus the batch mesh instances, which belong to no RenderComponent and
-    // would otherwise cast nothing. Appends; does not clear.
+    // Collects every shadow caster of the engine whose components `registry` holds: each
+    // enabled RenderComponent's mesh instances plus the batch mesh instances, which belong
+    // to no RenderComponent and would otherwise cast nothing. Appends; does not clear.
+    // A null registry collects nothing.
     //
     // `camera` filters components by layer compatibility, and a caller that draws or
     // fits for a particular camera must pass it. Every caller that collects casters
     // goes through here rather than sweeping itself: two sweeps drift apart, and if
     // the directional fit and pass disagree about which meshes cast (batch meshes, for
     // one), the fit sizes the shadow map's depth range to a scene the pass does not draw.
-    void collectShadowCasters(std::vector<MeshInstance*>& casters, const Camera* camera = nullptr);
+    void collectShadowCasters(std::vector<MeshInstance*>& casters, ComponentRegistry* registry,
+        const Camera* camera = nullptr);
 
     // The mesh-level caster rules that do NOT depend on a camera: castShadow, node
     // state and the presence of geometry. Material blending is not one of them: a
@@ -75,7 +76,8 @@ namespace visutwin::canvas
     // Clears `casters` first, keeps collection order. What is left per light is a
     // bounds test, so a frame with many shadowed local lights collects and filters the
     // scene once, not once per light.
-    void collectLightIndependentShadowCasters(std::vector<ShadowCasterBounds>& casters);
+    void collectLightIndependentShadowCasters(std::vector<ShadowCasterBounds>& casters,
+        ComponentRegistry* registry);
 
     // Checks mesh-level shadow caster rules (castShadow/material/frustum/cull/node state).
     bool shouldRenderShadowMeshInstance(MeshInstance* meshInstance, Camera* shadowCamera);

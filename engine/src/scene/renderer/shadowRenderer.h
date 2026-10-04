@@ -14,11 +14,17 @@ namespace visutwin::canvas
 {
     class LightTextureAtlas;
     class Renderer;
+    class ComponentRegistry;
 
     class ShadowRenderer
     {
     public:
         ShadowRenderer() = default;
+
+        /// The components of the engine whose shadows the passes render: the casters come
+        /// from it. Refreshed by the renderer at the start of every frame graph build.
+        ComponentRegistry* componentRegistry() const { return _componentRegistry; }
+        void setComponentRegistry(ComponentRegistry* registry) { _componentRegistry = registry; }
 
         /// Whether this light's shadow map should be re-rendered this frame. PURE —
         /// call it as often as you like. A SHADOWUPDATE_THISFRAME request is consumed
@@ -35,5 +41,6 @@ namespace visutwin::canvas
         static std::unique_ptr<Camera> createShadowCamera(ShadowType shadowType, LightType type, int face);
 
     private:
+        ComponentRegistry* _componentRegistry = nullptr;
     };
 }

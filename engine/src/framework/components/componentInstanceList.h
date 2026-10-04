@@ -20,8 +20,8 @@ namespace visutwin::canvas
      * @brief Creation-ordered list of a component type's live instances.
      * @ingroup group_framework_ecs
      *
-     * Every component type keeps one (`T::instances()`), and the renderer, the systems
-     * and the examples sweep it. The ORDER is part of the contract: it is the order
+     * An engine's ComponentRegistry keeps one per component type, and the renderer, the
+     * systems and the examples sweep it. The ORDER is part of the contract: it is the order
      * draws of equal sort key keep, the order lights fill their slots in and the order
      * scripts run in, so a removal must not move the survivors.
      *
@@ -45,13 +45,21 @@ namespace visutwin::canvas
     class ComponentInstanceList
     {
     public:
-        /// Appends a newly constructed component.
+        /// Adds a component at its creation position (its serial, given at construction).
+        /// Appending is the common case; a component listed late, when its entity reached
+        /// an engine after newer components did, is inserted where it belongs.
         void add(T* component)
         {
-            const std::uint64_t serial = ++_lastSerial;
-            static_cast<Component*>(component)->_instanceSerial = serial;
-            _items.push_back(component);
-            _serials.push_back(serial);
+            const std::uint64_t serial = static_cast<const Component*>(component)->_instanceSerial;
+            if (_serials.empty() || serial > _serials.back()) {
+                _items.push_back(component);
+                _serials.push_back(serial);
+                return;
+            }
+            const auto it = std::lower_bound(_serials.begin(), _serials.end(), serial);
+            const auto slot = it - _serials.begin();
+            _items.insert(_items.begin() + slot, component);
+            _serials.insert(it, serial);
         }
 
         /// Takes a component out without moving the others. O(log n).
@@ -115,7 +123,6 @@ namespace visutwin::canvas
         // pointers so neither a removal nor a compaction has to touch a component.
         std::vector<T*> _items;
         std::vector<std::uint64_t> _serials;
-        std::uint64_t _lastSerial = 0;
         std::size_t _holes = 0;
     };
 }

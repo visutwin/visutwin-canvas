@@ -12,6 +12,7 @@
 namespace visutwin::canvas
 {
     class ShadowRenderer;
+    class ComponentRegistry;
 
     /**
      * A render pass used to render directional shadows.
@@ -21,7 +22,7 @@ namespace visutwin::canvas
     {
     public:
         RenderPassShadowDirectional(const std::shared_ptr<GraphicsDevice>& device,
-            Light* light, Camera* camera, int face);
+            Light* light, Camera* camera, int face, ComponentRegistry* registry);
 
         void execute() override;
         void prepareShaders() override;
@@ -31,5 +32,7 @@ namespace visutwin::canvas
         Camera* _camera = nullptr;
         std::shared_ptr<GraphicsDevice> _graphicsDevice;
         int _face = 0;
+        // Whose casters a pass with no prepared list collects.
+        ComponentRegistry* _registry = nullptr;
     };
 }

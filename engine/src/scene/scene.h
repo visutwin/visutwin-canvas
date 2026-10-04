@@ -21,6 +21,7 @@
 namespace visutwin::canvas
 {
     class Camera;
+    class ComponentRegistry;
 
     /**
      * @brief Container for the scene graph, lighting environment, fog, skybox, and layer composition.
@@ -69,6 +70,11 @@ namespace visutwin::canvas
         int skyboxMip() const { return _skyboxMip; }
 
         void setLayers(const std::shared_ptr<LayerComposition>& layers);
+
+        /// The components of the engine this scene renders (set by the engine; null for a
+        /// scene no engine owns). The renderer and the composition sweep it.
+        ComponentRegistry* componentRegistry() const { return _componentRegistry; }
+        void setComponentRegistry(ComponentRegistry* registry);
 
         Immediate* immediate() const { return _immediate; }
 
@@ -194,6 +200,7 @@ namespace visutwin::canvas
         bool _updateShaders = true;
 
         std::shared_ptr<LayerComposition> _layers;
+        ComponentRegistry* _componentRegistry = nullptr;
 
         std::unique_ptr<Sky> _sky;
 

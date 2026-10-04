@@ -5,6 +5,8 @@
 //
 #include "screenComponent.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -20,13 +22,13 @@ namespace visutwin::canvas
     ScreenComponent::ScreenComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
-        _instanceList.add(this);
+        listInstance(this);
         calcProjectionMatrix();
     }
 
     ScreenComponent::~ScreenComponent()
     {
-        _instanceList.remove(this);
+        unlistInstance();
         // Every element bound here loses its screen. On a copy,
         // because each one unbinds itself from this list.
         const auto elements = _elements;

@@ -8,7 +8,7 @@
 #include <algorithm>
 
 #include "framework/components/camera/cameraComponent.h"
-#include "framework/batching/batchManager.h"
+#include "framework/components/componentRegistry.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/entity.h"
 #include "scene/camera.h"
@@ -22,12 +22,12 @@ namespace visutwin::canvas
 {
     namespace
     {
-        CameraComponent* findCameraComponentForCamera(const Camera* camera)
+        CameraComponent* findCameraComponentForCamera(ComponentRegistry* registry, const Camera* camera)
         {
             if (!camera) {
                 return nullptr;
             }
-            for (auto* cameraComponent : CameraComponent::instances()) {
+            for (auto* cameraComponent : instancesOf<CameraComponent>(registry)) {
                 if (cameraComponent && cameraComponent->camera() == camera) {
                     return cameraComponent;
                 }
@@ -55,12 +55,13 @@ namespace visutwin::canvas
         }
     }
 
-    ShadowCasterComponentFilter::ShadowCasterComponentFilter(const Camera* camera)
+    ShadowCasterComponentFilter::ShadowCasterComponentFilter(ComponentRegistry* registry,
+        const Camera* camera)
         // A lightmap bake camera renders one mesh in UV space through its own private
         // layer, but the shadows baked into that mesh have to come from the WHOLE scene —
         // filtering casters by the camera's layers would leave the bake shadowless.
         : _everyLayer(camera && camera->lightmapBakePass()),
-          _cameraComponent(_everyLayer ? nullptr : findCameraComponentForCamera(camera))
+          _cameraComponent(_everyLayer ? nullptr : findCameraComponentForCamera(registry, camera))
     {
     }
 
@@ -72,15 +73,14 @@ namespace visutwin::canvas
         return _everyLayer || cameraRendersRenderComponent(_cameraComponent, renderComponent);
     }
 
-    bool shouldRenderShadowRenderComponent(const RenderComponent* renderComponent, const Camera* camera)
+    void collectShadowCasters(std::vector<MeshInstance*>& casters, ComponentRegistry* registry,
+        const Camera* camera)
     {
-        return ShadowCasterComponentFilter(camera).accepts(renderComponent);
-    }
-
-    void collectShadowCasters(std::vector<MeshInstance*>& casters, const Camera* camera)
-    {
-        const ShadowCasterComponentFilter filter(camera);
-        for (auto* renderComponent : RenderComponent::instances()) {
+        if (!registry) {
+            return;
+        }
+        const ShadowCasterComponentFilter filter(registry, camera);
+        for (auto* renderComponent : registry->instances<RenderComponent>()) {
             if (!filter.accepts(renderComponent)) {
                 continue;
             }
@@ -88,7 +88,7 @@ namespace visutwin::canvas
                 casters.push_back(meshInstance);
             }
         }
-        for (auto* meshInstance : BatchManager::batchMeshInstances()) {
+        for (auto* meshInstance : registry->batchMeshInstances()) {
             casters.push_back(meshInstance);
         }
     }
@@ -113,12 +113,13 @@ namespace visutwin::canvas
         return meshInstance->mesh()->hasVertexBuffer();
     }
 
-    void collectLightIndependentShadowCasters(std::vector<ShadowCasterBounds>& casters)
+    void collectLightIndependentShadowCasters(std::vector<ShadowCasterBounds>& casters,
+        ComponentRegistry* registry)
     {
         casters.clear();
         static thread_local std::vector<MeshInstance*> collected;
         collected.clear();
-        collectShadowCasters(collected);
+        collectShadowCasters(collected, registry);
         casters.reserve(collected.size());
         for (auto* meshInstance : collected) {
             if (!meshInstance || !meshInstance->visible() ||

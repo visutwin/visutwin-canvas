@@ -4,6 +4,8 @@
 // Created by Arnis Lektauers on 11.07.2026
 //
 #include "animComponent.h"
+
+#include "framework/components/componentRegistry.h"
 #include "framework/entity.h"
 #include "scene/graphNode.h"
 #include "scene/morphInstance.h"
@@ -21,12 +23,12 @@ namespace visutwin::canvas
     AnimComponent::AnimComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
-        _instanceList.add(this);
+        listInstance(this);
     }
 
     AnimComponent::~AnimComponent()
     {
-        _instanceList.remove(this);
+        unlistInstance();
     }
 
     void AnimComponent::loadStateGraph(const AnimStateGraph& stateGraph)

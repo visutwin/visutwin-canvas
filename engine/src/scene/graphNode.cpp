@@ -451,6 +451,7 @@ namespace visutwin::canvas
     void GraphNode::onInsertChild(GraphNode* node)
     {
         node->_parent = this;
+        node->onInsertedIntoParent();
 
         // A child is enabled-in-hierarchy only if BOTH the parent hierarchy
         // is enabled AND the child's own _enabled flag is true.

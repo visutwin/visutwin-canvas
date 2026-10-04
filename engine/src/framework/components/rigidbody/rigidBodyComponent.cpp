@@ -5,6 +5,8 @@
 //
 #include "rigidBodyComponent.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include <spdlog/spdlog.h>
 
 #include "framework/components/collision/collisionComponent.h"
@@ -45,16 +47,16 @@ namespace visutwin::canvas
     RigidBodyComponent::RigidBodyComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
-        _instanceList.add(this);
+        listInstance(this);
     }
 
     RigidBodyComponent::~RigidBodyComponent()
     {
         if (_world != nullptr && _body != nullptr) {
-            JointComponent::bodyWillBeDestroyed(entity());
+            JointComponent::bodyWillBeDestroyed(registry(), entity());
             _world->destroyBody(_body);
         }
-        _instanceList.remove(this);
+        unlistInstance();
     }
 
     void RigidBodyComponent::setType(const RigidBodyType type)
@@ -317,7 +319,7 @@ namespace visutwin::canvas
     {
         if (_world != nullptr && _body != nullptr) {
             // A joint on this body is freed with it; let it go first.
-            JointComponent::bodyWillBeDestroyed(entity());
+            JointComponent::bodyWillBeDestroyed(registry(), entity());
             _world->destroyBody(_body);
         }
         _body = nullptr;
@@ -358,7 +360,7 @@ namespace visutwin::canvas
             }
             // A joint on this body is freed with it; let it go first (see
             // JointComponent::bodyWillBeDestroyed).
-            JointComponent::bodyWillBeDestroyed(owner);
+            JointComponent::bodyWillBeDestroyed(registry(), owner);
             world.destroyBody(_body);
             _body = nullptr;
         }
@@ -460,7 +462,7 @@ namespace visutwin::canvas
     void RigidBodyComponent::releaseBody(PhysicsWorld& world)
     {
         if (_body != nullptr) {
-            JointComponent::bodyWillBeDestroyed(entity());
+            JointComponent::bodyWillBeDestroyed(registry(), entity());
             world.destroyBody(_body);
             _body = nullptr;
         }

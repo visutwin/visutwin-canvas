@@ -78,7 +78,7 @@ namespace visutwin::canvas
                 _graphicsDevice->setScissor(static_cast<int>(rect.getX()), static_cast<int>(rect.getY()),
                     static_cast<int>(rect.getZ()), static_cast<int>(rect.getW()));
                 drawLocalShadowFace(_graphicsDevice.get(), programLibrary.get(), shaders,
-                    light, face, rd->shadowCamera.get());
+                    light, face, rd->shadowCamera.get(), _shadowRenderer->componentRegistry());
             }
         }
     }

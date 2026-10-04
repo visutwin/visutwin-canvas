@@ -5,6 +5,8 @@
 //
 #include "elementInput.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -330,7 +332,7 @@ namespace visutwin::canvas
         _visuals.clear();
         // The records the elements hold point into the map just cleared. Through the live
         // list, not the map's keys: a key may be an element that is already gone.
-        for (auto* element : ElementComponent::instances()) {
+        for (auto* element : instancesOf<ElementComponent>(_engine ? &_engine->components() : nullptr)) {
             if (element && element->drawRecord(this)) {
                 element->setDrawRecord(this, nullptr);
             }
@@ -724,7 +726,7 @@ namespace visutwin::canvas
 
         // Every element tree: an element whose parent entity has none (the
         // element directly under a screen, or at the root).
-        for (auto* element : ElementComponent::instances()) {
+        for (auto* element : instancesOf<ElementComponent>(_engine ? &_engine->components() : nullptr)) {
             if (!element || !element->entity() || element->entity()->engine() != _engine.get()) {
                 continue;
             }
@@ -816,7 +818,7 @@ namespace visutwin::canvas
 
         size_t seen = 0;
         bool anyMask = false;
-        for (auto* element : ElementComponent::instances()) {
+        for (auto* element : instancesOf<ElementComponent>(_engine ? &_engine->components() : nullptr)) {
             if (!element) {
                 continue;
             }

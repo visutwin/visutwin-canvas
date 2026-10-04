@@ -26,6 +26,7 @@
 #include "framework/parsers/glbContainerResource.h"
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"
+#include "framework/components/componentRegistry.h"
 
 using namespace visutwin::canvas;
 
@@ -131,7 +132,7 @@ protected:
         // Log model stats
         {
             int renderComps = 0, meshInsts = 0;
-            for (auto* render : RenderComponent::instances()) {
+            for (auto* render : engine()->components().instances<RenderComponent>()) {
                 if (!render || !render->entity()) continue;
                 auto* owner = render->entity();
                 if (owner != modelEntity && !owner->isDescendantOf(modelEntity)) continue;

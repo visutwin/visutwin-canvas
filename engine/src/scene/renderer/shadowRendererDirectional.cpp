@@ -265,12 +265,12 @@ namespace visutwin::canvas
         // per cascade is the frustum test.
         //
         // The SAME caster set the pass will draw, through the shared collector. A sweep of
-        // RenderComponent::instances() would miss the batch mesh instances, which belong
+        // the engine's render components would miss the batch mesh instances, which belong
         // to no component; the pass draws them anyway, so a batch outside a depth range
         // fitted without them would be clipped out of the shadow map, its shadow absent.
         static thread_local std::vector<MeshInstance*> casters;
         casters.clear();
-        collectShadowCasters(casters, camera);
+        collectShadowCasters(casters, _shadowRenderer->componentRegistry(), camera);
         std::erase_if(casters, [](MeshInstance* meshInstance) {
             return !meshInstance || !meshInstance->visible() ||
                 !shouldRenderShadowMeshInstanceIgnoringVisibility(meshInstance);
@@ -368,7 +368,8 @@ namespace visutwin::canvas
             return nullptr;
         }
 
-        auto renderPass = std::make_shared<RenderPassShadowDirectional>(_device, light, camera, face);
+        auto renderPass = std::make_shared<RenderPassShadowDirectional>(_device, light, camera, face,
+            _shadowRenderer->componentRegistry());
         _shadowRenderer->setupRenderPass(renderPass.get(), shadowCamera, clearRenderTarget);
         return renderPass;
     }

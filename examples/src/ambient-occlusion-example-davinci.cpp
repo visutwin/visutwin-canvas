@@ -25,6 +25,7 @@
 #include "platform/graphics/depthState.h"
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"
+#include "framework/components/componentRegistry.h"
 
 using namespace visutwin::canvas;
 
@@ -101,7 +102,7 @@ protected:
         }
 
         // set up materials — enable shadows, disable baked AO, disable blending
-        for (auto* render : RenderComponent::instances()) {
+        for (auto* render : engine()->components().instances<RenderComponent>()) {
             if (!render || !render->entity()) continue;
             auto* owner = render->entity();
             if (owner != labEntity && !owner->isDescendantOf(labEntity)) continue;
@@ -157,7 +158,7 @@ protected:
                 }
 
                 // Enable shadows on the bust
-                for (auto* render : RenderComponent::instances()) {
+                for (auto* render : engine()->components().instances<RenderComponent>()) {
                     if (!render || !render->entity()) continue;
                     auto* owner = render->entity();
                     if (owner != leoEntity && !owner->isDescendantOf(leoEntity)) continue;

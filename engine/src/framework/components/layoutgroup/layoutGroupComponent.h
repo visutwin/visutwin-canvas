@@ -27,7 +27,6 @@
 #include "core/math/vector4.h"
 #include "framework/components/component.h"
 #include "layoutCalculator.h"
-#include "framework/components/componentInstanceList.h"
 
 namespace visutwin::canvas
 {
@@ -41,7 +40,6 @@ namespace visutwin::canvas
         void cloneFrom(const Component* source) override;
         void onDisable() override { _lastInputs.clear(); }
 
-        static const std::vector<LayoutGroupComponent*>& instances() { return _instanceList.items(); }
 
         Orientation orientation() const { return _options.orientation; }
         void setOrientation(const Orientation value) { _options.orientation = value; }
@@ -79,7 +77,6 @@ namespace visutwin::canvas
         /// after every update, and must not allocate when nothing changed.
         void gatherInputs(std::vector<uint32_t>& inputs) const;
 
-        inline static ComponentInstanceList<LayoutGroupComponent> _instanceList;
         LayoutOptions _options;
         std::vector<uint32_t> _lastInputs;
         // Scratch for the comparison; swapped with _lastInputs when they differ.

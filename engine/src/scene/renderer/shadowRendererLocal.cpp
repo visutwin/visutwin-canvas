@@ -208,7 +208,7 @@ namespace visutwin::canvas
                 // Culling, like the mesh-instance and directional culls: counted there.
                 const ScopedMilliseconds cullTimer(device->frameCounters().cullTime);
                 if (!castersCollected) {
-                    collectLightIndependentShadowCasters(_casters);
+                    collectLightIndependentShadowCasters(_casters, _shadowRenderer->componentRegistry());
                     castersCollected = true;
                 }
                 if (isOmni) {

@@ -5,6 +5,8 @@
 //
 #include "animationComponent.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include "framework/anim/binder/defaultAnimBinder.h"
 #include "framework/entity.h"
 #include "scene/graphNode.h"
@@ -15,12 +17,12 @@ namespace visutwin::canvas
     AnimationComponent::AnimationComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
-        _instanceList.add(this);
+        listInstance(this);
     }
 
     AnimationComponent::~AnimationComponent()
     {
-        _instanceList.remove(this);
+        unlistInstance();
     }
 
     void AnimationComponent::setAnimations(const std::unordered_map<std::string, AnimationResource>& value)

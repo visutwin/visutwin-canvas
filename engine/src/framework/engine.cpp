@@ -5,6 +5,8 @@
 //
 #include "engine.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include <algorithm>
 #include <cassert>
 
@@ -175,6 +177,8 @@ namespace visutwin::canvas
         }
 
         if (_scene) {
+            // Someone else may hold the scene; it must not keep a pointer into this engine.
+            _scene->setComponentRegistry(nullptr);
             _scene.reset();
         }
 
@@ -225,6 +229,7 @@ namespace visutwin::canvas
             throw std::runtime_error("The application cannot be created without a valid GraphicsDevice");
         }
 
+        _components = std::make_unique<ComponentRegistry>();
         _root = std::make_unique<Entity>();
         _root->setEngine(this);
         // The root entity has no parent, so _enabledInHierarchy must be set
@@ -238,6 +243,7 @@ namespace visutwin::canvas
 
         _stats = std::make_shared<ApplicationStats>(_graphicsDevice);
         _scene = std::make_shared<Scene>(_graphicsDevice);
+        _scene->setComponentRegistry(_components.get());
         registerSceneImmediate(_scene);
 
         _loader = std::make_shared<ResourceLoader>(shared_from_this());

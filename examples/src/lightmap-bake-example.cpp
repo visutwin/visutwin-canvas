@@ -53,7 +53,10 @@ Vector3 eulerToDirection(const float x, const float y, const float z)
 std::vector<MeshInstance*> collectMeshInstances(Entity* entity)
 {
     std::vector<MeshInstance*> out;
-    for (auto* render : RenderComponent::instances()) {
+    if (!entity) {
+        return out;
+    }
+    for (auto* render : entity->findComponents<RenderComponent>()) {
         if (!render || !render->entity()) {
             continue;
         }

@@ -5,6 +5,9 @@
 //
 #include "component.h"
 
+#include "componentRegistry.h"
+#include "componentSystem.h"
+#include "framework/engine.h"
 #include "framework/entity.h"
 
 namespace visutwin::canvas
@@ -43,5 +46,39 @@ namespace visutwin::canvas
                 }
             }
         }
+    }
+
+    ComponentRegistry* Component::resolveRegistry() const
+    {
+        Engine* engine = _system ? _system->engine() : nullptr;
+        if (!engine && _entity) {
+            engine = _entity->findEngine();
+        }
+        return engine ? &engine->components() : nullptr;
+    }
+
+    void Component::joinRegistry(ComponentRegistry* registry)
+    {
+        // A type no registry lists, or one already unlisted by its destructor.
+        if (!_listAdd || registry == _registry) {
+            return;
+        }
+        if (_registry) {
+            _listRemove(*_registry, this);
+        }
+        _registry = registry;
+        if (_registry) {
+            _listAdd(*_registry, this);
+        }
+    }
+
+    void Component::unlistInstance()
+    {
+        if (_registry && _listRemove) {
+            _listRemove(*_registry, this);
+        }
+        _registry = nullptr;
+        _listAdd = nullptr;
+        _listRemove = nullptr;
     }
 }

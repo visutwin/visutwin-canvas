@@ -7,6 +7,8 @@
 
 #include "entity.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include "components/componentSystem.h"
 #include "components/componentSystemRegistry.h"
 
@@ -179,6 +181,26 @@ namespace visutwin::canvas
                 component->onPostStateChange();
             }
         }
+    }
+
+    void Entity::onInsertedIntoParent()
+    {
+        Engine* engine = findEngine();
+        if (!engine) {
+            return;
+        }
+        ComponentRegistry* registry = &engine->components();
+        // Without compacting any child list: this runs from inside an insertion, which may
+        // itself be inside a loop over someone's children.
+        const auto join = [registry](const auto& self, GraphNode* node) -> void {
+            if (auto* entity = dynamic_cast<Entity*>(node)) {
+                for (const auto& [typeId, component] : entity->_components) {
+                    component->joinRegistry(registry);
+                }
+            }
+            node->forEachChild([&](GraphNode* child) { self(self, child); });
+        };
+        join(join, this);
     }
 
     Engine* Entity::findEngine() const

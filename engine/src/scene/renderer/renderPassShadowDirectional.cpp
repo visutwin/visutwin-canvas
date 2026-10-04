@@ -29,8 +29,9 @@
 namespace visutwin::canvas
 {
     RenderPassShadowDirectional::RenderPassShadowDirectional(const std::shared_ptr<GraphicsDevice>& device,
-        Light* light, Camera* camera, const int face)
-        : RenderPass(device), _light(light), _camera(camera), _graphicsDevice(device), _face(face)
+        Light* light, Camera* camera, const int face, ComponentRegistry* registry)
+        : RenderPass(device), _light(light), _camera(camera), _graphicsDevice(device), _face(face),
+          _registry(registry)
     {
         _requiresCubemaps = false;
         _name = "RenderPassShadowDirectional";
@@ -161,7 +162,7 @@ namespace visutwin::canvas
             // Built only on this path: the prepared list needs no frustum.
             const Frustum shadowFrustum = buildCameraFrustum(shadowCam, shadowCam->node());
             std::vector<MeshInstance*> casters;
-            collectShadowCasters(casters, _camera);
+            collectShadowCasters(casters, _registry, _camera);
             for (auto* meshInstance : casters) {
                 if (!meshInstance || !meshInstance->visible()) {
                     continue;

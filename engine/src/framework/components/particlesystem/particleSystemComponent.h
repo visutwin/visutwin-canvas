@@ -10,7 +10,6 @@
 
 #include "framework/components/component.h"
 #include "scene/particles/particleEmitter.h"
-#include "framework/components/componentInstanceList.h"
 
 namespace visutwin::canvas
 {
@@ -32,7 +31,6 @@ namespace visutwin::canvas
         void initializeComponentData() override {}
         void cloneFrom(const Component* source) override;
 
-        static const std::vector<ParticleSystemComponent*>& instances() { return _instanceList.items(); }
 
         /// Authoring options — mutate then call apply().
         ParticleEmitterOptions& options() { return _options; }
@@ -65,7 +63,6 @@ namespace visutwin::canvas
         bool update(float dt);
 
     private:
-        inline static ComponentInstanceList<ParticleSystemComponent> _instanceList;
 
         ParticleEmitterOptions _options;
         std::shared_ptr<ParticleEmitter> _emitter;

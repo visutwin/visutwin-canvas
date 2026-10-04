@@ -5,6 +5,8 @@
 //
 #include "gpuLightmapper.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include <algorithm>
 #include <cmath>
 #include <initializer_list>
@@ -317,7 +319,7 @@ namespace visutwin::canvas
         // Every instance, including inactive ones: this only widens and then
         // restores each light's layer list, and a light disabled during the bake
         // still has to get its own list back.
-        for (auto* lightComponent : LightComponent::instances()) {
+        for (auto* lightComponent : instancesOf<LightComponent>(_engine ? &_engine->components() : nullptr)) {
             if (!lightComponent) {
                 continue;
             }
@@ -348,7 +350,7 @@ namespace visutwin::canvas
         if (!(_options.directionalBakeNumSamples > 1 && _options.directionalBakeArea > 0.0f)) {
             return;
         }
-        for (auto* lightComponent : LightComponent::instances()) {
+        for (auto* lightComponent : instancesOf<LightComponent>(_engine ? &_engine->components() : nullptr)) {
             if (!lightComponent || !lightComponent->active() ||
                 lightComponent->type() != LightType::LIGHTTYPE_DIRECTIONAL) {
                 continue;

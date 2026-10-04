@@ -5,6 +5,8 @@
 //
 #include "scrollViewComponent.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include <algorithm>
 #include <any>
 #include <cmath>
@@ -29,9 +31,10 @@ namespace visutwin::canvas
             return nullptr;
         }
 
-        bool elementStillExists(const ElementComponent* element, const uint64_t serial)
+        bool elementStillExists(ComponentRegistry* registry, const ElementComponent* element,
+            const uint64_t serial)
         {
-            const auto& all = ElementComponent::instances();
+            const auto& all = instancesOf<ElementComponent>(registry);
             return std::find(all.begin(), all.end(), element) != all.end() && element->serial() == serial;
         }
     }
@@ -39,13 +42,13 @@ namespace visutwin::canvas
     ScrollViewComponent::ScrollViewComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
-        _instanceList.add(this);
+        listInstance(this);
         setBindingEntity(_self, entity);
     }
 
     ScrollViewComponent::~ScrollViewComponent()
     {
-        _instanceList.remove(this);
+        unlistInstance();
         // Everything the view refers to may outlive it.
         for (Binding* binding : {&_self, &_viewport, &_content, &_scrollbars[0], &_scrollbars[1]}) {
             unbind(*binding);
@@ -513,7 +516,7 @@ namespace visutwin::canvas
     void ScrollViewComponent::enableContentInput()
     {
         for (const auto& [element, serial] : _disabledContentInputElements) {
-            if (elementStillExists(element, serial)) {
+            if (elementStillExists(registry(), element, serial)) {
                 element->setUseInput(true);
             }
         }

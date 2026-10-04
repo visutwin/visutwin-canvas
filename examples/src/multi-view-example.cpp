@@ -28,6 +28,7 @@
 #include "scene/composition/layerComposition.h"
 #include "scene/layer.h"
 #include "scene/materials/standardMaterial.h"
+#include "framework/components/componentRegistry.h"
 
 using namespace visutwin::canvas;
 
@@ -71,7 +72,7 @@ BoundingBox calcEntityAABB(Entity* entity)
     bbox.setHalfExtents(0, 0, 0);
     if (!entity) return bbox;
     bool hasAny = false;
-    for (auto* render : RenderComponent::instances()) {
+    for (auto* render : entity->findComponents<RenderComponent>()) {
         if (!render || !render->entity()) continue;
         auto* owner = render->entity();
         if (owner != entity && !owner->isDescendantOf(entity)) continue;
@@ -238,7 +239,7 @@ protected:
         topCamEntity->lookAt(Vector3(0.0f, 7.0f, 0.0f));
 
         // Guard against unintended extra cameras rendering full-screen.
-        for (auto* cameraComp : CameraComponent::instances()) {
+        for (auto* cameraComp : engine()->components().instances<CameraComponent>()) {
             if (!cameraComp) {
                 continue;
             }

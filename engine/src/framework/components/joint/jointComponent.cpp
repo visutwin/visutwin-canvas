@@ -5,6 +5,8 @@
 //
 #include "jointComponent.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -23,7 +25,7 @@ namespace visutwin::canvas
     JointComponent::JointComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
-        _instanceList.add(this);
+        listInstance(this);
     }
 
     JointComponent::~JointComponent()
@@ -31,7 +33,7 @@ namespace visutwin::canvas
         // Safe whether or not the ends still exist: a retained handle outlives its
         // emitter and off() then does nothing.
         dropJoint();
-        _instanceList.remove(this);
+        unlistInstance();
     }
 
     void JointComponent::dropJoint()
@@ -49,14 +51,14 @@ namespace visutwin::canvas
         dropJoint();
     }
 
-    void JointComponent::bodyWillBeDestroyed(const Entity* owner)
+    void JointComponent::bodyWillBeDestroyed(ComponentRegistry* registry, const Entity* owner)
     {
-        if (owner == nullptr) {
+        if (owner == nullptr || registry == nullptr) {
             return;
         }
         // Without compacting the list: this runs from a body's teardown, which may itself
         // be inside a loop over the joints.
-        _instanceList.forEachLive([owner](JointComponent* joint) {
+        registry->list<JointComponent>().forEachLive([owner](JointComponent* joint) {
             if (joint->_joint != nullptr && (joint->_entityA == owner || joint->_entityB == owner)) {
                 joint->dropJoint();
                 joint->markStale();

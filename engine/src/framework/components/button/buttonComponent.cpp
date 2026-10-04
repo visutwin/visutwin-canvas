@@ -5,6 +5,8 @@
 //
 #include "buttonComponent.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include <algorithm>
 #include <any>
 #include <cmath>
@@ -38,12 +40,12 @@ namespace visutwin::canvas
     ButtonComponent::ButtonComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
-        _instanceList.add(this);
+        listInstance(this);
     }
 
     ButtonComponent::~ButtonComponent()
     {
-        _instanceList.remove(this);
+        unlistInstance();
         // The elements and the image entity may outlive the button; their events must not
         // call back into a freed component.
         unbindHitElement();

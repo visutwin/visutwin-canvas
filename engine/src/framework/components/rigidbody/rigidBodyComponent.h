@@ -11,7 +11,6 @@
 
 #include "core/math/vector3.h"
 #include "framework/components/component.h"
-#include "framework/components/componentInstanceList.h"
 
 namespace visutwin::canvas
 {
@@ -65,7 +64,6 @@ namespace visutwin::canvas
         void cloneFrom(const Component* source) override;
         void onDisable() override;
 
-        static const std::vector<RigidBodyComponent*>& instances() { return _instanceList.items(); }
 
         RigidBodyType type() const { return _type; }
         void setType(RigidBodyType type);
@@ -150,7 +148,6 @@ namespace visutwin::canvas
         void applyPendingTo(PhysicsBody& body);
         void clearPending();
 
-        inline static ComponentInstanceList<RigidBodyComponent> _instanceList;
 
         RigidBodyType _type = RigidBodyType::Static;
         float _mass = 1.0f;

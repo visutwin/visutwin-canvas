@@ -37,6 +37,7 @@
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"
 #include "scene/meshInstance.h"
+#include "framework/components/componentRegistry.h"
 
 using namespace visutwin::canvas;
 
@@ -70,7 +71,11 @@ BoundingBox meshBounds(GraphNode* root)
 {
     BoundingBox bounds;
     bool first = true;
-    for (auto* render : RenderComponent::instances()) {
+    auto* rootEntity = dynamic_cast<Entity*>(root);
+    if (!rootEntity) {
+        return bounds;
+    }
+    for (auto* render : rootEntity->findComponents<RenderComponent>()) {
         auto* owner = render ? render->entity() : nullptr;
         if (!owner || (owner != root && !owner->isDescendantOf(root))) {
             continue;
@@ -127,7 +132,7 @@ protected:
         root()->addChild(labEntity);
 
         // Materials use SSAO only — drop the baked AO map, and keep everything opaque.
-        for (auto* render : RenderComponent::instances()) {
+        for (auto* render : engine()->components().instances<RenderComponent>()) {
             auto* owner = render ? render->entity() : nullptr;
             if (!owner || (owner != labEntity && !owner->isDescendantOf(labEntity))) {
                 continue;
@@ -207,7 +212,7 @@ protected:
 
         // Dim the bright sand by half so it balances against the darker building.
         std::vector<Material*> dimmed;
-        for (auto* render : RenderComponent::instances()) {
+        for (auto* render : engine()->components().instances<RenderComponent>()) {
             auto* owner = render ? render->entity() : nullptr;
             if (!owner || (owner != terrain && !owner->isDescendantOf(terrain))) {
                 continue;

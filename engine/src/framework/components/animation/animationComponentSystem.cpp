@@ -5,6 +5,8 @@
 //
 #include "animationComponentSystem.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include "framework/entity.h"
 
 namespace visutwin::canvas
@@ -28,7 +30,7 @@ namespace visutwin::canvas
 
     void AnimationComponentSystem::onAnimationUpdate(const float dt)
     {
-        for (auto* component : AnimationComponent::instances()) {
+        for (auto* component : instancesOf<AnimationComponent>(componentRegistry())) {
             if (!component) {
                 continue;
             }

@@ -5,6 +5,8 @@
 //
 #include "collisionComponent.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include <cstring>
 
 #include "core/math/matrix4.h"
@@ -22,12 +24,12 @@ namespace visutwin::canvas
     CollisionComponent::CollisionComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
-        _instanceList.add(this);
+        listInstance(this);
     }
 
     CollisionComponent::~CollisionComponent()
     {
-        _instanceList.remove(this);
+        unlistInstance();
     }
 
     void CollisionComponent::onDisable()

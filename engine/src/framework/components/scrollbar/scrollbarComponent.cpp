@@ -5,6 +5,8 @@
 //
 #include "scrollbarComponent.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -17,12 +19,12 @@ namespace visutwin::canvas
     ScrollbarComponent::ScrollbarComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
-        _instanceList.add(this);
+        listInstance(this);
     }
 
     ScrollbarComponent::~ScrollbarComponent()
     {
-        _instanceList.remove(this);
+        unlistInstance();
         // The elements may outlive the scrollbar.
         unbindTrackElement();
         unbindHandleElement();

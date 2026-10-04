@@ -8,6 +8,8 @@
 #include <chrono>
 
 #include "particleSystemComponent.h"
+
+#include "framework/components/componentRegistry.h"
 #include "framework/applicationStats.h"
 #include "framework/components/componentSystem.h"
 #include "framework/engine.h"
@@ -32,7 +34,7 @@ namespace visutwin::canvas
                     // the time it took.
                     ParticleStats* stats = engine->stats() ? &engine->stats()->particles() : nullptr;
                     const auto start = std::chrono::steady_clock::now();
-                    for (auto* component : ParticleSystemComponent::instances()) {
+                    for (auto* component : engine->components().instances<ParticleSystemComponent>()) {
                         // active(): a system under a disabled PARENT entity stops too.
                         if (component && component->active() && component->update(dt) && stats) {
                             stats->_updatesPerFrame++;

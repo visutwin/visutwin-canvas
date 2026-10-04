@@ -4,6 +4,8 @@
 // Created by Arnis Lektauers on 11.09.2025
 //
 #include "renderer.h"
+
+#include "framework/components/componentRegistry.h"
 #include "cullModeResolve.h"
 #include "core/hash.h"
 #include "scene/renderer/sortDistance.h"
@@ -184,9 +186,19 @@ namespace visutwin::canvas
 
     }
 
+    ComponentRegistry* Renderer::componentRegistry() const
+    {
+        return _scene ? _scene->componentRegistry() : nullptr;
+    }
+
+    void Renderer::syncShadowComponentRegistry()
+    {
+        _shadowRenderer->setComponentRegistry(componentRegistry());
+    }
+
     void Renderer::resetLightVisibility()
     {
-        for (auto* lightComponent : LightComponent::instances()) {
+        for (auto* lightComponent : instancesOf<LightComponent>(componentRegistry())) {
             if (lightComponent) {
                 if (Light* sceneLight = lightComponent->light()) {
                     sceneLight->setVisibleThisFrame(false);
@@ -213,7 +225,7 @@ namespace visutwin::canvas
         const Frustum frustum = buildCameraFrustum(camera, cameraNode);
         const bool clusteredEnabled = _scene && _scene->clusteredLightingEnabled();
 
-        for (auto* lightComponent : LightComponent::instances()) {
+        for (auto* lightComponent : instancesOf<LightComponent>(componentRegistry())) {
             // active(), not enabled(): a light on a disabled entity lights nothing,
             // so it has no shadow map or cookie to render either.
             if (!lightComponent || !lightComponent->active()) {
@@ -534,7 +546,7 @@ namespace visutwin::canvas
         // four of which find nearly nothing. The order inside each bucket is what a
         // per-layer sweep would produce: components in creation order, then the layer's
         // own instances.
-        for (auto* renderComponent : RenderComponent::instances()) {
+        for (auto* renderComponent : instancesOf<RenderComponent>(componentRegistry())) {
             // active() covers both halves: the component's own flag and the owning
             // entity's hierarchy state.
             if (!renderComponent || !renderComponent->active()) {
@@ -591,7 +603,7 @@ namespace visutwin::canvas
 
         // Local lights. Under clustered lighting a spot also needs an atlas slot to
         // have been allocated, or no pass was built for it and its request stands.
-        for (auto* lightComponent : LightComponent::instances()) {
+        for (auto* lightComponent : instancesOf<LightComponent>(componentRegistry())) {
             if (!lightComponent || !lightComponent->active() ||
                 lightComponent->type() == LightType::LIGHTTYPE_DIRECTIONAL) {
                 continue;
@@ -627,7 +639,7 @@ namespace visutwin::canvas
 
         std::vector<Light*> dirShadowLights;
 
-        for (auto* lightComponent : LightComponent::instances()) {
+        for (auto* lightComponent : instancesOf<LightComponent>(componentRegistry())) {
             // active(), not enabled(): a light on a disabled entity must stop lighting.
             if (!lightComponent || !lightComponent->active()) {
                 continue;
@@ -686,9 +698,9 @@ namespace visutwin::canvas
         camera->setAspectRatio(static_cast<float>(viewport.w) / static_cast<float>(viewport.h));
     }
 
-    void Renderer::dispatchGpuInstanceCulling(Camera* camera)
+    void Renderer::dispatchGpuInstanceCulling(const std::vector<Camera*>& cameras)
     {
-        if (!_device || (camera && !camera->node())) {
+        if (!_device) {
             return;
         }
         // Nothing to cull: skip the sweep below, which visits every component in the
@@ -697,23 +709,35 @@ namespace visutwin::canvas
             return;
         }
 
-        // Compute view-projection: view = inverse(camera world), proj = camera proj.
-        // The frustum plane extraction expects a column-major float[16] layout,
-        // which matches Matrix4's in-memory representation (64 bytes, SIMD-safe).
-        // Without a camera every plane is (0, 0, 0, +big): every instance is inside.
-        float planes[6][4];
-        if (camera) {
-            const Matrix4 view = camera->node()->worldTransform().inverse();
-            const Matrix4 vp = camera->projectionMatrix() * view;
-            InstanceCuller::extractFrustumPlanes(reinterpret_cast<const float*>(&vp), planes);
-        } else {
-            for (auto& plane : planes) {
-                plane[0] = plane[1] = plane[2] = 0.0f;
-                plane[3] = std::numeric_limits<float>::max();
+        // Each camera's frustum planes, once. The extraction expects a column-major
+        // float[16], which is Matrix4's in-memory layout.
+        struct CameraPlanes
+        {
+            Camera* camera;
+            float planes[6][4];
+        };
+        std::vector<CameraPlanes> views;
+        views.reserve(cameras.size());
+        for (Camera* camera : cameras) {
+            if (!camera || !camera->node()) {
+                continue;
             }
+            CameraPlanes view{camera, {}};
+            const Matrix4 viewMatrix = camera->node()->worldTransform().inverse();
+            const Matrix4 vp = camera->projectionMatrix() * viewMatrix;
+            InstanceCuller::extractFrustumPlanes(reinterpret_cast<const float*>(&vp), view.planes);
+            views.push_back(view);
+        }
+        if (views.empty()) {
+            return;
         }
 
-        for (auto* rc : RenderComponent::instances()) {
+        const int version = _device->renderVersion();
+        // An output no camera has culled for this long belongs to a camera that is gone or
+        // no longer draws.
+        constexpr int kStaleFrames = 120;
+
+        for (auto* rc : instancesOf<RenderComponent>(componentRegistry())) {
             // active(): a disabled entity's instances are not drawn, so culling them
             // is wasted GPU work.
             if (!rc || !rc->active()) {
@@ -721,10 +745,6 @@ namespace visutwin::canvas
             }
             for (auto* mi : rc->meshInstances()) {
                 if (!mi || !mi->gpuCullingEnabled()) {
-                    continue;
-                }
-                auto* culler = mi->instanceCuller();
-                if (!culler) {
                     continue;
                 }
                 const auto& srcData = mi->instancingData();
@@ -742,35 +762,44 @@ namespace visutwin::canvas
                 // local point is still the WORLD signed distance — the kernel's test is
                 // unchanged — and the local sphere radius is scaled to world by M's
                 // largest axis. An identity node leaves both exactly as they were.
-                InstanceCullParams params{};
                 float m[16];
                 (mi->node() ? mi->node()->worldTransform() : Matrix4::identity()).store(m);   // column-major
                 static constexpr float kIdentity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-                if (std::equal(std::begin(m), std::end(m), std::begin(kIdentity))) {
-                    std::memcpy(params.frustumPlanes, planes, sizeof(planes));
-                    params.boundingSphereRadius = mi->instanceCullRadius();
-                } else {
-                    for (int p = 0; p < 6; ++p) {
-                        for (int c = 0; c < 4; ++c) {
-                            params.frustumPlanes[p][c] = m[4 * c] * planes[p][0] + m[4 * c + 1] * planes[p][1] +
-                                m[4 * c + 2] * planes[p][2] + m[4 * c + 3] * planes[p][3];
-                        }
-                    }
-                    const float maxScale = std::sqrt(std::max({
-                        m[0] * m[0] + m[1] * m[1] + m[2] * m[2],
-                        m[4] * m[4] + m[5] * m[5] + m[6] * m[6],
-                        m[8] * m[8] + m[9] * m[9] + m[10] * m[10]}));
-                    params.boundingSphereRadius = mi->instanceCullRadius() * maxScale;
-                }
-                params.instanceCount = static_cast<uint32_t>(srcData.count);
+                const bool identity = std::equal(std::begin(m), std::end(m), std::begin(kIdentity));
+                const float maxScale = identity ? 1.0f : std::sqrt(std::max({
+                    m[0] * m[0] + m[1] * m[1] + m[2] * m[2],
+                    m[4] * m[4] + m[5] * m[5] + m[6] * m[6],
+                    m[8] * m[8] + m[9] * m[9] + m[10] * m[10]}));
 
+                InstanceCullParams params{};
+                params.boundingSphereRadius = mi->instanceCullRadius() * maxScale;
+                params.instanceCount = static_cast<uint32_t>(srcData.count);
                 const auto prim = srcMesh->getPrimitive();
                 params.indexCount  = static_cast<uint32_t>(prim.count);
                 params.indexStart  = static_cast<uint32_t>(prim.base);
                 params.baseVertex  = static_cast<int32_t>(prim.baseVertex);
                 params.baseInstance = 0u;
 
-                culler->cull(srcData.vertexBuffer, params);
+                for (const CameraPlanes& view : views) {
+                    auto* output = mi->gpuCullOutputFor(view.camera);
+                    if (!output) {
+                        continue;
+                    }
+                    if (identity) {
+                        std::memcpy(params.frustumPlanes, view.planes, sizeof(view.planes));
+                    } else {
+                        for (int p = 0; p < 6; ++p) {
+                            for (int c = 0; c < 4; ++c) {
+                                params.frustumPlanes[p][c] = m[4 * c] * view.planes[p][0] +
+                                    m[4 * c + 1] * view.planes[p][1] + m[4 * c + 2] * view.planes[p][2] +
+                                    m[4 * c + 3] * view.planes[p][3];
+                            }
+                        }
+                    }
+                    output->culler->cull(srcData.vertexBuffer, params);
+                    output->culledVersion = version;
+                }
+                mi->pruneGpuCullOutputs(version - kStaleFrames);
             }
         }
     }
@@ -889,7 +918,7 @@ namespace visutwin::canvas
                 camera.setAspectRatio(static_cast<float>(view.viewport.w) / static_cast<float>(view.viewport.h));
             }
 
-            for (const auto* candidate : CameraComponent::instances()) {
+            for (const auto* candidate : instancesOf<CameraComponent>(scene ? scene->componentRegistry() : nullptr)) {
                 if (candidate && candidate->camera() == &camera) {
                     view.cameraComponent = candidate;
                     break;
@@ -930,10 +959,11 @@ namespace visutwin::canvas
             bool areaLights = false;
         };
 
-        LightFeatureUse scanLightFeatureUse(const bool clustered, const bool clusteredAreaLights)
+        LightFeatureUse scanLightFeatureUse(ComponentRegistry* registry, const bool clustered,
+            const bool clusteredAreaLights)
         {
             LightFeatureUse use;
-            for (const auto* lc : LightComponent::instances()) {
+            for (const auto* lc : instancesOf<LightComponent>(registry)) {
                 if (!lc || !lc->active()) {
                     continue;
                 }
@@ -1394,7 +1424,7 @@ namespace visutwin::canvas
             const bool physicalUnits = scene && scene->physicalUnits();
             CookieSlots cookieSlots;
 
-            for (const auto* lightComponent : LightComponent::instances()) {
+            for (const auto* lightComponent : instancesOf<LightComponent>(scene ? scene->componentRegistry() : nullptr)) {
                 if (!lightComponent || !lightComponent->active()) {
                     continue;
                 }
@@ -1663,6 +1693,7 @@ namespace visutwin::canvas
             // that carries a per-instance buffer gets the instanced vertex stage, and the buffer's
             // stride decides whether that stage also reads a per-instance base color.
             const auto& drawInstancing = meshInstance->instancingData();
+            // A GPU-culled draw binds a compacted copy in the same layout as this buffer.
             const auto& instanceBuffer = drawInstancing.compactedVertexBuffer
                 ? drawInstancing.compactedVertexBuffer : drawInstancing.vertexBuffer;
             variant.dynamicBatch = meshInstance->isDynamicBatch();
@@ -1782,7 +1813,18 @@ namespace visutwin::canvas
             const ForwardView& view = ctx.view;
             MeshInstance* meshInstance = entry.meshInstance;
 
-            if (instData.indirectArgsBuffer && instData.indirectSlot >= 0 && instData.compactedVertexBuffer) {
+            const MeshInstance::GpuCullOutput* culled = meshInstance && meshInstance->gpuCullingEnabled()
+                ? meshInstance->culledOutput(view.camera, device.renderVersion()) : nullptr;
+            if (culled) {
+                // GPU-culled for THIS camera: the compacted visible set at slot 5, the
+                // instance count from the indirect arguments the cull wrote.
+                device.setVertexBuffer(culled->compacted, 5);
+                device.setIndirectDrawBuffer(culled->culler->indirectArgsNativeBuffer());
+                // Each instance is placed in its NODE's space (model * instance), so the
+                // node's world matrix goes up as the model matrix.
+                device.setTransformUniforms(view.viewProjection, nodeWorldTransform(meshInstance));
+                device.draw(entry.primitive, entry.indexBuffer, 0, 0, true, true);
+            } else if (instData.indirectArgsBuffer && instData.indirectSlot >= 0 && instData.compactedVertexBuffer) {
                 // GPU-culled indirect instancing:
                 // Bind the compacted buffer (visible instances only) at slot 5.
                 // Instance count comes from the GPU via indirect draw arguments.
@@ -2049,7 +2091,7 @@ namespace visutwin::canvas
 
         // Light-dependent variants are enabled only when a light actually needs
         // them: an unbound shadow map or cookie parameter would be nil at draw time.
-        const LightFeatureUse lightFeatures = scanLightFeatureUse(
+        const LightFeatureUse lightFeatures = scanLightFeatureUse(componentRegistry(),
             _scene && _scene->clusteredLightingEnabled(), _scene && _scene->lighting().areaLightsEnabled);
         programLibrary.setLocalShadowsEnabled(lightFeatures.localShadows);
         programLibrary.setOmniShadowsEnabled(lightFeatures.omniShadows);

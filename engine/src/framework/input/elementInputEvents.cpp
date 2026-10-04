@@ -7,6 +7,8 @@
 //
 #include "elementInput.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -206,7 +208,7 @@ namespace visutwin::canvas
     std::vector<CameraComponent*> ElementInput::sortedCameras() const
     {
         std::vector<CameraComponent*> cameras;
-        for (auto* camera : CameraComponent::instances()) {
+        for (auto* camera : instancesOf<CameraComponent>(_engine ? &_engine->components() : nullptr)) {
             if (camera && camera->camera() && camera->entity() && camera->entity()->engine() == _engine.get() &&
                 camera->active()) {
                 cameras.push_back(camera);
@@ -266,7 +268,7 @@ namespace visutwin::canvas
 
         // The candidates, front first.
         std::vector<ElementComponent*> elements;
-        for (auto* element : ElementComponent::instances()) {
+        for (auto* element : instancesOf<ElementComponent>(_engine ? &_engine->components() : nullptr)) {
             if (element && element->useInput() && element->entity() && element->entity()->engine() == _engine.get() &&
                 element->active()) {
                 elements.push_back(element);

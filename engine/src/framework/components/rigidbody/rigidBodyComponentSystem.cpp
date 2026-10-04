@@ -5,6 +5,8 @@
 //
 #include "rigidBodyComponentSystem.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -280,9 +282,9 @@ namespace visutwin::canvas
     std::vector<RaycastResult> RigidBodyComponentSystem::raycastAllCpu(const Vector3& start, const Vector3& end) const
     {
         std::vector<RaycastResult> results;
-        results.reserve(RigidBodyComponent::instances().size());
+        results.reserve(instancesOf<RigidBodyComponent>(componentRegistry()).size());
 
-        for (auto* rigidbody : RigidBodyComponent::instances()) {
+        for (auto* rigidbody : instancesOf<RigidBodyComponent>(componentRegistry())) {
             // active(), not enabled(): a collider on a disabled entity, or under a
             // disabled parent, must not be hit — the rule every gathering loop follows.
             if (!rigidbody || !rigidbody->active() || !rigidbody->entity()) {
@@ -336,13 +338,13 @@ namespace visutwin::canvas
         // transforms into the simulation and reads dynamic ones back out, which is why
         // it runs on both sides of the step. Every component is visited, inactive ones
         // included: the sync takes a body that is no longer simulated out of the world.
-        for (auto* body : RigidBodyComponent::instances()) {
+        for (auto* body : instancesOf<RigidBodyComponent>(componentRegistry())) {
             if (body && body->entity()) {
                 body->syncFromSimulation(*_world);
             }
         }
         _world->step(dt);
-        for (auto* body : RigidBodyComponent::instances()) {
+        for (auto* body : instancesOf<RigidBodyComponent>(componentRegistry())) {
             if (body && body->entity()) {
                 body->syncFromSimulation(*_world);
             }
@@ -386,7 +388,7 @@ namespace visutwin::canvas
         if (_world != nullptr) {
             // Components can outlive the system, so hand their bodies back before
             // the world goes; a body freed twice is a crash on the way out.
-            for (auto* body : RigidBodyComponent::instances()) {
+            for (auto* body : instancesOf<RigidBodyComponent>(componentRegistry())) {
                 if (body) { body->releaseBody(*_world); }
             }
         }

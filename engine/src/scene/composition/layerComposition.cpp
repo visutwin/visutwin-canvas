@@ -5,6 +5,8 @@
 //
 #include "layerComposition.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include <algorithm>
 
 #include <spdlog/spdlog.h>
@@ -116,7 +118,7 @@ namespace visutwin::canvas
 
     const std::vector<RenderAction*>& LayerComposition::renderActions()
     {
-        const auto& cameras = CameraComponent::instances();
+        const auto& cameras = instancesOf<CameraComponent>(_componentRegistry);
         // Fingerprint the camera state the render actions bake in: identity,
         // active state, render target, camera-passes mode, layer list and the
         // clear flags (setupClears copies them into the actions).
@@ -275,7 +277,7 @@ namespace visutwin::canvas
 
         clearRenderActions();
 
-        const auto& cameras = CameraComponent::instances();
+        const auto& cameras = instancesOf<CameraComponent>(_componentRegistry);
         if (cameras.empty()) {
             _dirty = false;
             return;

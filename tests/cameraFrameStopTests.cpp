@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "framework/components/camera/cameraComponent.h"
+#include "framework/components/componentRegistry.h"
 #include "framework/entity.h"
 #include "scene/composition/layerComposition.h"
 #include "scene/composition/renderAction.h"
@@ -56,16 +57,21 @@ int main()
 {
     std::cout << std::unitbuf;
 
+    // No engine: the composition and the camera share a registry of their own, declared
+    // first so it outlives the camera.
+    ComponentRegistry registry;
     auto root = std::make_unique<Entity>();
     root->setEnabledInHierarchy(true);   // a root with no parent: make it active
     auto* camera = static_cast<CameraComponent*>(
         root->addComponentInstance(std::make_unique<CameraComponent>(nullptr, root.get()), 9301));
     camera->initializeComponentData();
     camera->setLayers({LAYERID_WORLD, LAYERID_DEPTH, LAYERID_SKYBOX, LAYERID_UI});
+    camera->joinRegistry(&registry);
 
     // The engine's default order: opaque world, depth, skybox, then transparent world
     // and UI.
     LayerComposition composition;
+    composition.setComponentRegistry(&registry);
     auto world = std::make_shared<Layer>("World", LAYERID_WORLD);
     auto depth = std::make_shared<Layer>("Depth", LAYERID_DEPTH);
     auto skybox = std::make_shared<Layer>("Skybox", LAYERID_SKYBOX);

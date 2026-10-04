@@ -54,7 +54,6 @@
 #include "framework/components/element/textLayout.h"
 #include "framework/handlers/fontResource.h"
 #include "scene/graphNodeTransformHook.h"
-#include "framework/components/componentInstanceList.h"
 
 namespace visutwin::canvas
 {
@@ -107,7 +106,6 @@ namespace visutwin::canvas
         /// Initializes the element from `desc`.
         void setup(const ElementDesc& desc);
 
-        static const std::vector<ElementComponent*>& instances() { return _instanceList.items(); }
         /// Unique for the life of the process (an address can be reused by a later element);
         /// what a layout group tells its children apart by.
         uint64_t serial() const { return _serial; }
@@ -426,7 +424,6 @@ namespace visutwin::canvas
         }
         void updateTextLayout();
 
-        inline static ComponentInstanceList<ElementComponent> _instanceList;
 
         static inline uint64_t _nextSerial = 1;
         uint64_t _serial = _nextSerial++;

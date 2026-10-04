@@ -5,6 +5,8 @@
 //
 #include "forwardRenderer.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include <algorithm>
 #include <unordered_set>
 
@@ -101,6 +103,7 @@ namespace visutwin::canvas
     void ForwardRenderer::buildFrameGraph(FrameGraph* frameGraph, LayerComposition* layerComposition)
     {
         frameGraph->reset();
+        syncShadowComponentRegistry();
 
         // New frame for GPU skinning: bone palettes recompute lazily at first use
         // (shadow or forward pass) and are shared for the rest of the frame.
@@ -202,7 +205,7 @@ namespace visutwin::canvas
         const bool clusteredMode = _scene->clusteredLightingEnabled();
         std::vector<Light*> atlasLights;         // clustered: shadow-casting spots and omnis
         std::vector<Light*> localShadowLights;   // non-clustered: own maps, per-face passes
-        for (auto* lightComponent : LightComponent::instances()) {
+        for (auto* lightComponent : instancesOf<LightComponent>(componentRegistry())) {
             // active(), not enabled(): a light on a disabled entity casts no shadow.
             if (!lightComponent || !lightComponent->active() ||
                 lightComponent->type() == LightType::LIGHTTYPE_DIRECTIONAL ||
@@ -250,7 +253,7 @@ namespace visutwin::canvas
             slotLights = atlasLights;
             bool anyCookieLight = false;
             if (_scene && _scene->lighting().cookiesEnabled) {
-                for (auto* lightComponent : LightComponent::instances()) {
+                for (auto* lightComponent : instancesOf<LightComponent>(componentRegistry())) {
                     if (!lightComponent || !lightComponent->active() || !lightComponent->cookie() ||
                         lightComponent->type() == LightType::LIGHTTYPE_DIRECTIONAL) {
                         continue;
@@ -317,13 +320,9 @@ namespace visutwin::canvas
             }
         }
 
-        // GPU instance culling has one output per mesh, filled before any pass
-        // draws: cull to the frustum only when one camera draws this frame. It used
-        // to run per camera, so with two or more every view drew the LAST camera's
-        // set and instances vanished from the others.
-        if (!cameras.empty()) {
-            dispatchGpuInstanceCulling(cameras.size() == 1 ? cameras.front() : nullptr);
-        }
+        // GPU instance culling, once for every camera that draws this frame, each into
+        // its own output, before any pass draws.
+        dispatchGpuInstanceCulling(cameras);
     }
 
     void ForwardRenderer::addRenderActionPasses(FrameGraph* frameGraph, LayerComposition* layerComposition)

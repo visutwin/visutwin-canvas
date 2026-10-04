@@ -48,10 +48,21 @@ namespace visutwin::canvas
     {
         auto prev = _layers;
         _layers = layers;
+        if (_layers) {
+            _layers->setComponentRegistry(_componentRegistry);
+        }
         if (_sky) {
             _sky->updateSkyMesh();
         }
         fire(EVENT_SETLAYERS, prev, layers);
+    }
+
+    void Scene::setComponentRegistry(ComponentRegistry* registry)
+    {
+        _componentRegistry = registry;
+        if (_layers) {
+            _layers->setComponentRegistry(registry);
+        }
     }
 
     void Scene::setSkyboxIntensity(float value) {

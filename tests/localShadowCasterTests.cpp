@@ -32,6 +32,7 @@
 #include "framework/components/light/lightComponentSystem.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/components/render/renderComponentSystem.h"
+#include "framework/components/componentRegistry.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
 #include "scene/frustumUtils.h"
@@ -60,7 +61,7 @@ namespace
 
     // What a spot's pass found for itself before the lists existed: every caster in the
     // scene through the caster rules and the shadow camera's frustum.
-    std::vector<MeshInstance*> referenceSpotCasters(Light* light)
+    std::vector<MeshInstance*> referenceSpotCasters(Engine& engine, Light* light)
     {
         std::vector<MeshInstance*> result;
         LightRenderData* rd = light->getRenderData(nullptr, 0);
@@ -70,7 +71,7 @@ namespace
         Camera* shadowCamera = rd->shadowCamera.get();
         const Frustum frustum = buildCameraFrustum(shadowCamera, shadowCamera->node());
         std::vector<MeshInstance*> all;
-        collectShadowCasters(all);
+        collectShadowCasters(all, &engine.components());
         for (auto* meshInstance : all) {
             if (meshInstance && meshInstance->visible() &&
                 shouldRenderShadowMeshInstance(meshInstance, shadowCamera, frustum)) {
@@ -159,7 +160,7 @@ namespace
         LightRenderData* spotData = spotLight->getRenderData(nullptr, 0);
         check(spotData && spotData->visibleCastersFrame == device->renderVersion(),
             "the spot's list was prepared in the frame just rendered");
-        const auto reference = referenceSpotCasters(spotLight);
+        const auto reference = referenceSpotCasters(*engine, spotLight);
         check(spotData && spotData->visibleCasters == reference,
             "and is the scene's casters through the caster rules and the cone's frustum");
         check(spotData && spotData->visibleCasters.size() == 1 && contains(spotData->visibleCasters, boxInstances[1]),
@@ -205,7 +206,7 @@ namespace
         material->setTransparent(true);
         renderFrame();
         check(spotData && contains(spotData->visibleCasters, boxInstances[1]) &&
-              spotData->visibleCasters == referenceSpotCasters(spotLight),
+              spotData->visibleCasters == referenceSpotCasters(*engine, spotLight),
             "a box with a blended material still casts");
         check(stats.drawCalls().shadow == listed(spotLight) + listed(omniLight), "and is drawn into the shadow");
         material->setTransparent(false);
@@ -220,7 +221,7 @@ namespace
         spot->setShadowUpdateMode(ShadowUpdateType::SHADOWUPDATE_REALTIME);
         renderFrame();
         check(spotData && spotData->visibleCastersFrame == device->renderVersion() &&
-              spotData->visibleCasters == referenceSpotCasters(spotLight) &&
+              spotData->visibleCasters == referenceSpotCasters(*engine, spotLight) &&
               stats.drawCalls().shadow == listed(spotLight) + listed(omniLight),
             "switched back on, it is prepared and drawn again");
     }

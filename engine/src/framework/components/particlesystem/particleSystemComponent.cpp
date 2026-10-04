@@ -5,6 +5,8 @@
 //
 #include "particleSystemComponent.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include <algorithm>
 
 #include <spdlog/spdlog.h>
@@ -21,12 +23,12 @@ namespace visutwin::canvas
     ParticleSystemComponent::ParticleSystemComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
-        _instanceList.add(this);
+        listInstance(this);
     }
 
     ParticleSystemComponent::~ParticleSystemComponent()
     {
-        _instanceList.remove(this);
+        unlistInstance();
     }
 
     void ParticleSystemComponent::apply()
@@ -152,7 +154,7 @@ namespace visutwin::canvas
         // a step, for the active camera that renders first (the lowest priority).
         if (_options.sort != ParticleSort::NONE) {
             const CameraComponent* camera = nullptr;
-            for (const auto* candidate : CameraComponent::instances()) {
+            for (const auto* candidate : instancesOf<CameraComponent>(registry())) {
                 if (candidate && candidate->active() && candidate->entity() &&
                     (!camera || candidate->priority() < camera->priority())) {
                     camera = candidate;

@@ -15,6 +15,7 @@
 
 namespace visutwin::canvas
 {
+    class ComponentRegistry;
     /// Systems are event emitters: `add` when a component is created, then
     /// `beforeremove` (while it is still valid) and `remove` when one goes. Editors
     /// and asset reloads need those; before they existed a component could only ever
@@ -33,6 +34,9 @@ namespace visutwin::canvas
 
         [[nodiscard]] const std::string& id() const { return _id; }
         Engine* engine() const { return _engine; }
+
+        /// The components of this system's engine (null with no engine, as in some tests).
+        ComponentRegistry* componentRegistry() const { return _engine ? &_engine->components() : nullptr; }
 
         virtual const std::type_info& componentType() const = 0;
     protected:

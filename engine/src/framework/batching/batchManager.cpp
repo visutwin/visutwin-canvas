@@ -4,6 +4,8 @@
 // Created by Arnis Lektauers on 13.10.2025
 //
 #include "batchManager.h"
+
+#include "framework/components/componentRegistry.h"
 #include "framework/parsers/packedVertex.h"
 #include "batchSplit.h"
 #include "skinBatchInstance.h"
@@ -25,7 +27,6 @@
 
 namespace visutwin::canvas
 {
-    std::vector<MeshInstance*> BatchManager::_batchMeshInstances;
 
 
     /**
@@ -224,6 +225,19 @@ namespace visutwin::canvas
     // -------------------------------------------------------------------------
     // prepare() — 
     // -------------------------------------------------------------------------
+    BatchManager::~BatchManager()
+    {
+        if (!_batchRegistry) {
+            return;
+        }
+        auto& listed = _batchRegistry->batchMeshInstances();
+        for (const auto& batch : _batches) {
+            if (batch && batch->meshInstance) {
+                std::erase(listed, batch->meshInstance.get());
+            }
+        }
+    }
+
     void BatchManager::prepare(Scene* scene)
     {
         std::vector<int> allGroups;
@@ -294,7 +308,8 @@ namespace visutwin::canvas
 
         std::unordered_map<MaterialKey, std::vector<MeshInstance*>, MaterialKeyHash> groups;
 
-        for (auto* rc : RenderComponent::instances()) {
+        ComponentRegistry* const registry = scene ? scene->componentRegistry() : nullptr;
+        for (auto* rc : instancesOf<RenderComponent>(registry)) {
             // active(), not enabled(): a render component on a disabled entity draws
             // nothing, so its meshes must not reappear inside a batch either.
             if (!rc || !rc->active()) continue;
@@ -393,7 +408,10 @@ namespace visutwin::canvas
                     }
                 }
 
-                _batchMeshInstances.push_back(batch->meshInstance.get());
+                if (registry) {
+                    _batchRegistry = registry;
+                    registry->batchMeshInstances().push_back(batch->meshInstance.get());
+                }
                 _batches.push_back(std::move(batch));
             }
         }
@@ -442,11 +460,8 @@ namespace visutwin::canvas
                 }
             }
 
-            if (batch->meshInstance) {
-                _batchMeshInstances.erase(
-                    std::remove(_batchMeshInstances.begin(), _batchMeshInstances.end(),
-                                batch->meshInstance.get()),
-                    _batchMeshInstances.end());
+            if (batch->meshInstance && _batchRegistry) {
+                std::erase(_batchRegistry->batchMeshInstances(), batch->meshInstance.get());
             }
 
             // Restore visibility of original mesh instances.

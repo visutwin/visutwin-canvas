@@ -8,6 +8,8 @@
 //
 #include "picker.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -95,7 +97,7 @@ namespace visutwin::canvas
     {
         const Vector3 cameraPos = _camera->entity()->position();
 
-        for (auto* renderComponent : RenderComponent::instances()) {
+        for (auto* renderComponent : instancesOf<RenderComponent>(_app ? &_app->components() : nullptr)) {
             if (!renderComponent || !renderComponent->active()) {
                 continue;
             }

@@ -6,6 +6,8 @@
 #pragma once
 
 #include "scrollViewComponent.h"
+
+#include "framework/components/componentRegistry.h"
 #include "scrollViewComponentData.h"
 #include "framework/components/componentSystem.h"
 #include "framework/engine.h"
@@ -21,7 +23,7 @@ namespace visutwin::canvas
             // since nothing fires `element:add` or `scrollbar:add`.
             if (engine && engine->systems()) {
                 engine->systems()->on("update", [engine](float) {
-                    const auto& views = ScrollViewComponent::instances();
+                    const auto& views = engine->components().instances<ScrollViewComponent>();
                     for (size_t i = 0; i < views.size(); ++i) {
                         ScrollViewComponent* view = views[i];
                         if (!view || !view->entity() || view->entity()->engine() != engine) {

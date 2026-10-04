@@ -6,6 +6,8 @@
 #pragma once
 
 #include "framework/components/componentSystem.h"
+
+#include "framework/components/componentRegistry.h"
 #include "framework/engine.h"
 #include "screenComponent.h"
 #include "screenComponentData.h"
@@ -23,7 +25,7 @@ namespace visutwin::canvas
             if (engine && engine->systems()) {
                 engine->systems()->on("update", [engine](const float /*dt*/) {
                     const auto [w, h] = engine->canvasSize();
-                    for (auto* screen : ScreenComponent::instances()) {
+                    for (auto* screen : engine->components().instances<ScreenComponent>()) {
                         if (!screen || !screen->entity() || screen->entity()->engine() != engine) {
                             continue;
                         }

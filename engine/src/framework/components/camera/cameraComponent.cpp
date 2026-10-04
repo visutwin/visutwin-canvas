@@ -4,6 +4,8 @@
 // Created by Arnis Lektauers on 18.12.2025
 //
 #include "cameraComponent.h"
+
+#include "framework/components/componentRegistry.h"
 #include <algorithm>
 #include <cassert>
 
@@ -21,12 +23,13 @@ namespace visutwin::canvas
 {
     CameraComponent::CameraComponent(IComponentSystem* system, Entity* entity) : Component(system, entity)
     {
-        _instanceList.add(this);
+        listInstance(this);
     }
 
     CameraComponent::~CameraComponent()
     {
-        _instanceList.remove(this);
+        ComponentRegistry* const registry = this->registry();
+        unlistInstance();
 
         if (_cameraFrame) {
             _cameraFrame->destroy();
@@ -39,7 +42,7 @@ namespace visutwin::canvas
             // otherwise reuse the stale entry).
             // Every instance, including inactive ones: a disabled light still holds
             // render data keyed on this camera, and that is what is being purged.
-            for (auto* lightComponent : LightComponent::instances()) {
+            for (auto* lightComponent : instancesOf<LightComponent>(registry)) {
                 if (lightComponent && lightComponent->light()) {
                     lightComponent->light()->invalidateRenderData(_camera);
                 }

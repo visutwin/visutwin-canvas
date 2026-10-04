@@ -14,7 +14,6 @@
 #include <scene/constants.h>
 
 #include "framework/components/component.h"
-#include "framework/components/componentInstanceList.h"
 
 namespace visutwin::canvas
 {
@@ -76,14 +75,12 @@ namespace visutwin::canvas
         void onEnable() override;
         void onDisable() override;
 
-        static const std::vector<RenderComponent*>& instances() { return _instanceList.items(); }
 
     private:
         void rebuildPrimitiveMesh();
         BatchManager* batcher() const;
         void rebuildMeshInstanceView() const;
 
-        inline static ComponentInstanceList<RenderComponent> _instanceList;
 
         std::vector<std::unique_ptr<MeshInstance>> _meshInstances;
         mutable std::vector<MeshInstance*> _meshInstanceView;

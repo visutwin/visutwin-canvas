@@ -32,6 +32,7 @@ namespace visutwin::canvas
     class RenderTarget;
     class Layer;
     class ProgramLibrary;
+    class ComponentRegistry;
 
     /*
      * The base renderer functionality to allow implementation of specialized renderers
@@ -168,16 +169,12 @@ namespace visutwin::canvas
         }
         const std::vector<std::shared_ptr<RenderPass>>& appendPasses() const { return _appendPasses; }
 
-        // Per-frame GPU instance culling dispatch: for every visible
-        // MeshInstance that has called enableGpuInstanceCulling(), extract
-        // frustum planes from `camera` and run the Metal compute cull pass.
-        // Overwrites each culler's compacted buffer and indirect args buffer
-        // in-place; the renderer's indirect draw path then consumes them. ONE output
-        // per culler, filled before any pass draws, so it is called once per frame:
-        // with `camera` the instances are culled to its frustum, with null none are
-        // culled — what a frame with several cameras needs, since each view would
-        // otherwise draw the set culled for whichever camera came last.
-        void dispatchGpuInstanceCulling(Camera* camera);
+        // Per-frame GPU instance culling: for every active MeshInstance that called
+        // enableGpuInstanceCulling(), one compute cull per camera in `cameras`, each into
+        // that camera's own output (MeshInstance::gpuCullOutputFor), so every view draws
+        // what it sees. Runs once a frame, before any pass draws; a draw for a camera not
+        // in the list takes the whole instance buffer.
+        void dispatchGpuInstanceCulling(const std::vector<Camera*>& cameras);
 
         /// Sets an ASPECT_AUTO camera's aspect ratio from the viewport it will draw to:
         /// its own render target, or the back buffer, times its rect — the arithmetic
@@ -185,6 +182,12 @@ namespace visutwin::canvas
         void resolveAutoAspectRatio(Camera* camera) const;
 
     protected:
+        /// The components of the engine whose scene this renders (null without a scene).
+        ComponentRegistry* componentRegistry() const;
+
+        /// Hands the shadow passes this frame's registry (they collect casters from it).
+        void syncShadowComponentRegistry();
+
         std::vector<std::shared_ptr<RenderPass>> _appendPasses;
         std::shared_ptr<GraphicsDevice> _device;
 

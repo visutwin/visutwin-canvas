@@ -5,6 +5,8 @@
 //
 #include "gsplatComponent.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include <algorithm>
 
 #include <spdlog/spdlog.h>
@@ -17,12 +19,12 @@ namespace visutwin::canvas
     GSplatComponent::GSplatComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
-        _instanceList.add(this);
+        listInstance(this);
     }
 
     GSplatComponent::~GSplatComponent()
     {
-        _instanceList.remove(this);
+        unlistInstance();
     }
 
     void GSplatComponent::setResource(const std::shared_ptr<GSplatResource>& resource)

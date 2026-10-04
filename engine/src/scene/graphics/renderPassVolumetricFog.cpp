@@ -5,6 +5,8 @@
 //
 #include "renderPassVolumetricFog.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -98,9 +100,9 @@ namespace visutwin::canvas
 
         // The directional light the fog scatters: the first enabled, casting
         // directional light.
-        LightComponent* findDirectionalLight()
+        LightComponent* findDirectionalLight(ComponentRegistry* registry)
         {
-            for (auto* component : LightComponent::instances()) {
+            for (auto* component : instancesOf<LightComponent>(registry)) {
                 if (!component || !component->active() || !component->entity()) {
                     continue;
                 }
@@ -219,7 +221,7 @@ namespace visutwin::canvas
         // fog's in-scattering has to be scaled the same way or it will not sit in the same range.
         const float exposure = _scene ? _scene->exposureFor(_cameraComponent ? _cameraComponent->camera() : nullptr) : 1.0f;
 
-        auto* lightComponent = findDirectionalLight();
+        auto* lightComponent = findDirectionalLight(_scene ? _scene->componentRegistry() : nullptr);
         if (lightComponent) {
             const Color& color = lightComponent->color();
             const float scale = _settings.intensity *
@@ -399,7 +401,7 @@ namespace visutwin::canvas
         u.marchParams[2] = noiseOffset;
         u.marchParams[3] = std::max(_settings.extinction, 0.0f);
 
-        for (auto* component : LightComponent::instances()) {
+        for (auto* component : instancesOf<LightComponent>(_scene ? _scene->componentRegistry() : nullptr)) {
             if (!component || !component->active() || component->volumetricScattering() <= 0.0f) {
                 continue;
             }

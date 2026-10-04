@@ -10,7 +10,6 @@
 
 #include "framework/components/component.h"
 #include "scene/gsplat/gsplatResource.h"
-#include "framework/components/componentInstanceList.h"
 
 namespace visutwin::canvas
 {
@@ -28,13 +27,11 @@ namespace visutwin::canvas
         void initializeComponentData() override {}
         void cloneFrom(const Component* source) override;
 
-        static const std::vector<GSplatComponent*>& instances() { return _instanceList.items(); }
 
         void setResource(const std::shared_ptr<GSplatResource>& resource);
         const std::shared_ptr<GSplatResource>& resource() const { return _resource; }
 
     private:
-        inline static ComponentInstanceList<GSplatComponent> _instanceList;
 
         std::shared_ptr<GSplatResource> _resource;
     };

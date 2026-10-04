@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "framework/components/component.h"
+#include "framework/components/componentRegistry.h"
 #include "framework/components/joint/jointComponent.h"
 #include "framework/components/rigidbody/rigidBodyComponent.h"
 #include "framework/entity.h"
@@ -140,15 +141,23 @@ namespace
         return entity;
     }
 
+    // No engine: the components share a registry of their own, which is what a body's
+    // teardown finds the joints naming it through.
+    ComponentRegistry* registry = nullptr;
+
     RigidBodyComponent* addRigidBody(Entity* entity)
     {
-        return static_cast<RigidBodyComponent*>(entity->addComponentInstance(
+        auto* body = static_cast<RigidBodyComponent*>(entity->addComponentInstance(
             std::make_unique<RigidBodyComponent>(nullptr, entity), componentTypeID<RigidBodyComponent>()));
+        body->joinRegistry(registry);
+        return body;
     }
 }
 
 int main()
 {
+    ComponentRegistry components;   // first, so it outlives every component below
+    registry = &components;
     TrackingWorld world;
     Entity root;
     root.setEnabledInHierarchy(true);
@@ -160,6 +169,7 @@ int main()
     auto* rigidB = addRigidBody(endB);
     auto* joint = static_cast<JointComponent*>(frame->addComponentInstance(
         std::make_unique<JointComponent>(nullptr, frame), componentTypeID<JointComponent>()));
+    joint->joinRegistry(registry);
     joint->setType(PhysicsJointType::Hinge);
     joint->setEntityA(endA);
     joint->setEntityB(endB);

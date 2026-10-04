@@ -18,6 +18,8 @@ namespace visutwin::canvas
     /*
     * Layer Composition is a collection of Layer that is fed to Scene#layers to define rendering.
     */
+    class ComponentRegistry;
+
     class LayerComposition : public EventHandler
     {
     public:
@@ -58,7 +60,15 @@ namespace visutwin::canvas
         int sortTransparentLayers(const std::vector<int>& layersA, const std::vector<int>& layersB) const;
         void markDirty() { _dirty = true; }
 
+        /// Whose cameras the render actions are built from (the scene's engine).
+        void setComponentRegistry(ComponentRegistry* registry)
+        {
+            _componentRegistry = registry;
+            _dirty = true;
+        }
+
     private:
+        ComponentRegistry* _componentRegistry = nullptr;
         bool isSublayerAdded(const std::shared_ptr<Layer>& layer, bool transparent) const;
 
         void updateLayerMaps();

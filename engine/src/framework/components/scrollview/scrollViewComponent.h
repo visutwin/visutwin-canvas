@@ -45,7 +45,6 @@
 #include "core/math/vector3.h"
 #include "framework/components/component.h"
 #include "framework/components/layoutgroup/layoutCalculator.h"
-#include "framework/components/componentInstanceList.h"
 
 namespace visutwin::canvas
 {
@@ -86,7 +85,6 @@ namespace visutwin::canvas
         void onEnable() override;
         void onDisable() override;
 
-        static const std::vector<ScrollViewComponent*>& instances() { return _instanceList.items(); }
 
         bool horizontal() const { return _horizontal; }
         void setHorizontal(bool value);
@@ -184,7 +182,6 @@ namespace visutwin::canvas
         static float axisOf(const Vector2& v, const int axis) { return axis == 0 ? v.x : v.y; }
         static float& axisOf(Vector2& v, const int axis) { return axis == 0 ? v.x : v.y; }
 
-        inline static ComponentInstanceList<ScrollViewComponent> _instanceList;
 
         bool _horizontal = true;
         bool _vertical = true;

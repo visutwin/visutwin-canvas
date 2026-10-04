@@ -14,6 +14,7 @@
 #include <memory>
 
 #include "framework/components/camera/cameraComponent.h"
+#include "framework/components/componentRegistry.h"
 #include "framework/components/component.h"
 #include "framework/components/light/lightComponent.h"
 #include "framework/components/script/scriptComponent.h"
@@ -151,7 +152,11 @@ int main()
         camera->initializeComponentData();
         camera->setLayers({LAYERID_WORLD});
 
+        // No engine: the composition and the camera share a registry of their own.
+        ComponentRegistry registry;
+        camera->joinRegistry(&registry);
         LayerComposition composition;
+        composition.setComponentRegistry(&registry);
         composition.pushOpaque(std::make_shared<Layer>("World", LAYERID_WORLD));
 
         const auto actionsFor = [&composition, camera]() {

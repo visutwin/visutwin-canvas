@@ -8,6 +8,8 @@
 //
 #include "elementComponent.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -36,7 +38,7 @@ namespace visutwin::canvas
     ElementComponent::ElementComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity)
     {
-        _instanceList.add(this);
+        listInstance(this);
         if (_entity) {
             _onInsertHandle = _entity->on("insert", [this](GraphNode* /*parent*/) { onInsert(); });
             _entity->setTransformHook(this);
@@ -45,14 +47,15 @@ namespace visutwin::canvas
 
     ElementComponent::~ElementComponent()
     {
-        _instanceList.remove(this);
+        ComponentRegistry* const registry = this->registry();
+        unlistInstance();
         // An element masked by this one must not keep a pointer to it until the next frame
         // works the masks out again: a hit test in between would follow it. Only an element
         // that was ever handed out as a mask can be pointed at, so every other element's
         // destructor skips the sweep; running it for each would make destroying N
         // elements cost N x N.
-        if (_wasUsedAsMask) {
-            _instanceList.forEachLive([this](ElementComponent* element) {
+        if (_wasUsedAsMask && registry) {
+            registry->list<ElementComponent>().forEachLive([this](ElementComponent* element) {
                 if (element->_maskedBy == this) {
                     element->_maskedBy = nullptr;
                 }

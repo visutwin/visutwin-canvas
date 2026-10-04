@@ -5,6 +5,8 @@
 //
 #include "lightComponent.h"
 
+#include "framework/components/componentRegistry.h"
+
 #include <cmath>
 #include <numbers>
 
@@ -16,12 +18,12 @@ namespace visutwin::canvas
 {
     LightComponent::LightComponent(IComponentSystem* system, Entity* entity) : Component(system, entity)
     {
-        _instanceList.add(this);
+        listInstance(this);
     }
 
     LightComponent::~LightComponent()
     {
-        _instanceList.remove(this);
+        unlistInstance();
     }
 
     Light* LightComponent::light() const
@@ -44,7 +46,7 @@ namespace visutwin::canvas
     void LightComponent::onEnable()
     {
         // There is no per-layer light list to add the light to here — every consumer
-        // sweeps LightComponent::instances() and tests active() — so the hooks exist
+        // sweeps its engine's LightComponent list and tests active() — so the hooks exist
         // to keep the backing scene Light in step the moment the state changes,
         // rather than at whatever later point something calls light().
         syncToLight();

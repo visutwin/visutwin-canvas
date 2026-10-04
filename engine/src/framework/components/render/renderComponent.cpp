@@ -4,6 +4,8 @@
 // Created by Arnis Lektauers on 10.02.2026
 //
 #include "renderComponent.h"
+
+#include "framework/components/componentRegistry.h"
 #include "primitiveGeometry.h"
 
 #include <algorithm>
@@ -640,7 +642,7 @@ namespace visutwin::canvas
     RenderComponent::RenderComponent(IComponentSystem* system, Entity* entity)
         : Component(system, entity), _type("asset")
     {
-        _instanceList.add(this);
+        listInstance(this);
     }
 
     RenderComponent::~RenderComponent()
@@ -652,7 +654,7 @@ namespace visutwin::canvas
         clearMeshInstances();
         _ownedMeshes.clear();
 
-        _instanceList.remove(this);
+        unlistInstance();
     }
 
     const std::vector<MeshInstance*>& RenderComponent::meshInstances() const

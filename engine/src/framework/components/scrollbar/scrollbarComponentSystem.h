@@ -6,6 +6,8 @@
 #pragma once
 
 #include "scrollbarComponent.h"
+
+#include "framework/components/componentRegistry.h"
 #include "scrollbarComponentData.h"
 #include "framework/components/componentSystem.h"
 #include "framework/engine.h"
@@ -20,7 +22,7 @@ namespace visutwin::canvas
             // Nothing fires an `element:add` event, so the bindings are refreshed here.
             if (engine && engine->systems()) {
                 engine->systems()->on("update", [engine](float) {
-                    const auto& scrollbars = ScrollbarComponent::instances();
+                    const auto& scrollbars = engine->components().instances<ScrollbarComponent>();
                     for (size_t i = 0; i < scrollbars.size(); ++i) {
                         ScrollbarComponent* scrollbar = scrollbars[i];
                         if (scrollbar && scrollbar->entity() && scrollbar->entity()->engine() == engine) {
