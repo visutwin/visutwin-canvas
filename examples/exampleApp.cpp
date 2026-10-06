@@ -579,6 +579,7 @@ namespace visutwin::canvas
                 MiniStatsOptions options;
                 options.regularFont = _hudRegularFont.get();
                 options.boldFont = _hudBoldFont.get();
+                options.statPresets = _options.miniStatsPresets;
                 if (hudOverride && std::string_view(hudOverride) == "detailed") {
                     options.startSizeIndex = static_cast<int>(options.sizes.size()) - 1;
                 }

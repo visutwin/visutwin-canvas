@@ -13,10 +13,12 @@
 // on Metal only under load.
 
 #include <algorithm>
+#include <chrono>
 #include <functional>
 #include <iostream>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "framework/applicationStats.h"
@@ -503,6 +505,7 @@ int main()
     std::cout << "\nnew GPU passes grow the history and keep what it holds\n";
     {
         PassFixture f(2);
+        f.stats->postRender();   // the first frame samples nothing
         f.stats->postRender();
         f.stats->postRender();
         const int frameRow = findGraph(*f.stats, "Frame")->row;
@@ -674,6 +677,60 @@ int main()
             stats.reset();
             check(!profiler.enabled(), "destroyed while hidden: still off");
         }
+    }
+
+    std::cout << "\nthe gsplats preset\n";
+    {
+        PassFixture f(1, [](MiniStatsOptions& o) { o.statPresets = {"gsplats", "no-such-preset"}; });
+        const MiniStatsGraph* splats = findGraph(*f.stats, "GSplats");
+        check(splats && splats->group == MiniStats::ENGINE && splats->units == "M" && splats->decimals == 3 &&
+              splats->watermark == 10.0f, "a GSplats row in Engine: millions, three decimals, a budget of 10");
+        const std::vector<std::string> order = visibleLabels(*f.stats);
+        check(order.size() > 3 && order[1] == "Draw calls" && order[2] == "Frame" && order[3] == "GSplats",
+              "after Draw calls and Frame");
+        f.frame().gsplats = 2'500'000;
+        check(sample(*f.stats, "GSplats") == 2.5f, "the frame's splat count in millions");
+        int engineRows = 0;
+        for (const auto& g : f.stats->graphs()) {
+            engineRows += g->group == MiniStats::ENGINE && !g->headerOnly ? 1 : 0;
+        }
+        check(engineRows == 3, "an unknown preset adds nothing");
+        PassFixture plain(1);
+        check(!findGraph(*plain.stats, "GSplats"), "and no preset, no row");
+    }
+
+    std::cout << "\nthe first frame after the HUD is shown samples nothing\n";
+    {
+        // Without a previous hook there is no interval: sampled, it would be a zero frame
+        // time in the average and the history.
+        PassFixture f(2);
+        const MiniStatsHistory& history = f.stats->history();
+        f.stats->postRender();
+        check(history.cursor() == 0 && findGraph(*f.stats, "Frame")->maxText == "\xE2\x80\x94",
+              "created: the first frame writes no column and averages nothing");
+        for (int i = 0; i < 3; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            f.stats->postRender();
+        }
+        check(history.cursor() == 3, "each later frame writes one");
+
+        f.stats->setEnabled(false);
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        f.stats->setEnabled(true);
+        f.stats->postRender();
+        check(history.cursor() == 3, "shown again: the first frame writes nothing");
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        f.stats->postRender();
+        check(history.cursor() == 4, "the next one does");
+        const int frameRow = findGraph(*f.stats, "Frame")->row;
+        // At least 20 ms over a scale of 1.5 x 33 ms is 103 or more; a zero sample is 0.
+        int lowest = 255;
+        for (int column = 0; column < history.cursor(); ++column) {
+            const uint8_t* texel = history.pixels().data() + (static_cast<size_t>(frameRow) * history.width() + column) * 4;
+            lowest = std::min(lowest, texel[3] == 170 ? static_cast<int>(texel[0]) : -1);
+        }
+        check(lowest > 50, "every column written holds a real interval, none a zero (lowest " +
+              std::to_string(lowest) + ")");
     }
 
     return finish("mini-stats");

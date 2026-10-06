@@ -11,6 +11,7 @@
 #include <utility>
 
 #include <SDL3/SDL_timer.h>
+#include <spdlog/spdlog.h>
 
 #include "framework/applicationStats.h"
 #include "framework/engine.h"
@@ -159,6 +160,15 @@ namespace visutwin::canvas
                 const auto& v = d->vram();
                 return static_cast<float>(static_cast<double>(v.tex) + v.vb + v.ib + v.ub + v.sb) * kMegabyte;
             }, 1, "MB", 1024.0f, false}};
+        for (const std::string& preset : _options.statPresets) {
+            if (preset == "gsplats") {
+                stats.push_back({"GSplats", [engine]() {
+                    return engine && engine->stats() ? static_cast<float>(engine->stats()->frame().gsplats) * 1e-6f : 0.0f;
+                }, 3, "M", 10.0f, false});
+            } else {
+                spdlog::warn("MiniStats: no stat preset named '{}'", preset);
+            }
+        }
         stats.insert(stats.end(), _options.stats.begin(), _options.stats.end());
 
         MiniStatsGraph* engineHeader = nullptr;
@@ -393,7 +403,7 @@ namespace visutwin::canvas
         }
     }
 
-    void MiniStats::update(const float ms)
+    void MiniStats::update(const float ms, const bool sample)
     {
         if (_resourcesEnabled && _detailed) {
             _resourceElapsed += ms;
@@ -426,6 +436,9 @@ namespace visutwin::canvas
                     _geometryDirty = true;
                 }
             }
+        }
+        if (!sample) {
+            return;
         }
         MiniStatsHistory* history = _showGraphs ? _history.get() : nullptr;
         for (const auto& graph : _graphs) {
@@ -493,7 +506,11 @@ namespace visutwin::canvas
         // drives the engine, and the performance counter is finer than the stats' ticks.
         const uint64_t counter = SDL_GetPerformanceCounter();
         const uint64_t frequency = SDL_GetPerformanceFrequency();
-        _frameMs = (_lastCounter != 0 && frequency != 0)
+        // The first frame after the HUD is created or shown has no previous hook to measure
+        // from, and its CPU figures pair with a frame the HUD never saw: it refreshes the
+        // panel and the resource counts, and samples nothing.
+        const bool sample = _lastCounter != 0;
+        _frameMs = (sample && frequency != 0)
             ? static_cast<float>(static_cast<double>(counter - _lastCounter) * 1000.0 / static_cast<double>(frequency))
             : 0.0f;
         _lastCounter = counter;
@@ -510,7 +527,7 @@ namespace visutwin::canvas
             }
         }
 
-        update(_frameMs);
+        update(_frameMs, sample);
         _frameIndex++;
 
         if (_detailed && _engine) {

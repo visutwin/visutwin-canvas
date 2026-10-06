@@ -66,7 +66,11 @@ namespace visutwin::canvas
         float cpuWatermark = 33.0f;
         bool gpuEnabled = true;
         float gpuWatermark = 33.0f;
-        /// Further counters after Draw calls, Frame and VRAM.
+        /// Predefined counters, added after Draw calls, Frame and VRAM and before `stats`:
+        /// "gsplats", the gaussian splats drawn this frame, in millions (Engine section,
+        /// budget 10 M). An unknown name adds nothing and logs a warning.
+        std::vector<std::string> statPresets;
+        /// Further counters after Draw calls, Frame, VRAM and the presets.
         std::vector<MiniStatsGraphOptions> stats;
         /// The size index from which the GPU pass, CPU phase and VRAM part rows show.
         int gpuTimingMinSize = 1;
@@ -90,7 +94,9 @@ namespace visutwin::canvas
      * peaks and history graphs. A click on the panel goes to the next size; in a detailed
      * size a click on a heading collapses or expands its section instead, and the wheel
      * scrolls a panel taller than the window. Collapsing keeps a section's sampling and
-     * history. Figures are the mean over the last textRefreshMs.
+     * history. Figures are the mean over the last textRefreshMs. The first frame after the
+     * HUD is created or shown has no interval to measure, so it refreshes the panel and
+     * samples nothing: no zero frame time in the averages or the history.
      *
      * It is drawn with Render2d on the UI layer, as one draw, by the first camera rendering
      * that layer; someone has to render it (the examples host adds a camera when no camera of
@@ -171,7 +177,7 @@ namespace visutwin::canvas
         void resize(float width, float height, bool showGraphs);
         void updateLayout();
         void scroll(float delta);
-        void update(float ms);
+        void update(float ms, bool sample);
         void render();
         void rebuildGeometry();
         void handleClick(float y);

@@ -86,6 +86,10 @@ namespace visutwin::canvas
         /// Examples log at debug level by default — they are development tools,
         /// and the shader/asset chatter is usually the point.
         bool debugLogging = true;
+
+        /// MiniStatsOptions::statPresets for the performance HUD ("gsplats"), for an
+        /// example whose upstream counterpart asks for them.
+        std::vector<std::string> miniStatsPresets;
     };
 
     /// Which UI component systems ExampleApp::registerUi adds.

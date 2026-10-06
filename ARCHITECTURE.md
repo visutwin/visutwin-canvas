@@ -557,6 +557,17 @@ instance, one material, one draw, on the UI layer. Three pieces:
   still decrements live memory. The pipelines are the backend caches' entries
   (`addBackendResourceCounts`); those caches never evict, so the rows are every distinct
   pipeline state the run has needed, which is where a variant explosion shows.
+- **Stat presets** (`MiniStatsOptions::statPresets`, upstream's `getDefaultOptions`
+  extras): "gsplats" adds a GSplats row to Engine, `FrameStats::gsplats` in millions with a
+  budget of 10. Upstream's "gsplatsCopy" counts buffer copies of its unified splat
+  renderer, which this port does not have. An example asks for presets through
+  `ExampleOptions::miniStatsPresets`; none does yet, because every upstream example that
+  asks for one (billions, depth-effects, downtown, flipbook, lod-streaming, relighting,
+  weather) is unported, and `gsplat-example` ports `simple`, which uses the default panel.
+- **The first frame after the HUD is created or shown samples nothing.** It has no
+  previous hook to measure the frame interval from, and its CPU figures belong to a frame
+  the HUD never saw; sampled, it put a zero frame time into the averages and the history.
+  It still refreshes the panel and the resource counts.
 - **The HUD leaves the GPU profiler as it found it.** It enables the profiler while
   shown and, hidden or destroyed, puts back the state it had when the HUD was created or
   last shown, so a caller that enabled the profiler for its own use keeps it.
