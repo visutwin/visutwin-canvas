@@ -128,14 +128,9 @@ namespace visutwin::canvas
         const auto device = [engine]() -> GraphicsDevice* { return engine ? engine->graphicsDevice().get() : nullptr; };
 
         if (_options.cpuEnabled) {
-            // The previous frame's update and render; the render figure is written after
-            // the frame ends, which is after this hook.
-            _cpuGraph = addGraph(std::make_unique<MiniStatsGraph>("CPU", _options.cpuWatermark, refresh, [engine]() {
-                if (!engine || !engine->stats()) {
-                    return 0.0f;
-                }
-                const auto& frame = engine->stats()->frame();
-                return static_cast<float>(frame.updateTime + frame.renderTime);
+            // One frame's update and render, latched by latchCpuTimes().
+            _cpuGraph = addGraph(std::make_unique<MiniStatsGraph>("CPU", _options.cpuWatermark, refresh, [this]() {
+                return _cpuUpdateMs + _cpuRenderMs;
             }, 1, "ms"));
             _cpuGraph->group = CPU;
         }
@@ -492,12 +487,14 @@ namespace visutwin::canvas
             : 0.0f;
         _lastCounter = counter;
 
+        latchCpuTimes();
+
         // Passes sharing a name are one row holding their sum: the forward pass draws the
         // scene and then the UI layer, and a separable blur runs twice.
         _passTotals.clear();
         const GraphicsDevice* device = _engine ? _engine->graphicsDevice().get() : nullptr;
-        if (device && device->gpuProfiler()) {
-            for (const auto& timing : device->gpuProfiler()->passTimings()) {
+        if (const auto* timings = passTimings()) {
+            for (const auto& timing : *timings) {
                 _passTotals[timing.name] += static_cast<float>(timing.milliseconds);
             }
         }
@@ -522,18 +519,17 @@ namespace visutwin::canvas
                     }
                 }
             }
-            if (_cpuGraph && _activeSizeIndex >= _options.cpuTimingMinSize && _engine->stats()) {
-                Engine* engine = _engine.get();
-                const auto& frame = engine->stats()->frame();
-                const auto frameField = [engine](double FrameStats::* field) {
-                    return [engine, field]() { return static_cast<float>(engine->stats()->frame().*field); };
+            if (_cpuGraph && _activeSizeIndex >= _options.cpuTimingMinSize) {
+                // The latched figures, so the rows show the CPU row's frame and add up to it.
+                const auto latched = [this](const float MiniStats::* field) {
+                    return [this, field]() { return this->*field; };
                 };
-                updateSubStat(_cpuGraphs, _cpuGraph, "renderTime", static_cast<float>(frame.renderTime), "Render",
-                              "ms", false, frameField(&FrameStats::renderTime));
-                updateSubStat(_cpuGraphs, _cpuGraph, "updateTime", static_cast<float>(frame.updateTime), "Update",
-                              "ms", false, frameField(&FrameStats::updateTime));
-                updateSubStat(_cpuGraphs, _cpuGraph, "physicsTime", static_cast<float>(frame.physicsTime), "Physics",
-                              "ms", true, frameField(&FrameStats::physicsTime));
+                updateSubStat(_cpuGraphs, _cpuGraph, "renderTime", _cpuRenderMs, "Render", "ms", false,
+                              latched(&MiniStats::_cpuRenderMs));
+                updateSubStat(_cpuGraphs, _cpuGraph, "updateTime", _cpuUpdateMs, "Update", "ms", false,
+                              latched(&MiniStats::_cpuUpdateMs));
+                updateSubStat(_cpuGraphs, _cpuGraph, "physicsTime", _cpuPhysicsMs, "Physics", "ms", true,
+                              latched(&MiniStats::_cpuPhysicsMs));
             }
             if (_vramGraph && _activeSizeIndex >= _options.vramTimingMinSize && device) {
                 const auto& v = device->vram();
@@ -552,6 +548,30 @@ namespace visutwin::canvas
             }
         }
         render();
+    }
+
+    void MiniStats::latchCpuTimes()
+    {
+        // At this hook the engine's update and physics figures are this frame's, its render
+        // figure the previous frame's (Engine::render writes it after "postrender"). Summed as
+        // they stand, a spike in one frame's update would pair with the frame before's render
+        // and the peak would show a frame that never happened, so the update and physics
+        // figures wait one hook for their render.
+        const FrameStats* frame = _engine && _engine->stats() ? &_engine->stats()->frame() : nullptr;
+        _cpuUpdateMs = _pendingUpdateMs;
+        _cpuPhysicsMs = _pendingPhysicsMs;
+        _cpuRenderMs = frame ? static_cast<float>(frame->renderTime) : 0.0f;
+        _pendingUpdateMs = frame ? static_cast<float>(frame->updateTime) : 0.0f;
+        _pendingPhysicsMs = frame ? static_cast<float>(frame->physicsTime) : 0.0f;
+    }
+
+    const std::vector<GpuProfiler::PassTiming>* MiniStats::passTimings() const
+    {
+        if (_options.gpuPassTimings) {
+            return _options.gpuPassTimings();
+        }
+        const GraphicsDevice* device = _engine ? _engine->graphicsDevice().get() : nullptr;
+        return device && device->gpuProfiler() ? &device->gpuProfiler()->passTimings() : nullptr;
     }
 
     void MiniStats::render()

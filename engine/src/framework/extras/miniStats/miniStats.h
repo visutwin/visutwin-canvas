@@ -5,6 +5,7 @@
 //
 #pragma once
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <set>
@@ -14,6 +15,7 @@
 #include <SDL3/SDL_events.h>
 
 #include "core/eventHandler.h"
+#include "platform/graphics/gpuProfiler.h"
 #include "miniStatsGraph.h"
 #include "miniStatsText.h"
 #include "render2d.h"
@@ -70,6 +72,10 @@ namespace visutwin::canvas
         int gpuTimingMinSize = 1;
         int cpuTimingMinSize = 1;
         int vramTimingMinSize = 1;
+        /// Where the per-pass GPU timings come from: null for none this frame. Empty, the
+        /// device's GPU profiler. Any other source is for a caller with timings of its own
+        /// (a test, which has no profiler).
+        std::function<const std::vector<GpuProfiler::PassTiming>*()> gpuPassTimings;
         /// MSDF fonts for labels and figures; the HUD draws nothing without both.
         const FontResource* regularFont = nullptr;
         const FontResource* boldFont = nullptr;
@@ -93,6 +99,10 @@ namespace visutwin::canvas
      *
      * Enabling the HUD enables the GPU profiler, which is off by default because sampling
      * has a small cost.
+     *
+     * The CPU row is ONE frame's update plus render. The engine writes the render figure after
+     * this hook, so the update figure is held back a frame to pair with it; the Update,
+     * Render and Physics rows show the same frame and add up to the CPU row.
      *
      * DEVIATIONS: the input comes from handleEvent() (no keyboard focus, no Enter or Space to
      * change size, no touch drag); the CPU section's rows are Update, Render and Physics,
@@ -139,6 +149,7 @@ namespace visutwin::canvas
         [[nodiscard]] float overallHeight() const { return _overallHeight; }
         [[nodiscard]] const std::vector<std::unique_ptr<MiniStatsGraph>>& graphs() const { return _graphs; }
         [[nodiscard]] const Render2d& renderer() const { return *_render2d; }
+        [[nodiscard]] const MiniStatsHistory& history() const { return *_history; }
         [[nodiscard]] bool textValid() const { return _text.valid(); }
 
         /// What a frame does on "postrender", for a caller driving it by hand (tests).
@@ -162,6 +173,8 @@ namespace visutwin::canvas
         void rebuildGeometry();
         void handleClick(float y);
         [[nodiscard]] bool insidePanel(float x, float y) const;
+        [[nodiscard]] const std::vector<GpuProfiler::PassTiming>* passTimings() const;
+        void latchCpuTimes();
 
         std::shared_ptr<Engine> _engine;
         MiniStatsOptions _options;
@@ -208,6 +221,14 @@ namespace visutwin::canvas
         // Frame interval, measured at the hook.
         uint64_t _lastCounter = 0;
         float _frameMs = 0.0f;
+        // The CPU figures the rows show, all of one frame: the engine's render time at the
+        // hook is the previous frame's, so the update and physics times seen at the previous
+        // hook are held (pending) to pair with it.
+        float _cpuUpdateMs = 0.0f;
+        float _cpuRenderMs = 0.0f;
+        float _cpuPhysicsMs = 0.0f;
+        float _pendingUpdateMs = 0.0f;
+        float _pendingPhysicsMs = 0.0f;
         // This frame's GPU time per pass name, passes sharing a name summed.
         std::map<std::string, float> _passTotals;
 

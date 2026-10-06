@@ -531,8 +531,17 @@ instance, one material, one draw, on the UI layer. Three pieces:
   show the 0.1 ms UI pass and hide the 3 ms scene pass. A row first appears when its
   pass reports more than zero and is dropped 240 frames after it last did, or a
   one-shot shadow pass keeps its first-frame figure forever.
+  `MiniStatsOptions::gpuPassTimings` replaces the device's profiler as their source,
+  which is how `tests/miniStatsTests.cpp` drives creation, aging, row reuse and texture
+  growth on a stub device that has no profiler.
 - **The CPU row is upstream's CpuTimer**: the update phase plus the render phase on
-  the CPU, the previous frame's. The render half is `FrameStats::renderTime`, which
+  the CPU, both of the PREVIOUS frame. At "postrender" the engine's update time is this
+  frame's and its render time the previous frame's (written after the hook), so
+  `latchCpuTimes` holds the update and physics figures back one hook to pair them with
+  their own frame's render; summed as they stand, one frame's update spike lands beside
+  another frame's render and the peak column shows a frame that never happened. The
+  Update, Render and Physics rows read the same latch and add up to the CPU row. The
+  render half is `FrameStats::renderTime`, which
   `Engine::render` writes as its own wall time LESS
   `GraphicsDevice::displayWaitMilliseconds()` — the time the backend spent blocked on
   the display (Metal's `nextDrawable`; Vulkan's frame fence, acquire, submit and

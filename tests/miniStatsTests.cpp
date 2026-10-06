@@ -12,6 +12,8 @@
 // what it holds reads as resources being freed, and a history ring of one texture tears
 // on Metal only under load.
 
+#include <algorithm>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -23,6 +25,7 @@
 #include "framework/engine.h"
 #include "framework/entity.h"
 #include "framework/extras/miniStats/miniStats.h"
+#include "framework/handlers/fontResource.h"
 #include "platform/graphics/texture.h"
 #include "scene/composition/layerComposition.h"
 #include "scene/constants.h"
@@ -87,6 +90,62 @@ namespace
         }
         return out;
     }
+
+    /// The row whose name (a sub-row's stat or pass name) is `name`, or null.
+    const MiniStatsGraph* findGraph(const MiniStats& stats, const std::string& name)
+    {
+        for (const auto& g : stats.graphs()) {
+            if (g->name == name) {
+                return g.get();
+            }
+        }
+        return nullptr;
+    }
+
+    float sample(const MiniStats& stats, const std::string& name)
+    {
+        const MiniStatsGraph* graph = findGraph(stats, name);
+        return graph && graph->sampler ? graph->sampler() : -1.0f;
+    }
+
+    /// A panel on a stub engine with its own GPU pass timings, in the size `size`.
+    struct PassFixture
+    {
+        std::shared_ptr<StubGraphicsDevice> device;
+        std::shared_ptr<Engine> engine;
+        std::shared_ptr<FontResource> regular;
+        std::shared_ptr<FontResource> bold;
+        std::vector<GpuProfiler::PassTiming> passes;
+        std::unique_ptr<MiniStats> stats;
+
+        explicit PassFixture(const int size, const std::function<void(MiniStatsOptions&)>& configure = {})
+        {
+            device = std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{
+                .size = {640, 480}, .resizable = true, .cpuBuffers = true});
+            engine = makeTestEngine<CameraComponentSystem>(device);
+            regular = makeMsdfTestFont(device.get());
+            bold = makeMsdfTestFont(device.get());
+            MiniStatsOptions options;
+            options.regularFont = regular.get();
+            options.boldFont = bold.get();
+            options.startSizeIndex = size;
+            options.gpuPassTimings = [this]() { return &passes; };
+            if (configure) {
+                configure(options);
+            }
+            stats = std::make_unique<MiniStats>(engine, options);
+        }
+
+        FrameStats& frame() { return engine->stats()->frame(); }
+
+        /// Row `row` of the history, width() x 4 bytes.
+        std::vector<uint8_t> row(const int row) const
+        {
+            const MiniStatsHistory& h = stats->history();
+            const auto* begin = h.pixels().data() + static_cast<size_t>(row) * h.width() * 4;
+            return {begin, begin + static_cast<size_t>(h.width()) * 4};
+        }
+    };
 }
 
 int main()
@@ -324,6 +383,197 @@ int main()
         check(stats.panelHeight() == 160.0f - 16.0f && stats.overallHeight() > stats.panelHeight(),
               "the panel stops 8 points short of each edge");
         check(stats.handleEvent(wheel(20.0f, 160.0f - 20.0f, -1.0f)), "and the wheel scrolls it");
+    }
+
+    std::cout << "\nthe CPU row is one frame's update plus render\n";
+    {
+        // At the hook the update time is this frame's and the render time the previous
+        // frame's (the engine writes it after the hook), so the update waits one hook.
+        PassFixture f(1);
+        FrameStats& frame = f.frame();
+        frame.updateTime = 1.0;
+        frame.renderTime = 100.0;
+        frame.physicsTime = 0.0;
+        f.stats->postRender();
+        check(sample(*f.stats, "CPU") == 0.0f + 100.0f, "the first hook has no update to pair: 0 + 100");
+
+        frame.updateTime = 2.0;
+        frame.renderTime = 10.0;
+        f.stats->postRender();
+        check(sample(*f.stats, "CPU") == 1.0f + 10.0f, "frame 1's update with frame 1's render");
+        check(sample(*f.stats, "updateTime") == 1.0f && sample(*f.stats, "renderTime") == 10.0f,
+              "the Update and Render rows show the same frame");
+
+        // A spike in one frame's update and physics is counted with that frame's render only.
+        frame.updateTime = 50.0;
+        frame.physicsTime = 4.0;
+        frame.renderTime = 20.0;
+        f.stats->postRender();
+        check(sample(*f.stats, "CPU") == 2.0f + 20.0f, "the spike is not yet counted");
+        check(!findGraph(*f.stats, "physicsTime"), "nor is its physics row created");
+
+        frame.updateTime = 3.0;
+        frame.physicsTime = 0.0;
+        frame.renderTime = 30.0;
+        f.stats->postRender();
+        check(sample(*f.stats, "CPU") == 50.0f + 30.0f, "the spike with its own frame's render");
+        check(sample(*f.stats, "physicsTime") == 4.0f, "and the physics row appears with that frame's figure");
+        check(sample(*f.stats, "updateTime") + sample(*f.stats, "renderTime") == sample(*f.stats, "CPU"),
+              "the rows add up to the CPU row");
+    }
+
+    std::cout << "\na GPU pass row appears once its pass reports time\n";
+    {
+        PassFixture f(1);
+        f.passes = {{"Shadow", 0.0}};
+        f.stats->postRender();
+        check(!findGraph(*f.stats, "Shadow"), "a pass at zero adds no row");
+        f.passes = {{"Shadow", 1.5}};
+        f.stats->postRender();
+        const MiniStatsGraph* shadow = findGraph(*f.stats, "Shadow");
+        check(shadow && shadow->group == MiniStats::GPU && shadow->parent == findGraph(*f.stats, "GPU"),
+              "a pass above zero: a row under GPU");
+        check(sample(*f.stats, "Shadow") == 1.5f, "sampling the pass");
+        f.passes = {{"Shadow", 1.5}, {"Forward", 1.0}, {"Forward", 2.0}};
+        f.stats->postRender();
+        check(sample(*f.stats, "Forward") == 3.0f, "passes sharing a name are one row holding their sum");
+    }
+
+    std::cout << "\nGPU pass rows are aged out and their rows reused, cleared\n";
+    {
+        PassFixture f(2);
+        f.passes = {{"Old pass", 12.0}};
+        f.stats->postRender();
+        const int oldRow = findGraph(*f.stats, "Old pass")->row;
+        f.passes.clear();
+        for (int i = 0; i < 240; ++i) {
+            f.stats->postRender();
+        }
+        check(findGraph(*f.stats, "Old pass") != nullptr, "240 frames without the pass: still there");
+        f.stats->postRender();
+        check(!findGraph(*f.stats, "Old pass"), "241: removed");
+        bool written = false;
+        for (size_t i = 3; i < f.row(oldRow).size(); i += 4) {
+            written |= f.row(oldRow)[i] != 0;
+        }
+        check(written, "the old pass wrote its history into the row");
+
+        f.passes = {{"New pass", 2.0}};
+        f.stats->postRender();
+        check(findGraph(*f.stats, "New pass")->row == oldRow, "a new pass takes the freed row");
+        f.stats->postRender();   // its first sample
+        const int column = (f.stats->history().cursor() + f.stats->history().width() - 1) %
+                           f.stats->history().width();
+        const std::vector<uint8_t> row = f.row(oldRow);
+        bool othersClear = true;
+        for (size_t i = 0; i < row.size(); ++i) {
+            if (i / 4 != static_cast<size_t>(column)) {
+                othersClear &= row[i] == 0;
+            }
+        }
+        check(row[static_cast<size_t>(column) * 4 + 3] == 170 && othersClear,
+              "the row is cleared before its first sample: nothing of the old pass is left");
+
+        f.stats->setActiveSizeIndex(0);
+        bool noOrphans = true;
+        for (const auto& g : f.stats->graphs()) {
+            noOrphans &= !g->parent || g->parent->headerOnly;
+        }
+        check(noOrphans && !findGraph(*f.stats, "New pass"), "the compact size drops every sub-row");
+    }
+
+    std::cout << "\nnew GPU passes grow the history and keep what it holds\n";
+    {
+        PassFixture f(2);
+        f.stats->postRender();
+        f.stats->postRender();
+        const int frameRow = findGraph(*f.stats, "Frame")->row;
+        // The columns written so far; the growing frame writes one more of its own.
+        const auto written = static_cast<size_t>(f.stats->history().cursor()) * 4;
+        const std::vector<uint8_t> before = f.row(frameRow);
+        check(written == 8 && before[3] == 170 && before[7] == 170, "two samples in the Frame row");
+        const int oldHeight = f.stats->history().height();
+        for (int i = 0; i < 20; ++i) {
+            f.passes.push_back({"Pass." + std::to_string(i), 1.0});
+        }
+        f.stats->postRender();
+        check(f.stats->history().height() > oldHeight, "twenty more rows grow the texture");
+        check(std::equal(before.begin(), before.begin() + static_cast<std::ptrdiff_t>(written), f.row(frameRow).begin()),
+              "an existing row's samples survive the growth");
+        f.stats->postRender();
+        check(sample(*f.stats, "Pass.0") == 1.0f, "and a new row samples its pass");
+    }
+
+    std::cout << "\nno sub-rows for a category that is off\n";
+    {
+        PassFixture f(2, [](MiniStatsOptions& o) {
+            o.cpuEnabled = false;
+            o.gpuEnabled = false;
+        });
+        f.passes = {{"Pass", 2.0}};
+        f.frame().physicsTime = 3.0;
+        f.stats->postRender();
+        f.stats->postRender();
+        int counters = 0;
+        bool noCpuGpu = true;
+        for (const auto& g : f.stats->graphs()) {
+            noCpuGpu &= g->group != MiniStats::CPU && g->group != MiniStats::GPU;
+            counters += g->countOnly ? 0 : 1;
+        }
+        check(noCpuGpu, "no CPU or GPU row of any kind");
+        check(counters == 7, "Engine, Draw calls, Frame, VRAM and its three parts (" + std::to_string(counters) + ")");
+    }
+
+    std::cout << "\nthe panel follows the canvas without a resize event\n";
+    {
+        PassFixture f(0);
+        f.stats->postRender();
+        check(f.stats->panelWidth() == 128.0f && f.stats->panelHeight() == 118.0f, "640x480: the full panel");
+        f.device->setResolution(100, 60);
+        f.stats->postRender();
+        check(f.stats->panelWidth() == 100.0f - 16.0f && f.stats->panelHeight() == 60.0f - 16.0f,
+              "100x60: cut to 8 points from each edge");
+        f.device->setResolution(640, 480);
+        f.stats->postRender();
+        check(f.stats->panelWidth() == 128.0f && f.stats->panelHeight() == 118.0f, "and back");
+    }
+
+    std::cout << "\na zero-size canvas draws nothing\n";
+    {
+        auto device = std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{
+            .size = {640, 480}, .resizable = true, .cpuBuffers = true, .recordDraws = true, .renderTargets = true});
+        auto engine = makeTestEngine<CameraComponentSystem>(device);
+        {
+            auto owned = std::make_unique<Entity>();
+            owned->setEngine(engine.get());
+            owned->addComponent<CameraComponent>();
+            engine->root()->addChild(std::move(owned));
+        }
+        auto regular = makeMsdfTestFont(device.get());
+        auto bold = makeMsdfTestFont(device.get());
+        MiniStatsOptions options;
+        options.regularFont = regular.get();
+        options.boldFont = bold.get();
+        MiniStats stats(engine, options);
+        engine->start();
+        auto& appStats = *engine->stats();
+        // The geometry is built at "postrender", after this frame's draws: a frame draws
+        // what the frame before it built.
+        const auto draws = [&] {
+            engine->update(1.0f / 60.0f);
+            engine->render();
+            return appStats.drawCalls().forward;
+        };
+        draws();
+        check(draws() == 1, "drawn");
+        device->setResolution(0, 0);
+        check(draws() == 1, "the frame the canvas collapses still draws the previous panel");
+        check(!stats.renderer().meshInstance()->visible() && stats.renderer().quadCount() == 0,
+              "but lays out no quads and hides the instance");
+        check(draws() == 0, "so the next frame issues no draw");
+        device->setResolution(640, 480);
+        check(draws() == 0, "restored: the first frame still has nothing to draw");
+        check(draws() == 1, "and the next draws the panel again");
     }
 
     return finish("mini-stats");
