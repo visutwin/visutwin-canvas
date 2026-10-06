@@ -2629,10 +2629,22 @@ present, but the rule below never depends on reading it.
   depth-1 triangle under ALWAYS) into a no-op wherever a caster has written before, so
   shadows from every past position of a moving spot light accumulate, while every
   static scene renders identically either way. The golden set includes
-  `clustered-spot-shadows` to catch it; the backend difference left there is on
-  shadow edges (Metal's bilinear hardware-compare PCF against the atlas's nine uniform
-  taps). When a pipeline ignores a state the engine set,
+  `clustered-spot-shadows` to catch it. When a pipeline ignores a state the engine set,
   the bug is invisible until something depends on the non-default value.
+- **Vulkan PCF is Metal's comparison sampler done by hand, and must stay so.** Metal reads
+  every depth shadow map through a LINEAR comparison sampler (four texels compared, the
+  results bilinearly blended), and upstream's PCF1/3/5 are one, four and nine such taps.
+  Vulkan binds no comparison sampler (MoltenVK's sampler limit), so `shadowTap` /
+  `directionalShadowTap` GATHER the four texels at the corner they share and blend the
+  comparisons by a fraction computed in the shader, and `pcf3x3Taps` / `pcf5x5Taps` are
+  upstream's kernels, shared by the directional, local and clustered-atlas paths. Until
+  2026-10-06 Vulkan compared 9 or 25 texels with uniform weights: every shadow edge a
+  staircase of whole texels, invisible at small texels and plain where a texel covers
+  several pixels (`dynamic-batching`'s 150 m shadow distance: 14k pixels off by up to 107
+  counts; now none above 6, and every golden case agrees across backends to a few
+  counts). Gather at the shared CORNER, not at the tap point: there the hardware's
+  sub-texel rounding cannot pick a different 2x2 block from the one the weights assume.
+  PCSS keeps its point taps on both backends.
 - **A directional VSM bias is `vsmBias / (cascade-0 fitted far / 7)`**, the spot rule over
   the fitted depth span; passed raw, it is a variance floor several times too large.
 - **A VSM SPOT stores distance / range, not depth, and an omni light asking for VSM

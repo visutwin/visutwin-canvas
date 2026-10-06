@@ -88,48 +88,118 @@ float parallaxSelfShadow(vec2 uv, vec3 lightDirTS, float heightScale,
     return clamp(1.0 - occlusion * strength * 2.0, 0.0, 1.0);
 }
 
-// 3×3 percentage-closer filter: average binary depth comparisons over the
-// texel neighbourhood.  `receiver` is the (biased) light-space depth of the
-// shaded point; a texel is lit when its stored occluder depth is no nearer.
-// Every shadow tap on this backend is textureLod(..., 0.0), never texture():
-// the lookups sit inside the per-light loop and behind a per-pixel cascade pick,
-// so a 2x2 quad can straddle two atlas quadrants, and the implicit-LOD
-// derivatives across it span half the atlas. Under the anisotropic sampler that
-// would average taps from other cascades into the result, turning every pixel the
-// cascade dither touches darker than either cascade alone.
-float pcf3x3(sampler2D tex, vec2 uv, float receiver) {
-    vec2 texel = 1.0 / vec2(textureSize(tex, 0));
-    float sum = 0.0;
-    for (int y = -1; y <= 1; ++y) {
-        for (int x = -1; x <= 1; ++x) {
-            float occluder = textureLod(tex, uv + vec2(x, y) * texel, 0.0).r;
-            sum += (receiver <= occluder) ? 1.0 : 0.0;
-        }
-    }
-    return sum / 9.0;
+// ── Shadow-map filtering: bilinear comparisons and the PCF kernels built on them ──
+//
+// Metal filters every depth shadow map through a comparison sampler with LINEAR
+// filtering: one tap compares the four texels around a point with the receiver and
+// blends the four results by the bilinear weights, so a shadow edge moves smoothly
+// across a texel. Upstream's PCF1/3/5 kernels are one, four and nine such taps. No
+// comparison sampler is bound on this backend (the fragment stage is at MoltenVK's
+// sampler limit), so the tap is done by hand: the four texels are GATHERED and
+// compared here. They are gathered at the exact corner they share, where no sub-texel
+// rounding can pick a different 2x2 block, and weighted by the fraction computed
+// here, so the texels chosen and the weights given to them cannot disagree.
+// Comparing texels directly with uniform weights instead turns every shadow edge into
+// a staircase of whole texels — plain to see wherever a texel covers several pixels.
+//
+// Every shadow tap on this backend has an explicit LOD (textureGather has none,
+// textureLod 0.0), never texture(): the lookups sit inside the per-light loop and
+// behind a per-pixel cascade pick, so a 2x2 quad can straddle two atlas quadrants,
+// and the implicit-LOD derivatives across it span half the atlas.
+
+// The corner shared by the 2x2 texels a bilinear tap at `uv` reads, and the tap's
+// bilinear fraction `f` within them, for a map of `size` texels.
+vec2 shadowTapCorner(vec2 uv, vec2 size, out vec2 f) {
+    vec2 t = uv * size - 0.5;
+    vec2 base = floor(t);
+    f = t - base;
+    return (base + 1.0) / size;
 }
 
-// Clustered shadow atlas variants of pcf3x3.
-//
-// They take no sampler argument: clusterShadowAtlas is a sampler-constructor
-// macro over a separate image, and GLSL only allows such a constructor at its
-// point of use, not as a call argument. There is exactly one atlas, so naming it
-// directly costs nothing.
-//
-// DEVIATION: Metal's getShadowPCF3x3 reconstructs a 3x3 kernel from four
-// hardware `sample_compare` taps; this backend has no comparison samplers bound
-// anywhere, so it does the nine comparisons directly — same kernel, uniform
-// weights instead of the bilinear ones.
-float pcf3x3Atlas(vec2 uv, float receiver) {
-    vec2 texel = 1.0 / vec2(textureSize(clusterShadowAtlas, 0).xy);
-    float sum = 0.0;
-    for (int y = -1; y <= 1; ++y) {
-        for (int x = -1; x <= 1; ++x) {
-            float occluder = textureLod(clusterShadowAtlas, uv + vec2(x, y) * texel, 0.0).r;
-            sum += (receiver <= occluder) ? 1.0 : 0.0;
+// The bilinear comparison of four gathered depths: lit (1) where receiver <= depth.
+// textureGather order: x (i0, j1), y (i1, j1), z (i1, j0), w (i0, j0).
+float shadowTapResult(vec4 depths, vec2 f, float receiver) {
+    vec4 lit = step(vec4(receiver), depths);
+    return mix(mix(lit.w, lit.z, f.x), mix(lit.x, lit.y, f.x), f.y);
+}
+
+// One bilinear comparison on a combined-sampler map, and on the clustered atlas (a
+// sampler-constructor macro over a separate image, which GLSL allows only at its point
+// of use, not as a call argument).
+float shadowTap(sampler2D tex, vec2 uv, vec2 size, float receiver) {
+    vec2 f;
+    vec2 corner = shadowTapCorner(uv, size, f);
+    return shadowTapResult(textureGather(tex, corner, 0), f, receiver);
+}
+float shadowTapAtlas(vec2 uv, vec2 size, float receiver) {
+    vec2 f;
+    vec2 corner = shadowTapCorner(uv, size, f);
+    return shadowTapResult(textureGather(clusterShadowAtlas, corner, 0), f, receiver);
+}
+
+// Upstream's 3x3 PCF from four bilinear taps (Metal's getShadowPCF3x3): tap i at
+// taps[i] with weight weights[i], the weights summing to 1.
+void pcf3x3Taps(vec2 uv, vec2 size, out vec2 taps[4], out float weights[4]) {
+    vec2 texelUv = uv * size;
+    vec2 inv = 1.0 / size;
+    vec2 baseFull = floor(texelUv + 0.5);
+    vec2 st = texelUv + 0.5 - baseFull;
+    vec2 base = (baseFull - 0.5) * inv;
+    vec2 w0 = 3.0 - 2.0 * st;
+    vec2 w1 = 1.0 + 2.0 * st;
+    vec2 p0 = ((2.0 - st) / w0 - 1.0) * inv + base;
+    vec2 p1 = (st / w1 + 1.0) * inv + base;
+    taps[0] = vec2(p0.x, p0.y); weights[0] = w0.x * w0.y / 16.0;
+    taps[1] = vec2(p1.x, p0.y); weights[1] = w1.x * w0.y / 16.0;
+    taps[2] = vec2(p0.x, p1.y); weights[2] = w0.x * w1.y / 16.0;
+    taps[3] = vec2(p1.x, p1.y); weights[3] = w1.x * w1.y / 16.0;
+}
+
+// Upstream's 5x5 PCF from nine bilinear taps (Metal's getShadowPCF5x5).
+void pcf5x5Taps(vec2 uv, vec2 size, out vec2 taps[9], out float weights[9]) {
+    vec2 texelUv = uv * size;
+    vec2 inv = 1.0 / size;
+    vec2 baseFull = floor(texelUv + 0.5);
+    vec2 st = texelUv + 0.5 - baseFull;
+    vec2 base = (baseFull - 0.5) * inv;
+    vec2 w[3] = vec2[3](4.0 - 3.0 * st, vec2(7.0), 1.0 + 3.0 * st);
+    vec2 p[3] = vec2[3](((3.0 - 2.0 * st) / w[0] - 2.0) * inv + base,
+                        ((3.0 + st) / w[1]) * inv + base,
+                        (st / w[2] + 2.0) * inv + base);
+    for (int y = 0; y < 3; ++y) {
+        for (int x = 0; x < 3; ++x) {
+            taps[y * 3 + x] = vec2(p[x].x, p[y].y);
+            weights[y * 3 + x] = w[x].x * w[y].y / 144.0;
         }
     }
-    return sum / 9.0;
+}
+
+// 3x3 percentage-closer filter over a local light's map. `receiver` is the (biased)
+// light-space depth of the shaded point; a texel is lit when its stored occluder depth
+// is no nearer.
+float pcf3x3(sampler2D tex, vec2 uv, float receiver) {
+    vec2 size = vec2(textureSize(tex, 0));
+    vec2 taps[4];
+    float weights[4];
+    pcf3x3Taps(uv, size, taps, weights);
+    float sum = 0.0;
+    for (int i = 0; i < 4; ++i) {
+        sum += weights[i] * shadowTap(tex, taps[i], size, receiver);
+    }
+    return sum;
+}
+
+// The same over the clustered shadow atlas.
+float pcf3x3Atlas(vec2 uv, float receiver) {
+    vec2 size = vec2(textureSize(clusterShadowAtlas, 0).xy);
+    vec2 taps[4];
+    float weights[4];
+    pcf3x3Taps(uv, size, taps, weights);
+    float sum = 0.0;
+    for (int i = 0; i < 4; ++i) {
+        sum += weights[i] * shadowTapAtlas(taps[i], size, receiver);
+    }
+    return sum;
 }
 
 // Cubemap face coordinates with the V term NEGATED: the dominant axis

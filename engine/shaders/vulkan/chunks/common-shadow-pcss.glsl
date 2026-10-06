@@ -51,37 +51,45 @@ vec2 directionalShadowSize(int slot) {
                      : vec2(textureSize(sampler2D(shadowMapImage1, nearestClampSampler), 0));
 }
 
+// One bilinear comparison on a directional slot's map (see shadowTap in
+// common-parallax: the map is a separate image, so the slot is chosen at the gather).
+float directionalShadowTap(int slot, vec2 uv, vec2 size, float receiver) {
+    vec2 f;
+    vec2 corner = shadowTapCorner(uv, size, f);
+    vec4 depths = slot == 0 ? textureGather(sampler2D(shadowMapImage, nearestClampSampler), corner, 0)
+                            : textureGather(sampler2D(shadowMapImage1, nearestClampSampler), corner, 0);
+    return shadowTapResult(depths, f, receiver);
+}
+
 // pcf3x3 over a directional slot's map.
 float pcf3x3Directional(int slot, vec2 uv, float receiver) {
-    vec2 texel = 1.0 / directionalShadowSize(slot);
+    vec2 size = directionalShadowSize(slot);
+    vec2 taps[4];
+    float weights[4];
+    pcf3x3Taps(uv, size, taps, weights);
     float sum = 0.0;
-    for (int y = -1; y <= 1; ++y) {
-        for (int x = -1; x <= 1; ++x) {
-            float occluder = directionalShadowDepth(slot, uv + vec2(x, y) * texel);
-            sum += (receiver <= occluder) ? 1.0 : 0.0;
-        }
+    for (int i = 0; i < 4; ++i) {
+        sum += weights[i] * directionalShadowTap(slot, taps[i], size, receiver);
     }
-    return sum / 9.0;
+    return sum;
 }
 
-// PCF1 over a directional slot's map: one comparison.
+// PCF1 over a directional slot's map: one bilinear comparison.
 float pcf1Directional(int slot, vec2 uv, float receiver) {
-    return (receiver <= directionalShadowDepth(slot, uv)) ? 1.0 : 0.0;
+    return directionalShadowTap(slot, uv, directionalShadowSize(slot), receiver);
 }
 
-// PCF5 over a directional slot's map. DEVIATION, the same as pcf3x3's: Metal
-// takes nine bilinear hardware comparisons; with no comparison
-// sampler bound here the 5x5 texels are compared directly, uniformly weighted.
+// PCF5 over a directional slot's map: nine bilinear comparisons.
 float pcf5x5Directional(int slot, vec2 uv, float receiver) {
-    vec2 texel = 1.0 / directionalShadowSize(slot);
+    vec2 size = directionalShadowSize(slot);
+    vec2 taps[9];
+    float weights[9];
+    pcf5x5Taps(uv, size, taps, weights);
     float sum = 0.0;
-    for (int y = -2; y <= 2; ++y) {
-        for (int x = -2; x <= 2; ++x) {
-            float occluder = directionalShadowDepth(slot, uv + vec2(x, y) * texel);
-            sum += (receiver <= occluder) ? 1.0 : 0.0;
-        }
+    for (int i = 0; i < 9; ++i) {
+        sum += weights[i] * directionalShadowTap(slot, taps[i], size, receiver);
     }
-    return sum / 25.0;
+    return clamp(sum, 0.0, 1.0);
 }
 
 // ── PCSS: contact-hardening soft shadows (parity with common-shadow-pcss.metal) ──
