@@ -19,6 +19,7 @@
 #include "platform/graphics/gpu.h"
 #include "platform/graphics/indexBuffer.h"
 #include "platform/graphics/renderTarget.h"
+#include "platform/graphics/shader.h"
 #include "platform/graphics/texture.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "platform/graphics/vertexFormat.h"
@@ -263,6 +264,30 @@ int main()
         vertices.reset();
         indices.reset();
         renderTarget.reset();
+    }
+
+    std::cout << "\nshaders are counted, and may outlive their device\n";
+    {
+        // Shaders are not registered with the device (nothing detaches them); each one
+        // co-owns the device's live-shader counter instead.
+        auto device = std::make_unique<StubGraphicsDevice>();
+        ShaderDefinition definition;
+        definition.name = "counted";
+        definition.vshader = "vs";
+        definition.fshader = "fs";
+        check(device->liveResourceCounts().shaders == 0, "no shaders yet");
+        auto a = device->createShader(definition, "");
+        auto b = device->createShader(definition, "");
+        check(device->liveResourceCounts().shaders == 2, "two shaders made for the device: two");
+        {
+            const Shader copy = *a;
+            check(device->liveResourceCounts().shaders == 3, "a copy counts as one of its own");
+        }
+        b.reset();
+        check(device->liveResourceCounts().shaders == 1, "a released shader leaves the count");
+        device.reset();
+        a.reset();   // after the device: under the sanitize preset a freed counter aborts here
+        check(true, "a shader released after its device touches nothing freed");
     }
 
     return finish("resources outlive device");

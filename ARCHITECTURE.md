@@ -551,7 +551,15 @@ instance, one material, one draw, on the UI layer. Three pieces:
   DEVIATION: the CPU section's rows are Update, Render and Physics (upstream: script
   update and post-update, animation, physics, render, splat sort), the VRAM parts are
   always textures, geometry and buffers, and the Resources rows count the device's
-  live textures, render targets and vertex, storage and index buffers.
+  live textures, render targets, vertex, storage and index buffers, shaders, and render
+  and compute pipelines (`GraphicsDevice::liveResourceCounts`). Shaders are COUNTED, not
+  registered: each `Shader` co-owns the device's counter, so one that outlives the device
+  still decrements live memory. The pipelines are the backend caches' entries
+  (`addBackendResourceCounts`); those caches never evict, so the rows are every distinct
+  pipeline state the run has needed, which is where a variant explosion shows.
+- **The HUD leaves the GPU profiler as it found it.** It enables the profiler while
+  shown and, hidden or destroyed, puts back the state it had when the HUD was created or
+  last shown, so a caller that enabled the profiler for its own use keeps it.
 - The HUD is torn down BEFORE the engine: MiniStats unhooks itself from `postrender`
   and takes its quads off the UI layer, then its fonts go.
 - It costs about 0.01 ms of CPU a frame compact and 0.05 ms with graphs (median,

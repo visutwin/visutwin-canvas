@@ -1200,7 +1200,8 @@ present, but the rule below never depends on reading it.
   `tests/textureOutlivesDeviceTests.cpp` and `tests/resourcesOutliveDeviceTests.cpp` fail
   under ASan with the detach disabled. Shaders are not registered and need not be: Metal's
   objects are reference counted, and a Vulkan shader skips its frees once the device's alive
-  token has expired.
+  token has expired. They are only COUNTED (the HUD's Shaders row), through a counter each
+  `Shader` co-owns with its device, so the count survives the device too.
 - **Metal frame pacing is display sync ON with THREE drawables.** Display sync
   is what gives an even dt (SDL's renderer, whose layer the device borrows, may
   have switched it off); the drawable count does not affect pacing once sync is

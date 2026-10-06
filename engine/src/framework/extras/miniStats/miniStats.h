@@ -97,8 +97,10 @@ namespace visutwin::canvas
      * the example does). It samples on the engine's "postrender" event and its geometry is
      * rebuilt only when a figure it shows changes. Input reaches it through handleEvent().
      *
-     * Enabling the HUD enables the GPU profiler, which is off by default because sampling
-     * has a small cost.
+     * While shown the HUD keeps the device's GPU profiler enabled (it is off by default because
+     * sampling has a small cost). Hiding or destroying the HUD puts the profiler back in the
+     * state it was in when the HUD was created or last shown, so a caller that enabled it
+     * for its own use keeps it.
      *
      * The CPU row is ONE frame's update plus render. The engine writes the render figure after
      * this hook, so the update figure is held back a frame to pair with it; the Update,
@@ -107,8 +109,9 @@ namespace visutwin::canvas
      * DEVIATIONS: the input comes from handleEvent() (no keyboard focus, no Enter or Space to
      * change size, no touch drag); the CPU section's rows are Update, Render and Physics,
      * which are the CPU phases this engine measures; the VRAM parts are always all three;
-     * the Resources rows count this device's live textures, render targets and vertex,
-     * storage and index buffers. Frame time is measured at the hook itself, at the
+     * the Resources rows count this device's live textures, render targets, vertex, storage
+     * and index buffers, shaders, and render and compute pipelines on both backends (no
+     * uniform-buffer row: the uniform rings are not separate objects). Frame time is measured at the hook itself, at the
      * performance counter's resolution.
      */
     class MiniStats
@@ -175,6 +178,8 @@ namespace visutwin::canvas
         [[nodiscard]] bool insidePanel(float x, float y) const;
         [[nodiscard]] const std::vector<GpuProfiler::PassTiming>* passTimings() const;
         void latchCpuTimes();
+        [[nodiscard]] GpuProfiler* profiler() const;
+        void restoreProfiler();
 
         std::shared_ptr<Engine> _engine;
         MiniStatsOptions _options;
@@ -229,6 +234,8 @@ namespace visutwin::canvas
         float _cpuPhysicsMs = 0.0f;
         float _pendingUpdateMs = 0.0f;
         float _pendingPhysicsMs = 0.0f;
+        // The profiler's state before the HUD enabled it.
+        bool _profilerWasEnabled = false;
         // This frame's GPU time per pass name, passes sharing a name summed.
         std::map<std::string, float> _passTotals;
 

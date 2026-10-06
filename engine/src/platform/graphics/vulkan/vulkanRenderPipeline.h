@@ -38,6 +38,16 @@ namespace visutwin::canvas
 
         // The declared elements in both formats define their Vulkan vertex
         // bindings. isSkybox selects the depth-pin skybox vertex stage.
+        /// The pipelines this cache holds.
+        [[nodiscard]] int count() const
+        {
+            size_t total = 0;
+            for (const auto& [hash, entries] : _cache) {
+                total += entries.size();
+            }
+            return static_cast<int>(total);
+        }
+
         VkPipeline get(const Primitive& primitive,
             const std::shared_ptr<VertexFormat>& vertexFormat,
             const std::shared_ptr<VertexFormat>& instanceFormat,

@@ -855,6 +855,11 @@ namespace visutwin::canvas
 
         /// How many of each resource this device has alive, the performance HUD's
         /// Resources rows. A vertex buffer bound as storage counts as a storage buffer.
+        /// `shaders` is every Shader made for this device and still held by anyone (a
+        /// forward variant, a quad pass, a custom material). The pipelines are the entries
+        /// of the backend's render and compute pipeline caches, which never evict, so they
+        /// count every distinct pipeline state the run has needed; pipelines a pass owns
+        /// outside them (Metal's marching cubes) are not counted.
         struct LiveResourceCounts
         {
             int textures = 0;
@@ -862,10 +867,16 @@ namespace visutwin::canvas
             int vertexBuffers = 0;
             int storageBuffers = 0;
             int indexBuffers = 0;
+            int shaders = 0;
+            int renderPipelines = 0;
+            int computePipelines = 0;
         };
         [[nodiscard]] LiveResourceCounts liveResourceCounts();
 
     protected:
+        /// A backend adds the counts only it knows (its pipeline caches) to `counts`.
+        virtual void addBackendResourceCounts(LiveResourceCounts& /*counts*/) const {}
+
         /// A backend reports the uniform and storage memory it owns itself (see DeviceVRAM::ub
         /// and ::sb); the storage VertexBuffers are counted apart and added to sb here.
         void setBackendBufferVram(const size_t uniformBytes, const size_t storageBytes)
@@ -1250,6 +1261,7 @@ namespace visutwin::canvas
         friend class IndexBuffer;
         friend class Texture;
         friend class RenderTarget;
+        friend class Shader;
 
         // Index of the currently active render pass
         int _renderPassIndex;
@@ -1318,6 +1330,10 @@ namespace visutwin::canvas
         std::unordered_set<VertexBuffer*> _liveVertexBuffers;
         std::unordered_set<IndexBuffer*> _liveIndexBuffers;
         std::mutex _liveResourcesMutex;
+        // Shaders alive for this device. A count rather than a registry: nothing detaches a
+        // shader (see detachResources), and a shader may outlive the device, so each Shader
+        // co-owns the counter and decrements it whenever it goes.
+        std::shared_ptr<std::atomic<int>> _liveShaders = std::make_shared<std::atomic<int>>(0);
 
         DeviceVRAM _vram;
         int _storageVertexBufferBytes = 0;   // VertexBuffers bound as storage (in _vram.sb)

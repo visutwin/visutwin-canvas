@@ -90,6 +90,8 @@ namespace visutwin::canvas
         for (const VertexBuffer* buffer : _liveVertexBuffers) {
             ++(buffer->storageUse() ? counts.storageBuffers : counts.vertexBuffers);
         }
+        counts.shaders = _liveShaders->load(std::memory_order_relaxed);
+        addBackendResourceCounts(counts);
         return counts;
     }
 

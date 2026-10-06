@@ -26,6 +26,7 @@
 #include "framework/entity.h"
 #include "framework/extras/miniStats/miniStats.h"
 #include "framework/handlers/fontResource.h"
+#include "platform/graphics/shader.h"
 #include "platform/graphics/texture.h"
 #include "scene/composition/layerComposition.h"
 #include "scene/constants.h"
@@ -43,6 +44,23 @@ using namespace visutwin::canvas::test;
 
 namespace
 {
+    // A device with a GPU profiler and pipeline caches of a known size.
+    class ProfiledDevice final : public StubGraphicsDevice
+    {
+    public:
+        explicit ProfiledDevice(const Options& options) : StubGraphicsDevice(options)
+        {
+            _gpuProfiler = std::make_shared<GpuProfiler>();
+        }
+
+    protected:
+        void addBackendResourceCounts(LiveResourceCounts& counts) const override
+        {
+            counts.renderPipelines = 7;
+            counts.computePipelines = 2;
+        }
+    };
+
     // A device that keeps three frames in flight, as Metal does.
     class ThreeFrameDevice final : public StubGraphicsDevice
     {
@@ -574,6 +592,88 @@ int main()
         device->setResolution(640, 480);
         check(draws() == 0, "restored: the first frame still has nothing to draw");
         check(draws() == 1, "and the next draws the panel again");
+    }
+
+    std::cout << "\nthe Resources rows count shaders and pipelines\n";
+    {
+        auto device = std::make_shared<ProfiledDevice>(StubGraphicsDevice::Options{
+            .size = {640, 480}, .cpuBuffers = true});
+        auto engine = makeTestEngine<CameraComponentSystem>(device);
+        std::shared_ptr<FontResource> regular = makeMsdfTestFont(device.get());
+        std::shared_ptr<FontResource> bold = makeMsdfTestFont(device.get());
+        MiniStatsOptions options;
+        options.regularFont = regular.get();
+        options.boldFont = bold.get();
+        options.startSizeIndex = 1;
+        options.resourcesCollapsed = false;
+        MiniStats stats(engine, options);
+        ShaderDefinition definition;
+        definition.name = "hud-test";
+        definition.vshader = "vs";
+        definition.fshader = "fs";
+        auto extra = device->createShader(definition, "");
+        stats.postRender();
+        const auto count = [&stats](const std::string& label) {
+            for (const auto& g : stats.graphs()) {
+                if (g->countOnly && g->label == label) {
+                    return std::stoi(g->timingText);
+                }
+            }
+            return -1;
+        };
+        const int shaders = count("Shaders");
+        check(shaders == device->liveResourceCounts().shaders && shaders >= 2,
+              "Shaders: every live shader, the HUD's own and one made here (" + std::to_string(shaders) + ")");
+        check(count("Render pipelines") == 7 && count("Compute pipelines") == 2,
+              "the pipeline rows show what the backend reports");
+        extra.reset();
+        // Counts refresh with the text; showing the section again counts at once.
+        stats.setGroupCollapsed(MiniStats::RESOURCES, true);
+        stats.setGroupCollapsed(MiniStats::RESOURCES, false);
+        stats.postRender();
+        check(count("Shaders") == shaders - 1, "a released shader leaves the row");
+    }
+
+    std::cout << "\nthe HUD leaves the GPU profiler as it found it\n";
+    {
+        const auto make = [](const bool profilerOn) {
+            auto device = std::make_shared<ProfiledDevice>(StubGraphicsDevice::Options{.size = {640, 480}});
+            device->gpuProfiler()->setEnabled(profilerOn);
+            return device;
+        };
+        {
+            auto device = make(false);
+            auto engine = makeTestEngine<CameraComponentSystem>(device);
+            const GpuProfiler& profiler = *device->gpuProfiler();
+            auto stats = std::make_unique<MiniStats>(engine);
+            check(profiler.enabled(), "off before: the HUD turns it on");
+            stats->setEnabled(false);
+            check(!profiler.enabled(), "hidden: back off");
+            stats->setEnabled(true);
+            check(profiler.enabled(), "shown again: on");
+            stats.reset();
+            check(!profiler.enabled(), "destroyed while shown: back off");
+        }
+        {
+            auto device = make(true);
+            auto engine = makeTestEngine<CameraComponentSystem>(device);
+            const GpuProfiler& profiler = *device->gpuProfiler();
+            auto stats = std::make_unique<MiniStats>(engine);
+            stats->setEnabled(false);
+            check(profiler.enabled(), "on before, for the caller's own use: hiding the HUD keeps it on");
+            stats->setEnabled(true);
+            stats.reset();
+            check(profiler.enabled(), "and so does destroying it");
+        }
+        {
+            auto device = make(false);
+            auto engine = makeTestEngine<CameraComponentSystem>(device);
+            const GpuProfiler& profiler = *device->gpuProfiler();
+            auto stats = std::make_unique<MiniStats>(engine);
+            stats->setEnabled(false);
+            stats.reset();
+            check(!profiler.enabled(), "destroyed while hidden: still off");
+        }
     }
 
     return finish("mini-stats");

@@ -95,8 +95,9 @@ namespace visutwin::canvas
         initGraphs();
 
         // The profiler is off by default because sampling costs a little; the HUD exists to
-        // show it.
+        // show it. Whatever state it had is what hiding or destroying the HUD puts back.
         if (device && device->gpuProfiler()) {
+            _profilerWasEnabled = device->gpuProfiler()->enabled();
             device->gpuProfiler()->setEnabled(true);
         }
         if (_engine) {
@@ -109,6 +110,9 @@ namespace visutwin::canvas
     {
         if (_onPostRender) {
             _onPostRender->off();
+        }
+        if (_enabled) {
+            restoreProfiler();
         }
         if (_render2d) {
             _render2d->setLayer(nullptr);
@@ -186,7 +190,8 @@ namespace visutwin::canvas
         for (const auto& [key, label] : std::vector<std::pair<std::string, std::string>>{
                  {"vertexBuffers", "Vertex buffers"}, {"indexBuffers", "Index buffers"},
                  {"storageBuffers", "Storage buffers"}, {"textures", "Textures"},
-                 {"renderTargets", "Render targets"}}) {
+                 {"renderTargets", "Render targets"}, {"shaders", "Shaders"},
+                 {"renderPipelines", "Render pipelines"}, {"computePipelines", "Compute pipelines"}}) {
             auto* graph = addGraph(std::make_unique<MiniStatsGraph>(label, 0.0f, refresh, nullptr));
             graph->group = RESOURCES;
             graph->parent = _resourceGraph;
@@ -289,9 +294,14 @@ namespace visutwin::canvas
             _pressed = false;
             _render2d->setLayer(nullptr);
         }
-        // Stop paying for GPU sampling while hidden.
-        if (_engine && _engine->graphicsDevice() && _engine->graphicsDevice()->gpuProfiler()) {
-            _engine->graphicsDevice()->gpuProfiler()->setEnabled(value);
+        // Shown, the HUD needs the profiler; hidden, it leaves it as it found it.
+        if (value) {
+            if (GpuProfiler* profiler = this->profiler()) {
+                _profilerWasEnabled = profiler->enabled();
+                profiler->setEnabled(true);
+            }
+        } else {
+            restoreProfiler();
         }
         _lastCounter = 0;
     }
@@ -397,7 +407,8 @@ namespace visutwin::canvas
                 const std::pair<const char*, int> values[] = {
                     {"vertexBuffers", counts.vertexBuffers}, {"indexBuffers", counts.indexBuffers},
                     {"storageBuffers", counts.storageBuffers}, {"textures", counts.textures},
-                    {"renderTargets", counts.renderTargets}};
+                    {"renderTargets", counts.renderTargets}, {"shaders", counts.shaders},
+                    {"renderPipelines", counts.renderPipelines}, {"computePipelines", counts.computePipelines}};
                 int total = 0;
                 for (const auto& [key, count] : values) {
                     MiniStatsGraph* graph = _resourceGraphs[key];
@@ -548,6 +559,18 @@ namespace visutwin::canvas
             }
         }
         render();
+    }
+
+    GpuProfiler* MiniStats::profiler() const
+    {
+        return _engine && _engine->graphicsDevice() ? _engine->graphicsDevice()->gpuProfiler().get() : nullptr;
+    }
+
+    void MiniStats::restoreProfiler()
+    {
+        if (GpuProfiler* profiler = this->profiler()) {
+            profiler->setEnabled(_profilerWasEnabled);
+        }
     }
 
     void MiniStats::latchCpuTimes()

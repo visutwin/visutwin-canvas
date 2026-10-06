@@ -43,6 +43,16 @@ namespace visutwin::canvas
 
         [[nodiscard]] MTL::RenderPipelineState* raw() const { return _pipeline; }
 
+        /// The pipelines this cache holds.
+        [[nodiscard]] int count() const
+        {
+            size_t total = 0;
+            for (const auto& [hash, entries] : _cache) {
+                total += entries.size();
+            }
+            return static_cast<int>(total);
+        }
+
         // Get or create a render pipeline with the specified parameters
         MTL::RenderPipelineState* get(const Primitive& primitive, const std::shared_ptr<VertexFormat>& vertexFormat0,
             const std::shared_ptr<VertexFormat>& vertexFormat1, int ibFormat, const std::shared_ptr<Shader>& shader,

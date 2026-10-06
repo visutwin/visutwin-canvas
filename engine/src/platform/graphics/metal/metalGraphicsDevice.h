@@ -224,6 +224,9 @@ namespace visutwin::canvas
             int cellsX, int cellsY, int cellsZ, int maxLightsPerCell,
             int numClusteredLights) override;
 
+    protected:
+        void addBackendResourceCounts(LiveResourceCounts& counts) const override;
+
     private:
         struct DepthStencilCacheKey
         {

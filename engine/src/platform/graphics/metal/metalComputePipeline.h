@@ -23,6 +23,9 @@ namespace visutwin::canvas
 
         MTL::ComputePipelineState* get(const std::shared_ptr<Shader>& shader);
 
+        /// The pipelines this cache holds.
+        [[nodiscard]] int count() const { return static_cast<int>(_cache.size()); }
+
     private:
         MTL::ComputePipelineState* create(const std::shared_ptr<Shader>& shader);
 

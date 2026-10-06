@@ -322,6 +322,9 @@ namespace visutwin::canvas
         void computeDispatch(const std::vector<Compute*>& computes,
             const std::string& label = "") override;
 
+    protected:
+        void addBackendResourceCounts(LiveResourceCounts& counts) const override;
+
     private:
         void onFrameStart() override;
         void waitForNextFrame() override;

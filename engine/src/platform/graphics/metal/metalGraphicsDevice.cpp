@@ -2147,4 +2147,10 @@ namespace visutwin::canvas
                 return false;
         }
     }
+
+    void MetalGraphicsDevice::addBackendResourceCounts(LiveResourceCounts& counts) const
+    {
+        counts.renderPipelines = _renderPipeline ? _renderPipeline->count() : 0;
+        counts.computePipelines = _computePipeline ? _computePipeline->count() : 0;
+    }
 }

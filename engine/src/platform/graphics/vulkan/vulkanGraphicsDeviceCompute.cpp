@@ -431,6 +431,12 @@ namespace visutwin::canvas
         vmaFlushAllocation(_vmaAllocator, allocation, 0, data.size());
         return true;
     }
+
+    void VulkanGraphicsDevice::addBackendResourceCounts(LiveResourceCounts& counts) const
+    {
+        counts.renderPipelines = _renderPipeline ? _renderPipeline->count() : 0;
+        counts.computePipelines = static_cast<int>(_computePipelines.size());
+    }
 }
 
 #endif // VISUTWIN_HAS_VULKAN

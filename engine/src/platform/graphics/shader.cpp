@@ -15,7 +15,8 @@ namespace visutwin::canvas
     int Shader::_nextId = 0;
 
     Shader::Shader(GraphicsDevice* graphicsDevice, const ShaderDefinition& definition) :
-        _device(graphicsDevice), _id(_nextId++), _definition(definition)
+        _device(graphicsDevice), _id(_nextId++), _definition(definition),
+        _live(graphicsDevice ? graphicsDevice->_liveShaders : nullptr)
     {
 
     }
