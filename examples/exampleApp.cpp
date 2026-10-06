@@ -535,11 +535,13 @@ namespace visutwin::canvas
         _engine->init(appOptions);
         _engine->setCanvasFillMode(FillMode::FILLMODE_FILL_WINDOW);
         _engine->setCanvasResolution(ResolutionMode::RESOLUTION_AUTO);
-        // The examples cap the pixel ratio at min(devicePixelRatio, 2).
-        // VISUTWIN_MAX_PIXEL_RATIO overrides it (1 renders a Retina window at one pixel per
-        // point, the way to compare GPU time at matched pixels).
+        // The examples render at ONE pixel per point on every display: a Retina window is
+        // drawn at 900x700 and scaled up by the system, not at 1800x1400, which is four times
+        // the shading for an image the examples do not need. VISUTWIN_MAX_PIXEL_RATIO raises
+        // the cap. MSAA follows the DISPLAY's density instead (msaaSamples): on a standard
+        // display, off on a high-density one. VISUTWIN_MSAA=0/1 overrides that.
         if (auto* gd = _engine->graphicsDevice().get()) {
-            float cap = std::min(gd->devicePixelRatio(), 2.0f);
+            float cap = 1.0f;
             if (const char* env = std::getenv("VISUTWIN_MAX_PIXEL_RATIO")) {
                 const float value = std::strtof(env, nullptr);
                 if (value > 0.0f) {
@@ -548,9 +550,19 @@ namespace visutwin::canvas
                 }
             }
             gd->setMaxPixelRatio(cap);
-            // tools/golden_images.py reads this line to pick the references for this density.
             const auto [pw, ph] = gd->windowSizeInPoints();
             spdlog::info("Back buffer pixel ratio {} ({}x{} points)", gd->pixelRatio(), pw, ph);
+
+            const float density = gd->devicePixelRatio();
+            _msaaAllowed = density <= 1.0f;
+            if (const char* env = std::getenv("VISUTWIN_MSAA"); env && *env) {
+                _msaaAllowed = *env != '0';
+                spdlog::info("MSAA {} from VISUTWIN_MSAA", _msaaAllowed ? "on" : "off");
+            }
+            // tools/golden_images.py reads this line to pick the references for the display:
+            // what the examples render differs by the display's density (MSAA), not by the
+            // back buffer's.
+            spdlog::info("Display pixel density {} (MSAA {})", density, _msaaAllowed ? "on" : "off");
         }
 
         // The performance HUD. It is on every example, so it belongs to the host here

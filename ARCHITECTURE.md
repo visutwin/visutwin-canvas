@@ -481,6 +481,21 @@ backend `#ifdef`:
   executable must define those macros (`tools/generate-env-atlas.cpp` and
   `tests/vulkanSmoke.cpp` carry their own).
 
+**Pixel density and MSAA.** The examples render at ONE pixel per point on every display
+(`setMaxPixelRatio(1)`): a Retina window is drawn at 900x700 and scaled up by the system,
+the density upstream's examples get in a browser by default. MSAA follows the DISPLAY's
+density instead: an example asks through `ExampleApp::msaaSamples(n)`, which answers `n` on a
+standard-density display and 1 on a high-density one, decided once from the display the
+window opened on (it does not follow the window to another display). The four examples that
+multisample go through it: `ambient-occlusion` and `depth-of-field` (camera-frame
+`rendering.samples`), `render-to-texture` and `edge-detect` (render-target `samples`).
+`VISUTWIN_MAX_PIXEL_RATIO` raises the density and `VISUTWIN_MSAA=0/1` forces MSAA. The log
+names both ("Back buffer pixel ratio", "Display pixel density D (MSAA on|off)"), and the
+golden script keys its reference sets on the display density. Verified 2026-10-06: on Retina
+with `VISUTWIN_MSAA=1` all nine golden cases reproduce the 1x set captured on a standard
+monitor (seven bit-exact) on both backends; with MSAA off only the two camera-frame MSAA
+cases differ (about 0.25% of pixels, the same on both backends).
+
 The harness also owns the **performance HUD**, for the same reason: upstream's
 example harness puts ministats on every example, so it belongs to the host and no
 example carries a line for it. `ExampleApp` loads the two Roboto MSDF fonts, holds the

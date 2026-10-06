@@ -1,64 +1,64 @@
 {
   "ambient-occlusion": {
     "capture_size": [
-      1800,
-      1400
+      900,
+      700
     ],
     "frame": 90
   },
   "clearcoat": {
     "capture_size": [
-      1800,
-      1400
+      900,
+      700
     ],
     "frame": 60
   },
   "clustered-lighting": {
     "capture_size": [
-      2200,
-      1500
+      1100,
+      750
     ],
     "frame": 90
   },
   "clustered-spot-shadows": {
     "capture_size": [
-      1800,
-      1400
+      900,
+      700
     ],
     "frame": 60
   },
   "depth-of-field": {
     "capture_size": [
-      2048,
-      1536
+      1024,
+      768
     ],
     "frame": 90
   },
   "dynamic-batching": {
     "capture_size": [
-      2200,
-      1500
+      1100,
+      750
     ],
     "frame": 150
   },
   "gsplat": {
     "capture_size": [
-      2400,
-      1600
+      1200,
+      800
     ],
     "frame": 90
   },
   "lightmap-sources": {
     "capture_size": [
-      1800,
-      1400
+      900,
+      700
     ],
     "frame": 120
   },
   "shadow-cascades": {
     "capture_size": [
-      2200,
-      1500
+      1100,
+      750
     ],
     "frame": 90
   }

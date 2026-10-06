@@ -195,6 +195,11 @@ namespace visutwin::canvas
         /// The window size the example asked for, in points. A screen-space effect
         /// that has to size itself needs this before the first frame.
         [[nodiscard]] int windowWidth() const { return _options.width; }
+        /// The MSAA sample count to give a camera frame or render target that asks for
+        /// `requested`: as asked on a standard-density display, 1 on a high-density one, where
+        /// the examples render at one pixel per point and do not multisample. Decided once,
+        /// from the display the window opened on; VISUTWIN_MSAA=0/1 overrides it.
+        [[nodiscard]] int msaaSamples(const int requested) const { return _msaaAllowed ? requested : 1; }
         [[nodiscard]] int windowHeight() const { return _options.height; }
 
         /// Absolute path to a shared asset, e.g. assetPath("models/fox.glb").
@@ -277,6 +282,7 @@ namespace visutwin::canvas
         Entity* _uiCamera = nullptr;
 
         bool _running = true;
+        bool _msaaAllowed = true;
         float _elapsed = 0.0f;
     };
 }

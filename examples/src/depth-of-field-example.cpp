@@ -188,7 +188,7 @@ protected:
 
             auto rendering = _cameraComp->rendering();
             rendering.toneMapping = TONEMAP_ACES;
-            rendering.samples = 4;             // 4x MSAA on the offscreen scene target
+            rendering.samples = msaaSamples(4); // 4x MSAA on the scene target, standard displays
             rendering.bloomIntensity = 0.03f;
             rendering.bloomBlurLevel = 7;      // tighter glow than the 16-level default
             rendering.vignetteEnabled = true;

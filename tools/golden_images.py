@@ -3,7 +3,7 @@
 
 Renders a fixed set of deterministic examples with one backend, downscales each
 frame 4x (box average) and compares it with the reference committed under
-tests/golden/<backend>/<ratio>x/, the set for the back buffer's pixel ratio. LOCAL ONLY: it needs a GPU and a window, so no CI preset
+tests/golden/<backend>/<density>x/, the set for the display's pixel density. LOCAL ONLY: it needs a GPU and a window, so no CI preset
 runs it; ctest runs it through the `golden` label (see the `golden` test presets).
 
     tools/golden_images.py --examples-dir build-examples/examples --backend metal
@@ -11,12 +11,13 @@ runs it; ctest runs it through the `golden` label (see the `golden` test presets
     tools/golden_images.py ... --only clearcoat,gsplat
 
 Every case runs under VISUTWIN_FIXED_DT, so an animated example reaches the same
-state at the same frame in every run. Rendering at another pixel density moves edges
-and every screen-space effect, and a tolerance loose enough to accept that would
-accept real regressions too, so there is one reference set PER DENSITY: the example
-harness logs the back buffer's pixel ratio ("Back buffer pixel ratio 2"), and a
-capture is compared with tests/golden/<backend>/<ratio>x/ (2x on a Retina display,
-1x on a standard one). --update writes the set for the density it runs at. A density
+state at the same frame in every run. The examples render at one pixel per point on
+every display, but MSAA only on a standard-density one, and a tolerance loose enough to
+accept that difference would accept real regressions too, so there is one reference set
+PER DISPLAY DENSITY: the example harness logs it ("Display pixel density 2 (MSAA off)"),
+and a capture is compared with tests/golden/<backend>/<density>x/ (2x on a Retina
+display, 1x on a standard one). The overrides that would change what a density renders
+(VISUTWIN_MSAA, VISUTWIN_MAX_PIXEL_RATIO) are removed from the examples' environment. --update writes the set for the density it runs at. A density
 with no set, or a capture whose size is not its reference's, is SKIPPED; if every
 case is skipped the exit code is 77, which ctest reports as a skip.
 
@@ -94,6 +95,9 @@ def capture(binary: pathlib.Path, backend: str, frame: int, out_png: pathlib.Pat
             log_path: pathlib.Path, timeout: float) -> bool:
     """Run one example until its screenshot is written, then stop it."""
     env = dict(os.environ)
+    # A reference set stands for what its display density renders by default.
+    env.pop("VISUTWIN_MSAA", None)
+    env.pop("VISUTWIN_MAX_PIXEL_RATIO", None)
     env.update({
         "VISUTWIN_BACKEND": backend,
         "VISUTWIN_FIXED_DT": "0.0166667",
@@ -123,9 +127,9 @@ def capture(binary: pathlib.Path, backend: str, frame: int, out_png: pathlib.Pat
 
 
 def pixel_ratio_label(log_path: pathlib.Path) -> str:
-    """The reference set for the density a run rendered at: "2x", "1x" ... from the harness's
-    "Back buffer pixel ratio R" line; "unknown" when the log has none."""
-    match = re.search(r"Back buffer pixel ratio ([0-9.]+)", log_path.read_text(errors="replace"))
+    """The reference set for the display a run rendered on: "2x", "1x" ... from the harness's
+    "Display pixel density D" line; "unknown" when the log has none."""
+    match = re.search(r"Display pixel density ([0-9.]+)", log_path.read_text(errors="replace"))
     if not match:
         return "unknown"
     return f"{float(match.group(1)):g}x"

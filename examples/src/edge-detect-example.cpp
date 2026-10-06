@@ -226,7 +226,7 @@ protected:
         rtOptions.graphicsDevice = device().get();
         rtOptions.colorBuffer = _sourceTexture.get();
         rtOptions.depth = true;
-        rtOptions.samples = 4;
+        rtOptions.samples = msaaSamples(4);
         rtOptions.autoResolve = true;
         rtOptions.name = "EdgeDetectRT";
         _sceneRenderTarget = device()->createRenderTarget(rtOptions);

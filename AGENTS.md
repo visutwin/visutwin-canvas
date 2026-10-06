@@ -110,10 +110,14 @@ ctest --preset default
   on the `examples` build for Metal; the script with `--backend vulkan` on a Release
   Vulkan examples build — a Debug one runs the validation layer and is far slower). Nine
   deterministic examples render under `VISUTWIN_FIXED_DT`, are downscaled 4x and
-  compared with `tests/golden/<backend>/<ratio>x/`: one reference set PER PIXEL DENSITY
-  (2x Retina, 1x a standard monitor), picked from the "Back buffer pixel ratio" line the
-  example harness logs, because the drawable follows the display the window opens on (an
-  external 1x monitor, or a sleeping display that comes back at 1x). A density with no set
+  compared with `tests/golden/<backend>/<density>x/`: one reference set PER DISPLAY DENSITY
+  (2x Retina, 1x a standard monitor), picked from the "Display pixel density" line the
+  example harness logs. The examples render at one pixel per point on BOTH, but MSAA only
+  on a standard display (see the examples' pixel density below), so the sets differ only
+  where an example multisamples (`ambient-occlusion`, `depth-of-field`); the other seven
+  cases are identical across the two. The display is the one the window opens on (an
+  external 1x monitor, or a sleeping display that comes back at 1x). The script strips
+  `VISUTWIN_MSAA` and `VISUTWIN_MAX_PIXEL_RATIO` from the examples' environment. A density with no set
   SKIPS its cases; `--update` writes the set for the density it runs at, so a rendering change
   that is intended needs re-capturing at BOTH densities, on two displays, and on BOTH
   backends: a change re-captured for Metal alone leaves the Vulkan set failing for a
@@ -857,11 +861,10 @@ present, but the rule below never depends on reading it.
   recordings — SSAO under MSAA, say — is the signature of a clock-state difference.
 - **Our HUD's GPU figure and upstream's are not comparable as read, for three reasons
   that are not the profiler** (both profilers reproduce `xctrace` per-encoder intervals
-  within 10%). (1) PIXELS: `ExampleApp` opens 900x700 POINTS under
-  `SDL_WINDOW_HIGH_PIXEL_DENSITY`, a 1800x1400 drawable on a Retina display, while
-  upstream's `GraphicsDevice` caps `maxPixelRatio` at 1, so its 900x700 canvas is 900x700
-  pixels — four times fewer. Resize the browser tab to 1800x1400, or run ours with
-  `VISUTWIN_MAX_PIXEL_RATIO=1`, before reading either number. (2) CLOCK: the
+  within 10%). (1) PIXELS: since 2026-10-06 both render 900x700 pixels for a 900x700
+  window (`ExampleApp` at one pixel per point, upstream's `GraphicsDevice` capping
+  `maxPixelRatio` at 1); measurements before that date ran ours at a 1800x1400 drawable
+  on Retina, four times the pixels. MSAA still differs: ours is OFF on a Retina display. (2) CLOCK: the
   `gpu-performance-state-intervals` table shows the GPU in its MINIMUM state 55-88% of the
   time under either engine, and every pass costs 2-3x more there than at Maximum; bucket
   per-frame costs by state, or run both engines at once so they share one clock. (3) A
@@ -2396,8 +2399,11 @@ present, but the rule below never depends on reading it.
 - **The back buffer is the canvas in POINTS times `GraphicsDevice::pixelRatio()`** =
   min(`maxPixelRatio`, the window's pixel density), upstream's `maxPixelRatio`.
   `resizeCanvas` takes points, as upstream's takes CSS pixels. The default is uncapped (a
-  DEVIATION from upstream's browser default of 1), and `ExampleApp` caps it at 2 as upstream's
-  examples do. Metal shrinks the layer's `drawableSize` and Core Animation scales it to the
+  DEVIATION from upstream's browser default of 1), and `ExampleApp` caps it at 1: the examples
+  render at one pixel per point on every display and use MSAA only on a standard-density one
+  (`ExampleApp::msaaSamples`, decided from the display the window opened on). An example that
+  asks for MSAA (a camera frame's `rendering.samples`, a render target's `samples`) goes
+  through `msaaSamples(n)`, or it multisamples on Retina too. Metal shrinks the layer's `drawableSize` and Core Animation scales it to the
   window. Vulkan builds its swapchain ITSELF (`initSwapchain`, not vk-bootstrap, which
   always
   takes the surface's current extent) at an extent clamped into
@@ -2805,10 +2811,12 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
     goes through it.
 
 15. `VISUTWIN_MAX_PIXEL_RATIO=r` caps the back buffer at r pixels per point on any example
-    (the examples default to min(density, 2)); 1 on a Retina display matches upstream's default
-    browser density for GPU-time comparisons, and a value below the display's density exercises
-    the scaled swapchain on Vulkan. An example that sets its own ratio (`screen-scaling`'s
-    toggle) overrides it.
+    (the examples default to 1, which already matches upstream's default browser density for
+    GPU-time comparisons, and on Retina exercises the scaled swapchain on Vulkan; 2 renders
+    Retina at full density). An example that sets its own ratio (`screen-scaling`'s toggle)
+    overrides it. `VISUTWIN_MSAA=0/1` forces the examples' MSAA off or on whatever the
+    display; on Retina, `VISUTWIN_MSAA=1` reproduces a standard monitor's frame exactly (the
+    1x golden set).
 
 Animated examples cannot be screenshot-diffed across shader changes unless they run
 under `VISUTWIN_FIXED_DT`.
