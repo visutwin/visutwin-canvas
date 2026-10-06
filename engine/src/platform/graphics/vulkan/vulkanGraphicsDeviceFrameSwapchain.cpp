@@ -6,6 +6,7 @@
 
 #ifdef VISUTWIN_HAS_VULKAN
 
+#include <string>
 #include <vector>
 #include <cmath>
 #include "vulkanGraphicsDevice.h"
@@ -259,6 +260,60 @@ namespace visutwin::canvas
             throw std::runtime_error(
                 "VulkanGraphicsDevice: swapchain depth image view creation failed");
         }
+
+        // The antialiased back buffer draws into a multisampled pair and resolves into the
+        // swapchain image and the depth above, which copies and the overlay read.
+        if (samples() > 1) {
+            const VkSampleCountFlagBits msaa = vulkanSampleCountFlag(samples());
+            createOwnedImage(_msaaColor, _swapchainFormat, msaa, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                VK_IMAGE_ASPECT_COLOR_BIT, "back-buffer MSAA colour");
+            createOwnedImage(_msaaDepth, _depthFormat, msaa, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                depthImageAspect(), "back-buffer MSAA depth");
+        }
+    }
+
+    void VulkanGraphicsDevice::createOwnedImage(OwnedImage& out, const VkFormat format,
+        const VkSampleCountFlagBits samples, const VkImageUsageFlags usage, const VkImageAspectFlags aspect,
+        const char* what)
+    {
+        VkImageCreateInfo imageInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+        imageInfo.imageType = VK_IMAGE_TYPE_2D;
+        imageInfo.format = format;
+        imageInfo.extent = {_swapchainExtent.width, _swapchainExtent.height, 1};
+        imageInfo.mipLevels = 1;
+        imageInfo.arrayLayers = 1;
+        imageInfo.samples = samples;
+        imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imageInfo.usage = usage;
+
+        VmaAllocationCreateInfo allocInfo{};
+        allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+        if (vmaCreateImage(_vmaAllocator, &imageInfo, &allocInfo, &out.image, &out.allocation, nullptr) !=
+            VK_SUCCESS) {
+            throw std::runtime_error(std::string("VulkanGraphicsDevice: ") + what + " allocation failed");
+        }
+        VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        viewInfo.image = out.image;
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format = format;
+        viewInfo.subresourceRange = {aspect, 0, 1, 0, 1};
+        if (vkCreateImageView(_device, &viewInfo, nullptr, &out.view) != VK_SUCCESS) {
+            vmaDestroyImage(_vmaAllocator, out.image, out.allocation);
+            out = OwnedImage{};
+            throw std::runtime_error(std::string("VulkanGraphicsDevice: ") + what + " view creation failed");
+        }
+        out.layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    }
+
+    void VulkanGraphicsDevice::destroyOwnedImage(OwnedImage& image)
+    {
+        if (image.view != VK_NULL_HANDLE) {
+            vkDestroyImageView(_device, image.view, nullptr);
+        }
+        if (image.image != VK_NULL_HANDLE) {
+            vmaDestroyImage(_vmaAllocator, image.image, image.allocation);
+        }
+        image = OwnedImage{};
     }
 
     void VulkanGraphicsDevice::destroyDepthResources()
@@ -271,6 +326,8 @@ namespace visutwin::canvas
         _depthImage = VK_NULL_HANDLE;
         _depthImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         _depthAllocation = VK_NULL_HANDLE;
+        destroyOwnedImage(_msaaColor);
+        destroyOwnedImage(_msaaDepth);
     }
 
     void VulkanGraphicsDevice::createPerFrameResources()
@@ -816,6 +873,9 @@ namespace visutwin::canvas
 
         _dynamicRenderingActive = true;
         _insideRenderPass = true;
+        // Single-sampled, straight onto the resolved swapchain image.
+        _activeOffscreenTarget = nullptr;
+        _activeRasterSamples = VK_SAMPLE_COUNT_1_BIT;
         return true;
     }
 
@@ -895,6 +955,8 @@ namespace visutwin::canvas
                     _vmaAllocator, retired.depthImage,
                     retired.depthAllocation);
             }
+            destroyOwnedImage(retired.msaaColor);
+            destroyOwnedImage(retired.msaaDepth);
             if (retired.swapchain != VK_NULL_HANDLE) {
                 vkDestroySwapchainKHR(
                     _device, retired.swapchain, nullptr);
@@ -1026,6 +1088,8 @@ namespace visutwin::canvas
         retired.depthImage = _depthImage;
         retired.depthAllocation = _depthAllocation;
         retired.depthImageView = _depthImageView;
+        retired.msaaColor = _msaaColor;
+        retired.msaaDepth = _msaaDepth;
         retired.renderFinishedSemaphores =
             std::move(_renderFinishedSemaphores);
         const VkImageLayout oldDepthLayout = _depthImageLayout;
@@ -1035,6 +1099,8 @@ namespace visutwin::canvas
         _depthAllocation = VK_NULL_HANDLE;
         _depthImageView = VK_NULL_HANDLE;
         _depthImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        _msaaColor = OwnedImage{};
+        _msaaDepth = OwnedImage{};
 
         if (!initSwapchain(
                 _width, _height, retired.swapchain)) {
@@ -1048,6 +1114,8 @@ namespace visutwin::canvas
                 _depthAllocation = retired.depthAllocation;
                 _depthImageView = retired.depthImageView;
                 _depthImageLayout = oldDepthLayout;
+                _msaaColor = retired.msaaColor;
+                _msaaDepth = retired.msaaDepth;
                 _renderFinishedSemaphores =
                     std::move(retired.renderFinishedSemaphores);
             } else {

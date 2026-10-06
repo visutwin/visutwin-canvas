@@ -263,7 +263,9 @@ namespace visutwin::canvas
         /// the rest; false when none could be had.
         bool acquirePassDrawable();
         /// (Re)creates the back buffer's depth-stencil texture at the drawable's size.
-        void ensureBackBufferDepthTexture(int width, int height);
+        /// The back buffer's depth-stencil, sized to the drawable, and under MSAA its
+        /// multisampled colour and the single-sample depth its passes resolve into.
+        void ensureBackBufferTextures(int width, int height, MTL::PixelFormat colorFormat);
         /// Names the encoder and opens a debug group for frame captures and traces.
         void labelPassEncoder(RenderPass& renderPass);
         /// The state every new encoder starts from: cleared caches, default depth
@@ -413,7 +415,14 @@ namespace visutwin::canvas
         MTL::DepthStencilState* _noTestNoWriteDepthStencilState = nullptr;
         std::unordered_map<DepthStencilCacheKey, MTL::DepthStencilState*,
             DepthStencilCacheKeyHash> _stencilStateCache;
+        // The back buffer's depth-stencil attachment: multisampled when the back buffer is
+        // (GraphicsDevice::samples()). Under MSAA the passes draw into _backBufferMsaaColor,
+        // resolve it into the drawable, and resolve the depth into _backBufferDepthResolve
+        // whenever they store it — what a copy of the back buffer's depth reads (a blit
+        // cannot read a multisampled texture).
         MTL::Texture* _backBufferDepthTexture = nullptr;
+        MTL::Texture* _backBufferMsaaColor = nullptr;
+        MTL::Texture* _backBufferDepthResolve = nullptr;
         int _backBufferDepthWidth = 0;
         int _backBufferDepthHeight = 0;
 

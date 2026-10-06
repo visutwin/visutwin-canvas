@@ -44,7 +44,7 @@ constexpr bool INITIAL_TAA = false;
 class PcssDitherExample final: public ExampleApp
 {
 public:
-    PcssDitherExample(): ExampleApp({.title = "Dithered Transparency"}) {}
+    PcssDitherExample(): ExampleApp({.title = "Dithered Transparency", .antialias = false}) {}
 
 protected:
     bool create() override

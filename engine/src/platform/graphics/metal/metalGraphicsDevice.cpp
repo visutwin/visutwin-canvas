@@ -34,7 +34,6 @@ namespace visutwin::canvas
     // Import metal utility functions into this translation unit for brevity.
     using metal::toMetalPrimitiveType;
     using metal::toMetalCullMode;
-    using metal::createDepthTexture;
     using metal::MetalBackBufferRenderTarget;
 
     namespace
@@ -186,6 +185,7 @@ namespace visutwin::canvas
 
         spdlog::info("Metal limits: {} samples, texture {}, cube {}, anisotropy {}",
             maxSamples(), maxTextureSize(), maxCubeMapSize(), maxAnisotropy());
+        spdlog::info("Metal back buffer: {}x MSAA", resolveBackBufferSamples(options.antialias));
 
         // The default sampler: linear min and mag with trilinear mips (without a mip filter
         // Metal only ever samples mip 0 — aliasing and radial streaks at glancing angles),
@@ -266,7 +266,7 @@ namespace visutwin::canvas
         RenderTargetOptions backBufferOptions;
         backBufferOptions.graphicsDevice = this;
         backBufferOptions.name = "MetalBackBuffer";
-        backBufferOptions.samples = 1;
+        backBufferOptions.samples = samples();
         setBackBuffer(std::make_shared<MetalBackBufferRenderTarget>(backBufferOptions));
     }
 
@@ -325,6 +325,12 @@ namespace visutwin::canvas
         }
         _stencilStateCache.clear();
 
+        for (MTL::Texture** texture : {&_backBufferMsaaColor, &_backBufferDepthResolve}) {
+            if (*texture) {
+                (*texture)->release();
+                *texture = nullptr;
+            }
+        }
         if (_backBufferDepthTexture) {
             _backBufferDepthTexture->release();
             _backBufferDepthTexture = nullptr;
@@ -1132,7 +1138,9 @@ namespace visutwin::canvas
                     return hw->raw();
                 }
             }
-            return _backBufferDepthTexture;
+            // Under MSAA the attachment is multisampled, which no blit can read; the
+            // passes resolve it here whenever they store it.
+            return _backBufferDepthResolve ? _backBufferDepthResolve : _backBufferDepthTexture;
         };
         const auto rawOf = [](Texture* texture) -> MTL::Texture* {
             if (!texture) return nullptr;
@@ -1680,13 +1688,31 @@ namespace visutwin::canvas
             }
         }
 
+        /// The back buffer's attachments. With `msaaColor` (an antialiased back buffer) the
+        /// pass draws into it and resolves into the drawable, as upstream's WebGPU back
+        /// buffer: the multisampled colour is stored only when a later pass loads it (the
+        /// frame graph sets `store`), and the depth is resolved into `depthResolve`
+        /// whenever it is stored, so a copy of the back buffer's depth (a depth grab)
+        /// reads what the pass drew. A pass with no ops resolves and stores nothing else.
         void configureBackBufferAttachments(MTL::RenderPassDescriptor* passDesc, MTL::Texture* drawableTexture,
-            MTL::Texture* depthTexture, const ColorAttachmentOps* colorOps, const DepthStencilAttachmentOps* depthOps)
+            MTL::Texture* msaaColor, MTL::Texture* depthTexture, MTL::Texture* depthResolve,
+            const ColorAttachmentOps* colorOps, const DepthStencilAttachmentOps* depthOps)
         {
             auto* colorAttachment = passDesc->colorAttachments()->object(0);
-            colorAttachment->setTexture(drawableTexture);
-            applyColorLoad(colorAttachment, colorOps);
-            colorAttachment->setStoreAction(colorOps && colorOps->store ? MTL::StoreActionStore : MTL::StoreActionDontCare);
+            const bool storeColor = colorOps && colorOps->store;
+            if (msaaColor) {
+                colorAttachment->setTexture(msaaColor);
+                const bool resolve = !colorOps || colorOps->resolve;
+                if (resolve) {
+                    colorAttachment->setResolveTexture(drawableTexture);
+                }
+                applyColorLoad(colorAttachment, colorOps);
+                colorAttachment->setStoreAction(storeAction(storeColor, resolve));
+            } else {
+                colorAttachment->setTexture(drawableTexture);
+                applyColorLoad(colorAttachment, colorOps);
+                colorAttachment->setStoreAction(storeColor ? MTL::StoreActionStore : MTL::StoreActionDontCare);
+            }
 
             if (!depthTexture) {
                 return;
@@ -1694,9 +1720,13 @@ namespace visutwin::canvas
             auto* depthAttachment = passDesc->depthAttachment();
             depthAttachment->setTexture(depthTexture);
             applyDepthLoad(depthAttachment, depthOps);
-            depthAttachment->setStoreAction(depthOps && depthOps->storeDepth
-                ? MTL::StoreActionStore
-                : MTL::StoreActionDontCare);
+            const bool storeDepth = depthOps && depthOps->storeDepth;
+            const bool resolveDepth = storeDepth && depthResolve;
+            if (resolveDepth) {
+                depthAttachment->setResolveTexture(depthResolve);
+                depthAttachment->setDepthResolveFilter(MTL::MultisampleDepthResolveFilterSample0);
+            }
+            depthAttachment->setStoreAction(storeAction(storeDepth, resolveDepth));
 
             // The stencil shares the texture and follows the depth: cleared when
             // either is (a pass that starts a fresh depth starts a fresh stencil),
@@ -1875,12 +1905,12 @@ namespace visutwin::canvas
 
         if (isBackBufferPass) {
             MTL::Texture* drawableTexture = _currentDrawable->texture();
-            ensureBackBufferDepthTexture(static_cast<int>(drawableTexture->width()),
-                static_cast<int>(drawableTexture->height()));
+            ensureBackBufferTextures(static_cast<int>(drawableTexture->width()),
+                static_cast<int>(drawableTexture->height()), drawableTexture->pixelFormat());
             const auto colorOps = renderPass ? renderPass->colorOps() : nullptr;
             const auto depthOps = renderPass ? renderPass->depthStencilOps() : nullptr;
-            configureBackBufferAttachments(passDesc, drawableTexture, _backBufferDepthTexture,
-                colorOps.get(), depthOps.get());
+            configureBackBufferAttachments(passDesc, drawableTexture, _backBufferMsaaColor,
+                _backBufferDepthTexture, _backBufferDepthResolve, colorOps.get(), depthOps.get());
         } else {
             configureOffscreenAttachments(passDesc, *offscreenTarget, renderPass);
         }
@@ -1942,17 +1972,27 @@ namespace visutwin::canvas
         return true;
     }
 
-    void MetalGraphicsDevice::ensureBackBufferDepthTexture(const int width, const int height)
+    void MetalGraphicsDevice::ensureBackBufferTextures(const int width, const int height,
+        const MTL::PixelFormat colorFormat)
     {
-        // The back buffer's depth-stencil follows the drawable's size.
+        // The back buffer's attachments follow the drawable's size.
         if (_backBufferDepthTexture && _backBufferDepthWidth == width && _backBufferDepthHeight == height) {
             return;
         }
-        if (_backBufferDepthTexture) {
-            _backBufferDepthTexture->release();
-            _backBufferDepthTexture = nullptr;
+        for (MTL::Texture** texture : {&_backBufferDepthTexture, &_backBufferMsaaColor, &_backBufferDepthResolve}) {
+            if (*texture) {
+                (*texture)->release();
+                *texture = nullptr;
+            }
         }
-        _backBufferDepthTexture = createDepthTexture(_device, width, height);
+        const int msaa = samples();
+        _backBufferDepthTexture = metal::createBackBufferTexture(_device, metal::kBackBufferDepthFormat,
+            width, height, msaa);
+        if (msaa > 1) {
+            _backBufferMsaaColor = metal::createBackBufferTexture(_device, colorFormat, width, height, msaa);
+            _backBufferDepthResolve = metal::createBackBufferTexture(_device, metal::kBackBufferDepthFormat,
+                width, height, 1);
+        }
         _backBufferDepthWidth = width;
         _backBufferDepthHeight = height;
     }

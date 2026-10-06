@@ -112,12 +112,11 @@ ctest --preset default
   deterministic examples render under `VISUTWIN_FIXED_DT`, are downscaled 4x and
   compared with `tests/golden/<backend>/<density>x/`: one reference set PER DISPLAY DENSITY
   (2x Retina, 1x a standard monitor), picked from the "Display pixel density" line the
-  example harness logs. The examples render at one pixel per point on BOTH, but MSAA only
-  on a standard display (see the examples' pixel density below), so the sets differ only
-  where an example multisamples (`ambient-occlusion`, `depth-of-field`); the other seven
-  cases are identical across the two. The display is the one the window opens on (an
+  example harness logs. The examples render the SAME frame on both (one pixel per point,
+  the same MSAA), so the two sets hold the same images; they stay separate so that a change
+  that does depend on density is caught. The display is the one the window opens on (an
   external 1x monitor, or a sleeping display that comes back at 1x). The script strips
-  `VISUTWIN_MSAA` and `VISUTWIN_MAX_PIXEL_RATIO` from the examples' environment. A density with no set
+  `VISUTWIN_ANTIALIAS` and `VISUTWIN_MAX_PIXEL_RATIO` from the examples' environment. A density with no set
   SKIPS its cases; `--update` writes the set for the density it runs at, so a rendering change
   that is intended needs re-capturing at BOTH densities, on two displays, and on BOTH
   backends: a change re-captured for Metal alone leaves the Vulkan set failing for a
@@ -864,7 +863,8 @@ present, but the rule below never depends on reading it.
   within 10%). (1) PIXELS: since 2026-10-06 both render 900x700 pixels for a 900x700
   window (`ExampleApp` at one pixel per point, upstream's `GraphicsDevice` capping
   `maxPixelRatio` at 1); measurements before that date ran ours at a 1800x1400 drawable
-  on Retina, four times the pixels. MSAA still differs: ours is OFF on a Retina display. (2) CLOCK: the
+  on Retina, four times the pixels. Both multisample the back buffer 4x unless the example
+  turns it off, as upstream's do. (2) CLOCK: the
   `gpu-performance-state-intervals` table shows the GPU in its MINIMUM state 55-88% of the
   time under either engine, and every pass costs 2-3x more there than at Maximum; bucket
   per-frame costs by state, or run both engines at once so they share one clock. (3) A
@@ -2308,6 +2308,23 @@ present, but the rule below never depends on reading it.
   draws EVERY text at half its size. Compare text size with upstream's thumbnail as a
   ratio to a
   neighbouring element (a name to its bar), which survives the thumbnail's other aspect.
+- **The BACK BUFFER is MULTISAMPLED by default (`GraphicsDeviceOptions::antialias`, 4x), as
+  upstream's device.** `GraphicsDevice::samples()` is its count, fixed for the device's life,
+  and a pass on the back buffer takes its default ops from it (`RenderPass::init`): the colour
+  RESOLVES into the drawable / swapchain image at the end of every pass, and the multisampled
+  surface is stored only when a later pass loads it (the frame graph's store marking, as for
+  any target). The depth is resolved (sample 0) into a single-sample depth WHENEVER a pass
+  stores it — Metal `_backBufferDepthResolve`, Vulkan `_depthImage` — and that is what
+  `copyRenderTarget` reads for the back buffer's depth, so a depth grab between two passes sees
+  what the first drew (the pass after the grab loads depth, which is what makes the first
+  store it). A pipeline drawn into the back buffer has to carry the sample count: Metal's
+  back-buffer branch sets `rasterSampleCount`, Vulkan's draw takes `_activeRasterSamples`
+  from the open pass (1 for the overlay, which draws single-sampled onto the resolved image,
+  as the Metal ImGui overlay does). A scene that antialiases a target of its own (a camera
+  frame) or draws gaussian splats turns it off, as upstream's examples do
+  (`ExampleOptions::antialias`). Check a change here with `VISUTWIN_ANTIALIAS=0/1` on a
+  scene using both grabs (`VISUTWIN_SSR_FLOOR` on `clustered-lighting`: SSR moves ~5,000
+  pixels either way on both backends, which agree).
 - **The BACK BUFFER's depth attachment carries STENCIL, on both backends, and the
   stencil follows the depth.** UI masks write it (ARCHITECTURE.md, UI masks). Metal's is
   `Depth32Float_Stencil8` (`metal::kBackBufferDepthFormat`, which every back-buffer pipeline
@@ -2399,11 +2416,8 @@ present, but the rule below never depends on reading it.
 - **The back buffer is the canvas in POINTS times `GraphicsDevice::pixelRatio()`** =
   min(`maxPixelRatio`, the window's pixel density), upstream's `maxPixelRatio`.
   `resizeCanvas` takes points, as upstream's takes CSS pixels. The default is uncapped (a
-  DEVIATION from upstream's browser default of 1), and `ExampleApp` caps it at 1: the examples
-  render at one pixel per point on every display and use MSAA only on a standard-density one
-  (`ExampleApp::msaaSamples`, decided from the display the window opened on). An example that
-  asks for MSAA (a camera frame's `rendering.samples`, a render target's `samples`) goes
-  through `msaaSamples(n)`, or it multisamples on Retina too. Metal shrinks the layer's `drawableSize` and Core Animation scales it to the
+  DEVIATION from upstream's browser default of 1), and `ExampleApp` caps it at 1, the density
+  upstream's examples render at in a browser. Metal shrinks the layer's `drawableSize` and Core Animation scales it to the
   window. Vulkan builds its swapchain ITSELF (`initSwapchain`, not vk-bootstrap, which
   always
   takes the surface's current extent) at an extent clamped into
@@ -2826,9 +2840,8 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
     (the examples default to 1, which already matches upstream's default browser density for
     GPU-time comparisons, and on Retina exercises the scaled swapchain on Vulkan; 2 renders
     Retina at full density). An example that sets its own ratio (`screen-scaling`'s toggle)
-    overrides it. `VISUTWIN_MSAA=0/1` forces the examples' MSAA off or on whatever the
-    display; on Retina, `VISUTWIN_MSAA=1` reproduces a standard monitor's frame exactly (the
-    1x golden set).
+    overrides it. `VISUTWIN_ANTIALIAS=0/1` turns the back buffer's MSAA off or on whatever
+    the example asks (`ExampleOptions::antialias`), for a parity or cost comparison.
 
 Animated examples cannot be screenshot-diffed across shader changes unless they run
 under `VISUTWIN_FIXED_DT`.

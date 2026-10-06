@@ -45,7 +45,8 @@ constexpr float ORBIT_PITCH = -10.0f;
 class GsplatExample final: public ExampleApp
 {
 public:
-    GsplatExample(): ExampleApp({.title = "Gaussian Splatting", .width = 1200, .height = 800}) {}
+    GsplatExample(): ExampleApp({.title = "Gaussian Splatting", .width = 1200, .height = 800,
+        .antialias = false}) {}
 
 protected:
     void configure(AppOptions& options) override

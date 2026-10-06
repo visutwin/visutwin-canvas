@@ -162,6 +162,7 @@ namespace visutwin::canvas
 
         createAllocator();
         createShaderCaches(options);
+        spdlog::info("Vulkan back buffer: {}x MSAA", resolveBackBufferSamples(options.antialias));
 
         if (!initSwapchain(_width, _height)) {
             throw std::runtime_error("VulkanGraphicsDevice: swapchain creation failed");

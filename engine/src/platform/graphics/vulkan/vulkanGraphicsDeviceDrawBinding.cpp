@@ -111,6 +111,7 @@ namespace visutwin::canvas
         if (offscreen) {
             prepareOffscreenColorAttachments(cmd, *offscreen, renderPass, attachments);
             prepareOffscreenDepthAttachment(cmd, *offscreen, renderPass, attachments);
+            attachments.samples = offscreen->sampleCountFlag();
         } else {
             prepareSwapchainAttachments(cmd, renderPass, attachments);
         }
@@ -262,17 +263,51 @@ namespace visutwin::canvas
             _depthImageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
         }
 
-        out.colors.push_back(colorAttachmentInfo(_swapchainImageViews[_swapchainImageIndex], colorOps.get()));
+        // The antialiased back buffer, as Metal's and upstream's WebGPU one: the pass draws
+        // into the multisampled pair, resolves the colour into the swapchain image, stores
+        // the multisampled colour only when a later pass loads it (the frame graph sets
+        // `store`), and resolves the depth into _depthImage whenever it stores it, so a
+        // copy of the back buffer's depth (a depth grab) reads what the pass drew.
+        const bool msaa = _msaaColor.view != VK_NULL_HANDLE;
+        if (msaa) {
+            out.samples = vulkanSampleCountFlag(samples());
+            vulkanTransitionImageLayout(cmd, _msaaColor.image, _msaaColor.layout,
+                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            _msaaColor.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            vulkanTransitionImageLayout(cmd, _msaaDepth.image, _msaaDepth.layout,
+                VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, depthImageAspect());
+            _msaaDepth.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+            VkRenderingAttachmentInfo color = colorAttachmentInfo(_msaaColor.view, colorOps.get());
+            color.storeOp = colorOps && colorOps->store
+                ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
+            if (!colorOps || colorOps->resolve) {
+                color.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+                color.resolveImageView = _swapchainImageViews[_swapchainImageIndex];
+                color.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            }
+            out.colors.push_back(color);
+        } else {
+            out.colors.push_back(colorAttachmentInfo(_swapchainImageViews[_swapchainImageIndex], colorOps.get()));
+        }
 
         // The back buffer's depth is cleared unless the pass asks to keep it.
+        const bool storeDepth = dsOps && dsOps->storeDepth;
         out.hasDepth = true;
-        out.depth.imageView = _depthImageView;
+        out.depth.imageView = msaa ? _msaaDepth.view : _depthImageView;
         out.depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
         out.depth.loadOp = (dsOps && !dsOps->clearDepth)
             ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
-        out.depth.storeOp = (dsOps && dsOps->storeDepth)
+        out.depth.storeOp = storeDepth
             ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
         out.depth.clearValue.depthStencil = {dsOps ? dsOps->clearDepthValue : 1.0f, 0};
+        if (msaa && storeDepth && _depthResolveMode != VK_RESOLVE_MODE_NONE) {
+            // The stencil copies this below, so both aspects resolve with the one mode the
+            // device supports for both (see _depthResolveMode).
+            out.depth.resolveMode = _depthResolveMode;
+            out.depth.resolveImageView = _depthImageView;
+            out.depth.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        }
 
         // The stencil (UI masks) follows the depth, as on Metal: cleared when either
         // is, kept when either is, so a mask drawn in a later pass never reads a
@@ -292,6 +327,7 @@ namespace visutwin::canvas
     void VulkanGraphicsDevice::beginPassState(VulkanRenderTarget* offscreen, const PassAttachments& attachments)
     {
         _activeOffscreenTarget = offscreen;
+        _activeRasterSamples = attachments.samples;
         _activeExtent = attachments.extent;
         _dynamicRenderingActive = true;
         _insideRenderPass = true;
@@ -593,10 +629,9 @@ namespace visutwin::canvas
         std::array<VkFormat, 8> colorFormats{_swapchainFormat};
         size_t colorFormatCount = 1;
         VkFormat depthFmt = _depthFormat;
-        // The swapchain is always single-sample (as it is on Metal); only an
-        // offscreen target can be multisampled, and the pipeline's raster
-        // sample count has to match what the pass attached.
-        VkSampleCountFlagBits rasterSamples = VK_SAMPLE_COUNT_1_BIT;
+        // The pipeline's raster sample count has to match what the pass attached: the
+        // offscreen target's, or the back buffer's (multisampled when antialiased).
+        VkSampleCountFlagBits rasterSamples = _activeRasterSamples;
         if (_activeOffscreenTarget) {
             const auto& colors = _activeOffscreenTarget->colorAttachments();
             colorFormatCount = std::min(colors.size(), colorFormats.size());

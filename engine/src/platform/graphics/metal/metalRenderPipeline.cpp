@@ -366,6 +366,9 @@ namespace visutwin::canvas
             setBlend(colorAttachment, blendState);
             pipelineDescriptor->setDepthAttachmentPixelFormat(metal::kBackBufferDepthFormat);
             pipelineDescriptor->setStencilAttachmentPixelFormat(metal::kBackBufferDepthFormat);
+            // The back buffer's sample count (GraphicsDeviceOptions::antialias), fixed for
+            // the device's lifetime, so the cache key (format key 0) needs no part of it.
+            pipelineDescriptor->setRasterSampleCount(static_cast<NS::UInteger>(_device->samples()));
         }
 
         _pipelineId++;

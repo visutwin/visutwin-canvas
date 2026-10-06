@@ -445,6 +445,8 @@ namespace visutwin::canvas
             bool hasDepth = false;
             bool hasStencil = false;
             VkExtent2D extent{};
+            // The attachments' sample count, which a pipeline drawn in the pass must match.
+            VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
         };
         void prepareOffscreenColorAttachments(VkCommandBuffer cmd, VulkanRenderTarget& target,
             const RenderPass* renderPass, PassAttachments& out);
@@ -542,6 +544,19 @@ namespace visutwin::canvas
         // reportSwapchainDeferred and resets on a successful recreate.
         uint64_t _swapchainDeferredFrames = 0;
 
+        // A device-owned image with its allocation, one view and its tracked layout: the
+        // antialiased back buffer's multisampled colour and depth-stencil.
+        struct OwnedImage
+        {
+            VkImage image = VK_NULL_HANDLE;
+            VmaAllocation allocation = VK_NULL_HANDLE;
+            VkImageView view = VK_NULL_HANDLE;
+            VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
+        };
+        void createOwnedImage(OwnedImage& out, VkFormat format, VkSampleCountFlagBits samples,
+            VkImageUsageFlags usage, VkImageAspectFlags aspect, const char* what);
+        void destroyOwnedImage(OwnedImage& image);
+
         struct RetiredSwapchain
         {
             uint64_t frame = 0;
@@ -550,6 +565,8 @@ namespace visutwin::canvas
             VkImage depthImage = VK_NULL_HANDLE;
             VmaAllocation depthAllocation = VK_NULL_HANDLE;
             VkImageView depthImageView = VK_NULL_HANDLE;
+            OwnedImage msaaColor;
+            OwnedImage msaaDepth;
             std::vector<VkSemaphore> renderFinishedSemaphores;
         };
         std::deque<RetiredSwapchain> _retiredSwapchains;
@@ -748,6 +765,13 @@ namespace visutwin::canvas
         // transitions back to SHADER_READ_ONLY so subsequent passes can
         // sample the attachments.
         VulkanRenderTarget* _activeOffscreenTarget = nullptr;
+        // The open pass's sample count (PassAttachments::samples); 1 for the overlay.
+        VkSampleCountFlagBits _activeRasterSamples = VK_SAMPLE_COUNT_1_BIT;
+        // The antialiased back buffer (GraphicsDevice::samples() > 1): passes draw into
+        // these and resolve into the swapchain image and _depthImage, which copies and the
+        // overlay keep reading single-sampled. Sized and retired with the swapchain.
+        OwnedImage _msaaColor;
+        OwnedImage _msaaDepth;
 
         // Extent of the render pass currently being recorded — viewport and
         // scissor fall back to this when the engine state has zero size.

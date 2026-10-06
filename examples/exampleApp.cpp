@@ -486,6 +486,14 @@ namespace visutwin::canvas
         GraphicsDeviceOptions deviceOptions;
         deviceOptions.backend = _backend;
         deviceOptions.window = _window;
+        deviceOptions.antialias = _options.antialias;
+        // VISUTWIN_ANTIALIAS=0/1 overrides the example's choice: the same scene with and
+        // without the multisampled back buffer, for a parity or cost comparison.
+        if (const char* env = std::getenv("VISUTWIN_ANTIALIAS"); env && *env) {
+            deviceOptions.antialias = *env != '0';
+            spdlog::info("Back-buffer antialiasing {} from VISUTWIN_ANTIALIAS",
+                deviceOptions.antialias ? "on" : "off");
+        }
 
         if (_backend == Backend::Metal) {
             // SDL hands back the layer as void*, which is what the device takes —
@@ -535,11 +543,11 @@ namespace visutwin::canvas
         _engine->init(appOptions);
         _engine->setCanvasFillMode(FillMode::FILLMODE_FILL_WINDOW);
         _engine->setCanvasResolution(ResolutionMode::RESOLUTION_AUTO);
-        // The examples render at ONE pixel per point on every display: a Retina window is
-        // drawn at 900x700 and scaled up by the system, not at 1800x1400, which is four times
-        // the shading for an image the examples do not need. VISUTWIN_MAX_PIXEL_RATIO raises
-        // the cap. MSAA follows the DISPLAY's density instead (msaaSamples): on a standard
-        // display, off on a high-density one. VISUTWIN_MSAA=0/1 overrides that.
+        // The examples render at ONE pixel per point on every display, as upstream's do by
+        // default: a Retina window is drawn at 900x700 and scaled up by the system, not at
+        // 1800x1400, which is four times the shading. Antialiasing is the back buffer's
+        // MSAA (ExampleOptions::antialias), on every display. VISUTWIN_MAX_PIXEL_RATIO
+        // raises the cap.
         if (auto* gd = _engine->graphicsDevice().get()) {
             float cap = 1.0f;
             if (const char* env = std::getenv("VISUTWIN_MAX_PIXEL_RATIO")) {
@@ -553,16 +561,9 @@ namespace visutwin::canvas
             const auto [pw, ph] = gd->windowSizeInPoints();
             spdlog::info("Back buffer pixel ratio {} ({}x{} points)", gd->pixelRatio(), pw, ph);
 
-            const float density = gd->devicePixelRatio();
-            _msaaAllowed = density <= 1.0f;
-            if (const char* env = std::getenv("VISUTWIN_MSAA"); env && *env) {
-                _msaaAllowed = *env != '0';
-                spdlog::info("MSAA {} from VISUTWIN_MSAA", _msaaAllowed ? "on" : "off");
-            }
-            // tools/golden_images.py reads this line to pick the references for the display:
-            // what the examples render differs by the display's density (MSAA), not by the
-            // back buffer's.
-            spdlog::info("Display pixel density {} (MSAA {})", density, _msaaAllowed ? "on" : "off");
+            // tools/golden_images.py reads this line to pick the references for the display.
+            spdlog::info("Display pixel density {} (back buffer {}x MSAA)", gd->devicePixelRatio(),
+                gd->samples());
         }
 
         // The performance HUD. It is on every example, so it belongs to the host here

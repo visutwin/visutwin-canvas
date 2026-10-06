@@ -14,7 +14,7 @@ the [README](README.md).
 - **Screen-space reflections**: a per-fragment world-space march against the scene depth and colour grabs, reaching 0.4 of the camera range, with bisection-refined hits, a roughness cone that reads the colour grab's mips, and env/probe fallback; works under the standalone and the camera-frame (post-processing) paths
 - **Vertex colors**, **point-size** primitives, **opacity dither** (Bayer8 order-independent transparency), and **lightmap** (UV1) sampling
 - **GPU instancing** with per-instance color and optional per-frame GPU frustum culling (compute-driven indirect draw), plus **dynamic batching** with a bone-index matrix palette
-- **MSAA** on the offscreen scene target and **dual-source blending** (`BLENDMODE_SRC1_*`) for custom blend setups
+- **MSAA** on the back buffer (4x, on by default, resolved per pass, colour and depth grabs included) and on the offscreen scene target, and **dual-source blending** (`BLENDMODE_SRC1_*`) for custom blend setups
 
 ## Lighting & shadows
 - **Cascaded shadow maps** (one cascade by default as upstream, up to four PSSM cascades with cross-cascade blending and distance fade); receivers beyond the caster-fitted range are shadowed, so a receive-only ground works

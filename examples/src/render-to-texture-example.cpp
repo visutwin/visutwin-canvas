@@ -107,7 +107,7 @@ protected:
         rtOptions.name = "RT";
         rtOptions.colorBuffer = _texture.get();
         rtOptions.depth = true;
-        rtOptions.samples = msaaSamples(2);
+        rtOptions.samples = 2;
         rtOptions.autoResolve = true;
         const auto renderTarget = device()->createRenderTarget(rtOptions);
 

@@ -125,7 +125,8 @@ class PostProcessingExample final: public ExampleApp
 {
 public:
     PostProcessingExample()
-        : ExampleApp({.title = "Post-Processing Example", .width = 1280, .height = 720}) {}
+        : ExampleApp({.title = "Post-Processing Example", .width = 1280, .height = 720,
+            .antialias = false}) {}
 
 protected:
     void configure(AppOptions& options) override

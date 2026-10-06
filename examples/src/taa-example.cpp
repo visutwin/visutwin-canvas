@@ -39,7 +39,7 @@ using namespace visutwin::canvas;
 class TaaExample final: public ExampleApp
 {
 public:
-    TaaExample(): ExampleApp({.title = "TAA Example"}) {}
+    TaaExample(): ExampleApp({.title = "TAA Example", .antialias = false}) {}
 
 protected:
     bool create() override

@@ -11,13 +11,14 @@ runs it; ctest runs it through the `golden` label (see the `golden` test presets
     tools/golden_images.py ... --only clearcoat,gsplat
 
 Every case runs under VISUTWIN_FIXED_DT, so an animated example reaches the same
-state at the same frame in every run. The examples render at one pixel per point on
-every display, but MSAA only on a standard-density one, and a tolerance loose enough to
-accept that difference would accept real regressions too, so there is one reference set
-PER DISPLAY DENSITY: the example harness logs it ("Display pixel density 2 (MSAA off)"),
-and a capture is compared with tests/golden/<backend>/<density>x/ (2x on a Retina
-display, 1x on a standard one). The overrides that would change what a density renders
-(VISUTWIN_MSAA, VISUTWIN_MAX_PIXEL_RATIO) are removed from the examples' environment. --update writes the set for the density it runs at. A density
+state at the same frame in every run. There is one reference set PER DISPLAY
+DENSITY: the example harness logs it ("Display pixel density 2"), and a capture is
+compared with tests/golden/<backend>/<density>x/ (2x on a Retina display, 1x on a
+standard one). The examples render at one pixel per point with the same MSAA on every
+display, so the two sets hold the same images today; they stay separate so that a
+density-dependent change is caught rather than averaged. VISUTWIN_MAX_PIXEL_RATIO and
+VISUTWIN_ANTIALIAS, which change what a case renders, are removed from the examples'
+environment. --update writes the set for the density it runs at. A density
 with no set, or a capture whose size is not its reference's, is SKIPPED; if every
 case is skipped the exit code is 77, which ctest reports as a skip.
 
@@ -96,8 +97,8 @@ def capture(binary: pathlib.Path, backend: str, frame: int, out_png: pathlib.Pat
     """Run one example until its screenshot is written, then stop it."""
     env = dict(os.environ)
     # A reference set stands for what its display density renders by default.
-    env.pop("VISUTWIN_MSAA", None)
     env.pop("VISUTWIN_MAX_PIXEL_RATIO", None)
+    env.pop("VISUTWIN_ANTIALIAS", None)
     env.update({
         "VISUTWIN_BACKEND": backend,
         "VISUTWIN_FIXED_DT": "0.0166667",

@@ -80,7 +80,8 @@ class DepthOfFieldExample final: public ExampleApp
 {
 public:
     DepthOfFieldExample()
-        : ExampleApp({.title = "Depth-of-Field Example", .width = 1024, .height = 768}) {}
+        : ExampleApp({.title = "Depth-of-Field Example", .width = 1024, .height = 768,
+            .antialias = false}) {}
 
 protected:
     bool create() override
@@ -188,7 +189,7 @@ protected:
 
             auto rendering = _cameraComp->rendering();
             rendering.toneMapping = TONEMAP_ACES;
-            rendering.samples = msaaSamples(4); // 4x MSAA on the scene target, standard displays
+            rendering.samples = 4;             // 4x MSAA on the offscreen scene target
             rendering.bloomIntensity = 0.03f;
             rendering.bloomBlurLevel = 7;      // tighter glow than the 16-level default
             rendering.vignetteEnabled = true;

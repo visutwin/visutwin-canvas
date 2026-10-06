@@ -784,7 +784,13 @@ namespace visutwin::canvas
         virtual std::shared_ptr<IndexBuffer> createIndexBuffer(IndexFormat format, int numIndices,
             const std::vector<uint8_t>& data = {}) = 0;
 
-        int samples() const { return _samples; }
+        /// The back buffer's sample count: 1, or kBackBufferSamples when the device was
+        /// created with GraphicsDeviceOptions::antialias. A pass rendering to the back
+        /// buffer takes its default ops from it (RenderPass::init): colour resolved, the
+        /// multisampled surface stored only when a later pass loads it.
+        int samples() const { return std::max(_samples, 1); }
+        /// The back buffer's sample count when antialiasing is on (upstream's WebGPU count).
+        static constexpr int kBackBufferSamples = 4;
 
         /// Size the back buffer for a canvas of `width` x `height` POINTS: points x
         /// `pixelRatio()`, floored.
@@ -1135,6 +1141,12 @@ namespace visutwin::canvas
         void setBackBuffer(const std::shared_ptr<RenderTarget>& target) { _backBuffer = target; }
         /** Highest MSAA sample count the backend supports; RenderTarget clamps to it. */
         void setMaxSamples(const int value) { _maxSamples = value > 1 ? value : 1; }
+        /** The back buffer's sample count for `antialias`; call after setMaxSamples. */
+        int resolveBackBufferSamples(const bool antialias)
+        {
+            _samples = antialias ? std::min(kBackBufferSamples, _maxSamples) : 1;
+            return _samples;
+        }
         /** Texture dimension limits; see maxTextureSize(). */
         void setMaxTextureSize(const int value) { _maxTextureSize = value > 1 ? value : 1; }
         void setMaxCubeMapSize(const int value) { _maxCubeMapSize = value > 1 ? value : 1; }

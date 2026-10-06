@@ -180,11 +180,11 @@ protected:
             ssao.randomize = false;
             _cameraComp->setSsao(ssao);
 
-            // tone mapping, and 4x MSAA on the scene target (on a standard-density
-            // display; see msaaSamples). The camera frame's target is already RGBA16F.
+            // tone mapping, and 4x MSAA on the scene target. The camera
+            // frame's target is already RGBA16F.
             auto rendering = _cameraComp->rendering();
             rendering.toneMapping = TONEMAP_NEUTRAL;
-            rendering.samples = msaaSamples(4);
+            rendering.samples = 4;
             _cameraComp->setRendering(rendering);
         }
 

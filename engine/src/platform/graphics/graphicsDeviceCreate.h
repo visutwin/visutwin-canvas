@@ -47,6 +47,14 @@ namespace visutwin::canvas
         /// which also lists the environment overrides.
         bool persistentShaderCache{true};
         std::string shaderCacheDirectory;
+
+        /// Multisample the back buffer: every pass that renders to it draws into a
+        /// multisampled colour and depth-stencil pair, resolved into the drawable at the
+        /// end of the pass. On by default, as upstream's device; the sample count is
+        /// GraphicsDevice::kBackBufferSamples (or the device's maximum, if lower), fixed for
+        /// the device's lifetime. A scene that antialiases an offscreen target of its own (a
+        /// camera frame) or draws gaussian splats turns it off, as upstream's examples do.
+        bool antialias{true};
     };
 
     /// Human-readable backend name ("Metal", "Vulkan", "WebGPU").

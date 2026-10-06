@@ -90,6 +90,12 @@ namespace visutwin::canvas
         /// MiniStatsOptions::statPresets for the performance HUD ("gsplats"), for an
         /// example whose upstream counterpart asks for them.
         std::vector<std::string> miniStatsPresets;
+
+        /// GraphicsDeviceOptions::antialias: a multisampled back buffer, on by default as
+        /// upstream's device. An example whose upstream counterpart creates its device with
+        /// `antialias: false` (gaussian splats, a camera frame that antialiases its own
+        /// scene target) turns it off.
+        bool antialias = true;
     };
 
     /// Which UI component systems ExampleApp::registerUi adds.
@@ -195,11 +201,6 @@ namespace visutwin::canvas
         /// The window size the example asked for, in points. A screen-space effect
         /// that has to size itself needs this before the first frame.
         [[nodiscard]] int windowWidth() const { return _options.width; }
-        /// The MSAA sample count to give a camera frame or render target that asks for
-        /// `requested`: as asked on a standard-density display, 1 on a high-density one, where
-        /// the examples render at one pixel per point and do not multisample. Decided once,
-        /// from the display the window opened on; VISUTWIN_MSAA=0/1 overrides it.
-        [[nodiscard]] int msaaSamples(const int requested) const { return _msaaAllowed ? requested : 1; }
         [[nodiscard]] int windowHeight() const { return _options.height; }
 
         /// Absolute path to a shared asset, e.g. assetPath("models/fox.glb").
@@ -282,7 +283,6 @@ namespace visutwin::canvas
         Entity* _uiCamera = nullptr;
 
         bool _running = true;
-        bool _msaaAllowed = true;
         float _elapsed = 0.0f;
     };
 }
