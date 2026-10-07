@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "platform/graphics/shaderBindings.h"
+
 namespace visutwin::canvas
 {
     StandardMaterial::StandardMaterial()
@@ -455,9 +457,9 @@ namespace visutwin::canvas
         overrideSlot(33, _refractionMap);
         // Opacity map, alpha channel by default. Metal only.
         overrideSlot(34, _opacityMap);
-        // Vertex displacement map: routed to VERTEX texture slot 0 via the
-        // >= 100 sentinel (see MetalTextureBinder::bindMaterialTextures).
-        overrideSlot(100, _displacementMap);
+        // Vertex displacement map: a VERTEX-stage texture (the binding table's slot,
+        // MetalTextureBinder::bindMaterialTextures).
+        overrideSlot(kDisplacementMapMetalSlot, _displacementMap);
     }
 
     std::shared_ptr<Material> StandardMaterial::clone() const

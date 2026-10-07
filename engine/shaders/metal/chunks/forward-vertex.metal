@@ -172,7 +172,7 @@ vertex RasterizerData VT_VERTEX_ENTRY(VertexData v [[stage_in]],
                                       uint vid [[vertex_id]]
 #endif
 #if VT_FEATURE_DISPLACEMENT
-                                    , texture2d<float> displacementTexture [[texture(0)]]
+                                    , texture2d<float> displacementTexture [[texture(41)]]
 #endif
                                       )
 {

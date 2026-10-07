@@ -25,7 +25,8 @@
 //   kind:     CombinedSampler (Vulkan: texture + its own sampler; Metal: a texture slot
 //             and, with ownSampler, a sampler slot), SeparateImage (Vulkan: image through
 //             the shared sampler), Sampler (a sampler state), MetalOnly (no Vulkan binding)
-//   metalSlot: the Metal fragment texture slot; >= 100 is a VERTEX texture (slot - 100);
+//   metalSlot: the Metal fragment texture slot; >= 100 is a VERTEX texture (slot - 100,
+//             kMetalVertexTextureSlotBase);
 //             for a Sampler row the Metal sampler slot; -1 for none (a constexpr sampler)
 //   vkBinding: the Vulkan binding in the list's set (1 material, 3 scene); -1 for none
 //   ownSampler: the map is read through its texture's own sampler state on both backends
@@ -53,7 +54,7 @@ namespace visutwin::canvas
     X(lightMap,           Tex2D,   CombinedSampler, 19,  19, 1, 1) \
     X(detailNormalMap,    Tex2D,   SeparateImage,   23,  23, 0, 1) \
     X(materialSampler,    Sampler, Sampler,         0,   24, 0, 0) \
-    X(displacementMap,    Tex2D,   SeparateImage,   100, 25, 0, 0) \
+    X(displacementMap,    Tex2D,   SeparateImage,   141, 25, 0, 0) \
     X(clearCoatMap,       Tex2D,   SeparateImage,   7,   7,  0, 1) \
     X(clearCoatGlossMap,  Tex2D,   SeparateImage,   13,  13, 0, 1) \
     X(clearCoatNormalMap, Tex2D,   SeparateImage,   14,  14, 0, 1) \
@@ -62,8 +63,10 @@ namespace visutwin::canvas
     X(refractionMap,      Tex2D,   SeparateImage,   33,  33, 0, 1) \
     X(opacityMap,         Tex2D,   SeparateImage,   34,  34, 0, 1)
 
-    // Set 3 on Vulkan: the per-pass scene textures. The two VSM spot moment maps are
-    // Metal-only slots (Vulkan rebinds the spot slots 2 / 3 with the linear sampler).
+    // Set 3 on Vulkan: the per-pass scene textures. The VSM moment maps are Metal-only
+    // slots: the spot pair because Vulkan rebinds the spot slots 2 / 3 with the linear
+    // sampler, the directional pair because one specialised Metal library cannot give slot
+    // 6 / 35 two types (Vulkan reads moments and depth from bindings 1 / 22).
 #define VT_SCENE_TEXTURE_BINDINGS(X) \
     X(envAtlas,              Tex2D,      CombinedSampler, 2,  0,  0, 0) \
     X(shadowMap0,            Tex2D,      SeparateImage,   6,  1,  0, 0) \
@@ -90,7 +93,9 @@ namespace visutwin::canvas
     X(shadowMap1,            Tex2D,      SeparateImage,   35, 22, 0, 0) \
     X(clusterCookieAtlas,    Tex2D,      SeparateImage,   36, 23, 0, 0) \
     X(localVsmMap0,          Tex2D,      MetalOnly,       37, -1, 0, 0) \
-    X(localVsmMap1,          Tex2D,      MetalOnly,       38, -1, 0, 0)
+    X(localVsmMap1,          Tex2D,      MetalOnly,       38, -1, 0, 0) \
+    X(shadowMoments0,        Tex2D,      MetalOnly,       39, -1, 0, 0) \
+    X(shadowMoments1,        Tex2D,      MetalOnly,       40, -1, 0, 0)
 
     enum class ShaderBindingType : uint8_t { Tex2D, TexCube, Tex2DArray, Sampler };
     enum class ShaderBindingKind : uint8_t { CombinedSampler, SeparateImage, Sampler, MetalOnly };
@@ -247,9 +252,42 @@ namespace visutwin::canvas
         !vulkanMaterialBindingIsSeparateImage(0) && !vulkanMaterialBindingIsSeparateImage(19) &&
         !vulkanMaterialBindingIsSeparateImage(24));
 
+    namespace shaderBindings
+    {
+        constexpr bool sameName(const char* a, const char* b)
+        {
+            while (*a != '\0' && *a == *b) {
+                ++a;
+                ++b;
+            }
+            return *a == *b;
+        }
+
+        /// The Metal slot of the row called `name`; -1 when there is none.
+        template <size_t N>
+        constexpr int metalSlotOf(const std::array<ShaderBindingRow, N>& rows, const char* name)
+        {
+            for (const auto& row : rows) {
+                if (sameName(row.name, name)) {
+                    return row.metalSlot;
+                }
+            }
+            return -1;
+        }
+    }
+
+    /// A Metal slot of 100 or more is a VERTEX-stage texture slot (slot - 100).
+    inline constexpr int kMetalVertexTextureSlotBase = 100;
+
+    /// The displacement map, a vertex-stage texture. Its Metal slot (vertex texture 41) is
+    /// one no fragment texture uses: one Slang library declares every global on every entry
+    /// point, so a vertex texture at 0 would collide with the base-colour map there.
+    inline constexpr int kDisplacementMapMetalSlot = shaderBindings::metalSlotOf(kMaterialBindingRows, "displacementMap");
+    static_assert(kDisplacementMapMetalSlot == kMetalVertexTextureSlotBase + 41);
+
     /// Metal fragment texture slots: 0 .. kMetalMaxTextureSlots - 1.
     inline constexpr int kMetalMaxTextureSlots = shaderBindings::maxMetalTextureSlot() + 1;
-    static_assert(kMetalMaxTextureSlots == 39);
+    static_assert(kMetalMaxTextureSlots == 41);
 
     /// The Metal material slots the material binder owns (cleared when a material has no
     /// map there), in table order.

@@ -10,6 +10,8 @@
 #include "shaderChunks.h"
 
 #include <assert.h>
+#include <algorithm>
+#include <cstdlib>
 #include <array>
 #include <cstdint>
 #include <filesystem>
@@ -19,6 +21,7 @@
 #include <vector>
 
 #include "core/hash.h"
+#include "platform/graphics/slangCompiler.h"
 #include "platform/graphics/deviceCache.h"
 #include "scene/materials/materialParameterRead.h"
 #include "scene/renderer/cullModeResolve.h"
@@ -694,9 +697,173 @@ namespace visutwin::canvas
         return source;
     }
 
+    namespace
+    {
+        /// True unless VISUTWIN_LEGACY_FORWARD selects the hand-written MSL / GLSL forward and
+        /// shadow programs (kept for an A/B in one binary until they are removed) or the build
+        /// has no Slang compiler.
+        bool useSlangPrograms()
+        {
+            static const bool use = [] {
+                const char* legacy = std::getenv("VISUTWIN_LEGACY_FORWARD");
+                return !(legacy && *legacy && std::strcmp(legacy, "0") != 0) && SlangCompiler::available();
+            }();
+            return use;
+        }
+
+
+        const std::vector<uint32_t>* entrySpirv(const SlangProgramBuild& build, const std::string_view name)
+        {
+            for (const auto& entry : build.entries) {
+                if (entry.name == name) {
+                    return &entry.spirv;
+                }
+            }
+            return nullptr;
+        }
+    }
+
+    const SlangProgramBuild* ProgramLibrary::slangProgram(const std::string& program, const SlangFileOverrides& overrides)
+    {
+        uint64_t fingerprint = fnv1a64(program);
+        for (const auto& [name, source] : overrides) {
+            fingerprint = fnv1a64(source, fnv1a64(name, fingerprint));
+        }
+        const std::string key = program + ":" + std::to_string(fingerprint);
+        if (const auto found = _slangPrograms.find(key); found != _slangPrograms.end()) {
+            return found->second.get();
+        }
+        auto build = std::make_shared<SlangProgramBuild>();
+        if (!loadSlangProgram(_device.get(), program, {}, overrides, *build)) {
+            build.reset();
+        }
+        _slangPrograms[key] = build;
+        return build.get();
+    }
+
+    /// The forward vertex entry for a variant: the vertex layout and deformation the draw
+    /// has, in the priority Vulkan's pipeline applies to its family of modules.
+    const char* ProgramLibrary::forwardVertexEntry(const ShaderVariantOptions& options)
+    {
+        if (options.dynamicBatch) {
+            return "forwardDynamicBatchVertex";
+        }
+        if (options.skinning) {
+            return options.morphing ? "forwardSkinnedMorphedVertex" : "forwardSkinnedVertex";
+        }
+        if (options.morphing) {
+            return "forwardMorphedVertex";
+        }
+        if (options.skybox) {
+            return "forwardSkyVertex";
+        }
+        if (options.instancing) {
+            return options.instancingColor ? "forwardInstancedColorVertex" : "forwardInstancedVertex";
+        }
+        if (options.pointSize && options.vertexColors) {
+            return "forwardPointVertex";
+        }
+        if (options.vertexColors) {
+            return "forwardColorVertex";
+        }
+        return "forwardVertex";
+    }
+
+    std::shared_ptr<Shader> ProgramLibrary::buildSlangShaderVariant(const std::string& programName,
+        const ShaderVariantOptions& options, const uint64_t variantId, const Material* material)
+    {
+        const bool shadow = programName == "shadow";
+        // A chunk override is a file of the program's tree, by chunk name: the registry's
+        // first, the material's on top. Sorted, so the fingerprint does not depend on the
+        // maps' order.
+        SlangFileOverrides overrides;
+        std::unordered_map<std::string, std::string> merged = _chunks.overrides();
+        if (material) {
+            for (const auto& [name, source] : material->shaderChunkOverrides()) {
+                merged[name] = source;
+            }
+        }
+        for (const auto& [name, source] : merged) {
+            overrides.emplace_back(name + ".slang", source);
+        }
+        std::sort(overrides.begin(), overrides.end());
+        const SlangProgramBuild* build = slangProgram(shadow ? "shadow" : "forward", overrides);
+        if (!build) {
+            return nullptr;
+        }
+
+        ShaderDefinition definition;
+        definition.name = "program-" + programName;
+        definition.name += options.transparentPass ? "-transparent" : "-opaque";
+        definition.name += "-" + std::to_string(variantId);
+        definition.features = makeFeatureSet(options);
+        definition.vshader = forwardVertexEntry(options);
+        // The shadow pass's fragment stage: the moments writer for a VSM light, the opacity
+        // frontend otherwise. Vulkan runs no fragment stage at all for a caster that needs no
+        // frontend; Metal keeps the frontend there, which reads only its material's flags.
+        const bool metal = _device->shaderLanguage() == ShaderLanguage::Msl;
+        const bool needsOpacity = options.alphaTest || options.shadowDither;
+        if (shadow) {
+            definition.fshader = options.vsmShadows ? "shadowVsmFragment"
+                : (needsOpacity || metal) ? "shadowOpacityFragment" : "";
+        } else {
+            definition.fshader = "forwardFragment";
+        }
+
+        ShaderCode code;
+        // Both programs are specialized by the variant's features, the shadow one included:
+        // its vertex stage is the forward one (displacement, skinning, instancing), and Metal
+        // refuses a function that reads function constants unspecialized. The shadow
+        // fragment stages gate on material flags, not features.
+        code.specializeFeatures = true;
+        code.depthOnlyFragment = shadow && !options.vsmShadows;
+        if (metal) {
+            code.metalLibrary = build->metalLibrary;
+            code.metalSource = build->metalSource;
+        } else {
+            const auto* vertex = entrySpirv(*build, "forwardVertex");
+            if (!vertex) {
+                spdlog::error("ProgramLibrary: the Slang program '{}' has no forwardVertex entry", programName);
+                return nullptr;
+            }
+            code.vertexSpirv = *vertex;
+            if (!definition.fshader.empty()) {
+                const auto* fragment = entrySpirv(*build, definition.fshader);
+                if (!fragment) {
+                    spdlog::error("ProgramLibrary: the Slang program '{}' has no {} entry", programName,
+                        definition.fshader);
+                    return nullptr;
+                }
+                code.fragmentSpirv = *fragment;
+            }
+            for (const auto& entry : build->entries) {
+                if (entry.stage == "vertex" && entry.name != "forwardVertex") {
+                    code.vertexFamily.push_back({entry.name, entry.spirv});
+                }
+            }
+        }
+        return _device->createShaderFromCode(definition, code);
+    }
+
     std::shared_ptr<Shader> ProgramLibrary::buildForwardShaderVariant(const std::string& programName,
         const ShaderVariantOptions& options, const uint64_t variantId, const Material* material)
     {
+        if (useSlangPrograms()) {
+            auto shader = buildSlangShaderVariant(programName, options, variantId, material);
+            if (shader || !hasChunkOverrides(material)) {
+                return shader;
+            }
+            // A chunk override written for the hand-written programs (MSL or GLSL, in the
+            // device's language) is not Slang and fails the compile; until those programs
+            // are removed it keeps working through them. The failed build is cached, so
+            // this costs one compile per override set.
+            static bool warned = false;
+            if (!warned) {
+                warned = true;
+                spdlog::warn("ProgramLibrary: a shader chunk override did not compile as Slang; drawing with "
+                    "the hand-written {} program instead (port the override to Slang)", programName);
+            }
+        }
         // variantId only names the generated entry points. Each variant compiles as
         // its own translation unit, so the name just has to be internally consistent —
         // variant identity itself is the exact VariantKey the cache compares.

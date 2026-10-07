@@ -936,19 +936,47 @@ namespace visutwin::canvas
     std::shared_ptr<Shader> VulkanGraphicsDevice::createShaderFromCode(const ShaderDefinition& definition,
         const ShaderCode& code)
     {
-        const bool graphics = !code.vertexSpirv.empty() && !code.fragmentSpirv.empty();
+        // A depth-only program may have no fragment stage at all (an ordinary shadow caster).
+        const bool graphics = !code.vertexSpirv.empty() && (!code.fragmentSpirv.empty() || code.depthOnlyFragment);
         const bool compute = !code.computeSpirv.empty();
         if (!graphics && !compute) {
             spdlog::error("VulkanGraphicsDevice::createShaderFromCode('{}'): no SPIR-V for a vertex + fragment "
                 "pair or a compute stage", definition.name);
             return nullptr;
         }
-        return std::make_shared<VulkanShader>(this, definition,
+        // The forward family: the pipeline picks one of these vertex stages per draw by the
+        // draw's vertex layout and features (VulkanRenderPipeline::create), by entry name.
+        const auto family = [&code](const char* name) -> const std::vector<uint32_t>* {
+            for (const auto& entry : code.vertexFamily) {
+                if (entry.name == name) {
+                    return &entry.words;
+                }
+            }
+            return nullptr;
+        };
+        const auto data = [](const std::vector<uint32_t>* words) { return words ? words->data() : nullptr; };
+        const auto size = [](const std::vector<uint32_t>* words) { return words ? words->size() : size_t{0}; };
+        const auto* instanced = family("forwardInstancedVertex");
+        const auto* sky = family("forwardSkyVertex");
+        const auto* color = family("forwardColorVertex");
+        const auto* point = family("forwardPointVertex");
+        const auto* dynamicBatch = family("forwardDynamicBatchVertex");
+        const auto* skinned = family("forwardSkinnedVertex");
+        const auto* morphed = family("forwardMorphedVertex");
+        const auto* skinnedMorphed = family("forwardSkinnedMorphedVertex");
+        const bool fragment = graphics && !code.fragmentSpirv.empty();
+        auto shader = std::make_shared<VulkanShader>(this, definition,
             graphics ? code.vertexSpirv.data() : nullptr, code.vertexSpirv.size(),
-            graphics ? code.fragmentSpirv.data() : nullptr, code.fragmentSpirv.size(),
-            nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0,
+            fragment ? code.fragmentSpirv.data() : nullptr, fragment ? code.fragmentSpirv.size() : 0,
+            data(instanced), size(instanced), data(sky), size(sky), data(color), size(color),
+            data(point), size(point), data(dynamicBatch), size(dynamicBatch), data(skinned), size(skinned),
+            data(morphed), size(morphed), data(skinnedMorphed), size(skinnedMorphed),
             code.specializeFeatures,
             compute ? code.computeSpirv.data() : nullptr, code.computeSpirv.size());
+        if (shader && code.depthOnlyFragment && fragment) {
+            shader->setDepthOnlyFragment(true);
+        }
+        return shader;
     }
 
     std::shared_ptr<Shader> VulkanGraphicsDevice::createShader(
@@ -1098,20 +1126,6 @@ namespace visutwin::canvas
                 fragment = nullptr;
                 fragmentWords = 0;
             }
-        }
-        if (definition.name == "particles") {
-            return std::make_shared<VulkanShader>(this, definition,
-                vulkan_generated::kParticleVert,
-                vulkan_generated::kParticleVertWordCount,
-                vulkan_generated::kParticleFrag,
-                vulkan_generated::kParticleFragWordCount);
-        }
-        if (definition.name == "gsplat") {
-            return std::make_shared<VulkanShader>(this, definition,
-                vulkan_generated::kGSplatVert,
-                vulkan_generated::kGSplatVertWordCount,
-                vulkan_generated::kGSplatFrag,
-                vulkan_generated::kGSplatFragWordCount);
         }
         auto shader = std::make_shared<VulkanShader>(this, definition,
             vulkan_generated::kForwardVert,

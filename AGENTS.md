@@ -39,10 +39,10 @@ visutwin-canvas/
     src/platform/  # Graphics abstraction + Metal and Vulkan backends, input
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
-    shaders/metal/chunks/   # 25 composable Metal shader micro-chunks (ShaderChunks registry)
-    shaders/vulkan/chunks/  # 20 GLSL fragment chunks, same names (forward.frag #includes them)
-    shaders/metal/embedded/ # self-contained MSL programs embedded at build time (particle sim/render, gsplat render)
-    shaders/vulkan/         # GLSL stages + shared includes compiled to SPIR-V at build time (20 files)
+    shaders/slang/          # the single-source tree: programs/, modules/, forward/ (the forward chunks)
+    shaders/metal/chunks/   # 25 hand-written Metal forward chunks (VISUTWIN_LEGACY_FORWARD; removed in phase 5)
+    shaders/vulkan/chunks/  # 20 GLSL fragment chunks, same names (forward.frag #includes them; likewise)
+    shaders/vulkan/         # the hand-written GLSL forward and shadow stages (16 files; likewise)
   examples/        # 69 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
@@ -227,13 +227,13 @@ one module on this build's device and pins the variant, the layout and the bindi
 ## Single-source shaders (Slang)
 
 The migration from the twin MSL / GLSL trees to one Slang tree is under way (plan in the
-local `docs/slang-shader-migration-plan.md`; phases 0-3 done 2026-10-07). Every effect pass,
-compute kernel, the gizmo, outline, HUD and wide-line shaders are Slang programs. Still
-hand-written in both languages: the forward and shadow programs and the particle and splat
-RENDER shaders, which splice the forward `common-tonemap` chunk (phase 4); marching cubes
-(Metal only: its API hands raw Metal buffers to visutwin-viz); and user custom shaders
-(`ShaderMaterial` with a `ShaderSourceSet`, `RenderPassShaderQuad::useCachedShader`).
-What binds now:
+local `docs/slang-shader-migration-plan.md`; phases 0-4 done 2026-10-07). Every engine
+shader is a Slang program: the effect passes, compute kernels, gizmo, outline, HUD, wide
+lines, particles, splats, and the forward and shadow programs. Still hand-written: marching
+cubes (Metal only: its API hands raw Metal buffers to visutwin-viz) and user custom shaders
+(`ShaderMaterial` with a `ShaderSourceSet`, `RenderPassShaderQuad::useCachedShader`). The
+hand-written forward and shadow programs stay until phase 5 for comparison:
+`VISUTWIN_LEGACY_FORWARD=1` draws with them in the same binary. What binds now:
 
 - **A Slang program is `engine/shaders/slang/programs/<name>.slang`**, its shared code in
   `engine/shaders/slang/modules/` (`import vtquad;` — a module may not be called `quad`, the
@@ -290,7 +290,46 @@ What binds now:
   differently: TAA history amplified that to 34 counts at the fog example's silhouettes.
   `float2x2(a, b, c, d)` is ROW-wise and `*` on matrices is component-wise; a Metal-only
   buffer still needs a `[[vk::binding]]` (one SPIR-V never references) or Slang warns (E39029).
-- **Known per-backend differences kept in one source**: the fog shadow compare (above), and
+- **The forward program is chunks, not modules**: `programs/forward.slang` `#include`s
+  `forward/<chunk>.slang` in the registered (GLSL) order, and `programs/shadow.slang` the
+  head, the vertex chunk and `shadow-fragment.slang`. ONE library per program serves every
+  variant: the features are the `vtFeatureMaskN` constants, bound per variant as Metal
+  FUNCTION constants and Vulkan specialization constants, the shadow program's included
+  (Metal refuses a pipeline from an unspecialised function that reads them). The vertex
+  stage is a family of entries (`forwardVertex`, `forwardInstancedVertex`, `...SkyVertex`,
+  `...ColorVertex`, `...PointVertex`, `...DynamicBatchVertex`, `...SkinnedVertex`,
+  `...MorphedVertex`, `...SkinnedMorphedVertex`, Metal's `...InstancedColorVertex`):
+  `ProgramLibrary::forwardVertexEntry` names Metal's from the variant, Vulkan's pipeline
+  picks its module per draw as before. A chunk override (`ShaderChunks::set`,
+  `Material::setShaderChunk`) is Slang source replacing `forward/<name>.slang` and compiles
+  at run time; one that does not compile as Slang (an MSL or GLSL override written for the
+  hand-written programs, such as visutwin-viz's `forward-vertex`) falls back to them with
+  one warning until phase 5.
+- **A stage that MAY discard must not exist in a variant that never does.** On Apple GPUs a
+  fragment function containing a `discard` loses early depth testing whether or not the
+  branch runs, so a discard gated only by a RUNTIME material flag costs every draw of the
+  variant: gate it on the feature (`VT_FEATURE_ALPHA_TEST`, `_SHADOW_DITHER`,
+  `_OPACITY_DITHER`), which specialisation removes. Likewise the shadow program defines
+  `VT_SHADOW_PROGRAM`, and `forwardFinish` then writes only what a shadow fragment reads, so
+  the shared vertex stage drops the normal frame there. Together these took the Slang shadow
+  pass on `post-processing` from 35% over the hand-written MSL to level.
+- **Inputs a variant may not read are read per variant, not per texture size.** Metal's
+  `get_width() > 0` gate does not exist in Slang: a binder FLAG says what is bound
+  (`reflectionDepthParams.zw` the planar reflection and its depth, `cameraNearFar.zw` the
+  colour and depth grabs), and BOTH binders write it. A directional slot is a `depth2d` at 6
+  / 35 or, under VSM, moments at 39 / 40: one of each pair per variant, chosen by
+  `VT_FEATURE_VSM_SHADOWS`. A lane only one backend writes is a frame that is right on one.
+- **Write `SV_VulkanVertexID` / `SV_VulkanInstanceID`, not `SV_VertexID` / `SV_InstanceID`.**
+  The latter subtract the base vertex and instance (D3D's meaning), which on Vulkan declares
+  the DrawParameters capability the device does not enable (a validation error), and differs
+  from what every storage draw and the morph stage index by. The Vulkan forms are
+  `gl_VertexIndex` / `gl_InstanceIndex` and Metal's `[[vertex_id]]` / `[[instance_id]]`.
+- **The sky's view ray is the PRE-TRANSFORM vertex position** (carried in `worldNormal`,
+  Metal's choice, which survives globe scale), not the world position minus the camera as the
+  hand-written GLSL had it; the two agree for any sky mesh centred on the camera.
+- **Known per-backend differences kept in one source**: the point size (3 on Metal, 1 on
+  Vulkan, DEVIATION marked at `forwardPointVertex`), Vulkan's instancing has no instance
+  colour (the material's base colour), the fog shadow compare (above), and
   the rounding of compose's ACES2, the particle spawn sphere and the wide-line dash modulo
   follow the former MSL; Vulkan may differ from its former GLSL by a count where those did.
 
@@ -298,9 +337,10 @@ What binds now:
 
 Two production backends behind one `GraphicsDevice` abstraction, plus one planned.
 
-**Metal** — primary and most complete. MSL shader chunks hot-reload from the
-source dir per launch; `VT_FEATURE_*` flags are emitted as preprocessor defines
-and each combination compiles a distinct variant.
+**Metal** — primary and most complete. Every engine program is one precompiled metallib
+from the Slang bundle (or the runtime compile), its `VT_FEATURE_*` words bound as function
+constants per variant; the hand-written MSL chunks (legacy, `VISUTWIN_LEGACY_FORWARD`) emit
+them as preprocessor defines instead.
 
 **Vulkan 1.3** — dynamic rendering + synchronization2, MRT, PBR draw binding,
 PCSS/VSM shadows + clustered shadow atlas, SSR, dynamic refraction, planar
@@ -429,10 +469,16 @@ rows encode:
   `textureSamplerState`, the same mapping Vulkan's per-texture samplers use) — exactly the
   maps Vulkan binds as combined samplers. A new map Vulkan binds as a combined sampler needs
   `ownSampler` and a Metal sampler slot within the budget comment in `metalTextureBinder.h`;
-  a separate-image map keeps `defaultSampler` on both. Slots 0-38 are taken today
+  a separate-image map keeps `defaultSampler` on both. Slots 0-40 are taken today
   (31-33 the gloss, thickness and refraction maps, 34 the opacity map; 35 is the second
-  directional shadow map, 36 the clustered cookie atlas and 37-38 the VSM spot moments, scene
-  slots, not material ones). Slot 7 is the clearcoat intensity map, a MATERIAL slot (a scene
+  directional shadow map, 36 the clustered cookie atlas, 37-38 the VSM spot moments and 39-40
+  the two directional maps AGAIN as VSM moments, scene slots, not material ones: the Slang
+  forward program reads a directional slot as a `depth2d` at 6 / 35 or as moments at 39 / 40,
+  one of the pair per variant by the VSM feature, since a colour map in a depth argument is a
+  type mismatch). A VERTEX-stage texture is a row whose Metal slot is 100 + its vertex index
+  (`kMetalVertexTextureSlotBase`): the displacement map is vertex texture 41, clear of every
+  fragment slot, because Slang declares every global on every Metal entry point and two
+  resources at one index fail Apple's compiler even across stages. Slot 7 is the clearcoat intensity map, a MATERIAL slot (a scene
   depth bound there overwrote it on every draw and Metal rendered every clearcoat map as
   absent), so a scene row must not reuse a material row's Metal slot: the table is where
   that collision is now visible in one place.
@@ -685,6 +731,11 @@ does not bloom. The unlit path also sRGB-decodes its emissive map, as the lit pa
 on both backends (`area-picker` shows a missing decode).
 
 ## Shader System
+
+The forward and shadow programs are Slang now (see the single-source section); this section
+describes the MSL / GLSL composition they replaced, which still runs under
+`VISUTWIN_LEGACY_FORWARD=1` and is rewritten in phase 5. The variant key, the memo and the
+override precedence below hold for both.
 
 `ProgramLibrary` with a two-level cache: variant key -> source composition ->
 compiled binary. **ShaderChunks registry** (`shader-lib/shaderChunks.h`): named
@@ -2152,10 +2203,10 @@ present, but the rule below never depends on reading it.
   linear and stopping is right only under a camera frame: on a gamma target the splats
   would be written linear, untonemapped and unfogged beside tonemapped meshes. The
   tone-mapping curves are the forward
-  pass's own, not a copy: Metal splices the `common-tonemap` chunk into the splat source
-  at creation, and `gsplat.vert` includes `chunks/common-tonemap.glsl` under
-  `VT_TONEMAP_OPERATORS_ONLY` and calls `toneMapByMode`. Growing `GpuGSplatParams` means
-  the bundle validator's expected size and both backends' staging arrays too.
+  pass's own, not a copy: the Slang program `gsplat-render` (and `particle-render`) includes
+  `forward/common-tonemap.slang` under `VT_TONEMAP_OPERATORS_ONLY` and calls
+  `toneMapExposed`. Growing `GpuGSplatParams` means the program's `GSplatParams` and both
+  backends' staging arrays too (the C++ size is asserted in `gsplatInstance.h`).
 - **`RenderAction::firstCameraUse` / `lastCameraUse` describe the camera's WHOLE FRAME and
   nothing rewrites them.** The composition sets them; `prerender` / `postrender` fire from
   them and the directional-shadow block split reads them, as upstream. The camera frame's
@@ -2926,7 +2977,8 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
     figure equals the thread's own CPU time over `render()`, checked to 0.01 ms on both
     backends from an empty scene to 20k draws, vsync on and off), and
     the renderer's per-phase frame statistics (cull, sort, forward, shadow, skin and morph,
-    clusters). `VISUTWIN_NO_VSYNC=1` turns off Metal's display sync for such a run; Vulkan
+    clusters), and the GPU frame time from the device profiler, which the report switches
+    on. `VISUTWIN_NO_VSYNC=1` turns off Metal's display sync for such a run; Vulkan
     always presents FIFO. The HUD costs about 0.01 ms a frame compact and 0.05 ms with
     graphs (`MiniStats::postRender`, timed directly); one HUD-on run against one HUD-off
     run says nothing. Trust the PHASE
@@ -3096,6 +3148,15 @@ What stays HERE is only what bites during UNRELATED work.
   do not register; Vulkan's set 4 per skinned draw and a variant-sorted caster list
   have nothing to act on in any shipped scene. Revisit them only with a scene that shows
   them in a profile.
+- **The Slang forward program is slower than the hand-written MSL on one scene.** Metal
+  `post-processing`: the main forward pass 1.85 -> 2.21 ms GPU (frame 3.1 -> 3.55 ms), in
+  three alternating runs of one binary (`VISUTWIN_LEGACY_FORWARD`); `ambient-occlusion` is
+  level (4.37 / 4.39 ms). The GPU counters inside that encoder show LESS F32 and the same
+  texture work over the run, at the same occupancy: it stalls rather than computes. Its
+  variants are mostly `SPEC_GLOSS` + `NO_SPECULAR` (specular terms multiplied by a folded
+  zero). Single-run ablations cannot locate it (the clock state moves a pass by 2x between
+  processes, and a forward / compose ratio by 25%); it needs both in one clock, two processes
+  at once or a runtime switch. Settle before phase 5 deletes the comparison.
 - **The ambient diffuse is scaled by `(1 - specularity)` on both backends**, right
   where upstream's `litForwardBackend` does it after `addAmbient`: per channel, F0 in
   either workflow, only when the material renders specular, and only on the ambient

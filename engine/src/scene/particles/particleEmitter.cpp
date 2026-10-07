@@ -13,7 +13,6 @@
 #include <cstring>
 #include <numbers>
 #include <string>
-#include <string_view>
 #include <vector>
 
 #include <spdlog/spdlog.h>
@@ -28,49 +27,10 @@
 #include "scene/mesh.h"
 #include "scene/meshInstance.h"
 #include "scene/materials/material.h"
-#include "scene/shader-lib/programLibrary.h"
+#include "scene/shader-lib/slangShaders.h"
 
 namespace visutwin::canvas
 {
-    namespace
-    {
-        // Standalone Metal shader for particle billboards (gsplat-style branch).
-        // One camera-facing quad per particle, driven by [[instance_id]] into the
-        // compute-simulated particle pool. DEVIATION: self-contained source —
-        // shares no code with the forward PBR chunks.
-        // PARTICLE_SHADER_SOURCE is embedded from shaders/metal/embedded/particle-render.metal at build
-        // time (see tools/embed_msl.cmake).
-#ifdef VISUTWIN_HAS_METAL
-#include "embedded_shaders/particle-render.metal.inc"
-#else
-        constexpr const char* PARTICLE_SHADER_SOURCE = "";
-#endif
-    }
-
-    namespace
-    {
-        // The Metal billboard program with the forward pass's tone mapping operators spliced
-        // in after its prologue, as the splat program does, so particles tone-map exactly as
-        // meshes do. Empty on Vulkan, whose prebuilt particle.frag includes the same chunk.
-        std::string particleShaderSource(const std::shared_ptr<GraphicsDevice>& device)
-        {
-            std::string source = PARTICLE_SHADER_SOURCE;
-            if (source.empty()) {
-                return source;
-            }
-            const auto library = getProgramLibrary(device);
-            const std::string* toneMapping = library ? library->chunks().get("common-tonemap") : nullptr;
-            constexpr std::string_view prologue = "using namespace metal;\n";
-            const size_t at = source.find(prologue);
-            if (!toneMapping || at == std::string::npos) {
-                spdlog::error("ParticleEmitter: no common-tonemap chunk to splice; the particle shader will not compile");
-                return source;
-            }
-            source.insert(at + prologue.size(), "\n" + *toneMapping + "\n");
-            return source;
-        }
-    }
-
     ParticleEmitterOptions::ParticleEmitterOptions()
     {
         // The defaults: constant scale 1, white, opaque.
@@ -144,11 +104,9 @@ namespace visutwin::canvas
     void ParticleEmitter::createMaterial()
     {
         if (!_shader) {
-            ShaderDefinition definition;
-            definition.name = "particles";
-            definition.vshader = "particleVS";
-            definition.fshader = "particleFS";
-            _shader = createShader(_device.get(), definition, particleShaderSource(_device));
+            // The Slang program particle-render, whose fragment stage carries the forward
+            // pass's tone mapping operators.
+            _shader = getOrCreateSlangShader(_device.get(), "particle-render");
         }
         if (!_material) {
             _material = std::make_shared<Material>();

@@ -354,7 +354,7 @@ namespace visutwin::canvas
                 cpuStatsFirst = cpuStatsLast = -1;
             }
         }
-        std::vector<std::array<double, 10>> cpuSamples;
+        std::vector<std::array<double, 11>> cpuSamples;
         int frameIndex = 0;
 
         // A scripted capture (VISUTWIN_SCREENSHOT) ignores the person at the machine: a drag
@@ -411,11 +411,18 @@ namespace visutwin::canvas
             if (cpuStatsFirst >= 0 && frameIndex >= cpuStatsFirst && frameIndex <= cpuStatsLast) {
                 const auto& stats = _engine->stats();
                 const auto& f = stats->frame();
+                // The GPU time of the most recently RESOLVED frame (a frame or two behind),
+                // from the device's profiler, which this report switches on.
+                const auto& profiler = _engine->graphicsDevice()->gpuProfiler();
+                if (profiler && !profiler->enabled()) {
+                    profiler->setEnabled(true);
+                }
+                const double gpuMs = profiler ? profiler->frameMilliseconds() : 0.0;
                 cpuSamples.push_back({updateMs, f.renderTime, f.cullTime, f.sortTime, f.forwardTime,
                     f.shadowMapTime, f.skinTime + f.morphTime, f.lightClustersTime,
-                    static_cast<double>(stats->drawCalls().total), static_cast<double>(f.shaders)});
+                    static_cast<double>(stats->drawCalls().total), static_cast<double>(f.shaders), gpuMs});
                 if (frameIndex == cpuStatsLast) {
-                    std::array<double, 10> median{};
+                    std::array<double, 11> median{};
                     for (size_t k = 0; k < median.size(); ++k) {
                         std::vector<double> column;
                         for (const auto& sample : cpuSamples) {
@@ -426,8 +433,8 @@ namespace visutwin::canvas
                     }
                     spdlog::warn("CPU_STATS frames {}-{} median ms: update {:.3f} render {:.3f} | cull {:.3f} "
                         "sort {:.3f} forward {:.3f} shadow {:.3f} skin+morph {:.3f} clusters {:.3f} | draws {:.0f} "
-                        "shaders {:.0f}", cpuStatsFirst, cpuStatsLast, median[0], median[1], median[2], median[3],
-                        median[4], median[5], median[6], median[7], median[8], median[9]);
+                        "shaders {:.0f} | gpu {:.3f}", cpuStatsFirst, cpuStatsLast, median[0], median[1], median[2],
+                        median[3], median[4], median[5], median[6], median[7], median[8], median[9], median[10]);
                 }
             }
             ++frameIndex;

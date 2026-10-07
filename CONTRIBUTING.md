@@ -86,14 +86,14 @@ it was still running at the deadline and had to be killed.
 
 ## Shaders
 
-Metal shader chunks in `engine/shaders/metal/chunks/` are read from the source
-directory at launch, so editing one and relaunching picks up the change without
-a rebuild — useful for bisecting a shading problem. The standalone programs in
-`engine/shaders/metal/embedded/` are wrapped into string constants at build time
-by `tools/embed_msl.cmake` instead, and do need a rebuild.
+Shaders are written once, in Slang, under `engine/shaders/slang/`: one file per program
+in `programs/`, shared modules in `modules/`, the forward program's chunks in `forward/`.
+The build compiles every program into `slang_shader_bundle.h` (MSL and a metallib for
+Metal, SPIR-V for Vulkan), so an edit needs a rebuild; `VISUTWIN_SLANG_RUNTIME=1` compiles
+from the source tree at launch instead, which picks up an edit without one. Variants are
+the feature words of `engine/src/platform/graphics/shaderFeatures.h`, bound as Metal
+function constants and Vulkan specialization constants.
 
-Vulkan GLSL in `engine/shaders/vulkan/` is compiled to SPIR-V at build time and
-bundled by `tools/generate_vulkan_shader_bundle.py`. Both backends resolve the
-same feature contract in `engine/src/platform/graphics/shaderFeatures.h`: Metal
-emits preprocessor defines, Vulkan passes the same mask through specialization
-constants.
+The hand-written forward and shadow programs (`engine/shaders/metal/chunks/`,
+`engine/shaders/vulkan/`) remain until the migration's last phase, selected with
+`VISUTWIN_LEGACY_FORWARD=1` for a comparison in one binary.

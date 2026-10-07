@@ -28,12 +28,6 @@ MODULES = (
     ("ForwardFrag", "forward.frag", "frag"),
     ("ShadowVsmFrag", "shadow_vsm_moments.frag", "frag"),
     ("ShadowFrag", "shadow.frag", "frag"),
-    ("PostFullscreenVert", "post_fullscreen.vert", "vert"),
-    ("EnvReprojectFrag", "env_reproject.frag", "frag"),
-    ("ParticleVert", "particle.vert", "vert"),
-    ("ParticleFrag", "particle.frag", "frag"),
-    ("GSplatVert", "gsplat.vert", "vert"),
-    ("GSplatFrag", "gsplat.frag", "frag"),
 )
 
 # Matches one VT_SHADER_FEATURES entry: X(Symbol, "VT_FEATURE_NAME").
@@ -133,78 +127,6 @@ def push_constant_size(reflection: dict) -> int:
 
 def validate(module: str, reflection: dict) -> None:
     bindings = resources(reflection)
-    if module == "ParticleVert":
-        # The pool, its draw order, a mesh emitter's vertices, and GpuParticleRenderParams
-        # (graphicsDevice.h).
-        expected = [
-            (6, 0, "StorageBuffer", 0),
-            (6, 1, "StorageBuffer", 0),
-            (6, 2, "StorageBuffer", 0),
-            (6, 3, "UniformBuffer", 944),
-        ]
-        if bindings != expected or push_constant_size(reflection):
-            raise RuntimeError(f"{module}: reflected layout mismatch: {bindings}")
-        return
-    if module == "ParticleFrag":
-        # The colour and normal maps, the scene depth grab through the nearest sampler
-        # (softening) and the parameter block (lighting).
-        expected = [
-            (1, 0, "CombinedImageSampler", 0),
-            (1, 1, "CombinedImageSampler", 0),
-            (3, 11, "SampledImage", 0),
-            (3, 13, "Sampler", 0),
-            (6, 3, "UniformBuffer", 944),
-        ]
-        if bindings != expected:
-            raise RuntimeError(f"{module}: reflected layout mismatch: {bindings}")
-        return
-    if module == "GSplatVert":
-        expected = [
-            (6, 0, "StorageBuffer", 0),
-            (6, 1, "StorageBuffer", 0),
-            (6, 2, "StorageBuffer", 0),
-            (6, 3, "UniformBuffer", 208),  # GpuGSplatParams (gsplatInstance.h)
-        ]
-        if bindings != expected or push_constant_size(reflection):
-            raise RuntimeError(f"{module}: reflected layout mismatch: {bindings}")
-        return
-    if module == "GSplatFrag":
-        if bindings or push_constant_size(reflection):
-            raise RuntimeError(f"{module}: unexpected resources")
-        return
-    if module == "PostFullscreenVert":
-        if bindings or push_constant_size(reflection):
-            raise RuntimeError(f"{module}: unexpected reflected resources")
-        return
-    if module.startswith("Post") and module.endswith("Frag"):
-        for set_index, binding, kind, _ in bindings:
-            valid = (
-                set_index == 0
-                and (
-                    ((binding < 4 or binding in (5, 6))
-                     and kind == "CombinedImageSampler")
-                    or (binding == 4 and kind == "UniformBuffer")
-                )
-            )
-            if not valid:
-                raise RuntimeError(
-                    f"{module}: incompatible post descriptor {bindings}"
-                )
-        if not any(binding == 4 for _, binding, _, _ in bindings):
-            raise RuntimeError(f"{module}: params UBO was not reflected")
-        if push_constant_size(reflection):
-            raise RuntimeError(f"{module}: unexpected push constants")
-        return
-    if module == "EnvReprojectFrag":
-        expected = [
-            (0, 0, "CombinedImageSampler", 0),
-            (0, 1, "CombinedImageSampler", 0),
-        ]
-        if bindings != expected or push_constant_size(reflection) != 48:
-            raise RuntimeError(
-                f"{module}: reflected layout mismatch: {bindings}"
-            )
-        return
     if module.endswith("Vert"):
         if push_constant_size(reflection) != 128:
             raise RuntimeError(

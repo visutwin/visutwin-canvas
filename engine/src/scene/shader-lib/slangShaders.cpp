@@ -5,6 +5,7 @@
 //
 #include "slangShaders.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -53,27 +54,50 @@ namespace visutwin::canvas
             return {};
         }
 
-        /// The entry point names a program declares, by stage.
-        struct EntryPoints
+        /// A program read with every file it #includes: its entry points in source order and
+        /// the text of every file read (for the cache key). A file named in `overrides` is
+        /// read from there instead of the tree.
+        struct SourceScan
         {
-            std::string vertex;
-            std::string fragment;
-            std::string compute;
+            std::string programText;
+            std::vector<std::pair<std::string, std::string>> entries;   // stage, name
+            std::string keyMaterial;
         };
 
-        EntryPoints findEntryPoints(const std::string& source)
+        void scanSource(const std::filesystem::path& path, const std::filesystem::path& dir,
+            const SlangFileOverrides& overrides, std::vector<std::filesystem::path>& seen, SourceScan& scan,
+            const bool isProgram)
         {
-            // A delimited raw string: the pattern itself contains `)"`.
-            static const std::regex pattern(R"re(\[shader\("(vertex|fragment|compute)"\)\]\s*(?:\[[^\]]*\]\s*)*[\w<>:]+\s+(\w+)\s*\()re");
-            EntryPoints found;
-            for (auto it = std::sregex_iterator(source.begin(), source.end(), pattern); it != std::sregex_iterator(); ++it) {
-                const std::string stage = (*it)[1];
-                const std::string name = (*it)[2];
-                if (stage == "vertex") found.vertex = name;
-                else if (stage == "fragment") found.fragment = name;
-                else found.compute = name;
+            const auto canonical = std::filesystem::weakly_canonical(path);
+            if (std::find(seen.begin(), seen.end(), canonical) != seen.end()) {
+                return;
             }
-            return found;
+            seen.push_back(canonical);
+            std::string text;
+            const std::string fileName = path.filename().string();
+            const auto overridden = std::find_if(overrides.begin(), overrides.end(),
+                [&fileName](const auto& entry) { return entry.first == fileName; });
+            text = overridden != overrides.end() ? overridden->second : readTextFile(path);
+            if (isProgram) {
+                scan.programText = text;
+            }
+            scan.keyMaterial += "file " + fileName + "\n" + text + "\n";
+
+            static const std::regex include(R"re(^[ \t]*#[ \t]*include[ \t]+"([^"]+)")re", std::regex::multiline);
+            for (auto it = std::sregex_iterator(text.begin(), text.end(), include); it != std::sregex_iterator(); ++it) {
+                const std::string name = (*it)[1];
+                for (const auto& base : {path.parent_path(), dir, dir / "modules"}) {
+                    if (std::filesystem::exists(base / name)) {
+                        scanSource(base / name, dir, overrides, seen, scan, false);
+                        break;
+                    }
+                }
+            }
+            // A delimited raw string: the pattern itself contains `)"`.
+            static const std::regex entry(R"re(\[shader\("(vertex|fragment|compute)"\)\]\s*(?:\[[^\]]*\]\s*)*[\w<>:]+\s+(\w+)\s*\()re");
+            for (auto it = std::sregex_iterator(text.begin(), text.end(), entry); it != std::sregex_iterator(); ++it) {
+                scan.entries.emplace_back((*it)[1], (*it)[2]);
+            }
         }
 
         /// The defines a program's `// @variant <name>: ...` line gives `variant`; nothing
@@ -135,6 +159,11 @@ namespace visutwin::canvas
         out.fragmentSpirvWords = entry->fragmentSpirvWords;
         out.computeSpirv = entry->computeSpirv;
         out.computeSpirvWords = entry->computeSpirvWords;
+        out.entries.clear();
+        for (size_t i = 0; i < entry->entryCount; ++i) {
+            const auto& e = entry->entries[i];
+            out.entries.push_back({e.stage, e.name, e.spirv, e.spirvWords});
+        }
         return true;
 #else
         (void)program;
@@ -144,121 +173,192 @@ namespace visutwin::canvas
 #endif
     }
 
+    namespace
+    {
+        bool compileProgramEntries(GraphicsDevice* device, const std::string_view program, const std::string_view variant,
+            const SlangFileOverrides& overrides, SlangProgramBuild& out)
+        {
+#ifndef VISUTWIN_HAS_SLANG
+            (void)device;
+            (void)variant;
+            (void)overrides;
+            (void)out;
+            spdlog::error("Slang program '{}': this build has no Slang compiler", program);
+            return false;
+#else
+            if (!device) {
+                return false;
+            }
+            const auto dir = slangSourceDir();
+            if (dir.empty()) {
+                spdlog::error("Slang program '{}': no engine/shaders/slang source tree found (VISUTWIN_CANVAS_SHADERS?)",
+                    program);
+                return false;
+            }
+            const auto path = dir / "programs" / (std::string(program) + ".slang");
+            SourceScan scan;
+            std::vector<std::filesystem::path> seen;
+            scanSource(path, dir, overrides, seen, scan, true);
+            if (scan.programText.empty()) {
+                spdlog::error("Slang program '{}': {} is missing or empty", program, path.string());
+                return false;
+            }
+            if (scan.entries.empty()) {
+                spdlog::error("Slang program '{}': no [shader(...)] entry points in {} or its includes", program,
+                    path.string());
+                return false;
+            }
+
+            const bool metal = device->shaderLanguage() == ShaderLanguage::Msl;
+            SlangCompileRequest request;
+            if (!variantDefines(scan.programText, variant, request.defines)) {
+                spdlog::error("Slang program '{}': {} declares no variant '{}'", program, path.string(), variant);
+                return false;
+            }
+            request.moduleName = std::string(program);
+            request.source = scan.programText;
+            for (const auto& [stage, name] : scan.entries) {
+                request.entryPoints.push_back(name);
+            }
+            request.target = metal ? SlangTarget::Msl : SlangTarget::Spirv;
+            request.searchPaths = {dir.string(), (dir / "modules").string()};
+            // The generated bindings.slang is not in the source tree: the bundle carries its
+            // text. A file override is served the same way, by name.
+            request.virtualFiles = {{"bindings.slang", slang_generated::kBindingsSlang}};
+            for (const auto& entry : overrides) {
+                request.virtualFiles.push_back(entry);
+            }
+
+            // Everything the output is a function of, for the device's persistent cache: the
+            // Slang version, the target, the program and every file it includes, every module
+            // (an import closure is not reported, and the tree is small), and the bindings.
+            std::string cacheKey = std::string("slang ") + SlangCompiler::version() + (metal ? " metal\n" : " spirv\n");
+            cacheKey += "program " + std::string(program) + " variant " + std::string(variant) + "\n" + scan.keyMaterial;
+            for (const auto& entry : std::filesystem::directory_iterator(dir / "modules")) {
+                if (entry.is_regular_file() && entry.path().extension() == ".slang") {
+                    cacheKey += "module " + entry.path().filename().string() + "\n" + readTextFile(entry.path()) + "\n";
+                }
+            }
+            cacheKey += slang_generated::kBindingsSlang;
+            const std::string cacheName = std::string(program) + (variant.empty() ? "" : "@" + std::string(variant)) +
+                "-" + hex(fnv1a64(cacheKey));
+
+            out = {};
+            for (const auto& [stage, name] : scan.entries) {
+                out.entries.push_back({stage, name, {}});
+            }
+
+            const ShaderDiskCache* cache = device->shaderDiskCache();
+            if (cache && !metal) {
+                bool all = true;
+                for (auto& entry : out.entries) {
+                    const auto stored = cache->load("slang-spv", cacheName + "." + entry.name);
+                    if (!stored || stored->empty() || stored->size() % sizeof(uint32_t) != 0) {
+                        all = false;
+                        break;
+                    }
+                    entry.spirv.resize(stored->size() / sizeof(uint32_t));
+                    std::memcpy(entry.spirv.data(), stored->data(), stored->size());
+                }
+                if (all) {
+                    return true;
+                }
+            }
+
+            const auto result = SlangCompiler::compile(request);
+            if (!result.ok) {
+                spdlog::error("Slang program '{}' failed to compile for {}:\n{}", program, metal ? "Metal" : "Vulkan",
+                    result.diagnostics);
+                return false;
+            }
+            spdlog::info("Slang program '{}'{}{} compiled from {} for {} in {:.1f} ms", program,
+                variant.empty() ? "" : " variant ", variant, path.string(), metal ? "Metal" : "Vulkan",
+                result.seconds * 1000.0);
+            if (metal) {
+                out.metalSource = result.programText();
+                return true;
+            }
+            for (size_t i = 0; i < out.entries.size(); ++i) {
+                out.entries[i].spirv = result.spirv(i);
+                if (cache) {
+                    const auto& words = out.entries[i].spirv;
+                    cache->store("slang-spv", cacheName + "." + out.entries[i].name,
+                        {reinterpret_cast<const uint8_t*>(words.data()), words.size() * sizeof(uint32_t)});
+                }
+            }
+            return true;
+#endif
+        }
+
+        /// The first entry of `stage`, or nothing.
+        const SlangProgramBuild::Entry* firstEntry(const SlangProgramBuild& build, const std::string_view stage)
+        {
+            for (const auto& entry : build.entries) {
+                if (entry.stage == stage) {
+                    return &entry;
+                }
+            }
+            return nullptr;
+        }
+    }
+
     bool compileSlangProgramFromSource(GraphicsDevice* device, const std::string_view program, ShaderCode& code,
         const std::string_view variant)
     {
-#ifndef VISUTWIN_HAS_SLANG
-        (void)device;
-        (void)variant;
-        spdlog::error("Slang program '{}': this build has no Slang compiler", program);
-        return false;
-#else
+        SlangProgramBuild build;
+        if (!compileProgramEntries(device, program, variant, {}, build)) {
+            return false;
+        }
+        code.specializeFeatures = true;
+        code.metalSource = build.metalSource;
+        if (const auto* vertex = firstEntry(build, "vertex")) {
+            code.vertexSpirv = vertex->spirv;
+        }
+        if (const auto* fragment = firstEntry(build, "fragment")) {
+            code.fragmentSpirv = fragment->spirv;
+        }
+        if (const auto* compute = firstEntry(build, "compute")) {
+            code.computeSpirv = compute->spirv;
+        }
+        return true;
+    }
+
+    bool loadSlangProgram(GraphicsDevice* device, const std::string_view program, const std::string_view variant,
+        const SlangFileOverrides& overrides, SlangProgramBuild& out)
+    {
         if (!device) {
             return false;
         }
-        const auto dir = slangSourceDir();
-        if (dir.empty()) {
-            spdlog::error("Slang program '{}': no engine/shaders/slang source tree found (VISUTWIN_CANVAS_SHADERS?)",
-                program);
-            return false;
-        }
-        const auto path = dir / "programs" / (std::string(program) + ".slang");
-        const std::string source = readTextFile(path);
-        if (source.empty()) {
-            spdlog::error("Slang program '{}': {} is missing or empty", program, path.string());
-            return false;
-        }
-        const EntryPoints entries = findEntryPoints(source);
-        const bool graphics = !entries.vertex.empty() && !entries.fragment.empty();
-        if (!graphics && entries.compute.empty()) {
-            spdlog::error("Slang program '{}': no [shader(...)] entry points in {}", program, path.string());
-            return false;
-        }
-
-        const bool metal = device->shaderLanguage() == ShaderLanguage::Msl;
-        SlangCompileRequest request;
-        if (!variantDefines(source, variant, request.defines)) {
-            spdlog::error("Slang program '{}': {} declares no variant '{}'", program, path.string(), variant);
-            return false;
-        }
-        request.moduleName = std::string(program);
-        request.source = source;
-        if (graphics) {
-            request.entryPoints = {entries.vertex, entries.fragment};
-        } else {
-            request.entryPoints = {entries.compute};
-        }
-        request.target = metal ? SlangTarget::Msl : SlangTarget::Spirv;
-        request.searchPaths = {(dir / "modules").string()};
-        // The generated bindings.slang is not in the source tree: the bundle carries its text.
-        request.virtualFiles = {{"bindings.slang", slang_generated::kBindingsSlang}};
-
-        // Everything the output is a function of, for the device's persistent cache: the
-        // Slang version, the target, the program and every module file (an import closure
-        // is not reported, and the tree is small), and the bindings text.
-        std::string cacheKey = std::string("slang ") + SlangCompiler::version() + (metal ? " metal\n" : " spirv\n");
-        cacheKey += "program " + std::string(program) + " variant " + std::string(variant) + "\n" + source + "\n";
-        for (const auto& entry : std::filesystem::directory_iterator(dir / "modules")) {
-            if (entry.is_regular_file() && entry.path().extension() == ".slang") {
-                cacheKey += "module " + entry.path().filename().string() + "\n" + readTextFile(entry.path()) + "\n";
-            }
-        }
-        cacheKey += slang_generated::kBindingsSlang;
-        const std::string cacheName = std::string(program) + (variant.empty() ? "" : "@" + std::string(variant)) +
-            "-" + hex(fnv1a64(cacheKey));
-
-        const ShaderDiskCache* cache = device->shaderDiskCache();
-        if (cache && !metal) {
-            const auto load = [&](const char* kind, std::vector<uint32_t>& words) {
-                const auto stored = cache->load(kind, cacheName);
-                if (!stored || stored->empty() || stored->size() % sizeof(uint32_t) != 0) {
-                    return false;
+        SlangBundledProgram bundled;
+        if (overrides.empty() && !wantsRuntimeCompile() && findBundledSlangProgram(program, bundled, variant)) {
+            out = {};
+            const bool metal = device->shaderLanguage() == ShaderLanguage::Msl;
+            bool haveCode = true;
+            if (metal) {
+                if (bundled.metalLibrary && bundled.metalLibraryBytes > 0) {
+                    out.metalLibrary.assign(bundled.metalLibrary, bundled.metalLibrary + bundled.metalLibraryBytes);
                 }
-                words.resize(stored->size() / sizeof(uint32_t));
-                std::memcpy(words.data(), stored->data(), stored->size());
-                return true;
-            };
-            if (graphics ? (load("slang-vert", code.vertexSpirv) && load("slang-frag", code.fragmentSpirv))
-                         : load("slang-comp", code.computeSpirv)) {
-                code.specializeFeatures = true;
+                out.metalSource = std::string(bundled.metalSource);
+                haveCode = !out.metalLibrary.empty() || !out.metalSource.empty();
+            }
+            for (const auto& entry : bundled.entries) {
+                SlangProgramBuild::Entry e{std::string(entry.stage), std::string(entry.name), {}};
+                if (!metal) {
+                    if (!entry.spirv) {
+                        haveCode = false;
+                    } else {
+                        e.spirv.assign(entry.spirv, entry.spirv + entry.spirvWords);
+                    }
+                }
+                out.entries.push_back(std::move(e));
+            }
+            if (haveCode && !out.entries.empty()) {
                 return true;
             }
+            spdlog::warn("Slang program '{}': the bundle holds no code for {}; compiling from source", program,
+                metal ? "Metal" : "Vulkan");
         }
-
-        const auto result = SlangCompiler::compile(request);
-        if (!result.ok) {
-            spdlog::error("Slang program '{}' failed to compile for {}:\n{}", program, metal ? "Metal" : "Vulkan",
-                result.diagnostics);
-            return false;
-        }
-        spdlog::info("Slang program '{}'{}{} compiled from {} for {} in {:.1f} ms", program,
-            variant.empty() ? "" : " variant ", variant, path.string(), metal ? "Metal" : "Vulkan",
-            result.seconds * 1000.0);
-        code.specializeFeatures = true;
-        if (metal) {
-            code.metalSource = result.programText();
-            return true;
-        }
-        if (graphics) {
-            code.vertexSpirv = result.spirv(0);
-            code.fragmentSpirv = result.spirv(1);
-        } else {
-            code.computeSpirv = result.spirv(0);
-        }
-        if (cache) {
-            const auto store = [&](const char* kind, const std::vector<uint32_t>& words) {
-                cache->store(kind, cacheName,
-                    {reinterpret_cast<const uint8_t*>(words.data()), words.size() * sizeof(uint32_t)});
-            };
-            if (graphics) {
-                store("slang-vert", code.vertexSpirv);
-                store("slang-frag", code.fragmentSpirv);
-            } else {
-                store("slang-comp", code.computeSpirv);
-            }
-        }
-        return true;
-#endif
+        return compileProgramEntries(device, program, variant, overrides, out);
     }
 
     std::shared_ptr<Shader> getOrCreateSlangShader(GraphicsDevice* device, const std::string& program,
@@ -318,10 +418,16 @@ namespace visutwin::canvas
             }
             // The entry names come from the source the compile read.
             const auto dir = slangSourceDir();
-            const EntryPoints entries = findEntryPoints(readTextFile(dir / "programs" / (program + ".slang")));
-            definition.vshader = entries.vertex;
-            definition.fshader = entries.fragment;
-            definition.cshader = entries.compute;
+            SourceScan scan;
+            std::vector<std::filesystem::path> seen;
+            scanSource(dir / "programs" / (program + ".slang"), dir, {}, seen, scan, true);
+            for (const auto& [stage, name] : scan.entries) {
+                std::string& target = stage == "vertex" ? definition.vshader
+                    : stage == "fragment" ? definition.fshader : definition.cshader;
+                if (target.empty()) {
+                    target = name;
+                }
+            }
         }
 
         auto shader = device->createShaderFromCode(definition, code);

@@ -1511,6 +1511,11 @@ namespace visutwin::canvas
         // slot's flag, not on the texture: an unbound Metal texture still reports
         // a width and samples zero.
         _textureBinder.bindCached(passEncoder, 35, _uniformBinder.shadowTexture1());
+        // The same two maps at the directional VSM moments slots. One specialised forward
+        // library cannot give a slot two types, so a VSM light's moments (a colour texture)
+        // have slots of their own; the variant reads one of the pair, by the VSM feature.
+        _textureBinder.bindCached(passEncoder, 39, _uniformBinder.shadowTexture());
+        _textureBinder.bindCached(passEncoder, 40, _uniformBinder.shadowTexture1());
         _textureBinder.bindLocalShadowTextures(passEncoder,
             _uniformBinder.localShadowTexture0(), _uniformBinder.localShadowTexture1());
         // VSM spot maps (EVSM moments, a colour format) beside the depth slots.
@@ -1542,7 +1547,9 @@ namespace visutwin::canvas
         _uniformBinder.setReflectionBlurParams(
             rbp.intensity, rbp.blurAmount, rbp.fadeStrength, rbp.angleFade,
             rbp.fadeColor.r, rbp.fadeColor.g, rbp.fadeColor.b);
-        _uniformBinder.setReflectionDepthParams(rbp.planeDistance, rbp.heightRange);
+        _uniformBinder.setReflectionDepthParams(rbp.planeDistance, rbp.heightRange, reflectionMap() != nullptr,
+            reflectionDepthMap() != nullptr);
+        _uniformBinder.setGrabFlags(sceneColorMap() != nullptr, sceneDepthGrabMap() != nullptr);
     }
 
     void MetalGraphicsDevice::submitDrawUniforms(MTL::RenderCommandEncoder* passEncoder,
@@ -1584,6 +1591,15 @@ namespace visutwin::canvas
         const bool quad = quadRenderActive();
         _textureBinder.bindDrawSamplers(passEncoder, quad ? _postSampler : _defaultSampler,
             _defaultSampler, !quad);
+        if (!quad) {
+            // The forward program's scene samplers (forward-fragment-head.slang): linear clamp
+            // with linear mips at 7 and for the env atlas at 10, nearest clamp at 8, the
+            // shadow comparison at 9 — the states Vulkan binds at set 3, 12 / 13.
+            _textureBinder.bindSamplerCached(passEncoder, 7, _postSampler);
+            _textureBinder.bindSamplerCached(passEncoder, 8, _quadPointSampler);
+            _textureBinder.bindSamplerCached(passEncoder, 9, _quadCompareSampler);
+            _textureBinder.bindSamplerCached(passEncoder, 10, _postSampler);
+        }
         if (quad) {
             // Slang quad programs read these (bindings.slang): the nearest and comparison
             // samplers at 1 and 2, and each input's own slot in the two per-input ranges.
@@ -2107,6 +2123,11 @@ namespace visutwin::canvas
         // glTF uses counter-clockwise front faces by default, and
         // nothing draws with the other winding, so it is encoder state set once.
         _renderPassEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
+        // The vertex stage's one sampler: the material sampler the displacement map reads
+        // through (forward-vertex.slang).
+        if (_defaultSampler) {
+            _renderPassEncoder->setVertexSamplerState(_defaultSampler, 0);
+        }
         const int targetWidth = target ? target->width() : size().first;
         const int targetHeight = target ? target->height() : size().second;
         _passWidth = std::max(targetWidth, 0);

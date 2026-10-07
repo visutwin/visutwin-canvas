@@ -123,7 +123,7 @@ float2 miterOffset(float2 firstDirection, float2 secondDirection, float side, fl
 }
 
 [shader("vertex")]
-Varyings wideLineVS(uint vid : SV_VertexID, uint iid : SV_InstanceID)
+Varyings wideLineVS(uint vid : SV_VulkanVertexID, uint iid : SV_VulkanInstanceID)
 {
     const Segment seg = segments[iid];
     const float4 screenSize = params.screenSize;

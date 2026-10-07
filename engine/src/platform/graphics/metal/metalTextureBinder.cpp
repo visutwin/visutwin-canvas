@@ -118,23 +118,23 @@ namespace visutwin::canvas
             }
         }
 
-        // Bind present material textures. Slots >= 100 are VERTEX-stage textures
-        // (slot - 100), used by displacement mapping.
-        bool vertexSlot0Used = false;
+        // Bind present material textures. Slots >= kMetalVertexTextureSlotBase are
+        // VERTEX-stage textures (the displacement map is the one).
+        bool displacementBound = false;
         for (const auto& [slot, texture] : textureSlots) {
-            if (slot >= 100) {
+            if (slot >= kMetalVertexTextureSlotBase) {
                 if (texture) {
                     if (auto* hw = dynamic_cast<gpu::MetalTexture*>(texture->impl()); hw && hw->raw()) {
-                        encoder->setVertexTexture(hw->raw(), static_cast<NS::UInteger>(slot - 100));
-                        vertexSlot0Used = (slot == 100);
+                        encoder->setVertexTexture(hw->raw(), static_cast<NS::UInteger>(slot - kMetalVertexTextureSlotBase));
+                        displacementBound = displacementBound || slot == kDisplacementMapMetalSlot;
                     }
                 }
                 continue;
             }
             bindCached(encoder, slot, texture);
         }
-        if (!vertexSlot0Used) {
-            encoder->setVertexTexture(nullptr, 0);
+        if (!displacementBound) {
+            encoder->setVertexTexture(nullptr, static_cast<NS::UInteger>(kDisplacementMapMetalSlot - kMetalVertexTextureSlotBase));
         }
     }
 

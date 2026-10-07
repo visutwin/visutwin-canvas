@@ -55,3 +55,36 @@ public float4x4 drawModel()
         return vtPush.model;
     }
 }
+
+/// The model's normal matrix (the inverse transpose of its 3x3, signed so a mirrored model's
+/// normals still face out). Metal reads the one the CPU uploads with the model block
+/// (Matrix4::normalMatrix); Vulkan has no room for it in the push constants and builds the
+/// same cofactor matrix per vertex. The two are equal by construction, to rounding.
+public float3x3 drawNormalMatrix()
+{
+    __target_switch
+    {
+    case metal:
+        return float3x3(vtModel.normalMatrix[0].xyz, vtModel.normalMatrix[1].xyz, vtModel.normalMatrix[2].xyz);
+    default:
+        return cofactorNormalMatrix(vtPush.model);
+    }
+}
+
+/// The signed cofactor matrix of `model`'s 3x3: its columns are cross products of the other
+/// two model columns, divided out by the determinant's SIGN only (the shader normalises, so
+/// the magnitude cancels). A singular 3x3 (a zero scale on some axis) has no inverse
+/// transpose, and gets the identity, as Matrix4::normalMatrix gives one.
+public float3x3 cofactorNormalMatrix(float4x4 model)
+{
+    const float3 c0 = model[0].xyz;
+    const float3 c1 = model[1].xyz;
+    const float3 c2 = model[2].xyz;
+    const float3 cof0 = cross(c1, c2);
+    const float det = dot(c0, cof0);
+    if (det == 0.0) {
+        return float3x3(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
+    }
+    const float detSign = det < 0.0 ? -1.0 : 1.0;
+    return detSign * float3x3(cof0, cross(c2, c0), cross(c0, c1));
+}

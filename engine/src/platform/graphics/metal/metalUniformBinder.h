@@ -96,11 +96,24 @@ namespace visutwin::canvas
             writeLightingIfChanged(_lightingUniforms.reflectionFadeColor, {fadeR, fadeG, fadeB, 0.0f});
         }
 
-        /// Pack planar reflection depth pass parameters.
-        void setReflectionDepthParams(float planeDistance, float heightRange)
+        /// Pack planar reflection depth pass parameters; zw flag whether the reflection and
+        /// its depth map are bound, which the forward program reads in place of the
+        /// textures' sizes (as Vulkan's binder sets them).
+        void setReflectionDepthParams(float planeDistance, float heightRange, bool hasReflection,
+            bool hasReflectionDepth)
         {
             writeLightingIfChanged(_lightingUniforms.reflectionDepthParams,
-                {planeDistance, (heightRange > 0.001f) ? heightRange : 0.001f, 0.0f, 0.0f});
+                {planeDistance, (heightRange > 0.001f) ? heightRange : 0.001f,
+                 hasReflection ? 1.0f : 0.0f, hasReflectionDepth ? 1.0f : 0.0f});
+        }
+
+        /// Whether the scene colour and depth grabs are bound (cameraNearFar.zw), which the
+        /// forward program's refraction and SSR read, as Vulkan's binder sets them.
+        void setGrabFlags(bool hasSceneColor, bool hasSceneDepth)
+        {
+            writeLightingIfChanged(_lightingUniforms.cameraNearFar,
+                {_lightingUniforms.cameraNearFar[0], _lightingUniforms.cameraNearFar[1],
+                 hasSceneColor ? 1.0f : 0.0f, hasSceneDepth ? 1.0f : 0.0f});
         }
 
         /// Pack clustered lighting grid parameters into LightingUniforms.

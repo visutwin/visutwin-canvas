@@ -21,6 +21,8 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include "platform/graphics/shaderFeatures.h"
 
@@ -46,7 +48,45 @@ namespace visutwin::canvas
         size_t fragmentSpirvWords = 0;
         const uint32_t* computeSpirv = nullptr;
         size_t computeSpirvWords = 0;
+
+        /// Every entry point, in source order (a program composed from chunks may have
+        /// several per stage), with its own SPIR-V when Vulkan was built.
+        struct Entry
+        {
+            std::string_view stage;   // "vertex", "fragment" or "compute"
+            std::string_view name;
+            const uint32_t* spirv = nullptr;
+            size_t spirvWords = 0;
+        };
+        std::vector<Entry> entries;
     };
+
+    /// A program's code for one device, every entry point included: what loadSlangProgram
+    /// hands a caller that assembles its own shader (the forward program picks its vertex
+    /// entry per variant).
+    struct SlangProgramBuild
+    {
+        struct Entry
+        {
+            std::string stage;
+            std::string name;
+            std::vector<uint32_t> spirv;   // Vulkan only
+        };
+        std::string metalSource;           // Metal: MSL with every entry point
+        std::vector<uint8_t> metalLibrary; // Metal: the same, compiled (the bundle's)
+        std::vector<Entry> entries;
+    };
+
+    /// File overrides for a runtime compile: a file NAME (`forward-fragment-lights.slang`) and
+    /// the source that replaces that file of the tree wherever it is included.
+    using SlangFileOverrides = std::vector<std::pair<std::string, std::string>>;
+
+    /// Every entry point of `program` / `variant` for `device`: from the bundle, or compiled
+    /// from the source tree when VISUTWIN_SLANG_RUNTIME is set, the bundle lacks the program,
+    /// or `overrides` is not empty (a chunk override). False, with the diagnostics logged,
+    /// when neither works.
+    [[nodiscard]] bool loadSlangProgram(GraphicsDevice* device, std::string_view program, std::string_view variant,
+        const SlangFileOverrides& overrides, SlangProgramBuild& out);
 
     /// The bundle's entry for `program` / `variant`, or nothing. A program declares its
     /// variants with `// @variant <name>: DEFINE=value ...` lines (each compiled with those

@@ -36,11 +36,25 @@ namespace visutwin::canvas
      */
     struct ShaderCode
     {
+        /// One entry point of a program compiled to SPIR-V on its own.
+        struct SpirvEntry
+        {
+            std::string name;
+            std::vector<uint32_t> words;
+        };
+
         std::string metalSource;
         std::vector<uint8_t> metalLibrary;
         std::vector<uint32_t> vertexSpirv;
         std::vector<uint32_t> fragmentSpirv;
         std::vector<uint32_t> computeSpirv;
+        /// Vulkan: the program's FURTHER vertex entries, by name, for a pipeline that picks its
+        /// vertex stage per draw (the forward family: instanced, sky, colour, point, dynamic
+        /// batch, skinned, morphed, skinned + morphed). vertexSpirv is the plain one.
+        std::vector<SpirvEntry> vertexFamily;
+        /// A graphics program whose fragment stage writes no colour (the shadow pass's
+        /// opacity frontend), or none at all (fragmentSpirv empty): a depth-only pass may run it.
+        bool depthOnlyFragment = false;
         bool specializeFeatures = true;
     };
 

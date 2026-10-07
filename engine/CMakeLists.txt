@@ -223,8 +223,12 @@ add_custom_command(
         "${VISUTWIN_ROOT_DIR}/tools/generate_shader_bindings.py"
         --bindings "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/shaderBindings.h"
         --output "${_SLANG_BINDINGS}"
+        --material-fields "${VISUTWIN_ROOT_DIR}/engine/src/scene/materials/materialUniformFields.h"
+        --features "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/shaderFeatures.h"
     DEPENDS
+        "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/shaderFeatures.h"
         "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/shaderBindings.h"
+        "${VISUTWIN_ROOT_DIR}/engine/src/scene/materials/materialUniformFields.h"
         "${VISUTWIN_ROOT_DIR}/tools/generate_shader_bindings.py"
         "${VISUTWIN_ROOT_DIR}/tools/shader_bindings.py"
     COMMENT "Generating bindings.slang from the binding table"
@@ -342,38 +346,6 @@ set_source_files_properties(
     "${VISUTWIN_ROOT_DIR}/engine/src/scene/gsplat/gsplatSortKeys.cpp"
     PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 
-# ── Embedded Metal shaders ────────────────────────────────────────────
-# Self-contained MSL programs (particle sim/render, gsplat render) live as
-# editable .metal files but are embedded into the binary at build time as
-# raw-string constants — no runtime filesystem dependency (mirrors the
-# areaLightLuts embed, unlike the runtime-loaded ShaderChunks registry).
-if(VISUTWIN_BACKEND_METAL)
-    set(_MSL_EMBED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_shaders")
-    file(MAKE_DIRECTORY "${_MSL_EMBED_DIR}")
-
-    set(_MSL_EMBEDS
-        "particle-render.metal|PARTICLE_SHADER_SOURCE"
-        "gsplat-render.metal|GSPLAT_SHADER_SOURCE"
-    )
-    set(_MSL_EMBED_OUTPUTS "")
-    foreach(_entry IN LISTS _MSL_EMBEDS)
-        string(REPLACE "|" ";" _parts "${_entry}")
-        list(GET _parts 0 _msl_name)
-        list(GET _parts 1 _msl_var)
-        set(_msl_src "${VISUTWIN_ROOT_DIR}/engine/shaders/metal/embedded/${_msl_name}")
-        set(_msl_dst "${_MSL_EMBED_DIR}/${_msl_name}.inc")
-        add_custom_command(
-            OUTPUT "${_msl_dst}"
-            COMMAND ${CMAKE_COMMAND}
-                -DSRC=${_msl_src} -DDST=${_msl_dst} -DVAR=${_msl_var}
-                -P ${VISUTWIN_ROOT_DIR}/tools/embed_msl.cmake
-            DEPENDS "${_msl_src}" "${VISUTWIN_ROOT_DIR}/tools/embed_msl.cmake"
-            COMMENT "Embedding MSL ${_msl_name}"
-            VERBATIM)
-        list(APPEND _MSL_EMBED_OUTPUTS "${_msl_dst}")
-    endforeach()
-    add_custom_target(visutwin_embedded_shaders DEPENDS ${_MSL_EMBED_OUTPUTS})
-endif()
 if(VISUTWIN_CANVAS_SHARED)
     set(_VISUTWIN_CANVAS_LIBRARY_TYPE SHARED)
 else()
@@ -406,12 +378,6 @@ if(VISUTWIN_CANVAS_SHARED)
     endif()
 endif()
 
-# Generate the Metal embed headers before compiling and expose their include
-# directory only when that backend is part of this build.
-if(VISUTWIN_BACKEND_METAL)
-    add_dependencies(visutwin-canvas visutwin_embedded_shaders)
-    target_include_directories(visutwin-canvas PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
-endif()
 if(VISUTWIN_BACKEND_VULKAN)
     add_dependencies(visutwin-canvas visutwin_vulkan_shaders)
     target_include_directories(visutwin-canvas PRIVATE

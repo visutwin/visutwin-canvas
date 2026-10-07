@@ -1834,17 +1834,30 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
             }
 
             // The VIEW RAY IS FIXED AT +Z and the planet/sun are moved instead.
-            // forward_sky.vert derives the ray from the fragment's world
-            // position, so with an identity view-projection the screen position
-            // and the view direction are the same quantity — a quad covering the
-            // screen cannot also point somewhere specific. Rotating the world
-            // around a fixed ray decouples them:
+            // The sky vertex stage carries the PRE-TRANSFORM vertex position as the
+            // ray, so with an identity view-projection the screen position and the
+            // view direction are the same quantity — a quad covering the screen
+            // cannot also point somewhere specific. Rotating the world around a
+            // fixed ray decouples them:
             //   "up" = -normalize(planetCentre), because the camera sits at the
             //   origin and the surface is one radius away along that axis.
             // So planetCentre (0,0,-R) means up = +Z: looking along +Z is the
             // zenith. planetCentre (0,-R,0) means up = +Y: looking along +Z is
             // tangent to the surface, i.e. the horizon.
             constexpr float kPlanetRadius = 6371000.0f;
+
+            // The shared triangle scaled by 4 (covering the whole target) at z = 1, drawn
+            // with an identity model: the sky stage reads the vertex position BEFORE the
+            // model transform, so the geometry itself must place each texel's ray.
+            constexpr std::array<float, 42> skyVertices = {
+                -2.0f, -2.0f, 1.0f,  0, 0, 1,  0, 0,  1, 0, 0, 1,  0, 0,
+                 2.0f, -2.0f, 1.0f,  0, 0, 1,  1, 0,  1, 0, 0, 1,  0, 0,
+                 0.0f,  2.0f, 1.0f,  0, 0, 1,  0.5f, 1,  1, 0, 0, 1,  0, 0
+            };
+            VertexBufferOptions skyVertexOptions{};
+            skyVertexOptions.data.resize(sizeof(skyVertices));
+            std::memcpy(skyVertexOptions.data.data(), skyVertices.data(), sizeof(skyVertices));
+            auto skyVertexBuffer = device->createVertexBuffer(format, 3, skyVertexOptions);
 
             const auto skyColorWith = [&](const Vector3& planetCentre,
                                           const Vector3& sunDir) -> std::array<float, 3> {
@@ -1894,19 +1907,15 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
                 pass.setClearColor(&black);
                 pass.setClearDepth(&clearDepth);
 
-                // With an identity view-projection, forward_sky.vert's `.xyww`
-                // leaves w = 1, so NDC xy == world xy. Scaling the ±0.5 triangle
-                // by 4 covers the whole target, and z = 1 puts the centre texel's
-                // world position at (0, 0, 1) — the fixed +Z view ray.
-                Matrix4 model = Matrix4::identity();
-                model.setElement(0, 0, 4.0f);
-                model.setElement(1, 1, 4.0f);
-                model.setElement(3, 2, 1.0f);
+                // With an identity view-projection the sky stage leaves w = 1, so NDC
+                // xy == world xy, and the vertices' z = 1 is the fixed +Z view ray at
+                // the centre.
+                const Matrix4 model = Matrix4::identity();
 
                 device->frameStart();
                 device->startRenderPass(&pass);
                 device->setShader(skyShader);
-                device->setVertexBuffer(vertexBuffer);
+                device->setVertexBuffer(skyVertexBuffer);
                 device->setTransformUniforms(Matrix4::identity(), model);
                 device->setAtmosphereUniforms(&atmo, sizeof(atmo));
                 // Camera at the origin, exposure 1, LINEAR tonemap: the readback

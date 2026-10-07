@@ -680,7 +680,7 @@ namespace visutwin::canvas
         };
 
         const bool gpuDrivenVertex =
-            shader->name() == "particles" || shader->name() == "gsplat";
+            shader->name() == "slang:particle-render" || shader->name() == "slang:gsplat-render";
         if ((!gpuDrivenVertex &&
              !appendFormat(vertexFormat, 0, VK_VERTEX_INPUT_RATE_VERTEX)) ||
             (instanced && !appendFormat(instanceFormat, 1, VK_VERTEX_INPUT_RATE_INSTANCE))) {

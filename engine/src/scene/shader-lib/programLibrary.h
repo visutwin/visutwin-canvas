@@ -16,6 +16,7 @@
 #include "platform/graphics/graphicsDevice.h"
 #include "scene/materials/material.h"
 #include "scene/materials/standardMaterial.h"
+#include "scene/shader-lib/slangShaders.h"
 
 namespace visutwin::canvas
 {
@@ -308,6 +309,17 @@ namespace visutwin::canvas
         static ShaderFeatureSet makeFeatureSet(const ShaderVariantOptions& options);
         VariantKey makeVariantKey(const std::string& programName, const ShaderVariantOptions& options, const Material* material) const;
         std::shared_ptr<Shader> buildForwardShaderVariant(const std::string& programName, const ShaderVariantOptions& options, uint64_t variantId, const Material* material = nullptr);
+        /// The same from the Slang programs `forward` and `shadow` (both backends): the
+        /// vertex entry picked from the options, the feature words specialised at pipeline
+        /// creation. A chunk override (registry or material) is a file override of the
+        /// program, compiled at run time.
+        /// The forward vertex entry for a variant: the vertex layout and deformation the draw
+        /// has, in the priority Vulkan's pipeline applies to its family of modules.
+        static const char* forwardVertexEntry(const ShaderVariantOptions& options);
+        std::shared_ptr<Shader> buildSlangShaderVariant(const std::string& programName, const ShaderVariantOptions& options, uint64_t variantId, const Material* material);
+        /// The program's code for this device under `overrides` (chunk name -> source), loaded
+        /// once per override set; null with the error logged when it cannot be had.
+        const SlangProgramBuild* slangProgram(const std::string& program, const SlangFileOverrides& overrides);
 
         std::string composeProgramVariantMetalSource(const std::string& programName, const ShaderVariantOptions& options,
             const std::string& vertexEntry, const std::string& fragmentEntry, const Material* material = nullptr);
@@ -362,6 +374,8 @@ namespace visutwin::canvas
         std::array<bool, 2> _depthOnlyPrepared{};
         std::array<uint64_t, 2> _depthOnlyPreparedChunks{};
         std::unordered_map<VariantKey, std::shared_ptr<Shader>, VariantKeyHash> _forwardShaderCache;
+        /// Slang program builds by program name and override fingerprint.
+        std::unordered_map<std::string, std::shared_ptr<SlangProgramBuild>> _slangPrograms;
         mutable std::unordered_set<std::string> _warnedFeatureFlags;
         std::unordered_map<std::string, std::vector<std::string>> _registeredPrograms;
         bool _skyCubemapAvailable = false;

@@ -20,6 +20,7 @@ their bindings from (phase 2 of the single-source shader migration).
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 
 from shader_bindings import MATERIAL_SET, SCENE_SET, BindingRow, read_bindings
@@ -129,10 +130,60 @@ def quad_inputs(material: list[BindingRow]) -> list[str]:
     return lines
 
 
+MATERIAL_FIELD_RE = re.compile(r'X\(\s*(vec4|float|uint)\s*,\s*(\w+)\s*,')
+SLANG_TYPE_OF_FIELD = {"vec4": "float4", "float": "float", "uint": "uint"}
+
+
+def material_block(fields_header: Path) -> list[str]:
+    """`struct MaterialData` from the X-macro field list C++, MSL and GLSL expand from, and
+    VT_DECLARE_MATERIAL_DATA declaring it at the per-draw material slot (Metal buffer 3,
+    Vulkan set 0 binding 0). Every vec4 in the list lands 16-aligned by construction, so the
+    one struct has the same layout as std140 and as Metal's natural layout."""
+    fields = MATERIAL_FIELD_RE.findall(fields_header.read_text())
+    if not fields:
+        raise RuntimeError(f"{fields_header}: no material uniform fields")
+    lines = ["", f"// ---- The per-draw material block ({fields_header.name}, {len(fields)} fields) ----",
+             "struct MaterialData", "{"]
+    for shader_type, name in fields:
+        lines.append(f"    {SLANG_TYPE_OF_FIELD[shader_type]} {name};")
+    lines += ["};",
+              "#define VT_DECLARE_MATERIAL_DATA [[vk::binding(0, 0)]] ConstantBuffer<MaterialData> material : register(b3);"]
+    return lines
+
+
+FEATURE_RE = re.compile(r'X\(\s*(\w+)\s*,\s*"(VT_FEATURE_\w+)"\s*\)')
+
+
+def feature_words(features_header: Path) -> list[str]:
+    """The feature words as specialization constants (Vulkan) / function constants (Metal),
+    one per 32 features, ids 0..words-1, in declaration order: the same layout as
+    ShaderFeatureSet and the Vulkan bundle's shader_features.glsl. Plus vtFeatureEnabled
+    and one VT_FEATURE_<NAME>_BIT constant per feature."""
+    features = FEATURE_RE.findall(features_header.read_text())
+    if not features:
+        raise RuntimeError(f"{features_header}: no shader features")
+    words = (len(features) + 31) // 32
+    lines = ["", f"// ---- Shader features ({features_header.name}: {len(features)} in {words} word(s)) ----"]
+    for word in range(words):
+        lines.append(f"[[vk::constant_id({word})]] const uint vtFeatureMask{word} = 0;")
+    lines += ["bool vtFeatureEnabled(uint bit)", "{", "    const uint mask = 1u << (bit & 31u);",
+              "    const uint word = bit >> 5u;"]
+    for word in range(words):
+        lines.append(f"    if (word == {word}u) {{ return (vtFeatureMask{word} & mask) != 0u; }}")
+    lines += ["    return false;", "}"]
+    for index, (_symbol, define_name) in enumerate(features):
+        lines.append(f"static const uint {define_name}_BIT = {index}u;")
+    return lines
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bindings", required=True, type=Path, help="shaderBindings.h")
     parser.add_argument("--output", required=True, type=Path, help="bindings.slang to write")
+    parser.add_argument("--material-fields", type=Path,
+                        help="materialUniformFields.h; emits struct MaterialData when given")
+    parser.add_argument("--features", type=Path,
+                        help="shaderFeatures.h; emits the feature words when given")
     args = parser.parse_args()
 
     material, scene = read_bindings(args.bindings)
@@ -156,6 +207,10 @@ def main() -> None:
     out += ["", "// ---- Scene textures (Vulkan set 3) ----"]
     for row in scene:
         out += declaration(row, SCENE_SET, None)
+    if args.material_fields:
+        out += material_block(args.material_fields)
+    if args.features:
+        out += feature_words(args.features)
     out.append("")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text("\n".join(out))

@@ -41,6 +41,35 @@ def variants_of(source: str) -> list[tuple[str, list[str]]]:
 STAGE_FLAG = {"vertex": "vertex", "fragment": "fragment", "compute": "compute"}
 
 
+INCLUDE_RE = re.compile(r'^\s*#\s*include\s+"([^"]+)"', re.MULTILINE)
+
+
+def entry_points(program: Path, include_dirs: list[Path]) -> list[tuple[str, str]]:
+    """(stage, entry) for every [shader(...)] function in `program` and in every file it
+    #includes (resolved next to the including file, then on `include_dirs`), in source
+    order. A program composed from chunks keeps its entry points in them."""
+    found: list[tuple[str, str]] = []
+    seen: set[Path] = set()
+
+    def visit(path: Path) -> None:
+        path = path.resolve()
+        if path in seen:
+            return
+        seen.add(path)
+        text = path.read_text()
+        for match in INCLUDE_RE.finditer(text):
+            name = match.group(1)
+            for base in [path.parent, *include_dirs]:
+                candidate = base / name
+                if candidate.exists():
+                    visit(candidate)
+                    break
+        found.extend(ENTRY_RE.findall(text))
+
+    visit(program)
+    return found
+
+
 def run(command: list[str]) -> None:
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0:
@@ -91,7 +120,7 @@ def main() -> None:
     modules_dir = args.source_dir / "modules"
     programs = sorted((args.source_dir / "programs").glob("*.slang"))
 
-    common = [str(args.slangc), "-I", str(modules_dir), "-I", str(args.bindings.parent),
+    common = [str(args.slangc), "-I", str(args.source_dir), "-I", str(modules_dir), "-I", str(args.bindings.parent),
               "-matrix-layout-row-major"]
 
     out = [
@@ -105,6 +134,14 @@ def main() -> None:
         "",
         "namespace visutwin::canvas::slang_generated",
         "{",
+        "    struct Entry",
+        "    {",
+        "        const char* stage;          // \"vertex\", \"fragment\" or \"compute\"",
+        "        const char* name;",
+        "        const uint32_t* spirv;      // this entry alone, compiled to SPIR-V; null when not built",
+        "        size_t spirvWords;",
+        "    };",
+        "",
         "    struct Program",
         "    {",
         "        const char* name;",
@@ -121,6 +158,8 @@ def main() -> None:
         "        size_t fragmentSpirvWords;",
         "        const uint32_t* computeSpirv;",
         "        size_t computeSpirvWords;",
+        "        const struct Entry* entries; // every entry point, in source order (a program may have several per stage)",
+        "        size_t entryCount;",
         "    };",
         "",
         f"    inline constexpr char kBindingsSlang[] = {raw_string(args.bindings.read_text())};",
@@ -130,7 +169,10 @@ def main() -> None:
     for program in programs:
         name = program.stem
         source = program.read_text()
-        found = {stage: entry for stage, entry in ENTRY_RE.findall(source)}
+        found_list = entry_points(program, [args.source_dir, modules_dir, args.bindings.parent])
+        found = {}
+        for stage, entry in found_list:
+            found.setdefault(stage, entry)
         if not found:
             raise RuntimeError(f"{program}: no [shader(...)] entry points found")
         for variant, defines in variants_of(source):
@@ -144,7 +186,7 @@ def main() -> None:
             if "metal" in targets:
                 msl_path = args.work_dir / f"{stem}.metal"
                 command = common + define_flags + ["-DVT_TARGET_METAL"] + [str(program), "-target", "metal", "-o", str(msl_path)]
-                for stage, entry in found.items():
+                for stage, entry in found_list:
                     command += ["-entry", entry, "-stage", STAGE_FLAG[stage]]
                 run(command)
                 out.append(f"    inline constexpr char {ident}Msl[] = {raw_string(msl_path.read_text())};")
@@ -167,19 +209,27 @@ def main() -> None:
                     out.append("    " + ", ".join(f"0x{b:02x}" for b in data[i:i + 24]) + ",")
                 out.append("    };")
                 fields["metalLibrary"] = f"{ident}MetalLib, sizeof({ident}MetalLib)"
+            entry_arrays = {}
             if "spirv" in targets:
-                for stage, entry in found.items():
-                    spv_path = args.work_dir / f"{stem}.{stage}.spv"
+                for stage, entry in found_list:
+                    spv_path = args.work_dir / f"{stem}.{entry}.spv"
                     run(common + define_flags + [str(program), "-target", "spirv", "-entry", entry,
                                                  "-stage", STAGE_FLAG[stage], "-o", str(spv_path)])
                     data = spv_path.read_bytes()
                     if data[:4] != b"\x03\x02\x23\x07":
                         raise RuntimeError(f"{spv_path}: not SPIR-V")
-                    array = f"{ident}{camel(stage)}Spirv"
+                    array = f"{ident}{camel(entry)}Spirv"
                     out.append(f"    inline constexpr uint32_t {array}[] = {{")
                     out.append(words_literal(data))
                     out.append("    };")
-                    spirv[stage] = array
+                    entry_arrays[entry] = array
+                    spirv.setdefault(stage, array)
+            out.append(f"    inline constexpr Entry {ident}Entries[] = {{")
+            for stage, entry in found_list:
+                array = entry_arrays.get(entry)
+                spv = f"{array}, sizeof({array}) / sizeof(uint32_t)" if array else "nullptr, 0"
+                out.append(f'        Entry{{"{stage}", "{entry}", {spv}}},')
+            out.append("    };")
             entry_names = {stage: f'"{found[stage]}"' if stage in found else '""'
                            for stage in ("vertex", "fragment", "compute")}
             spv_fields = []
@@ -190,7 +240,8 @@ def main() -> None:
                     spv_fields.append("nullptr, 0")
             entries.append(
                 f'        Program{{"{name}", "{variant}", {entry_names["vertex"]}, {entry_names["fragment"]}, '
-                f'{entry_names["compute"]}, {fields["metalSource"]}, {fields["metalLibrary"]}, {", ".join(spv_fields)}}},')
+                f'{entry_names["compute"]}, {fields["metalSource"]}, {fields["metalLibrary"]}, {", ".join(spv_fields)}, '
+                f'{ident}Entries, {len(found_list)}}},')
             out.append("")
 
     out += [
