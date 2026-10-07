@@ -313,6 +313,14 @@ hand-written forward and shadow programs stay until phase 5 for comparison:
   `VT_SHADOW_PROGRAM`, and `forwardFinish` then writes only what a shadow fragment reads, so
   the shared vertex stage drops the normal frame there. Together these took the Slang shadow
   pass on `post-processing` from 35% over the hand-written MSL to level.
+- **Call a slot-indexed helper with a LITERAL slot, one call per slot.** The shadow helpers
+  take a slot (0 / 1) and pick the slot's map and parameters from it. Called with the light's
+  slot as a runtime value, every inlined copy keeps both slots' lookups and selects between
+  them; that made Metal `post-processing`'s main forward pass 20% slower than the
+  hand-written MSL (which passed each slot's map as an argument), and passing the slot as a
+  literal in an `if`/`else` brought it to within 1.5%. Arithmetic counts did not show it: the
+  GPU counters read LESS ALU work over MORE time. Write any new per-slot helper call the same
+  way, and an `if`/`else` rather than a ternary over two calls.
 - **Inputs a variant may not read are read per variant, not per texture size.** Metal's
   `get_width() > 0` gate does not exist in Slang: a binder FLAG says what is bound
   (`reflectionDepthParams.zw` the planar reflection and its depth, `cameraNearFar.zw` the
@@ -1019,6 +1027,14 @@ present, but the rule below never depends on reading it.
   4x MSAA costs the forward pass about 0.05 ms at 900x700, with the same limiter mix
   at both counts). A pass the setting cannot touch reading slower between separate
   recordings — SSAO under MSAA, say — is the signature of a clock-state difference.
+  Two more traps, both met while comparing shader versions: an animated example run on REAL
+  time reaches a different view in each run (its frame rate decides where the camera is at
+  frame N), and the forward cost follows the view, so freeze it
+  (`VISUTWIN_FIXED_DT=0.0000001`) or fix the step; and a sleeping display changes every
+  timing, so hold it awake (`caffeinate -d -u`) for unattended runs. Two shader versions
+  alternated every 60 frames inside one process, per-pass medians from
+  `GpuProfiler::passTimings`, with compose as the control that must read 0 +/- 1%, resolve
+  1-2%; across processes the same pass moved 2x.
 - **Our HUD's GPU figure and upstream's are not comparable as read, for three reasons
   that are not the profiler** (both profilers reproduce `xctrace` per-encoder intervals
   within 10%). (1) PIXELS: since 2026-10-06 both render 900x700 pixels for a 900x700
@@ -3148,15 +3164,6 @@ What stays HERE is only what bites during UNRELATED work.
   do not register; Vulkan's set 4 per skinned draw and a variant-sorted caster list
   have nothing to act on in any shipped scene. Revisit them only with a scene that shows
   them in a profile.
-- **The Slang forward program is slower than the hand-written MSL on one scene.** Metal
-  `post-processing`: the main forward pass 1.85 -> 2.21 ms GPU (frame 3.1 -> 3.55 ms), in
-  three alternating runs of one binary (`VISUTWIN_LEGACY_FORWARD`); `ambient-occlusion` is
-  level (4.37 / 4.39 ms). The GPU counters inside that encoder show LESS F32 and the same
-  texture work over the run, at the same occupancy: it stalls rather than computes. Its
-  variants are mostly `SPEC_GLOSS` + `NO_SPECULAR` (specular terms multiplied by a folded
-  zero). Single-run ablations cannot locate it (the clock state moves a pass by 2x between
-  processes, and a forward / compose ratio by 25%); it needs both in one clock, two processes
-  at once or a runtime switch. Settle before phase 5 deletes the comparison.
 - **The ambient diffuse is scaled by `(1 - specularity)` on both backends**, right
   where upstream's `litForwardBackend` does it after `addAmbient`: per channel, F0 in
   either workflow, only when the material renders specular, and only on the ambient

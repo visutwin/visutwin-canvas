@@ -5,7 +5,15 @@
 //
     // useLighting off (VT_FEATURE_NO_LIGHTS): no light reaches the surface; ambient,
     // reflections and the combine still run. The clustered loop is compiled out with it.
-    uint count = vtFeatureEnabled(VT_FEATURE_NO_LIGHTS_BIT) ? 0u : min(lighting.lightCount.x, 8u);
+    // Without VT_FEATURE_MULTI_LIGHT the variant shades one light.
+    //
+    // Every block below that a variant cannot reach is gated on its FEATURE, not only on a
+    // runtime value (a light's shadow slot, its type): specialisation then removes it. Gated
+    // at run time alone, the spot, omni and directional shadow code stays in every variant,
+    // and the registers it needs cost occupancy where it never runs (Metal post-processing's
+    // forward pass read 20% slower than the hand-written MSL, which used #if for these).
+    uint count = vtFeatureEnabled(VT_FEATURE_NO_LIGHTS_BIT) ? 0u
+        : min(lighting.lightCount.x, vtFeatureEnabled(VT_FEATURE_MULTI_LIGHT_BIT) ? 8u : 1u);
     for (uint i = 0u; i < count; ++i) {
         Light light = lighting.lights[i];
         uint type = uint(light.directionType.w + 0.5);
@@ -25,9 +33,17 @@
             // A shadowed directional light carries its shadow slot (0 or 1) in
             // coneParams.w; every other directional light carries -1 and stays
             // unshadowed.
-            if (light.coneParams.w >= 0.0) {
-                atten = sampleDirectionalShadow(int(light.coneParams.w + 0.5), fragWorldPos,
-                    fragViewDepth, N, L);
+            //
+            // The slot is passed as a LITERAL, one call per slot, so each inlined copy reads
+            // one map and one set of parameters; a runtime slot keeps both slots' lookups
+            // and selects in every copy, and that cost Metal's forward pass 15% (the
+            // hand-written MSL calls once per slot the same way).
+            if (vtFeatureEnabled(VT_FEATURE_SHADOWS_BIT) && light.coneParams.w >= 0.0) {
+                if (int(light.coneParams.w + 0.5) == 0) {
+                    atten = sampleDirectionalShadow(0, fragWorldPos, fragViewDepth, N, L);
+                } else {
+                    atten = sampleDirectionalShadow(1, fragWorldPos, fragViewDepth, N, L);
+                }
             }
             // Parallax self-shadowing: the height field casts onto itself, which
             // the cascade map cannot see because it only knows the flat polygon.
@@ -87,11 +103,20 @@
             float shadowIndex = light.coneParams.w;
             if (shadowIndex >= 0.0) {
                 int slot = int(shadowIndex + 0.5);
-                if (type == 1u) {
-                    atten *= sampleOmniShadow(slot, fragWorldPos, light.positionRange.xyz);
-                } else if (type == 2u) {
-                    atten *= sampleSpotShadow(slot, fragWorldPos, N, L,
-                        distance(light.positionRange.xyz, fragWorldPos));
+                // A literal slot per call, as the directional shadow above.
+                if (type == 1u && vtFeatureEnabled(VT_FEATURE_OMNI_SHADOWS_BIT)) {
+                    if (slot == 0) {
+                        atten *= sampleOmniShadow(0, fragWorldPos, light.positionRange.xyz);
+                    } else {
+                        atten *= sampleOmniShadow(1, fragWorldPos, light.positionRange.xyz);
+                    }
+                } else if (type == 2u && vtFeatureEnabled(VT_FEATURE_LOCAL_SHADOWS_BIT)) {
+                    const float lightDistance = distance(light.positionRange.xyz, fragWorldPos);
+                    if (slot == 0) {
+                        atten *= sampleSpotShadow(0, fragWorldPos, N, L, lightDistance);
+                    } else {
+                        atten *= sampleSpotShadow(1, fragWorldPos, N, L, lightDistance);
+                    }
                 }
             }
         }
