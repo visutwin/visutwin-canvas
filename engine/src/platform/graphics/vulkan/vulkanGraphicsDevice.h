@@ -108,6 +108,10 @@ namespace visutwin::canvas
             const std::string& sourceCode = "") override;
         std::shared_ptr<Shader> createShaderFromCode(const ShaderDefinition& definition,
             const ShaderCode& code) override;
+        [[nodiscard]] const ShaderDiskCache* shaderDiskCache() const override
+        {
+            return _shaderDiskCache.enabled() ? &_shaderDiskCache : nullptr;
+        }
 
         // ── Resource creation ────────────────────────────────────────────
         std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture* texture) override;

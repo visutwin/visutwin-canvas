@@ -49,6 +49,10 @@ endif()
 # function / specialization constant, the quad path's bindings; `gpu` label.
 if(VISUTWIN_SHADER_SLANG)
     visutwin_add_unit_test(visutwin-slang-compiler-tests slang-compiler slangCompilerTests.cpp)
+    # The Slang program lookup (tests/slangBundleTests.cpp): the bundle built for this
+    # backend holds the pilot program, and the runtime compile from the source tree
+    # (VISUTWIN_SLANG_RUNTIME) produces code for the same backend.
+    visutwin_add_unit_test(visutwin-slang-bundle-tests slang-bundle slangBundleTests.cpp)
     visutwin_add_unit_test(visutwin-slang-gpu-tests slang-gpu slangGpuTests.cpp LABELS gpu TIMEOUT 120)
 endif()
 

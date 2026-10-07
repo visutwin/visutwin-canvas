@@ -32,24 +32,45 @@ SLANG_TYPE = {
 
 
 def declaration(row: BindingRow, set_index: int, sampler_slot: int | None) -> list[str]:
-    lines = [f"// {row.name}: Metal {'sampler' if row.type == 'Sampler' else 'texture'} "
-             f"{row.metal_slot if row.metal_slot >= 0 else '(constexpr)'}"
-             f"{' (vertex)' if 0 <= row.metal_slot >= 100 else ''}"
-             f"{', Vulkan set %d binding %d' % (set_index, row.vk_binding) if row.vk_binding >= 0 else ', Metal only'}"]
+    """One VT_DECLARE_<name> macro. A map that owns a sampler is a COMBINED declaration
+    (`Sampler2D name : register(tN) : register(sK)`): one combined image sampler on
+    Vulkan, the texture slot plus the Metal sampler slot its map carries on Metal."""
+    where = (f"Metal {'sampler' if row.type == 'Sampler' else 'texture'} "
+             f"{row.metal_slot - 100 if row.metal_slot >= 100 else row.metal_slot}"
+             if row.metal_slot >= 0 else "no Metal slot (a constexpr sampler)")
+    if row.metal_slot >= 100:
+        where += " (vertex stage)"
+    where += (f", Vulkan set {set_index} binding {row.vk_binding}" if row.vk_binding >= 0 else ", Metal only")
+    lines = [f"// {row.name}: {where}"]
     vk = f"[[vk::binding({row.vk_binding}, {set_index})]] " if row.vk_binding >= 0 else ""
     if row.type == "Sampler":
-        if row.metal_slot >= 0:
-            lines.append(f"#define VT_DECLARE_{row.name} {vk}SamplerState {row.name} : register(s{row.metal_slot});")
-        else:
-            lines.append(f"#define VT_DECLARE_{row.name} {vk}SamplerState {row.name};")
+        reg = f" : register(s{row.metal_slot})" if row.metal_slot >= 0 else ""
+        lines.append(f"#define VT_DECLARE_{row.name} {vk}SamplerState {row.name}{reg};")
         return lines
     metal_slot = row.metal_slot - 100 if row.metal_slot >= 100 else row.metal_slot
-    lines.append(f"#define VT_DECLARE_{row.name} {vk}{SLANG_TYPE[row.type]} {row.name} : register(t{metal_slot});")
     if sampler_slot is not None:
-        # Vulkan reads the map through a combined image sampler at the same binding; the
-        # companion is the Metal sampler slot. The combined form Slang emits per target
-        # is decided when the modules are written.
-        lines.append(f"#define VT_DECLARE_{row.name}Sampler {vk}SamplerState {row.name}Sampler : register(s{sampler_slot});")
+        lines.append(f"#define VT_DECLARE_{row.name} {vk}Sampler2D {row.name} : register(t{metal_slot}) : register(s{sampler_slot});")
+    else:
+        lines.append(f"#define VT_DECLARE_{row.name} {vk}{SLANG_TYPE[row.type]} {row.name} : register(t{metal_slot});")
+    return lines
+
+
+def quad_inputs(material: list[BindingRow]) -> list[str]:
+    """VT_DECLARE_QUAD_INPUTn(name): a quad pass's input n. On Metal every quad input is
+    texture n read through the post sampler at sampler 0; on Vulkan input n is the n-th
+    material binding, combined where the row is, else a separate image through the
+    shared material sampler (which VT_DECLARE_QUAD_SAMPLER declares)."""
+    lines = ["", "// ---- Quad pass inputs: slot n -> Metal texture n + post sampler 0, Vulkan material row n ----"]
+    sampler_row = next(r for r in material if r.kind == "Sampler")
+    lines.append(f"#define VT_DECLARE_QUAD_SAMPLER [[vk::binding({sampler_row.vk_binding}, {MATERIAL_SET})]] "
+                 f"SamplerState quadSampler : register(s0);")
+    for n, row in enumerate(material[:8]):
+        if row.kind == "CombinedSampler":
+            lines.append(f"#define VT_DECLARE_QUAD_INPUT{n}(name) [[vk::binding({row.vk_binding}, {MATERIAL_SET})]] "
+                         f"Sampler2D name : register(t{n}) : register(s0);")
+        elif row.kind == "SeparateImage":
+            lines.append(f"#define VT_DECLARE_QUAD_INPUT{n}(name) [[vk::binding({row.vk_binding}, {MATERIAL_SET})]] "
+                         f"Texture2D name : register(t{n});")
     return lines
 
 
@@ -76,6 +97,7 @@ def main() -> None:
             own_sampler_index += 1
             sampler_slot = own_sampler_index
         out += declaration(row, MATERIAL_SET, sampler_slot)
+    out += quad_inputs(material)
     out += ["", "// ---- Scene textures (Vulkan set 3) ----"]
     for row in scene:
         out += declaration(row, SCENE_SET, None)

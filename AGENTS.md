@@ -222,6 +222,36 @@ matrices are column-major (the compiler sets it; `mul(M, v)` reads M as columns)
 `tests/slangCompilerTests.cpp` holds the targets, `tests/slangGpuTests.cpp` (`gpu`) draws
 one module on this build's device and pins the variant, the layout and the bindings.
 
+## Single-source shaders (Slang)
+
+The migration from the twin MSL / GLSL trees to one Slang tree is under way (plan in the
+local `docs/slang-shader-migration-plan.md`; phases 0-2 done 2026-10-07). What binds now:
+
+- **A Slang program is `engine/shaders/slang/programs/<name>.slang`**, its shared code in
+  `engine/shaders/slang/modules/` (`import vtquad;` — a module may not be called `quad`, the
+  name collides with Slang's own), its bindings from the generated `bindings.slang`
+  (`#include "bindings.slang"`, then `VT_DECLARE_<row>` or `VT_DECLARE_QUAD_INPUTn(name)`).
+  Entry points are found from `[shader("vertex" | "fragment" | "compute")]`. A pass gets its
+  shader with `getOrCreateSlangShader(device, "<name>")` (`scene/shader-lib/slangShaders.h`),
+  cached on the device as `slang:<name>`. The bloom upsample is the first program.
+- **The build compiles every program** (`tools/generate_slang_bundle.py`, the vcpkg port's
+  `slangc`) into `<build>/engine/generated/slang/slang_shader_bundle.h`: MSL source AND a
+  precompiled metallib for Metal, SPIR-V per entry point for Vulkan, plus the
+  `bindings.slang` text. Every `.slang` under the tree is a dependency.
+- **`VISUTWIN_SLANG_RUNTIME=1` compiles from the source tree instead** (found through
+  `shaderSourceRoots()`, so `VISUTWIN_CANVAS_SHADERS=<dir>` points at another tree), through
+  `SlangCompiler` with `bindings.slang` served from memory; Vulkan keeps that SPIR-V in its
+  persistent shader cache (`slang-vert` / `slang-frag` / `slang-comp`, keyed on the Slang
+  version, target, program, every module and the bindings). This is the hot-reload and
+  override path; it also runs when the bundle lacks a program.
+- **Prove a migrated program with a stimulus, not only a match**: a copy of the tree with
+  the program's output changed, run through `VISUTWIN_SLANG_RUNTIME` and
+  `VISUTWIN_CANVAS_SHADERS`, must change the frame on both backends. A pass that never runs
+  matches its reference perfectly too.
+- On a combined `Sampler2D`, `register(tN)` is the Metal texture and `register(sK)` the Metal
+  sampler; a quad input's sampler is Metal's post sampler at 0, which the generated macros
+  carry.
+
 ## Graphics Backends
 
 Two production backends behind one `GraphicsDevice` abstraction, plus one planned.

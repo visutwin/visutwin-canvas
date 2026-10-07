@@ -40,6 +40,7 @@
 
 namespace visutwin::canvas
 {
+    class ShaderDiskCache;
     /**
      * Size of the per-draw uniform slot (Metal buffer 3 / Vulkan set 0 binding 0).
      *
@@ -514,6 +515,10 @@ namespace visutwin::canvas
         /// Backends override this to return their own Shader subclass (e.g., MetalShader).
         virtual std::shared_ptr<Shader> createShader(const ShaderDefinition& definition,
             const std::string& sourceCode = "");
+
+        /// The persistent shader cache this device keeps between runs, or null (Metal's
+        /// system cache is its own). A runtime shader compile stores its output there.
+        [[nodiscard]] virtual const ShaderDiskCache* shaderDiskCache() const { return nullptr; }
 
         /// Create a shader from code already compiled for this backend (ShaderCode): the
         /// output of the SlangCompiler, or a bundle built at build time. A backend without

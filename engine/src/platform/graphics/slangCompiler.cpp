@@ -7,7 +7,10 @@
 
 #include <chrono>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <mutex>
+#include <sstream>
 
 #include "spdlog/spdlog.h"
 
@@ -77,6 +80,70 @@ namespace visutwin::canvas
             }
         }
 
+        // Serves the request's virtual files by file name and everything else from disk at
+        // the path Slang resolved against the search paths. One per compile; Slang holds a
+        // reference for the session's life, so the count is real.
+        class MemoryFileSystem final : public ISlangFileSystem
+        {
+        public:
+            explicit MemoryFileSystem(const std::vector<std::pair<std::string, std::string>>& files)
+                : _files(files)
+            {
+            }
+
+            SLANG_NO_THROW SlangResult SLANG_MCALL queryInterface(const SlangUUID& uuid, void** outObject) override
+            {
+                if (uuid == ISlangUnknown::getTypeGuid() || uuid == ISlangCastable::getTypeGuid() ||
+                    uuid == ISlangFileSystem::getTypeGuid()) {
+                    addRef();
+                    *outObject = static_cast<ISlangFileSystem*>(this);
+                    return SLANG_OK;
+                }
+                *outObject = nullptr;
+                return SLANG_E_NO_INTERFACE;
+            }
+            SLANG_NO_THROW uint32_t SLANG_MCALL addRef() override { return ++_refCount; }
+            SLANG_NO_THROW uint32_t SLANG_MCALL release() override
+            {
+                const uint32_t count = --_refCount;
+                if (count == 0) {
+                    delete this;
+                }
+                return count;
+            }
+            SLANG_NO_THROW void* SLANG_MCALL castAs(const SlangUUID& uuid) override
+            {
+                if (uuid == ISlangUnknown::getTypeGuid() || uuid == ISlangCastable::getTypeGuid() ||
+                    uuid == ISlangFileSystem::getTypeGuid()) {
+                    return static_cast<ISlangFileSystem*>(this);
+                }
+                return nullptr;
+            }
+            SLANG_NO_THROW SlangResult SLANG_MCALL loadFile(const char* path, ISlangBlob** outBlob) override
+            {
+                const std::string name = std::filesystem::path(path).filename().string();
+                for (const auto& [fileName, text] : _files) {
+                    if (fileName == name) {
+                        *outBlob = slang_createBlob(text.data(), text.size());
+                        return SLANG_OK;
+                    }
+                }
+                std::ifstream in(path, std::ios::in | std::ios::binary);
+                if (!in) {
+                    return SLANG_E_NOT_FOUND;
+                }
+                std::ostringstream buffer;
+                buffer << in.rdbuf();
+                const std::string text = buffer.str();
+                *outBlob = slang_createBlob(text.data(), text.size());
+                return SLANG_OK;
+            }
+
+        private:
+            std::vector<std::pair<std::string, std::string>> _files;
+            uint32_t _refCount = 0;
+        };
+
         SlangCompileTarget targetFormat(const SlangTarget target)
         {
             switch (target) {
@@ -140,7 +207,15 @@ namespace visutwin::canvas
             searchPaths.push_back(path.c_str());
         }
 
+        Slang::ComPtr<ISlangFileSystem> fileSystem;
+        if (!request.virtualFiles.empty()) {
+            auto* memory = new MemoryFileSystem(request.virtualFiles);
+            memory->addRef();
+            fileSystem.attach(memory);
+        }
+
         slang::SessionDesc sessionDesc{};
+        sessionDesc.fileSystem = fileSystem.get();
         sessionDesc.targets = &targetDesc;
         sessionDesc.targetCount = 1;
         sessionDesc.defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR;

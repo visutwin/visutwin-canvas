@@ -40,6 +40,12 @@ namespace visutwin::canvas
      * source from a smaller set of ordered chunk files, since a variant is compiled
      * as one translation unit rather than a fine-grained function library.
      */
+    /// The directories a shader source tree (`engine/shaders/<backend>/...`) is looked for
+    /// under, in order: $VISUTWIN_CANVAS_SHADERS, the engine's own source tree, the working
+    /// directory and two parents, and the installed data directory. Shared by the chunk
+    /// registry and the Slang program lookup.
+    std::vector<std::filesystem::path> shaderSourceRoots();
+
     class ShaderChunks
     {
     public:

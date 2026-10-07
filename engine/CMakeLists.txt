@@ -232,6 +232,48 @@ add_custom_command(
 )
 add_custom_target(visutwin-shader-bindings ALL DEPENDS "${_SLANG_BINDINGS}")
 
+# ── The Slang shader bundle ──────────────────────────────────────────
+# Every program under engine/shaders/slang/programs is compiled by slangc (the vcpkg
+# shader-slang port's) to the targets this build's backends take — MSL source for Metal,
+# SPIR-V per entry point for Vulkan — and embedded in one generated header with the
+# bindings.slang text (the runtime override compile serves it from memory). Every file
+# under the slang directory is a dependency, as for the Vulkan bundle.
+if(VISUTWIN_SHADER_SLANG)
+    find_program(VISUTWIN_SLANGC_EXECUTABLE
+        NAMES slangc
+        HINTS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools/shader-slang"
+        REQUIRED)
+    set(_SLANG_SHADER_DIR "${VISUTWIN_ROOT_DIR}/engine/shaders/slang")
+    set(_SLANG_BUNDLE "${_SLANG_GENERATED_DIR}/slang_shader_bundle.h")
+    file(GLOB_RECURSE _SLANG_SHADER_SOURCES CONFIGURE_DEPENDS "${_SLANG_SHADER_DIR}/*.slang")
+    set(_SLANG_TARGETS "")
+    if(VISUTWIN_BACKEND_METAL)
+        list(APPEND _SLANG_TARGETS metal)
+    endif()
+    if(VISUTWIN_BACKEND_VULKAN)
+        list(APPEND _SLANG_TARGETS spirv)
+    endif()
+    string(REPLACE ";" "," _SLANG_TARGETS_ARG "${_SLANG_TARGETS}")
+    add_custom_command(
+        OUTPUT "${_SLANG_BUNDLE}"
+        COMMAND "${Python3_EXECUTABLE}"
+            "${VISUTWIN_ROOT_DIR}/tools/generate_slang_bundle.py"
+            --slangc "${VISUTWIN_SLANGC_EXECUTABLE}"
+            --source-dir "${_SLANG_SHADER_DIR}"
+            --bindings "${_SLANG_BINDINGS}"
+            --targets "${_SLANG_TARGETS_ARG}"
+            --output "${_SLANG_BUNDLE}"
+            --work-dir "${_SLANG_GENERATED_DIR}/work"
+        DEPENDS
+            ${_SLANG_SHADER_SOURCES}
+            "${_SLANG_BINDINGS}"
+            "${VISUTWIN_ROOT_DIR}/tools/generate_slang_bundle.py"
+        COMMENT "Compiling the Slang shader bundle (${_SLANG_TARGETS_ARG})"
+        VERBATIM
+    )
+    add_custom_target(visutwin-slang-shaders DEPENDS "${_SLANG_BUNDLE}")
+endif()
+
 # ── Build-time Vulkan shader bundle ──────────────────────────────────
 # GLSL is compiled before C++ and reflected by SPIRV-Cross. The generator
 # validates descriptor sets, uniform block sizes, and push constants, then
@@ -513,7 +555,9 @@ endif()
 if(VISUTWIN_SHADER_SLANG)
     target_compile_definitions(visutwin-canvas PUBLIC VISUTWIN_HAS_SLANG)
     target_link_libraries(visutwin-canvas PUBLIC slang::slang)
-    message(STATUS "Slang shader compiler enabled")
+    add_dependencies(visutwin-canvas visutwin-slang-shaders)
+    target_include_directories(visutwin-canvas PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    message(STATUS "Slang shader compiler enabled (slangc: ${VISUTWIN_SLANGC_EXECUTABLE})")
 endif()
 
 # ── Install and export ────────────────────────────────────────────────

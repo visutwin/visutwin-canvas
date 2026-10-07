@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <map>
 #include <optional>
@@ -45,6 +46,33 @@ namespace visutwin::canvas
             }
             return path;
         }
+    }
+
+    std::vector<std::filesystem::path> shaderSourceRoots()
+    {
+        // Candidate roots, in order: an explicit override, this file's own source tree
+        // (set when the engine is compiled from source), the working directory and its
+        // parents, and finally the directory the shader trees were INSTALLED into. The
+        // installed path is last so a build tree always wins, and it is what lets a
+        // consumer that links an installed libvisutwin-canvas find shaders at all.
+        const auto sourceRoot = projectRootFromThisSource();
+        const auto cwd = std::filesystem::current_path();
+        std::vector<std::filesystem::path> roots;
+        if (const char* override = std::getenv("VISUTWIN_CANVAS_SHADERS"); override && *override) {
+            roots.emplace_back(override);
+        }
+        roots.push_back(sourceRoot);
+        roots.push_back(cwd);
+        roots.push_back(cwd.parent_path());
+        roots.push_back(cwd.parent_path().parent_path());
+#ifdef VISUTWIN_CANVAS_INSTALLED_SHADER_DIR
+        roots.emplace_back(VISUTWIN_CANVAS_INSTALLED_SHADER_DIR);
+#endif
+        return roots;
+    }
+
+    namespace
+    {
 
         std::optional<DefaultChunkStore> loadDefaultChunks(const ShaderLanguage language)
         {
@@ -56,25 +84,10 @@ namespace visutwin::canvas
             const std::string extension =
                 language == ShaderLanguage::Glsl ? ".glsl" : ".metal";
 
-            // Candidate roots, in order: an explicit override, this file's own
-            // source tree (set when the engine is compiled from source), the
-            // working directory and its parents, and finally the directory the
-            // chunk trees were INSTALLED into. The installed path is last so a
-            // build tree always wins, and it is what lets a consumer that links
-            // an installed libvisutwin-canvas find chunks at all.
-            const auto sourceRoot = projectRootFromThisSource();
-            const auto cwd = std::filesystem::current_path();
             std::vector<std::filesystem::path> chunkRoots;
-            if (const char* override = std::getenv("VISUTWIN_CANVAS_SHADERS"); override && *override) {
-                chunkRoots.emplace_back(std::filesystem::path(override) / subdir);
+            for (const auto& root : shaderSourceRoots()) {
+                chunkRoots.push_back(root / subdir);
             }
-            chunkRoots.push_back(sourceRoot / subdir);
-            chunkRoots.push_back(cwd / subdir);
-            chunkRoots.push_back(cwd.parent_path() / subdir);
-            chunkRoots.push_back(cwd.parent_path().parent_path() / subdir);
-#ifdef VISUTWIN_CANVAS_INSTALLED_SHADER_DIR
-            chunkRoots.emplace_back(std::filesystem::path(VISUTWIN_CANVAS_INSTALLED_SHADER_DIR) / subdir);
-#endif
 
             for (const auto& root : chunkRoots) {
                 if (!std::filesystem::exists(root) || !std::filesystem::is_directory(root)) {

@@ -42,6 +42,9 @@ namespace visutwin::canvas
         SlangTarget target = SlangTarget::Spirv;
         std::vector<std::pair<std::string, std::string>> defines;
         std::vector<std::string> searchPaths; ///< Where `import` / `#include` look
+        /// Files served from memory by name (the generated bindings.slang, an override of a
+        /// module): a lookup by the path's file name wins over the search paths.
+        std::vector<std::pair<std::string, std::string>> virtualFiles;
         bool debugInfo = false;
     };
 
