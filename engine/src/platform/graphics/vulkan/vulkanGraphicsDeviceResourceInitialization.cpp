@@ -933,6 +933,24 @@ namespace visutwin::canvas
                 ? " (shared)" : " (dedicated presentation queue)");
     }
 
+    std::shared_ptr<Shader> VulkanGraphicsDevice::createShaderFromCode(const ShaderDefinition& definition,
+        const ShaderCode& code)
+    {
+        const bool graphics = !code.vertexSpirv.empty() && !code.fragmentSpirv.empty();
+        const bool compute = !code.computeSpirv.empty();
+        if (!graphics && !compute) {
+            spdlog::error("VulkanGraphicsDevice::createShaderFromCode('{}'): no SPIR-V for a vertex + fragment "
+                "pair or a compute stage", definition.name);
+            return nullptr;
+        }
+        return std::make_shared<VulkanShader>(this, definition,
+            graphics ? code.vertexSpirv.data() : nullptr, code.vertexSpirv.size(),
+            graphics ? code.fragmentSpirv.data() : nullptr, code.fragmentSpirv.size(),
+            nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0,
+            code.specializeFeatures,
+            compute ? code.computeSpirv.data() : nullptr, code.computeSpirv.size());
+    }
+
     std::shared_ptr<Shader> VulkanGraphicsDevice::createShader(
         const ShaderDefinition& definition, const std::string& sourceCode)
     {

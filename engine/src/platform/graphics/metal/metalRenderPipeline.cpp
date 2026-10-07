@@ -306,10 +306,12 @@ namespace visutwin::canvas
 
         const auto& vertexEntry = shader->vertexEntry().empty() ? std::string("vertexShader") : shader->vertexEntry();
         const auto& fragmentEntry = shader->fragmentEntry().empty() ? std::string("fragmentShader") : shader->fragmentEntry();
-        auto* vertexFunction = library->newFunction(NS::String::string(vertexEntry.c_str(), NS::UTF8StringEncoding));
-        auto* fragmentFunction = library->newFunction(NS::String::string(fragmentEntry.c_str(), NS::UTF8StringEncoding));
+        auto* metalShader = static_cast<MetalShader*>(shader.get());
+        auto* vertexFunction = metalShader->newFunction(library, vertexEntry, &error);
+        auto* fragmentFunction = metalShader->newFunction(library, fragmentEntry, &error);
         if (!vertexFunction || !fragmentFunction) {
-            spdlog::error("Failed to find required shader entry points ({} / {})", vertexEntry, fragmentEntry);
+            spdlog::error("Failed to find required shader entry points ({} / {}): {}", vertexEntry, fragmentEntry,
+                (error && error->localizedDescription()) ? error->localizedDescription()->utf8String() : "not found");
             if (vertexFunction) vertexFunction->release();
             if (fragmentFunction) fragmentFunction->release();
             library->release();

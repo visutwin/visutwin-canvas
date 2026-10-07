@@ -515,6 +515,12 @@ namespace visutwin::canvas
         virtual std::shared_ptr<Shader> createShader(const ShaderDefinition& definition,
             const std::string& sourceCode = "");
 
+        /// Create a shader from code already compiled for this backend (ShaderCode): the
+        /// output of the SlangCompiler, or a bundle built at build time. A backend without
+        /// an implementation answers a shader that cannot draw.
+        virtual std::shared_ptr<Shader> createShaderFromCode(const ShaderDefinition& definition,
+            const ShaderCode& code);
+
         void setShader(const std::shared_ptr<Shader>& shader)
         {
             // stats.frame.shaders: a bound shader that differs from the last one.

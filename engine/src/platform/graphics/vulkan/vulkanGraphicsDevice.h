@@ -106,6 +106,8 @@ namespace visutwin::canvas
         // ── Shader creation ──────────────────────────────────────────────
         std::shared_ptr<Shader> createShader(const ShaderDefinition& definition,
             const std::string& sourceCode = "") override;
+        std::shared_ptr<Shader> createShaderFromCode(const ShaderDefinition& definition,
+            const ShaderCode& code) override;
 
         // ── Resource creation ────────────────────────────────────────────
         std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture* texture) override;

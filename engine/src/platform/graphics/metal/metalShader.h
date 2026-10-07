@@ -10,6 +10,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <vector>
 #include <Metal/Metal.hpp>
 #include <Foundation/NSBundle.hpp>
 
@@ -33,9 +34,23 @@ namespace visutwin::canvas
     {
     public:
         MetalShader(GraphicsDevice* graphicsDevice, const ShaderDefinition& definition, std::string sourceCode = "");
+        /// From a compiled Metal library (a metallib's bytes), loaded at once.
+        MetalShader(GraphicsDevice* graphicsDevice, const ShaderDefinition& definition,
+            const std::vector<uint8_t>& library);
         ~MetalShader() override;
 
         MTL::Library* getLibrary(MTL::Device* device, const NS::Bundle* bundle, NS::Error** error);
+
+        /// The entry point `name` from `library`. With specializeFeatures() the
+        /// definition's feature words are supplied as function constants 0..N-1, the
+        /// twin of the Vulkan backend's specialization constants, so a library compiled
+        /// once serves every variant. Null (and `error` set) when the function is missing.
+        MTL::Function* newFunction(MTL::Library* library, const std::string& name, NS::Error** error) const;
+
+        /// Whether newFunction binds the feature words as function constants. Off for a
+        /// shader whose source carries its variant as preprocessor defines.
+        void setSpecializeFeatures(const bool value) { _specializeFeatures = value; }
+        [[nodiscard]] bool specializesFeatures() const { return _specializeFeatures; }
 
     private:
         // The compile started at construction. Shared with its completion handler, which
@@ -57,5 +72,6 @@ namespace visutwin::canvas
         std::unordered_map<MTL::Device*, MTL::Library*> _libraries;
         std::shared_ptr<Compile> _compile;
         MTL::Device* _compileDevice = nullptr;
+        bool _specializeFeatures = false;
     };
 }

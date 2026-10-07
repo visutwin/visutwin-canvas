@@ -200,6 +200,13 @@ namespace visutwin::canvas
         return std::make_shared<Shader>(this, definition);
     }
 
+    std::shared_ptr<Shader> GraphicsDevice::createShaderFromCode(const ShaderDefinition& definition,
+        const ShaderCode& /*code*/)
+    {
+        VT_DEVICE_FEATURE_UNSUPPORTED("createShaderFromCode");
+        return std::make_shared<Shader>(this, definition);
+    }
+
     void GraphicsDevice::clearVertexBuffer()
     {
         _vertexBuffers.clear();

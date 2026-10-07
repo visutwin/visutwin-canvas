@@ -42,6 +42,11 @@ option(VISUTWIN_BACKEND_VULKAN "Enable Vulkan backend" ${_VISUTWIN_VULKAN_DEFAUL
 # application supplies one. This option only decides whether the Jolt-backed
 # implementation is compiled in alongside it.
 option(VISUTWIN_PHYSICS_JOLT "Build the Jolt Physics backend" ON)
+# The Slang compiler library (vcpkg `shader-slang`, a prebuilt dynamic library). It is
+# the single-source shader toolchain: one Slang module is compiled to MSL for Metal and
+# to SPIR-V for Vulkan, at build time into the shader bundles and at run time for chunk
+# overrides. Degrades to a warning when the package is missing, like the physics backend.
+option(VISUTWIN_SHADER_SLANG "Compile Slang shaders (requires the shader-slang package)" ON)
 
 # Static by default; several sibling projects consume this engine, and a shared
 # build gives each of them one 16 MB dylib to link instead of its own copy of a
@@ -158,6 +163,16 @@ if(VISUTWIN_PHYSICS_JOLT)
             "VISUTWIN_PHYSICS_JOLT is ON but the joltphysics package was not found; "
             "building without a physics backend")
         set(VISUTWIN_PHYSICS_JOLT OFF)
+    endif()
+endif()
+
+if(VISUTWIN_SHADER_SLANG)
+    find_package(slang CONFIG QUIET)
+    if(NOT TARGET slang::slang)
+        message(WARNING
+            "VISUTWIN_SHADER_SLANG is ON but the shader-slang package was not found; "
+            "building without the Slang shader compiler")
+        set(VISUTWIN_SHADER_SLANG OFF)
     endif()
 endif()
 
@@ -465,6 +480,13 @@ if(VISUTWIN_BACKEND_VULKAN)
     else()
         message(STATUS "shaderc not found - runtime custom GLSL is disabled")
     endif()
+endif()
+
+# ── Slang shader compiler ─────────────────────────────────────────────
+if(VISUTWIN_SHADER_SLANG)
+    target_compile_definitions(visutwin-canvas PUBLIC VISUTWIN_HAS_SLANG)
+    target_link_libraries(visutwin-canvas PUBLIC slang::slang)
+    message(STATUS "Slang shader compiler enabled")
 endif()
 
 # ── Install and export ────────────────────────────────────────────────

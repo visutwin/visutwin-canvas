@@ -16,7 +16,8 @@
     { "name": "assimp"                                },
     { "name": "boost-core"                            },
     { "name": "imgui",          "features": ["sdl3-binding", { "name": "metal-binding", "platform": "osx" }, "docking-experimental"] },
-    { "name": "implot"                               }
+    { "name": "implot"                               },
+    { "name": "shader-slang"                         }
   ],
   "features": {
     "basisu-transcoder": {

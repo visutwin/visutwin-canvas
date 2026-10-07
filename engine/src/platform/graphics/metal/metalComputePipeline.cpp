@@ -68,9 +68,10 @@ namespace visutwin::canvas
 
         library->retain();
         const auto& computeEntry = shader->computeEntry().empty() ? std::string("computeMain") : shader->computeEntry();
-        auto* computeFunction = library->newFunction(NS::String::string(computeEntry.c_str(), NS::UTF8StringEncoding));
+        auto* computeFunction = metalShader->newFunction(library, computeEntry, &error);
         if (!computeFunction) {
-            spdlog::error("Failed to find compute shader entry point '{}'", computeEntry);
+            spdlog::error("Failed to find compute shader entry point '{}': {}", computeEntry,
+                (error && error->localizedDescription()) ? error->localizedDescription()->utf8String() : "not found");
             library->release();
             return nullptr;
         }

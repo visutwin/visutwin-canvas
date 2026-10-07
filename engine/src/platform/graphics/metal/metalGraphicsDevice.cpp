@@ -727,6 +727,23 @@ namespace visutwin::canvas
         return std::make_shared<MetalShader>(this, definition, sourceCode);
     }
 
+    std::shared_ptr<Shader> MetalGraphicsDevice::createShaderFromCode(const ShaderDefinition& definition,
+        const ShaderCode& code)
+    {
+        std::shared_ptr<MetalShader> shader;
+        if (!code.metalLibrary.empty()) {
+            shader = std::make_shared<MetalShader>(this, definition, code.metalLibrary);
+        } else if (!code.metalSource.empty()) {
+            shader = std::make_shared<MetalShader>(this, definition, code.metalSource);
+        } else {
+            spdlog::error("MetalGraphicsDevice::createShaderFromCode('{}'): no MSL source and no metallib",
+                definition.name);
+            return nullptr;
+        }
+        shader->setSpecializeFeatures(code.specializeFeatures);
+        return shader;
+    }
+
     std::unique_ptr<gpu::HardwareTexture> MetalGraphicsDevice::createGPUTexture(Texture* texture)
     {
         auto hwTexture = std::make_unique<gpu::MetalTexture>(texture);

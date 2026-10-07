@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "platform/graphics/shaderFeatures.h"
 
@@ -24,6 +25,23 @@ namespace visutwin::canvas
         // Backend-independent feature selection resolved by ProgramLibrary.
         // Metal emits these as defines; Vulkan uses specialization constants.
         ShaderFeatureSet features;
+    };
+
+    /**
+     * @brief Compiled shader code for GraphicsDevice::createShaderFromCode, one field per
+     * backend: Metal takes MSL source or a metallib, Vulkan takes SPIR-V per stage. The
+     * SlangCompiler produces both from one module. With `specializeFeatures` the
+     * definition's feature words are bound as specialization constants (Vulkan) or
+     * function constants (Metal) at pipeline creation, ids 0..kShaderFeatureWordCount-1.
+     */
+    struct ShaderCode
+    {
+        std::string metalSource;
+        std::vector<uint8_t> metalLibrary;
+        std::vector<uint32_t> vertexSpirv;
+        std::vector<uint32_t> fragmentSpirv;
+        std::vector<uint32_t> computeSpirv;
+        bool specializeFeatures = true;
     };
 
     class GraphicsDevice;
@@ -44,6 +62,7 @@ namespace visutwin::canvas
         const std::string& fragmentEntry() const { return _definition.fshader; }
         const std::string& computeEntry() const { return _definition.cshader; }
         const std::string& name() const { return _definition.name; }
+        const ShaderFeatureSet& features() const { return _definition.features; }
         GraphicsDevice* graphicsDevice() const { return _device; }
 
     private:

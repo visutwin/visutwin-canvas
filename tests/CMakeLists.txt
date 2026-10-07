@@ -42,6 +42,16 @@ if(VISUTWIN_BACKEND_VULKAN)
         LABELS vulkan smoke TIMEOUT 60)
 endif()
 
+# The Slang compiler wrapper (tests/slangCompilerTests.cpp): one module compiled to
+# SPIR-V, MSL and WGSL with the specialization constant and the per-target bindings
+# each backend relies on. And one module DRAWN on this build's real device through
+# createShaderFromCode (tests/slangGpuTests.cpp): matrix layout, the feature word as a
+# function / specialization constant, the quad path's bindings; `gpu` label.
+if(VISUTWIN_SHADER_SLANG)
+    visutwin_add_unit_test(visutwin-slang-compiler-tests slang-compiler slangCompilerTests.cpp)
+    visutwin_add_unit_test(visutwin-slang-gpu-tests slang-gpu slangGpuTests.cpp LABELS gpu TIMEOUT 120)
+endif()
+
 # Golden images (tools/golden_images.py): renders deterministic examples with this
 # build's backend and compares them with tests/golden/<backend>/<ratio>x/, the set for the
 # back buffer's pixel ratio. It needs a GPU, a

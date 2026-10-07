@@ -5,6 +5,8 @@
 //
 #include "metalShader.h"
 
+#include <dispatch/dispatch.h>
+
 #include "metalGraphicsDevice.h"
 #include "spdlog/spdlog.h"
 
@@ -41,6 +43,31 @@ namespace visutwin::canvas
         compileOptions->release();
     }
 
+    MetalShader::MetalShader(GraphicsDevice* graphicsDevice, const ShaderDefinition& definition,
+        const std::vector<uint8_t>& library)
+        : Shader(graphicsDevice, definition)
+    {
+        auto* metalDevice = dynamic_cast<MetalGraphicsDevice*>(graphicsDevice);
+        MTL::Device* device = metalDevice ? metalDevice->raw() : nullptr;
+        if (!device || library.empty()) {
+            return;
+        }
+        // dispatch_data_create copies the bytes (DISPATCH_DATA_DESTRUCTOR_DEFAULT), so
+        // the caller's vector may go.
+        dispatch_data_t data = dispatch_data_create(library.data(), library.size(), nullptr,
+            DISPATCH_DATA_DESTRUCTOR_DEFAULT);
+        NS::Error* error = nullptr;
+        MTL::Library* loaded = device->newLibrary(data, &error);
+        dispatch_release(data);
+        if (loaded) {
+            _libraries[device] = loaded;
+        } else {
+            reportCompileFailure(std::string("metallib rejected: ") +
+                ((error && error->localizedDescription()) ? error->localizedDescription()->utf8String()
+                                                           : "unknown error"));
+        }
+    }
+
     MetalShader::~MetalShader()
     {
         if (_compile) {
@@ -57,6 +84,26 @@ namespace visutwin::canvas
                 library->release();
             }
         }
+    }
+
+    MTL::Function* MetalShader::newFunction(MTL::Library* library, const std::string& name, NS::Error** error) const
+    {
+        if (!library) {
+            return nullptr;
+        }
+        auto* functionName = NS::String::string(name.c_str(), NS::UTF8StringEncoding);
+        if (!_specializeFeatures) {
+            return library->newFunction(functionName);
+        }
+        // One constant per feature word, index i = word i, as the Vulkan pipeline's
+        // VkSpecializationMapEntry table and the vtFeatureMask<N> declarations.
+        auto* constants = MTL::FunctionConstantValues::alloc()->init();
+        const auto& words = features().words();
+        constants->setConstantValues(words.data(), MTL::DataTypeUInt,
+            NS::Range::Make(0, static_cast<NS::UInteger>(words.size())));
+        MTL::Function* function = library->newFunction(functionName, constants, error);
+        constants->release();
+        return function;
     }
 
     MTL::CompileOptions* MetalShader::newCompileOptions() const

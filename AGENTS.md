@@ -201,6 +201,24 @@ always there, and the option degrades to a warning if the package is missing.
 
 **Vulkan (`vulkan` feature):** vulkan-headers, vulkan-memory-allocator, vk-bootstrap
 
+**Shader compiler:** shader-slang (a prebuilt DYNAMIC library whatever the triplet; its
+standard module sits beside it in `lib/`). `VISUTWIN_SHADER_SLANG` (ON) finds it and degrades
+to a warning when missing. It is the single-source shader toolchain being migrated to (plan
+in the local `docs/slang-shader-migration-plan.md`; phase 0 landed 2026-10-07): one Slang
+module compiled to MSL for Metal and SPIR-V for Vulkan by `SlangCompiler`
+(`platform/graphics/slangCompiler.h`), handed to a backend through
+`GraphicsDevice::createShaderFromCode(ShaderDefinition, ShaderCode)`. Rules that bind
+already: a module declares every binding with BOTH `register(bN/tN/sN)`, which is the METAL
+slot (Metal ignores `vk::binding`, and a sampler index above 15 fails Apple's compiler), and
+`[[vk::binding(binding, set)]]`, which is the Vulkan and WGSL one; a vertex input's
+`[[vk::location(n)]]` is its Metal attribute index as well; the feature words are
+`[[vk::constant_id(N)]] const uint vtFeatureMaskN`, bound from `ShaderDefinition::features`
+as Vulkan specialization constants and Metal FUNCTION constants (`MetalShader::newFunction`,
+on when `ShaderCode::specializeFeatures`), so one compiled library serves every variant;
+matrices are column-major (the compiler sets it; `mul(M, v)` reads M as columns).
+`tests/slangCompilerTests.cpp` holds the targets, `tests/slangGpuTests.cpp` (`gpu`) draws
+one module on this build's device and pins the variant, the layout and the bindings.
+
 ## Graphics Backends
 
 Two production backends behind one `GraphicsDevice` abstraction, plus one planned.
