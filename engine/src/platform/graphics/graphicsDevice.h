@@ -118,7 +118,7 @@ namespace visutwin::canvas
     };
     static_assert(sizeof(GpuParticle) == 64);
 
-    /// Mirrors the particle simulation kernel's parameter block (particleSimShaders.h).
+    /// Mirrors the particle simulation kernel's parameter block (engine/shaders/slang/programs/particle-sim.slang).
     struct GpuParticleSimParams
     {
         Matrix4 emitterTransform;   // world transform for spawn (identity in local space)

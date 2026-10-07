@@ -12,7 +12,7 @@
 
 #include "cookieBlitShaders.h"
 #include "lightCamera.h"
-#include "scene/graphics/quadShader.h"
+#include "scene/shader-lib/slangShaders.h"
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/depthState.h"
 #include "platform/graphics/graphicsDevice.h"
@@ -92,13 +92,7 @@ namespace visutwin::canvas
             return shader;
         }
         GraphicsDevice* device = this->device().get();
-        const char* cacheKey = cube ? "cookie-blit-cube-quad" : "cookie-blit-2d-quad";
-        shader = getOrCreateQuadShader(device, cacheKey, "cookieBlitVertex", "cookieBlitFragment",
-            [cube](const bool glsl) {
-                const std::string define = cube ? "#define SRC_CUBE 1\n" : "";
-                return glsl ? "#version 450\n" + define + cookie_shaders::COOKIE_BLIT_GLSL
-                            : define + cookie_shaders::COOKIE_BLIT_MSL;
-            });
+        shader = getOrCreateSlangShader(device, "cookie-blit", cube ? "cube" : "2d");
         return shader;
     }
 

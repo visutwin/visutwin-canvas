@@ -56,6 +56,11 @@ namespace visutwin::canvas
             const std::string& vertexEntry, const std::string& fragmentEntry,
             const ShaderSourceSet& sources);
 
+        /// Over a shader built elsewhere (an engine Slang program, getOrCreateSlangShader),
+        /// which carries its own entry points. A null shader leaves the material without an
+        /// override, as a missing source does.
+        ShaderMaterial(const std::string& uniqueName, const std::shared_ptr<Shader>& shader);
+
     private:
         void createShaderOverride(const std::shared_ptr<GraphicsDevice>& device,
             const std::string& uniqueName, const std::string& vertexEntry,

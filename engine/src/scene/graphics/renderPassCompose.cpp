@@ -4,8 +4,8 @@
 // Created by Arnis Lektauers on 21.03.2026
 //
 // The post chain, drawn once through QuadRender rather than through a device
-// virtual implemented separately per backend. Shader sources (MSL + GLSL) and
-// the shared uniform layout live in composeShaders.h.
+// virtual implemented separately per backend. The shader is the Slang program
+// compose.slang; its uniform layout lives in composeShaders.h.
 //
 #include "renderPassCompose.h"
 
@@ -19,7 +19,7 @@ namespace visutwin::canvas
     void RenderPassCompose::prepareShaders()
     {
         if (!shader()) {
-            useCachedShader("compose-quad", "composeVertex", "composeFragment", compose_shaders::COMPOSE_MSL, compose_shaders::COMPOSE_GLSL);
+            useSlangShader("compose");
         }
     }
 
@@ -103,7 +103,7 @@ namespace visutwin::canvas
         uniforms.lutIntensity2 = c.colorLUTIntensity2;
         uniforms.lutBlend = c.colorLUTBlend;
 
-        // Slots match the shader declarations in composeShaders.h. 6 and 7 carry the
+        // Slots match the input declarations in compose.slang. 6 and 7 carry the
         // multi-pass DOF's CoC and blur; when both are bound the shader reads them
         // instead of running its single-pass depth blur.
         const bool multipassDof = _cocTexture != nullptr && _blurTexture != nullptr;

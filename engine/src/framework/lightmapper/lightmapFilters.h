@@ -22,7 +22,7 @@ namespace visutwin::canvas::lightmap_filters
     /// loop bound has to match.
     inline constexpr int kDenoiseFilterSize = 15;
 
-    /// The uniform block of every lightmap filter pass (lightmapFilterShaders.h). The
+    /// The uniform block of every lightmap filter pass (engine/shaders/slang/programs/lightmap-filter.slang). The
     /// kernel is 15 floats, stored as four vec4s because a GLSL std140 float array would
     /// put each element on its own 16 bytes.
     struct alignas(16) LightmapFilterUniforms

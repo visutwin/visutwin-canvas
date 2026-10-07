@@ -13,6 +13,7 @@
 #include "platform/graphics/shader.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "platform/graphics/vertexFormat.h"
+#include "scene/shader-lib/slangShaders.h"
 
 namespace visutwin::canvas
 {
@@ -21,23 +22,6 @@ namespace visutwin::canvas
         constexpr int kInstanceSize = 80;    // InstanceData: model matrix + colour
         constexpr int kDrawArgsSize = 20;    // indexed-indirect arguments
 
-        // One shader per kernel per device, shared by every culler.
-        std::shared_ptr<Shader> cullKernel(GraphicsDevice* device, const char* cacheKey, const char* entry,
-            const char* glsl)
-        {
-            if (auto cached = device->getCachedShader(cacheKey)) {
-                return cached;
-            }
-            ShaderDefinition definition;
-            definition.name = cacheKey;
-            definition.cshader = entry;
-            auto shader = createShader(device, definition,
-                device->shaderLanguage() == ShaderLanguage::Glsl ? glsl : instance_cull_shaders::INSTANCE_CULL_MSL);
-            if (shader) {
-                device->setCachedShader(cacheKey, shader);
-            }
-            return shader;
-        }
 
         std::shared_ptr<VertexBuffer> zeroedBuffer(GraphicsDevice* device, const int stride, const int count)
         {
@@ -61,9 +45,9 @@ namespace visutwin::canvas
             _unavailable = true;
             return false;
         }
-        _resetShader = cullKernel(_device, "instance-cull-reset", "instanceCullReset",
-            instance_cull_shaders::INSTANCE_CULL_RESET_GLSL);
-        _cullShader = cullKernel(_device, "instance-cull", "instanceCull", instance_cull_shaders::INSTANCE_CULL_GLSL);
+        // One shader per kernel per device, shared by every culler.
+        _resetShader = getOrCreateSlangShader(_device, "instance-cull-reset");
+        _cullShader = getOrCreateSlangShader(_device, "instance-cull");
         _args = zeroedBuffer(_device, kDrawArgsSize, 1);
         if (!_resetShader || !_cullShader || !_args) {
             spdlog::error("[InstanceCuller] GPU culling unavailable: kernels or buffers could not be created");

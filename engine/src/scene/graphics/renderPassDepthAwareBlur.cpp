@@ -6,7 +6,6 @@
 //
 #include "renderPassDepthAwareBlur.h"
 
-#include "scene/graphics/quadShaderSource.h"
 #include "framework/components/camera/cameraComponent.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/shader.h"
@@ -23,134 +22,6 @@ namespace visutwin::canvas
         };
         static_assert(sizeof(BlurUniforms) == 32);
 
-        // Bilateral blur that respects depth discontinuities, so AO does not halo
-        // across silhouettes. Direction is a uniform rather than two compiled
-        // variants (the Metal pass carried a HORIZONTAL/VERTICAL source pair).
-        constexpr const char* BLUR_MSL = VT_QUAD_MSL_PRELUDE R"(
-
-struct BlurUniforms {
-    float4 invResAndDir;
-    float4 params;
-};
-)" VT_QUAD_MSL_VERTEX(blurVertex) R"(
-static inline float getLinearDepth(float rawDepth, float cameraNear, float cameraFar)
-{
-    return (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
-}
-
-// Point-sampled depth. These passes reconstruct view-space positions from depth,
-// and a bilinear tap straddling a silhouette returns a depth that belongs to
-// NEITHER surface — a position in mid-air that the kernel then treats as real.
-// The Vulkan side binds a nearest sampler for the same reason.
-constexpr sampler blurDepthSampler(coord::normalized, filter::nearest,
-                                   mip_filter::none, address::clamp_to_edge);
-
-static inline float bilateralWeight(float depth, float sampleDepth)
-{
-    float diff = (sampleDepth - depth);
-    return max(0.0, 1.0 - diff * diff);
-}
-
-fragment float4 blurFragment(
-    QuadVarying in [[stage_in]],
-    texture2d<float> sourceTexture [[texture(0)]],
-    depth2d<float> depthTexture [[texture(1)]],
-    sampler linearSampler [[sampler(0)]],
-    constant BlurUniforms& u [[buffer(3)]])
-{
-    const float2 sourceInvResolution = u.invResAndDir.xy;
-    const float2 direction = u.invResAndDir.zw;
-    const int filterSize = int(u.params.x);
-    const float cameraNear = u.params.y;
-    const float cameraFar = u.params.z;
-
-    const float2 uv = clamp(in.uv, float2(0.0), float2(1.0));
-
-    // handle the center pixel separately because it doesn't participate in bilateral filtering
-    float depth = getLinearDepth(depthTexture.sample(blurDepthSampler, uv), cameraNear, cameraFar);
-    float totalWeight = 1.0;
-    float color = sourceTexture.sample(linearSampler, uv).r;
-    float sum = color * totalWeight;
-
-    // Gaussian sigma: filterSize / 3 gives ~99.7% of the bell within the kernel
-    float sigma = max(float(filterSize) / 3.0, 1.0);
-    float invSigma2 = 1.0 / (2.0 * sigma * sigma);
-
-    for (int i = -filterSize; i <= filterSize; i++) {
-        // The center pixel is pre-seeded above; tapping it again would double-count it.
-        if (i == 0) { continue; }
-        float weight = exp(-float(i * i) * invSigma2);
-        float2 offset = direction * float(i) * sourceInvResolution;
-        float2 position = uv + offset;
-
-        float tapColor = sourceTexture.sample(linearSampler, position).r;
-        float textureDepth = getLinearDepth(depthTexture.sample(blurDepthSampler, position), cameraNear, cameraFar);
-        float bilateral = bilateralWeight(depth, textureDepth) * weight;
-        sum += tapColor * bilateral;
-        totalWeight += bilateral;
-    }
-
-    float ao = sum / totalWeight;
-    return float4(ao, 0.0, 0.0, 1.0);
-}
-)";
-
-        constexpr const char* BLUR_GLSL = R"(
-#version 450
-
-)" VT_QUAD_GLSL_VERTEX R"(
-#ifdef VT_FRAGMENT_SHADER
-layout(set = 0, binding = 0) uniform BlurUniforms {
-    vec4 invResAndDir;
-    vec4 params;
-} u;
-layout(set = 1, binding = 0) uniform sampler2D sourceTexture;
-layout(set = 1, binding = 1) uniform sampler2D depthTexture;
-layout(location = 0) in vec2 vUv;
-layout(location = 0) out vec4 fragColor;
-
-float getLinearDepth(float rawDepth, float cameraNear, float cameraFar) {
-    return (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
-}
-
-float bilateralWeight(float depth, float sampleDepth) {
-    float diff = (sampleDepth - depth);
-    return max(0.0, 1.0 - diff * diff);
-}
-
-void main() {
-    vec2 sourceInvResolution = u.invResAndDir.xy;
-    vec2 direction = u.invResAndDir.zw;
-    int filterSize = int(u.params.x);
-    float cameraNear = u.params.y;
-    float cameraFar = u.params.z;
-
-    vec2 uv = clamp(vUv, vec2(0.0), vec2(1.0));
-
-    float depth = getLinearDepth(texture(depthTexture, uv).r, cameraNear, cameraFar);
-    float totalWeight = 1.0;
-    float color = texture(sourceTexture, uv).r;
-    float sum = color * totalWeight;
-
-    float sigma = max(float(filterSize) / 3.0, 1.0);
-    float invSigma2 = 1.0 / (2.0 * sigma * sigma);
-
-    for (int i = -filterSize; i <= filterSize; i++) {
-        if (i == 0) { continue; }
-        float weight = exp(-float(i * i) * invSigma2);
-        vec2 position = uv + direction * float(i) * sourceInvResolution;
-
-        float tapColor = texture(sourceTexture, position).r;
-        float textureDepth = getLinearDepth(texture(depthTexture, position).r, cameraNear, cameraFar);
-        float bilateral = bilateralWeight(depth, textureDepth) * weight;
-        sum += tapColor * bilateral;
-        totalWeight += bilateral;
-    }
-
-    fragColor = vec4(sum / totalWeight, 0.0, 0.0, 1.0);
-}
-#endif
-)";
     }
 
     RenderPassDepthAwareBlur::RenderPassDepthAwareBlur(const std::shared_ptr<GraphicsDevice>& device,
@@ -163,7 +34,7 @@ void main() {
     void RenderPassDepthAwareBlur::prepareShaders()
     {
         if (!shader()) {
-            useCachedShader("depth-aware-blur-quad", "blurVertex", "blurFragment", BLUR_MSL, BLUR_GLSL);
+            useSlangShader("depth-aware-blur");
         }
     }
 

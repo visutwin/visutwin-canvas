@@ -11,11 +11,11 @@
 
 #include <spdlog/spdlog.h>
 
-#include "render2dShaders.h"
 #include "core/shape/boundingBox.h"
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/depthState.h"
 #include "platform/graphics/graphicsDevice.h"
+#include "scene/shader-lib/slangShaders.h"
 #include "scene/graphNode.h"
 #include "scene/layer.h"
 #include "scene/mesh.h"
@@ -24,8 +24,7 @@
 namespace visutwin::canvas
 {
     Render2dMaterial::Render2dMaterial(const std::shared_ptr<GraphicsDevice>& device)
-        : ShaderMaterial(device, "render2d", render2d::kVertexEntry, render2d::kFragmentEntry,
-                         ShaderSourceSet{.msl = render2d::kMsl, .glsl = render2d::kGlsl})
+        : ShaderMaterial("render2d", getOrCreateSlangShader(device.get(), "render2d"))
     {
         // Alpha mode first: it resets the blend and depth state set after it.
         setAlphaMode(AlphaMode::BLEND);

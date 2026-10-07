@@ -26,7 +26,17 @@ import subprocess
 import sys
 from pathlib import Path
 
-ENTRY_RE = re.compile(r'\[shader\("(vertex|fragment|compute)"\)\]\s*\n?\s*[\w<>:]+\s+(\w+)\s*\(')
+# `[shader("stage")]`, any further attributes (a compute entry's `[numthreads(...)]`), the
+# return type, the name.
+ENTRY_RE = re.compile(r'\[shader\("(vertex|fragment|compute)"\)\]\s*(?:\[[^\]]*\]\s*)*[\w<>:]+\s+(\w+)\s*\(')
+# `// @variant <name>: DEFINE=value DEFINE2` — one compile per line, with those defines; a
+# program with no such line is compiled once, as variant "".
+VARIANT_RE = re.compile(r'^//\s*@variant\s+([\w.-]+)\s*:(.*)$', re.MULTILINE)
+
+
+def variants_of(source: str) -> list[tuple[str, list[str]]]:
+    found = [(m.group(1), m.group(2).split()) for m in VARIANT_RE.finditer(source)]
+    return found if found else [("", [])]
 STAGE_FLAG = {"vertex": "vertex", "fragment": "fragment", "compute": "compute"}
 
 
@@ -97,6 +107,7 @@ def main() -> None:
         "    struct Program",
         "    {",
         "        const char* name;",
+        "        const char* variant;        // \"\" for a program without @variant lines",
         "        const char* vertexEntry;    // empty when the program has no such stage",
         "        const char* fragmentEntry;",
         "        const char* computeEntry;",
@@ -121,67 +132,72 @@ def main() -> None:
         found = {stage: entry for stage, entry in ENTRY_RE.findall(source)}
         if not found:
             raise RuntimeError(f"{program}: no [shader(...)] entry points found")
-        ident = "k" + camel(name)
-        fields = {"metalSource": '""', "metalLibrary": "nullptr, 0"}
-        spirv = {}
-        if "metal" in targets:
-            msl_path = args.work_dir / f"{name}.metal"
-            command = common + [str(program), "-target", "metal", "-o", str(msl_path)]
-            for stage, entry in found.items():
-                command += ["-entry", entry, "-stage", STAGE_FLAG[stage]]
-            run(command)
-            out.append(f"    inline constexpr char {ident}Msl[] = {raw_string(msl_path.read_text())};")
-            fields["metalSource"] = f"{ident}Msl"
-            # The same program compiled by Apple's compiler (slangc runs it), so the Metal
-            # backend loads a library instead of compiling MSL on first use.
-            lib_path = args.work_dir / f"{name}.metallib"
-            command = common + [str(program), "-target", "metallib", "-o", str(lib_path)]
-            for stage, entry in found.items():
-                command += ["-entry", entry, "-stage", STAGE_FLAG[stage]]
-            run(command)
-            data = lib_path.read_bytes()
-            if data[:4] != b"MTLB":
-                raise RuntimeError(f"{lib_path}: not a metallib")
-            out.append(f"    inline constexpr uint8_t {ident}MetalLib[] = {{")
-            for i in range(0, len(data), 24):
-                out.append("    " + ", ".join(f"0x{b:02x}" for b in data[i:i + 24]) + ",")
-            out.append("    };")
-            fields["metalLibrary"] = f"{ident}MetalLib, sizeof({ident}MetalLib)"
-        if "spirv" in targets:
-            for stage, entry in found.items():
-                spv_path = args.work_dir / f"{name}.{stage}.spv"
-                run(common + [str(program), "-target", "spirv", "-entry", entry, "-stage", STAGE_FLAG[stage],
-                              "-o", str(spv_path)])
-                data = spv_path.read_bytes()
-                if data[:4] != b"\x03\x02\x23\x07":
-                    raise RuntimeError(f"{spv_path}: not SPIR-V")
-                array = f"{ident}{camel(stage)}Spirv"
-                out.append(f"    inline constexpr uint32_t {array}[] = {{")
-                out.append(words_literal(data))
+        for variant, defines in variants_of(source):
+            define_flags = []
+            for define in defines:
+                define_flags += ["-D" + define]
+            ident = "k" + camel(name) + (camel(variant.replace(".", "_")) if variant else "")
+            stem = name + (f"@{variant}" if variant else "")
+            fields = {"metalSource": '""', "metalLibrary": "nullptr, 0"}
+            spirv = {}
+            if "metal" in targets:
+                msl_path = args.work_dir / f"{stem}.metal"
+                command = common + define_flags + ["-DVT_TARGET_METAL"] + [str(program), "-target", "metal", "-o", str(msl_path)]
+                for stage, entry in found.items():
+                    command += ["-entry", entry, "-stage", STAGE_FLAG[stage]]
+                run(command)
+                out.append(f"    inline constexpr char {ident}Msl[] = {raw_string(msl_path.read_text())};")
+                fields["metalSource"] = f"{ident}Msl"
+                # The same program compiled by Apple's compiler (slangc runs it), so the Metal
+                # backend loads a library instead of compiling MSL on first use.
+                lib_path = args.work_dir / f"{stem}.metallib"
+                command = common + define_flags + ["-DVT_TARGET_METAL"] + [str(program), "-target", "metallib", "-o", str(lib_path)]
+                for stage, entry in found.items():
+                    command += ["-entry", entry, "-stage", STAGE_FLAG[stage]]
+                run(command)
+                data = lib_path.read_bytes()
+                if data[:4] != b"MTLB":
+                    raise RuntimeError(f"{lib_path}: not a metallib")
+                out.append(f"    inline constexpr uint8_t {ident}MetalLib[] = {{")
+                for i in range(0, len(data), 24):
+                    out.append("    " + ", ".join(f"0x{b:02x}" for b in data[i:i + 24]) + ",")
                 out.append("    };")
-                spirv[stage] = array
-        entry_names = {stage: f'"{found[stage]}"' if stage in found else '""'
-                       for stage in ("vertex", "fragment", "compute")}
-        spv_fields = []
-        for stage in ("vertex", "fragment", "compute"):
-            if stage in spirv:
-                spv_fields.append(f"{spirv[stage]}, sizeof({spirv[stage]}) / sizeof(uint32_t)")
-            else:
-                spv_fields.append("nullptr, 0")
-        entries.append(
-            f'        Program{{"{name}", {entry_names["vertex"]}, {entry_names["fragment"]}, {entry_names["compute"]}, '
-            f'{fields["metalSource"]}, {fields["metalLibrary"]}, {", ".join(spv_fields)}}},')
-        out.append("")
+                fields["metalLibrary"] = f"{ident}MetalLib, sizeof({ident}MetalLib)"
+            if "spirv" in targets:
+                for stage, entry in found.items():
+                    spv_path = args.work_dir / f"{stem}.{stage}.spv"
+                    run(common + define_flags + [str(program), "-target", "spirv", "-entry", entry,
+                                                 "-stage", STAGE_FLAG[stage], "-o", str(spv_path)])
+                    data = spv_path.read_bytes()
+                    if data[:4] != b"\x03\x02\x23\x07":
+                        raise RuntimeError(f"{spv_path}: not SPIR-V")
+                    array = f"{ident}{camel(stage)}Spirv"
+                    out.append(f"    inline constexpr uint32_t {array}[] = {{")
+                    out.append(words_literal(data))
+                    out.append("    };")
+                    spirv[stage] = array
+            entry_names = {stage: f'"{found[stage]}"' if stage in found else '""'
+                           for stage in ("vertex", "fragment", "compute")}
+            spv_fields = []
+            for stage in ("vertex", "fragment", "compute"):
+                if stage in spirv:
+                    spv_fields.append(f"{spirv[stage]}, sizeof({spirv[stage]}) / sizeof(uint32_t)")
+                else:
+                    spv_fields.append("nullptr, 0")
+            entries.append(
+                f'        Program{{"{name}", "{variant}", {entry_names["vertex"]}, {entry_names["fragment"]}, '
+                f'{entry_names["compute"]}, {fields["metalSource"]}, {fields["metalLibrary"]}, {", ".join(spv_fields)}}},')
+            out.append("")
 
     out += [
         f"    inline constexpr std::array<Program, {len(entries)}> kPrograms = {{{{",
         *entries,
         "    }};",
         "",
-        "    inline const Program* findProgram(const std::string_view name)",
+        "    inline const Program* findProgram(const std::string_view name, const std::string_view variant = {})",
         "    {",
         "        for (const auto& program : kPrograms) {",
-        "            if (name == program.name) {",
+        "            if (name == program.name && variant == program.variant) {",
         "                return &program;",
         "            }",
         "        }",

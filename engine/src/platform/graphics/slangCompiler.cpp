@@ -197,9 +197,14 @@ namespace visutwin::canvas
         }
 
         std::vector<slang::PreprocessorMacroDesc> macros;
-        macros.reserve(request.defines.size());
+        macros.reserve(request.defines.size() + 1);
         for (const auto& [name, value] : request.defines) {
             macros.push_back({name.c_str(), value.c_str()});
+        }
+        // The target the declarations are laid out for: bindings.slang declares some inputs
+        // differently per backend (the build's bundle passes the same define to slangc).
+        if (request.target == SlangTarget::Msl || request.target == SlangTarget::MetalLib) {
+            macros.push_back({"VT_TARGET_METAL", "1"});
         }
         std::vector<const char*> searchPaths;
         searchPaths.reserve(request.searchPaths.size());

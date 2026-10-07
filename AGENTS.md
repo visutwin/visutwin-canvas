@@ -225,19 +225,49 @@ one module on this build's device and pins the variant, the layout and the bindi
 ## Single-source shaders (Slang)
 
 The migration from the twin MSL / GLSL trees to one Slang tree is under way (plan in the
-local `docs/slang-shader-migration-plan.md`; phases 0-2 done 2026-10-07). What binds now:
+local `docs/slang-shader-migration-plan.md`; phases 0-3 done 2026-10-07). Every effect pass,
+compute kernel, the gizmo, outline, HUD and wide-line shaders are Slang programs. Still
+hand-written in both languages: the forward and shadow programs and the particle and splat
+RENDER shaders, which splice the forward `common-tonemap` chunk (phase 4); marching cubes
+(Metal only: its API hands raw Metal buffers to visutwin-viz); and user custom shaders
+(`ShaderMaterial` with a `ShaderSourceSet`, `RenderPassShaderQuad::useCachedShader`).
+What binds now:
 
 - **A Slang program is `engine/shaders/slang/programs/<name>.slang`**, its shared code in
   `engine/shaders/slang/modules/` (`import vtquad;` — a module may not be called `quad`, the
   name collides with Slang's own), its bindings from the generated `bindings.slang`
-  (`#include "bindings.slang"`, then `VT_DECLARE_<row>` or `VT_DECLARE_QUAD_INPUTn(name)`).
-  Entry points are found from `[shader("vertex" | "fragment" | "compute")]`. A pass gets its
-  shader with `getOrCreateSlangShader(device, "<name>")` (`scene/shader-lib/slangShaders.h`),
-  cached on the device as `slang:<name>`. The bloom upsample is the first program.
+  (`#include "bindings.slang"`, then the `VT_DECLARE_*` macros below). Entry points are found
+  from `[shader("vertex" | "fragment" | "compute")]`, further attributes such as
+  `[numthreads]` allowed before the function. A pass gets its shader with
+  `getOrCreateSlangShader(device, "<name>", variant)` (`scene/shader-lib/slangShaders.h`),
+  cached on the device as `slang:<name>[@variant]`; a quad pass calls
+  `useSlangShader(program, variant)`, a mesh shader wraps it in
+  `ShaderMaterial(name, shader)` and reads its transforms through the `vtdraw` module.
+- **Variants are declared in the source**: one `// @variant <name>: DEFINE=value ...` line per
+  variant, each compiled with those defines by the bundle and by the runtime path. Test them
+  with `#if defined(X)`; `#if X` on an undefined name is a Slang warning (E15205).
 - **The build compiles every program** (`tools/generate_slang_bundle.py`, the vcpkg port's
   `slangc`) into `<build>/engine/generated/slang/slang_shader_bundle.h`: MSL source AND a
   precompiled metallib for Metal, SPIR-V per entry point for Vulkan, plus the
-  `bindings.slang` text. Every `.slang` under the tree is a dependency.
+  `bindings.slang` text. Every `.slang` under the tree is a dependency. `slangc -target metal`
+  does NOT validate what it emits; the metallib step (Apple's compiler) is what rejects a bad
+  binding, so check a new program by building, not by its MSL alone.
+- **`VT_TARGET_METAL` is defined for the Metal targets** (`SlangCompiler` adds it, the bundle
+  passes it), and `bindings.slang` declares some inputs per target under it. Prefer
+  `__target_switch` inside a function; use the define only where the DECLARATIONS must differ.
+- **Every Metal combined sampler owns a sampler slot**: Metal rejects two `[[sampler(n)]]`
+  arguments at one index, so the quad macros give input n the post sampler at 3 + n
+  (`VT_DECLARE_QUAD_INPUTn`, `_CUBE_INPUTn`) or the nearest sampler at 11 + n
+  (`_DEPTH_INPUTn`, `_POINT_INPUTn`, n < 5), and `MetalGraphicsDevice::bindDrawSampler` binds
+  both ranges for every quad draw, with the nearest sampler at 1 and the comparison sampler
+  at 2 (`VT_DECLARE_QUAD_COMPARE_SAMPLER`). The constants live in
+  `generate_shader_bindings.py` and `MetalTextureBinder` (`kQuadLinearSamplerBase` ...);
+  change both. A material row's sampler keeps its own slot (1-6).
+- **Two inputs differ per target.** `VT_DECLARE_QUAD_SHADOW_INPUTn` + `VT_SHADOW_COMPARE(name,
+  uv, ref)`: Metal compares in hardware (a bilinear PCF of four texels), Vulkan point-samples
+  and compares by hand, because its fragment stage has no comparison sampler to spare.
+  `VT_DECLARE_QUAD_TEXEL_INPUTn` is an input read only with `Load`: a plain image on Metal,
+  where `Load` through a combined sampler emits code Apple's compiler rejects.
 - **`VISUTWIN_SLANG_RUNTIME=1` compiles from the source tree instead** (found through
   `shaderSourceRoots()`, so `VISUTWIN_CANVAS_SHADERS=<dir>` points at another tree), through
   `SlangCompiler` with `bindings.slang` served from memory; Vulkan keeps that SPIR-V in its
@@ -248,9 +278,13 @@ local `docs/slang-shader-migration-plan.md`; phases 0-2 done 2026-10-07). What b
   the program's output changed, run through `VISUTWIN_SLANG_RUNTIME` and
   `VISUTWIN_CANVAS_SHADERS`, must change the frame on both backends. A pass that never runs
   matches its reference perfectly too.
-- On a combined `Sampler2D`, `register(tN)` is the Metal texture and `register(sK)` the Metal
-  sampler; a quad input's sampler is Metal's post sampler at 0, which the generated macros
-  carry.
+- **Slang spellings that differ from HLSL habit**: `float2x2(a, b, c, d)` is ROW-wise and
+  `*` on matrices is component-wise, so write a matrix-vector product out or use `mul`
+  (column-major layout: `mul(M, v)` reads M as columns); a Metal-only buffer still needs a
+  `[[vk::binding]]` (one SPIR-V never references) or Slang warns (E39029).
+- **Known per-backend differences kept in one source**: the fog shadow compare (above), and
+  the rounding of compose's ACES2, the particle spawn sphere and the wide-line dash modulo
+  follow the former MSL; Vulkan may differ from its former GLSL by a count where those did.
 
 ## Graphics Backends
 
@@ -708,17 +742,20 @@ them, so the build-time bundle and the runtime composition share one source.
   `common-tonemap`, so a minimal tonemap override does not drop them.
 
 **Fullscreen effects use `QuadRender`** (`scene/graphics/quadRender.h`), not
-device virtuals, and get their shader from `getOrCreateQuadShader` (`quadShader.h`: the
-device cache, the source built only on a miss) with the vertex stage, vertex input and
-`QuadVarying` from `quadShaderSource.h` (`VT_QUAD_MSL_PRELUDE`, `VT_QUAD_MSL_VERTEX(name)`,
-`VT_QUAD_GLSL_VERTEX`) rather than a copy of them. A quad pass is otherwise a shader,
+device virtuals. Every engine quad pass is a Slang program
+(`RenderPassShaderQuad::useSlangShader(program, variant)`, the vertex stage and
+`QuadVarying` from the `vtquad` module). A hand-written MSL + GLSL quad shader still goes
+through `getOrCreateQuadShader` (`quadShader.h`) with the prelude and vertex stage from
+`quadShaderSource.h`, which nothing in the engine uses any more but remains the route for a
+custom pass (`useCachedShader`). A quad pass is otherwise a shader,
 up to 8 input textures on fragment slots 0-7, and one uniform block. The block rides the per-draw MATERIAL slot (Metal buffer 3 / Vulkan
 set 0 binding 0) via `GraphicsDevice::setQuadUniformData`; `kPerDrawUniformCapacity`
 (640; `MaterialUniforms` itself is 560 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
 allocation behind it. A smaller block is copied into the front of a full-size
 allocation, so never shorten the allocation. Quad passes draw an oversized
 fullscreen TRIANGLE and, on Metal, bind `_postSampler` (linear, clamp, no anisotropy),
-not the scene sampler; Vulkan samples a quad input through the texture's own sampler.
+not the scene sampler, at slot 0 and at every input's own linear slot (see the
+single-source section); Vulkan samples a quad input through the texture's own sampler.
 **Both must reach a texture's MIPS**: Metal's post sampler has a linear mip filter because
 Metal's default ("not mipmapped") samples level 0 whatever `level()` asks for. Without it the
 env bake's Lambert convolution (LOD 4.5 and up) read the full-resolution cube, and an atlas
@@ -729,7 +766,7 @@ difference; the golden images stayed bit-identical.
 Migrated: VSM blur, volumetric fog, CoC, DOF blur, depth-aware blur, compose,
 SSAO, TAA, the whole env family (equirect-to-cube, reproject, convolve, atlas —
 see `scene/graphics/envBake.h`), and the GPU particle simulation, which runs
-over the generic `Compute` seam from `scene/particles/particleSimShaders.h`.
+over the generic `Compute` seam (the Slang program `particle-sim`).
 **The effect-pass migration is DONE.**
 
 What is still virtual is not debt. `copyRenderTarget` and `generateMipmaps` are
@@ -971,8 +1008,9 @@ present, but the rule below never depends on reading it.
   hardware filters a depth format at all is a per-format capability, so leaving it
   to the texture's own sampler gives linear taps on Metal and part-nearest taps on
   Vulkan. Vulkan binds `_shadowSampler` (nearest, clamp, mip-less) for any depth
-  texture in the quad path and the MSL passes declare their own point sampler
-  (`depthPointSampler`) — SSAO, the depth-aware blur, SSR, TAA, CoC, volumetric fog
+  texture in the quad path and Metal reads every depth input of a Slang quad program
+  through the nearest sampler at its point slot (`VT_DECLARE_QUAD_DEPTH_INPUTn`; the forward
+  chunks' SSR declares its own) — SSAO, the depth-aware blur, SSR, TAA, CoC, volumetric fog
   (march and combine) and compose's single-pass DOF fallback; none reads depth through
   the pass's LINEAR sampler. A tap that lands on a depth texel centre barely notices;
   it matters where a tap does not, as in the fog upsample's offset taps, which no
@@ -2120,7 +2158,7 @@ present, but the rule below never depends on reading it.
   frame fire both events twice a frame and feeds a grab-pass split the rewritten flag
   the next frame.
 - **GPU instance culling is ONE implementation, `ComputeInstanceCuller`, over `Compute`**
-  (kernels in `instanceCullShaders.h`); a backend gets it by supporting compute and
+  (the Slang programs `instance-cull-reset` and `instance-cull`); a backend gets it by supporting compute and
   indirect draws. `tests/gpuInstanceCullTests.cpp` (label `gpu`) culls on the real device
   and compares the read-back arguments and instances with a CPU cull; no example
   renders with GPU culling on.

@@ -12,7 +12,7 @@
 
 #include "depthOnlyDraw.h"
 #include "shadowCasterFiltering.h"
-#include "scene/graphics/quadShader.h"
+#include "scene/shader-lib/slangShaders.h"
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/depthState.h"
 #include "platform/graphics/graphicsDevice.h"
@@ -29,54 +29,11 @@ namespace visutwin::canvas
 {
     namespace
     {
-        // The clear "effect": a fullscreen triangle whose every fragment lands at
-        // depth 1.0. No colour output on purpose — the pass has no colour attachment,
-        // and a fragment stage that declares one anyway is a MoltenVK hazard that
-        // silently drops the depth write (see shadow.frag).
-        constexpr const char* kClearDepthMsl = R"(
-#include <metal_stdlib>
-using namespace metal;
-
-struct ComposeVertexIn {
-    float3 position [[attribute(0)]];
-    float3 normal [[attribute(1)]];
-    float2 uv0 [[attribute(2)]];
-    float4 tangent [[attribute(3)]];
-    float2 uv1 [[attribute(4)]];
-};
-
-struct ClearDepthVarying {
-    float4 position [[position]];
-};
-
-vertex ClearDepthVarying clearDepthVertex(ComposeVertexIn in [[stage_in]])
-{
-    ClearDepthVarying out;
-    out.position = float4(in.position.xy, 1.0, 1.0);
-    return out;
-}
-
-fragment void clearDepthFragment(ClearDepthVarying in [[stage_in]])
-{
-}
-)";
-
-        constexpr const char* kClearDepthGlsl = R"(#version 450
-
-#ifdef VT_VERTEX_SHADER
-layout(location = 0) in vec3 vertexPosition;
-void main() { gl_Position = vec4(vertexPosition.xy, 1.0, 1.0); }
-#endif
-
-#ifdef VT_FRAGMENT_SHADER
-void main() {}
-#endif
-)";
-
+        // The clear "effect": engine/shaders/slang/programs/clear-depth.slang, a
+        // fullscreen triangle whose every fragment lands at depth 1.0, with no colour output.
         std::shared_ptr<Shader> clearDepthShader(GraphicsDevice* device)
         {
-            return getOrCreateQuadShader(device, "clear-depth-quad", "clearDepthVertex", "clearDepthFragment",
-                kClearDepthMsl, kClearDepthGlsl);
+            return getOrCreateSlangShader(device, "clear-depth");
         }
     }
 

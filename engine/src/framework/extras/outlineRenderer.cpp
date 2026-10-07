@@ -7,8 +7,7 @@
 
 #include <algorithm>
 
-#include "scene/graphics/quadShaderSource.h"
-#include "scene/graphics/quadShader.h"
+#include "scene/shader-lib/slangShaders.h"
 #include "framework/engine.h"
 #include "scene/renderer/forwardRenderer.h"
 #include "framework/entity.h"
@@ -34,128 +33,7 @@ namespace visutwin::canvas
 {
     namespace
     {
-        // Separable outline extend: dilates the
-        // silhouette with a 5-tap max and marks color discontinuities in alpha. The offset
-        // direction and source-alpha multiplier are baked per variant (H then V) since quad
-        // passes carry no uniform data; the half-texel step comes from the texture size.
-        constexpr const char* OUTLINE_EXTEND_TEMPLATE = VT_QUAD_MSL_PRELUDE VT_QUAD_MSL_VERTEX(outlineExtendVertex) R"(
-fragment float4 outlineExtendFragment(
-    QuadVarying in [[stage_in]],
-    texture2d<float> source [[texture(0)]],
-    sampler linearSampler [[sampler(0)]])
-{
-    const float2 texel = float2(1.0 / float(source.get_width()), 1.0 / float(source.get_height()));
-    const float2 offset = float2(%DIR_X%, %DIR_Y%) * texel * 0.5;
-    const float srcMultiplier = %SRC_MULT%;
 
-    float4 texelValue = source.sample(linearSampler, in.uv);
-    const float4 firstTexel = texelValue;
-    float diff = texelValue.a * srcMultiplier;
-
-    float4 pixel = source.sample(linearSampler, in.uv + offset * -2.0);
-    texelValue = max(texelValue, pixel);
-    diff = max(diff, length(firstTexel.rgb - pixel.rgb));
-
-    pixel = source.sample(linearSampler, in.uv + offset * -1.0);
-    texelValue = max(texelValue, pixel);
-    diff = max(diff, length(firstTexel.rgb - pixel.rgb));
-
-    pixel = source.sample(linearSampler, in.uv + offset * 1.0);
-    texelValue = max(texelValue, pixel);
-    diff = max(diff, length(firstTexel.rgb - pixel.rgb));
-
-    pixel = source.sample(linearSampler, in.uv + offset * 2.0);
-    texelValue = max(texelValue, pixel);
-    diff = max(diff, length(firstTexel.rgb - pixel.rgb));
-
-    return float4(texelValue.rgb, min(diff, 1.0));
-}
-)";
-
-        // Blend the processed outline texture over the back buffer with standard alpha.
-        constexpr const char* OUTLINE_BLEND_SOURCE = VT_QUAD_MSL_PRELUDE VT_QUAD_MSL_VERTEX(outlineBlendVertex) R"(
-fragment float4 outlineBlendFragment(
-    QuadVarying in [[stage_in]],
-    texture2d<float> source [[texture(0)]],
-    sampler linearSampler [[sampler(0)]])
-{
-    return source.sample(linearSampler, in.uv);
-}
-)";
-
-        // GLSL ports for the Vulkan backend (runtime shaderc). Identical taps and
-        // weights; the source texture arrives via setQuadTextureBinding(0), which the
-        // Vulkan draw path binds at set 1 / binding 0. The quad's UVs need no flip —
-        // the Vulkan backend uses a negative-height viewport, so NDC +Y is up as on Metal.
-        constexpr const char* OUTLINE_EXTEND_GLSL_TEMPLATE = R"(
-#version 450
-
-)" VT_QUAD_GLSL_VERTEX R"(
-#ifdef VT_FRAGMENT_SHADER
-layout(set = 1, binding = 0) uniform sampler2D sourceTexture;
-layout(location = 0) in vec2 vUv;
-layout(location = 0) out vec4 fragColor;
-void main() {
-    vec2 texel = 1.0 / vec2(textureSize(sourceTexture, 0));
-    vec2 offset = vec2(%DIR_X%, %DIR_Y%) * texel * 0.5;
-    float srcMultiplier = %SRC_MULT%;
-
-    vec4 texelValue = texture(sourceTexture, vUv);
-    vec4 firstTexel = texelValue;
-    float diff = texelValue.a * srcMultiplier;
-
-    vec4 pixel = texture(sourceTexture, vUv + offset * -2.0);
-    texelValue = max(texelValue, pixel);
-    diff = max(diff, length(firstTexel.rgb - pixel.rgb));
-
-    pixel = texture(sourceTexture, vUv + offset * -1.0);
-    texelValue = max(texelValue, pixel);
-    diff = max(diff, length(firstTexel.rgb - pixel.rgb));
-
-    pixel = texture(sourceTexture, vUv + offset * 1.0);
-    texelValue = max(texelValue, pixel);
-    diff = max(diff, length(firstTexel.rgb - pixel.rgb));
-
-    pixel = texture(sourceTexture, vUv + offset * 2.0);
-    texelValue = max(texelValue, pixel);
-    diff = max(diff, length(firstTexel.rgb - pixel.rgb));
-
-    fragColor = vec4(texelValue.rgb, min(diff, 1.0));
-}
-#endif
-)";
-
-        constexpr const char* OUTLINE_BLEND_GLSL_SOURCE = R"(
-#version 450
-
-)" VT_QUAD_GLSL_VERTEX R"(
-#ifdef VT_FRAGMENT_SHADER
-layout(set = 1, binding = 0) uniform sampler2D sourceTexture;
-layout(location = 0) in vec2 vUv;
-layout(location = 0) out vec4 fragColor;
-void main() {
-    fragColor = texture(sourceTexture, vUv);
-}
-#endif
-)";
-
-        std::shared_ptr<Shader> buildExtendShader(GraphicsDevice* device,
-            const char* cacheKey, const char* dirX, const char* dirY, const char* srcMult)
-        {
-            return getOrCreateQuadShader(device, cacheKey, "outlineExtendVertex", "outlineExtendFragment",
-                [&](const bool glsl) {
-                    std::string source = glsl ? OUTLINE_EXTEND_GLSL_TEMPLATE : OUTLINE_EXTEND_TEMPLATE;
-                    const auto replaceAll = [&source](const std::string& token, const std::string& value) {
-                        for (size_t pos = source.find(token); pos != std::string::npos; pos = source.find(token)) {
-                            source.replace(pos, token.size(), value);
-                        }
-                    };
-                    replaceAll("%DIR_X%", dirX);
-                    replaceAll("%DIR_Y%", dirY);
-                    replaceAll("%SRC_MULT%", srcMult);
-                    return source;
-                });
-        }
     }
 
     OutlineRenderer::OutlineRenderer(Engine* engine, const int layerId) : _engine(engine)
@@ -187,18 +65,17 @@ void main() {
         // Post passes: horizontal extend (rt -> temp), vertical extend (temp -> rt),
         // alpha blend over the back buffer.
         _extendHorizontalPass = std::make_shared<RenderPassShaderQuad>(device);
-        _extendHorizontalPass->setShader(buildExtendShader(device.get(), "OutlineExtend:H", "1.0", "0.0", "0.0"));
+        _extendHorizontalPass->setShader(getOrCreateSlangShader(device.get(), "outline-extend", "h"));
         _extendHorizontalPass->init(_tempRenderTarget);
         _extendHorizontalPass->setRequiresCubemaps(false);
 
         _extendVerticalPass = std::make_shared<RenderPassShaderQuad>(device);
-        _extendVerticalPass->setShader(buildExtendShader(device.get(), "OutlineExtend:V", "0.0", "1.0", "1.0"));
+        _extendVerticalPass->setShader(getOrCreateSlangShader(device.get(), "outline-extend", "v"));
         _extendVerticalPass->init(_renderTarget);
         _extendVerticalPass->setRequiresCubemaps(false);
 
         _blendPass = std::make_shared<RenderPassShaderQuad>(device);
-        _blendPass->setShader(getOrCreateQuadShader(device.get(), "OutlineBlend", "outlineBlendVertex",
-            "outlineBlendFragment", OUTLINE_BLEND_SOURCE, OUTLINE_BLEND_GLSL_SOURCE));
+        _blendPass->setShader(getOrCreateSlangShader(device.get(), "outline-blend"));
         _blendPass->init(nullptr);
         _blendPass->setRequiresCubemaps(false);
         _blendPass->setBlendState(std::make_shared<BlendState>(BlendState::alphaBlend()));
@@ -423,6 +300,5 @@ void main() {
         _extendVerticalPass->setQuadTextureBinding(0, _tempTexture.get());
         _blendPass->setQuadTextureBinding(0, _colorTexture.get());
     }
-
 
 }

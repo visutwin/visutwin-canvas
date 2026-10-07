@@ -64,7 +64,7 @@ namespace visutwin::canvas
         EntryPoints findEntryPoints(const std::string& source)
         {
             // A delimited raw string: the pattern itself contains `)"`.
-            static const std::regex pattern(R"re(\[shader\("(vertex|fragment|compute)"\)\]\s*[\w<>:]+\s+(\w+)\s*\()re");
+            static const std::regex pattern(R"re(\[shader\("(vertex|fragment|compute)"\)\]\s*(?:\[[^\]]*\]\s*)*[\w<>:]+\s+(\w+)\s*\()re");
             EntryPoints found;
             for (auto it = std::sregex_iterator(source.begin(), source.end(), pattern); it != std::sregex_iterator(); ++it) {
                 const std::string stage = (*it)[1];
@@ -74,6 +74,30 @@ namespace visutwin::canvas
                 else found.compute = name;
             }
             return found;
+        }
+
+        /// The defines a program's `// @variant <name>: ...` line gives `variant`; nothing
+        /// (and false) when the program declares variants but not this one. A program with
+        /// no @variant lines has only "".
+        bool variantDefines(const std::string& source, const std::string_view variant,
+            std::vector<std::pair<std::string, std::string>>& defines)
+        {
+            static const std::regex pattern(R"re(//\s*@variant\s+([\w.-]+)\s*:([^\n]*))re");
+            bool any = false;
+            for (auto it = std::sregex_iterator(source.begin(), source.end(), pattern); it != std::sregex_iterator(); ++it) {
+                any = true;
+                if ((*it)[1].str() != variant) {
+                    continue;
+                }
+                std::istringstream words((*it)[2].str());
+                std::string word;
+                while (words >> word) {
+                    const auto eq = word.find('=');
+                    defines.emplace_back(word.substr(0, eq), eq == std::string::npos ? "1" : word.substr(eq + 1));
+                }
+                return true;
+            }
+            return !any && variant.empty();
         }
 
         bool wantsRuntimeCompile()
@@ -90,10 +114,11 @@ namespace visutwin::canvas
         }
     }
 
-    bool findBundledSlangProgram(const std::string_view program, SlangBundledProgram& out)
+    bool findBundledSlangProgram(const std::string_view program, SlangBundledProgram& out,
+        const std::string_view variant)
     {
 #ifdef VISUTWIN_HAS_SLANG
-        const auto* entry = slang_generated::findProgram(program);
+        const auto* entry = slang_generated::findProgram(program, variant);
         if (!entry) {
             return false;
         }
@@ -114,14 +139,17 @@ namespace visutwin::canvas
 #else
         (void)program;
         (void)out;
+        (void)variant;
         return false;
 #endif
     }
 
-    bool compileSlangProgramFromSource(GraphicsDevice* device, const std::string_view program, ShaderCode& code)
+    bool compileSlangProgramFromSource(GraphicsDevice* device, const std::string_view program, ShaderCode& code,
+        const std::string_view variant)
     {
 #ifndef VISUTWIN_HAS_SLANG
         (void)device;
+        (void)variant;
         spdlog::error("Slang program '{}': this build has no Slang compiler", program);
         return false;
 #else
@@ -149,6 +177,10 @@ namespace visutwin::canvas
 
         const bool metal = device->shaderLanguage() == ShaderLanguage::Msl;
         SlangCompileRequest request;
+        if (!variantDefines(source, variant, request.defines)) {
+            spdlog::error("Slang program '{}': {} declares no variant '{}'", program, path.string(), variant);
+            return false;
+        }
         request.moduleName = std::string(program);
         request.source = source;
         if (graphics) {
@@ -165,14 +197,15 @@ namespace visutwin::canvas
         // Slang version, the target, the program and every module file (an import closure
         // is not reported, and the tree is small), and the bindings text.
         std::string cacheKey = std::string("slang ") + SlangCompiler::version() + (metal ? " metal\n" : " spirv\n");
-        cacheKey += "program " + std::string(program) + "\n" + source + "\n";
+        cacheKey += "program " + std::string(program) + " variant " + std::string(variant) + "\n" + source + "\n";
         for (const auto& entry : std::filesystem::directory_iterator(dir / "modules")) {
             if (entry.is_regular_file() && entry.path().extension() == ".slang") {
                 cacheKey += "module " + entry.path().filename().string() + "\n" + readTextFile(entry.path()) + "\n";
             }
         }
         cacheKey += slang_generated::kBindingsSlang;
-        const std::string cacheName = std::string(program) + "-" + hex(fnv1a64(cacheKey));
+        const std::string cacheName = std::string(program) + (variant.empty() ? "" : "@" + std::string(variant)) +
+            "-" + hex(fnv1a64(cacheKey));
 
         const ShaderDiskCache* cache = device->shaderDiskCache();
         if (cache && !metal) {
@@ -198,8 +231,9 @@ namespace visutwin::canvas
                 result.diagnostics);
             return false;
         }
-        spdlog::info("Slang program '{}' compiled from {} for {} in {:.1f} ms", program, path.string(),
-            metal ? "Metal" : "Vulkan", result.seconds * 1000.0);
+        spdlog::info("Slang program '{}'{}{} compiled from {} for {} in {:.1f} ms", program,
+            variant.empty() ? "" : " variant ", variant, path.string(), metal ? "Metal" : "Vulkan",
+            result.seconds * 1000.0);
         code.specializeFeatures = true;
         if (metal) {
             code.metalSource = result.programText();
@@ -228,12 +262,12 @@ namespace visutwin::canvas
     }
 
     std::shared_ptr<Shader> getOrCreateSlangShader(GraphicsDevice* device, const std::string& program,
-        const ShaderFeatureSet& features)
+        const std::string& variant, const ShaderFeatureSet& features)
     {
         if (!device) {
             return nullptr;
         }
-        std::string cacheKey = "slang:" + program;
+        std::string cacheKey = "slang:" + program + (variant.empty() ? "" : "@" + variant);
         bool anyFeature = false;
         for (const uint32_t word : features.words()) {
             anyFeature = anyFeature || word != 0;
@@ -252,7 +286,7 @@ namespace visutwin::canvas
         code.specializeFeatures = true;
 
         SlangBundledProgram bundled;
-        const bool inBundle = findBundledSlangProgram(program, bundled);
+        const bool inBundle = findBundledSlangProgram(program, bundled, variant);
         const bool metal = device->shaderLanguage() == ShaderLanguage::Msl;
         bool haveCode = false;
         if (inBundle && !wantsRuntimeCompile()) {
@@ -279,7 +313,7 @@ namespace visutwin::canvas
             }
         }
         if (!haveCode) {
-            if (!compileSlangProgramFromSource(device, program, code)) {
+            if (!compileSlangProgramFromSource(device, program, code, variant)) {
                 return nullptr;
             }
             // The entry names come from the source the compile read.

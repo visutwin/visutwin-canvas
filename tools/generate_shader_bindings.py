@@ -55,22 +55,77 @@ def declaration(row: BindingRow, set_index: int, sampler_slot: int | None) -> li
     return lines
 
 
+# Metal sampler slots of the quad inputs. Metal gives every combined sampler of a function its
+# own [[sampler(n)]] argument and rejects two at one index, so each input owns a slot:
+# input n reads the post sampler at QUAD_LINEAR_SAMPLER_BASE + n, a point or depth input the
+# nearest sampler at QUAD_POINT_SAMPLER_BASE + n. Metal has 16 sampler slots per stage, so a
+# point input exists for n < QUAD_POINT_INPUTS only. MetalGraphicsDevice::bindDrawSampler
+# binds both ranges for every quad draw; keep the three numbers in step with it.
+QUAD_LINEAR_SAMPLER_BASE = 3
+QUAD_POINT_SAMPLER_BASE = 11
+QUAD_POINT_INPUTS = 5
+
+
 def quad_inputs(material: list[BindingRow]) -> list[str]:
-    """VT_DECLARE_QUAD_INPUTn(name): a quad pass's input n. On Metal every quad input is
-    texture n read through the post sampler at sampler 0; on Vulkan input n is the n-th
-    material binding, combined where the row is, else a separate image through the
-    shared material sampler (which VT_DECLARE_QUAD_SAMPLER declares)."""
-    lines = ["", "// ---- Quad pass inputs: slot n -> Metal texture n + post sampler 0, Vulkan material row n ----"]
+    """VT_DECLARE_QUAD_INPUTn(name): a quad pass's input n. On Metal input n is texture n
+    with a sampler slot of its own (see QUAD_LINEAR_SAMPLER_BASE); on Vulkan it is the n-th
+    material binding, combined where the row is, else a separate image through the shared
+    material sampler (which VT_DECLARE_QUAD_SAMPLER declares)."""
+    lines = ["", "// ---- Quad pass inputs: slot n -> Metal texture n, Vulkan material row n ----",
+             "// The uniform block rides the per-draw material slot: Metal buffer 3, Vulkan set 0 binding 0.",
+             f"#define VT_DECLARE_QUAD_UNIFORMS(T, name) [[vk::binding(0, 0)]] ConstantBuffer<T> name : register(b3);",
+             "// The same slot carries a draw's MATERIAL block (a custom shader's own uniforms).",
+             f"#define VT_DECLARE_MATERIAL_UNIFORMS(T, name) [[vk::binding(0, 0)]] ConstantBuffer<T> name : register(b3);",
+             "// Metal binds these sampler states for every quad draw (MetalGraphicsDevice::bindDrawSampler):",
+             "// 0 the post sampler (linear, clamp, linear mips), 1 nearest-clamp without mips, 2 a linear",
+             "// less-equal comparison sampler (clamp), then the post sampler again at",
+             f"// {QUAD_LINEAR_SAMPLER_BASE}..{QUAD_LINEAR_SAMPLER_BASE + 7} (input n's linear slot) and the nearest one at "
+             f"{QUAD_POINT_SAMPLER_BASE}..{QUAD_POINT_SAMPLER_BASE + QUAD_POINT_INPUTS - 1}",
+             "// (input n's point slot: depth taps must be point sampled, and Vulkan binds its nearest",
+             "// sampler for every depth texture of a quad pass)."]
     sampler_row = next(r for r in material if r.kind == "Sampler")
     lines.append(f"#define VT_DECLARE_QUAD_SAMPLER [[vk::binding({sampler_row.vk_binding}, {MATERIAL_SET})]] "
                  f"SamplerState quadSampler : register(s0);")
+    lines.append("// The Metal comparison sampler (slot 2). Read only by VT_SHADOW_COMPARE on Metal, so the")
+    lines.append("// SPIR-V never references it and the binding it names is never laid out.")
+    lines.append(f"#define VT_DECLARE_QUAD_COMPARE_SAMPLER [[vk::binding(63, {MATERIAL_SET})]] "
+                 f"SamplerComparisonState quadCompareSampler : register(s2);")
+    metal_only = []   # declarations that differ per target, emitted under VT_TARGET_METAL
+    other = []
     for n, row in enumerate(material[:8]):
+        vk = f"[[vk::binding({row.vk_binding}, {MATERIAL_SET})]] "
+        linear = QUAD_LINEAR_SAMPLER_BASE + n
+        point = QUAD_POINT_SAMPLER_BASE + n
         if row.kind == "CombinedSampler":
-            lines.append(f"#define VT_DECLARE_QUAD_INPUT{n}(name) [[vk::binding({row.vk_binding}, {MATERIAL_SET})]] "
-                         f"Sampler2D name : register(t{n}) : register(s0);")
+            lines.append(f"#define VT_DECLARE_QUAD_INPUT{n}(name) {vk}Sampler2D name : register(t{n}) : register(s{linear});")
+            lines.append(f"#define VT_DECLARE_QUAD_CUBE_INPUT{n}(name) {vk}SamplerCube name : register(t{n}) : register(s{linear});")
+            if n < QUAD_POINT_INPUTS:
+                lines.append(f"#define VT_DECLARE_QUAD_DEPTH_INPUT{n}(name) {vk}Sampler2D<float> name : register(t{n}) : register(s{point});")
+                lines.append(f"#define VT_DECLARE_QUAD_POINT_INPUT{n}(name) {vk}Sampler2D name : register(t{n}) : register(s{point});")
+                # A depth map for comparison taps, read with VT_SHADOW_COMPARE: on Metal a DEPTH
+                # texture through the comparison sampler (the hardware compare, bilinear), on Vulkan
+                # the point-sampled combined sampler compared by hand (no comparison sampler fits
+                # MoltenVK's 16-sampler budget). It must be DepthTexture2D on Metal: a Texture2D
+                # is declared texture2d and pointer-cast to depth2d for sample_compare, which
+                # reads as fully shadowed (a local light's fog vanished).
+                metal_only.append(f"#define VT_DECLARE_QUAD_SHADOW_INPUT{n}(name) {vk}DepthTexture2D name : register(t{n});")
+                other.append(f"#define VT_DECLARE_QUAD_SHADOW_INPUT{n}(name) {vk}Sampler2D<float> name : register(t{n}) : register(s{point});")
+            # An input read only by texel (Load): a plain image on Metal, where a Load through a
+            # combined sampler does not compile, the combined sampler on Vulkan.
+            metal_only.append(f"#define VT_DECLARE_QUAD_TEXEL_INPUT{n}(name) {vk}Texture2D name : register(t{n});")
+            other.append(f"#define VT_DECLARE_QUAD_TEXEL_INPUT{n}(name) {vk}Sampler2D name : register(t{n}) : register(s{linear});")
         elif row.kind == "SeparateImage":
-            lines.append(f"#define VT_DECLARE_QUAD_INPUT{n}(name) [[vk::binding({row.vk_binding}, {MATERIAL_SET})]] "
-                         f"Texture2D name : register(t{n});")
+            lines.append(f"#define VT_DECLARE_QUAD_INPUT{n}(name) {vk}Texture2D name : register(t{n});")
+    lines.append("")
+    lines.append("// Per target: the bundle and the runtime compile define VT_TARGET_METAL for Metal.")
+    lines.append("#if defined(VT_TARGET_METAL)")
+    lines += metal_only
+    lines.append("// 1 where `reference` <= the stored depth (lit), 0 where it is behind it; level 0.")
+    lines.append("#define VT_SHADOW_COMPARE(name, uv, reference) name.SampleCmpLevelZero(quadCompareSampler, uv, reference)")
+    lines.append("#else")
+    lines += other
+    lines.append("#define VT_SHADOW_COMPARE(name, uv, reference) ((reference) <= name.SampleLevel(uv, 0.0) ? 1.0 : 0.0)")
+    lines.append("#endif")
     return lines
 
 

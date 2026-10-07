@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <type_traits>
 #include <vector>
 
@@ -66,9 +67,14 @@ namespace visutwin::canvas
         CullMode cullMode() const { return _cullMode; }
 
     protected:
+        /// Takes the Slang program `program` / `variant` (engine/shaders/slang/programs),
+        /// cached on the device, as the pass's shader: what an engine quad pass's
+        /// prepareShaders() calls.
+        void useSlangShader(const std::string& program, const std::string& variant = {});
+
         /// Takes the device-cached shader of this name as the pass's shader, creating
-        /// it on first use from the source in the device's language. What a quad
-        /// pass's prepareShaders() calls.
+        /// it on first use from the source in the device's language: the route for a
+        /// hand-written MSL + GLSL quad shader.
         void useCachedShader(const char* cacheKey, const char* vertexEntry, const char* fragmentEntry,
             const char* msl, const char* glsl);
 

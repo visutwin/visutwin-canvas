@@ -217,6 +217,37 @@ namespace visutwin::canvas
         _postSampler = _device->newSamplerState(postDesc);
         postDesc->release();
 
+        // The other two samplers every quad draw gets (sampler slots 1 and 2), for the Slang
+        // programs, which cannot declare a constexpr sampler: nearest, clamp, no mips —
+        // the point sampler a depth tap needs, the twin of the nearest sampler the Vulkan
+        // quad path binds for every depth texture — and a linear less-equal comparison
+        // sampler, clamp, for a hardware shadow compare.
+        auto* pointDesc = MTL::SamplerDescriptor::alloc()->init();
+        pointDesc->setMinFilter(MTL::SamplerMinMagFilterNearest);
+        pointDesc->setMagFilter(MTL::SamplerMinMagFilterNearest);
+        pointDesc->setMipFilter(MTL::SamplerMipFilterNotMipmapped);
+        pointDesc->setSAddressMode(MTL::SamplerAddressModeClampToEdge);
+        pointDesc->setTAddressMode(MTL::SamplerAddressModeClampToEdge);
+        _quadPointSampler = _device->newSamplerState(pointDesc);
+        pointDesc->release();
+        auto* compareDesc = MTL::SamplerDescriptor::alloc()->init();
+        compareDesc->setMinFilter(MTL::SamplerMinMagFilterLinear);
+        compareDesc->setMagFilter(MTL::SamplerMinMagFilterLinear);
+        compareDesc->setMipFilter(MTL::SamplerMipFilterNotMipmapped);
+        compareDesc->setSAddressMode(MTL::SamplerAddressModeClampToEdge);
+        compareDesc->setTAddressMode(MTL::SamplerAddressModeClampToEdge);
+        compareDesc->setCompareFunction(MTL::CompareFunctionLessEqual);
+        _quadCompareSampler = _device->newSamplerState(compareDesc);
+        compareDesc->release();
+
+        // Room for one clustered light record and a cell row; nothing reads them (see the
+        // header), the size only has to be a valid buffer.
+        constexpr size_t kClusterEmptyBytes = 4096;
+        for (MTL::Buffer** buffer : {&_clusterEmptyLightBuffer, &_clusterEmptyCellBuffer}) {
+            *buffer = _device->newBuffer(kClusterEmptyBytes, MTL::ResourceStorageModeShared);
+            std::memset((*buffer)->contents(), 0, kClusterEmptyBytes);
+        }
+
         auto* depthDesc = MTL::DepthStencilDescriptor::alloc()->init();
         // Depth state is dynamic in Metal and is not part of the render PSO. Keep
         // all four DepthState test/write combinations ready so draw() can honor
@@ -301,6 +332,14 @@ namespace visutwin::canvas
             _postSampler->release();
             _postSampler = nullptr;
         }
+        if (_quadPointSampler) {
+            _quadPointSampler->release();
+            _quadPointSampler = nullptr;
+        }
+        if (_quadCompareSampler) {
+            _quadCompareSampler->release();
+            _quadCompareSampler = nullptr;
+        }
 
         if (_defaultDepthStencilState) {
             _defaultDepthStencilState->release();
@@ -346,6 +385,12 @@ namespace visutwin::canvas
                 }
             }
             slot.clear();
+        }
+        for (MTL::Buffer** buffer : {&_clusterEmptyLightBuffer, &_clusterEmptyCellBuffer}) {
+            if (*buffer) {
+                (*buffer)->release();
+                *buffer = nullptr;
+            }
         }
         _clusterLightBuffer = nullptr;
         _clusterCellBuffer = nullptr;
@@ -444,6 +489,9 @@ namespace visutwin::canvas
         _clusterSetsUsed = 0;
         _clusterLastLightData = nullptr;
         _clusterLastCellData = nullptr;
+        // A pass that starts before this frame binds a grid gets the stand-ins, not the
+        // pair last frame bound.
+        _clusterBuffersSet = false;
         // After beginFrame, which is where a ring that overflowed last frame grows.
         setBackendBufferVram(_transformRing->totalSize() + _uniformRing->totalSize() + _paletteRing->totalSize(),
             clusterBufferVram());
@@ -1027,7 +1075,11 @@ namespace visutwin::canvas
         const void* cellData, const size_t cellSize)
     {
         if (!lightData || lightSize == 0 || !cellData || cellSize == 0) {
+            // No grid for this layer: the stand-ins replace whatever an earlier layer bound.
+            // The pair and the last-data pointers stay, so the same grid bound again later in
+            // the frame still reuses its pair.
             _clusterBuffersSet = false;
+            bindClusterBuffersOnEncoder();
             return;
         }
 
@@ -1070,10 +1122,17 @@ namespace visutwin::canvas
         // A layer binds its grid after its render pass has begun, and startRenderPass binds
         // only what was set before it: bound only there, the first layer to use a new pair
         // would draw with no cluster buffers at all.
-        if (_renderPassEncoder) {
-            _renderPassEncoder->setFragmentBuffer(_clusterLightBuffer, 0, 7);
-            _renderPassEncoder->setFragmentBuffer(_clusterCellBuffer, 0, 8);
+        bindClusterBuffersOnEncoder();
+    }
+
+    void MetalGraphicsDevice::bindClusterBuffersOnEncoder()
+    {
+        if (!_renderPassEncoder) {
+            return;
         }
+        const bool grid = _clusterBuffersSet && _clusterLightBuffer && _clusterCellBuffer;
+        _renderPassEncoder->setFragmentBuffer(grid ? _clusterLightBuffer : _clusterEmptyLightBuffer, 0, 7);
+        _renderPassEncoder->setFragmentBuffer(grid ? _clusterCellBuffer : _clusterEmptyCellBuffer, 0, 8);
     }
 
     void MetalGraphicsDevice::setClusterGridParams(const float* boundsMin, const float* boundsRange,
@@ -1514,8 +1573,8 @@ namespace visutwin::canvas
         // linear (mips included), clamp-to-edge, no aniso. The scene sampler REPEATS, so a
         // kernel that taps past [0,1] wraps to the opposite edge — visible as
         // wrong pixels along the frame border (CAS in compose does exactly this).
-        // So every quad pass (bloom downsample and outline included) gets it, and only
-        // it: quad shaders declare sampler slot 0 alone.
+        // So every quad pass (bloom downsample and outline included) gets it at slot 0, the
+        // one slot a hand-written quad shader declares, and the Slang programs' slots below.
         //
         // Every other draw gets the default sampler at slot 0 and, at slots 1-6, the
         // samplers of its material's maps (MetalTextureBinder::kMaterialSamplerTextureSlots),
@@ -1525,6 +1584,18 @@ namespace visutwin::canvas
         const bool quad = quadRenderActive();
         _textureBinder.bindDrawSamplers(passEncoder, quad ? _postSampler : _defaultSampler,
             _defaultSampler, !quad);
+        if (quad) {
+            // Slang quad programs read these (bindings.slang): the nearest and comparison
+            // samplers at 1 and 2, and each input's own slot in the two per-input ranges.
+            _textureBinder.bindSamplerCached(passEncoder, 1, _quadPointSampler);
+            _textureBinder.bindSamplerCached(passEncoder, 2, _quadCompareSampler);
+            for (int n = 0; n < MetalTextureBinder::kQuadInputCount; ++n) {
+                _textureBinder.bindSamplerCached(passEncoder, MetalTextureBinder::kQuadLinearSamplerBase + n, _postSampler);
+            }
+            for (int n = 0; n < MetalTextureBinder::kQuadPointInputs; ++n) {
+                _textureBinder.bindSamplerCached(passEncoder, MetalTextureBinder::kQuadPointSamplerBase + n, _quadPointSampler);
+            }
+        }
 
         // After the first draw in a pass has established all texture/sampler state,
         // subsequent draws can rely on the cache for deduplication.
@@ -1537,9 +1608,10 @@ namespace visutwin::canvas
         // depth-test/depth-write combination is RESOLVED on every draw, so state from a
         // prior draw or a specialized pass cannot leak into this one, and issued when it
         // differs from what the encoder holds.
-        MTL::DepthStencilState* drawDepthState = resolveDepthStencilState(
-            _depthState.get(), _stencilEnabled ? _stencilFront.get() : nullptr,
-            _stencilEnabled ? _stencilBack.get() : nullptr);
+        MTL::DepthStencilState* drawDepthState = _passHasDepth
+            ? resolveDepthStencilState(_depthState.get(), _stencilEnabled ? _stencilFront.get() : nullptr,
+                  _stencilEnabled ? _stencilBack.get() : nullptr)
+            : _noTestNoWriteDepthStencilState;
         if (drawDepthState && drawDepthState != _encoderDepthStencilState) {
             passEncoder->setDepthStencilState(drawDepthState);
             _encoderDepthStencilState = drawDepthState;
@@ -1926,6 +1998,7 @@ namespace visutwin::canvas
             configureOffscreenAttachments(passDesc, *offscreenTarget, renderPass);
         }
 
+        _passHasDepth = passDesc->depthAttachment()->texture() != nullptr;
         _renderPassEncoder = _commandBuffer->renderCommandEncoder(passDesc);
         passDesc->release();
         if (!_renderPassEncoder) {
@@ -2027,9 +2100,9 @@ namespace visutwin::canvas
     {
         // A new encoder holds none of the previous one's state.
         resetEncoderStateCache();
-        if (_defaultDepthStencilState) {
-            _renderPassEncoder->setDepthStencilState(_defaultDepthStencilState);
-            _encoderDepthStencilState = _defaultDepthStencilState;
+        if (MTL::DepthStencilState* initial = _passHasDepth ? _defaultDepthStencilState : _noTestNoWriteDepthStencilState) {
+            _renderPassEncoder->setDepthStencilState(initial);
+            _encoderDepthStencilState = initial;
         }
         // glTF uses counter-clockwise front faces by default, and
         // nothing draws with the other winding, so it is encoder state set once.
@@ -2053,10 +2126,7 @@ namespace visutwin::canvas
         _renderPassEncoder->setVertexBuffer(_paletteRing->buffer(), 0, 6);
 
         // Bind clustered lighting buffers at fragment slots 7 (lights) and 8 (cells).
-        if (_clusterBuffersSet && _clusterLightBuffer && _clusterCellBuffer) {
-            _renderPassEncoder->setFragmentBuffer(_clusterLightBuffer, 0, 7);
-            _renderPassEncoder->setFragmentBuffer(_clusterCellBuffer, 0, 8);
-        }
+        bindClusterBuffersOnEncoder();
 
         // Reset per-pass deduplication state for uniforms and textures.
         _uniformBinder.resetPassState();

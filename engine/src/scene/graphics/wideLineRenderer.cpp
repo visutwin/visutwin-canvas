@@ -21,6 +21,7 @@
 #include "scene/graphics/wideLineSegmentBuffer.h"
 #include "scene/graphics/wideLineShaders.h"
 #include "scene/materials/shaderMaterial.h"
+#include "scene/shader-lib/slangShaders.h"
 #include "scene/mesh.h"
 #include "scene/meshInstance.h"
 
@@ -72,9 +73,8 @@ namespace visutwin::canvas
             return;
         }
 
-        _material = std::make_shared<ShaderMaterial>(_device, "WideLineShader",
-            "wideLineVS", "wideLineFS",
-            ShaderSourceSet{.msl = wideline::WIDE_LINE_MSL, .glsl = wideline::WIDE_LINE_GLSL});
+        _material = std::make_shared<ShaderMaterial>("WideLineShader",
+            getOrCreateSlangShader(_device.get(), "wide-line"));
         // A screen-space expansion has no meaningful winding, and both faces of a
         // dashed line have to survive.
         _material->setCullMode(CullMode::CULLFACE_NONE);

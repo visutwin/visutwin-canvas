@@ -13,7 +13,6 @@
 #include <algorithm>
 #include <cmath>
 
-#include "scene/graphics/quadShaderSource.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/renderTarget.h"
 #include "platform/graphics/shader.h"
@@ -30,147 +29,6 @@ namespace visutwin::canvas
         };
         static_assert(sizeof(DofBlurUniforms) == 32);
 
-        // The blur over a concentric kernel, generated in the shader
-        // rather than uploaded: a centre tap, then ring r of R at radius r / R with
-        // r * P points, so the
-        // tap count is 1 + P * R * (R + 1) / 2. The step is in UV: the radius is a
-        // fraction of a 540-row reference frame, corrected for the texture's aspect,
-        // which is what makes the same blurRadius look the same at every resolution.
-        // NEAR: an unweighted average of the half-resolution scene. FAR: taps of the
-        // CoC-premultiplied far texture, weighted by the CoC at each tap, normalised
-        // by the CoC sum and then divided by this pixel's own CoC to undo the
-        // premultiply. Texture order far=0, coc=1, near=2 on both backends.
-        constexpr const char* DOF_BLUR_MSL = VT_QUAD_MSL_PRELUDE R"(
-struct DofBlurUniforms {
-    float4 radii;
-    float4 rings;
-};
-)" VT_QUAD_MSL_VERTEX(dofBlurVertex) R"(
-fragment float4 dofBlurFragment(
-    QuadVarying in [[stage_in]],
-    texture2d<float> farTexture [[texture(0)]],
-    texture2d<float> cocTexture [[texture(1)]],
-    texture2d<float> nearTexture [[texture(2)]],
-    sampler linearSampler [[sampler(0)]],
-    constant DofBlurUniforms& u [[buffer(3)]])
-{
-    const float2 uv0 = clamp(in.uv, float2(0.0), float2(1.0));
-    const float2 coc = cocTexture.sample(linearSampler, uv0, level(0)).rg;
-    const float cocFar = coc.r;
-    const float cocNear = coc.g;
-    const int rings = max(int(u.rings.x), 1);
-    const int ringPoints = max(int(u.rings.y), 1);
-    float3 sum = float3(0.0);
-
-    // Texture aspects arrive as uniforms: a textureSize() on a combined image sampler
-    // does not survive SPIRV-Cross's MSL translation under MoltenVK ("undeclared
-    // identifier ..Smplr"), so neither backend queries the texture here.
-    if (cocNear > 0.0001 && u.radii.z > 0.0) {
-        const float2 step = cocNear * u.radii.x * float2(u.radii.z, 1.0);
-        int count = 1;
-        sum += nearTexture.sample(linearSampler, uv0, level(0)).rgb;
-        for (int ring = 1; ring <= rings; ++ring) {
-            const float radius = float(ring) / float(rings);
-            const int points = ring * ringPoints;
-            for (int p = 0; p < points; ++p) {
-                const float angle = float(p) * 6.283185307 / float(points);
-                const float2 uv = uv0 + step * float2(cos(angle), sin(angle)) * radius;
-                sum += nearTexture.sample(linearSampler, uv, level(0)).rgb;
-                ++count;
-            }
-        }
-        sum /= float(count);
-    } else if (cocFar > 0.0001) {
-        const float2 step = cocFar * u.radii.y * float2(u.radii.w, 1.0);
-        float sumCoc = 0.0;
-        {
-            const float c = cocTexture.sample(linearSampler, uv0, level(0)).r;
-            sum += farTexture.sample(linearSampler, uv0, level(0)).rgb * c;
-            sumCoc += c;
-        }
-        for (int ring = 1; ring <= rings; ++ring) {
-            const float radius = float(ring) / float(rings);
-            const int points = ring * ringPoints;
-            for (int p = 0; p < points; ++p) {
-                const float angle = float(p) * 6.283185307 / float(points);
-                const float2 uv = uv0 + step * float2(cos(angle), sin(angle)) * radius;
-                const float c = cocTexture.sample(linearSampler, uv, level(0)).r;
-                sum += farTexture.sample(linearSampler, uv, level(0)).rgb * c;
-                sumCoc += c;
-            }
-        }
-        if (sumCoc > 0.0) {
-            sum /= sumCoc;
-        }
-        sum /= cocFar;
-    }
-    return float4(sum, 1.0);
-}
-)";
-        constexpr const char* DOF_BLUR_GLSL = R"(
-#version 450
-)" VT_QUAD_GLSL_VERTEX R"(#ifdef VT_FRAGMENT_SHADER
-layout(set = 0, binding = 0) uniform DofBlurUniforms {
-    vec4 radii;
-    vec4 rings;
-} u;
-layout(set = 1, binding = 0) uniform sampler2D farTexture;
-layout(set = 1, binding = 1) uniform sampler2D cocTexture;
-layout(set = 1, binding = 2) uniform sampler2D nearTexture;
-layout(location = 0) in vec2 vUv;
-layout(location = 0) out vec4 fragColor;
-void main() {
-    vec2 uv0 = clamp(vUv, vec2(0.0), vec2(1.0));
-    vec2 coc = textureLod(cocTexture, uv0, 0.0).rg;
-    float cocFar = coc.r;
-    float cocNear = coc.g;
-    int rings = max(int(u.rings.x), 1);
-    int ringPoints = max(int(u.rings.y), 1);
-    vec3 sum = vec3(0.0);
-
-    if (cocNear > 0.0001 && u.radii.z > 0.0) {
-        vec2 step = cocNear * u.radii.x * vec2(u.radii.z, 1.0);
-        int count = 1;
-        sum += textureLod(nearTexture, uv0, 0.0).rgb;
-        for (int ring = 1; ring <= rings; ++ring) {
-            float radius = float(ring) / float(rings);
-            int points = ring * ringPoints;
-            for (int p = 0; p < points; ++p) {
-                float angle = float(p) * 6.283185307 / float(points);
-                vec2 uv = uv0 + step * vec2(cos(angle), sin(angle)) * radius;
-                sum += textureLod(nearTexture, uv, 0.0).rgb;
-                ++count;
-            }
-        }
-        sum /= float(count);
-    } else if (cocFar > 0.0001) {
-        vec2 step = cocFar * u.radii.y * vec2(u.radii.w, 1.0);
-        float sumCoc = 0.0;
-        {
-            float c = textureLod(cocTexture, uv0, 0.0).r;
-            sum += textureLod(farTexture, uv0, 0.0).rgb * c;
-            sumCoc += c;
-        }
-        for (int ring = 1; ring <= rings; ++ring) {
-            float radius = float(ring) / float(rings);
-            int points = ring * ringPoints;
-            for (int p = 0; p < points; ++p) {
-                float angle = float(p) * 6.283185307 / float(points);
-                vec2 uv = uv0 + step * vec2(cos(angle), sin(angle)) * radius;
-                float c = textureLod(cocTexture, uv, 0.0).r;
-                sum += textureLod(farTexture, uv, 0.0).rgb * c;
-                sumCoc += c;
-            }
-        }
-        if (sumCoc > 0.0) {
-            sum /= sumCoc;
-        }
-        sum /= cocFar;
-    }
-    fragColor = vec4(sum, 1.0);
-}
-#endif
-)";
         // Concentric sample kernel.
         std::vector<float> makeConcentricKernel(const int rings, const int pointsPerRing)
         {
@@ -222,7 +80,7 @@ void main() {
     void RenderPassDofBlur::prepareShaders()
     {
         if (!shader()) {
-            useCachedShader("dof-blur-quad", "dofBlurVertex", "dofBlurFragment", DOF_BLUR_MSL, DOF_BLUR_GLSL);
+            useSlangShader("dof-blur");
         }
     }
 

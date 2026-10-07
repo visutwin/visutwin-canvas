@@ -22,7 +22,7 @@ namespace visutwin::canvas
 
     /// Parameters for GPU instance culling.
     /// Layout must match the CullParams struct used inside backend compute kernels
-    /// (see instanceCullShaders.h).
+    /// (the vtinstancecull Slang module).
     struct alignas(16) InstanceCullParams
     {
         float frustumPlanes[6][4];  ///< 6 planes: (nx, ny, nz, d). dot(n,p)+d >= 0 = inside.

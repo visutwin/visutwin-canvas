@@ -411,6 +411,9 @@ namespace visutwin::canvas
         // Clamp-to-edge sampler for screen-space post passes (no mips/aniso) —
         // the repeat-mode default sampler wraps kernel taps at frame borders.
         MTL::SamplerState* _postSampler = nullptr;
+        // Quad draws also get these at sampler slots 1 and 2 (see bindDrawSampler).
+        MTL::SamplerState* _quadPointSampler = nullptr;
+        MTL::SamplerState* _quadCompareSampler = nullptr;
         MTL::DepthStencilState* _defaultDepthStencilState = nullptr;
         MTL::DepthStencilState* _noWriteDepthStencilState = nullptr;
         MTL::DepthStencilState* _noTestDepthStencilState = nullptr;
@@ -479,6 +482,11 @@ namespace visutwin::canvas
         // Attachment size of the open render pass, which the scissor is clamped to.
         int _passWidth = 0;
         int _passHeight = 0;
+        // Whether the open pass has a depth (and so stencil) attachment. Without one, depth
+        // test, depth write and stencil have nothing to act on, and Metal rejects a draw whose
+        // depth-stencil state enables them, so applyDepthStencilState resolves every draw of
+        // such a pass to the no-test, no-write state whatever the draw asked for.
+        bool _passHasDepth = true;
 
         // A cluster grid's light and cell buffers are CPU-written and GPU-read, so each
         // grid a frame binds gets its own pair, and the pairs of one frame are not
@@ -499,6 +507,13 @@ namespace visutwin::canvas
         MTL::Buffer* _clusterLightBuffer = nullptr;
         MTL::Buffer* _clusterCellBuffer = nullptr;
         bool _clusterBuffersSet = false;
+        // Zero-filled stand-ins bound at fragment 7 / 8 whenever no grid is: a variant compiled
+        // with clustered lighting declares both buffers, and a layer with no clustered lights
+        // (its grid parameters zeroed, so the loop reads nothing) must still bind something.
+        // Never written after creation, so frames in flight can share them.
+        MTL::Buffer* _clusterEmptyLightBuffer = nullptr;
+        MTL::Buffer* _clusterEmptyCellBuffer = nullptr;
+        void bindClusterBuffersOnEncoder();
         size_t clusterBufferVram() const;
 
         // Per-frame autorelease pool.  Metal-cpp methods like commandBuffer()

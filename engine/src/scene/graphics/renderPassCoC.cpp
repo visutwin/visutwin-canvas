@@ -9,7 +9,7 @@
 //
 // Ramp: a dead zone of +/- focusRange/2 around the
 // focus distance, then a ramp over the full focusRange, output as
-// (cocFar, cocNear). The same ramp as applyDofSinglePass in composeShaders.h (the
+// (cocFar, cocNear). The same ramp as applyDofSinglePass in the compose program (the
 // compose fallback when no CoC texture is bound), so the two DOF paths agree.
 //
 // Part of the multi-pass DOF pipeline (CoC -> far downsample -> bokeh blur ->
@@ -19,7 +19,6 @@
 
 #include <algorithm>
 
-#include "scene/graphics/quadShaderSource.h"
 #include "scene/camera.h"
 #include "scene/graphics/quadRender.h"
 #include "platform/graphics/graphicsDevice.h"
@@ -37,86 +36,6 @@ namespace visutwin::canvas
         };
         static_assert(sizeof(CoCUniforms) == 32);
 
-        constexpr const char* COC_MSL = VT_QUAD_MSL_PRELUDE R"(
-
-struct CoCUniforms {
-    float4 focus;
-    float4 flags;
-};
-)" VT_QUAD_MSL_VERTEX(cocVertex) R"(
-static inline float getLinearDepth(float rawDepth, float cameraNear, float cameraFar)
-{
-    return (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
-}
-
-// Point-sampled depth (AGENTS.md "Depth taps in a quad pass must be POINT
-// sampled"): a bilinear tap across a silhouette returns a depth belonging to
-// neither surface. The Vulkan backend binds a nearest sampler for every depth
-// texture of a quad pass; this is the Metal twin of that.
-constexpr sampler depthPointSampler(coord::normalized, filter::nearest,
-                                    mip_filter::none, address::clamp_to_edge);
-
-fragment float4 cocFragment(
-    QuadVarying in [[stage_in]],
-    depth2d<float> depthTexture [[texture(0)]],
-    sampler linearSampler [[sampler(0)]],
-    constant CoCUniforms& u [[buffer(3)]])
-{
-    float2 uv = clamp(in.uv, float2(0.0), float2(1.0));
-    float rawDepth = depthTexture.sample(depthPointSampler, uv);
-    float linearDepth = getLinearDepth(rawDepth, u.focus.z, u.focus.w);
-
-    // A dead zone of +/- focusRange/2 around the focus distance,
-    // then a ramp over the FULL focusRange. Matches applyDofSinglePass in
-    // composeShaders.h.
-    const float invRange = 1.0 / max(u.focus.y, 0.001);
-    const float farRange = u.focus.x + u.focus.y * 0.5;
-    float cocFar = saturate((linearDepth - farRange) * invRange);
-
-    if (u.flags.x > 0.5) {
-        const float nearRange = u.focus.x - u.focus.y * 0.5;
-        float cocNear = saturate((nearRange - linearDepth) * invRange);
-        return float4(cocFar, cocNear, 0.0, 1.0);
-    }
-    return float4(cocFar, 0.0, 0.0, 1.0);
-}
-)";
-
-        constexpr const char* COC_GLSL = R"(
-#version 450
-
-)" VT_QUAD_GLSL_VERTEX R"(
-#ifdef VT_FRAGMENT_SHADER
-layout(set = 0, binding = 0) uniform CoCUniforms {
-    vec4 focus;
-    vec4 flags;
-} u;
-layout(set = 1, binding = 0) uniform sampler2D depthTexture;
-layout(location = 0) in vec2 vUv;
-layout(location = 0) out vec4 fragColor;
-
-float getLinearDepth(float rawDepth, float cameraNear, float cameraFar) {
-    return (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
-}
-
-void main() {
-    vec2 uv = clamp(vUv, vec2(0.0), vec2(1.0));
-    float rawDepth = texture(depthTexture, uv).r;
-    float linearDepth = getLinearDepth(rawDepth, u.focus.z, u.focus.w);
-
-    float invRange = 1.0 / max(u.focus.y, 0.001);
-    float farRange = u.focus.x + u.focus.y * 0.5;
-    float cocFar = clamp((linearDepth - farRange) * invRange, 0.0, 1.0);
-
-    float cocNear = 0.0;
-    if (u.flags.x > 0.5) {
-        float nearRange = u.focus.x - u.focus.y * 0.5;
-        cocNear = clamp((nearRange - linearDepth) * invRange, 0.0, 1.0);
-    }
-    fragColor = vec4(cocFar, cocNear, 0.0, 1.0);
-}
-#endif
-)";
     }
 
     RenderPassCoC::RenderPassCoC(const std::shared_ptr<GraphicsDevice>& device, CameraComponent* cameraComponent,
@@ -128,7 +47,7 @@ void main() {
     void RenderPassCoC::prepareShaders()
     {
         if (!shader()) {
-            useCachedShader("dof-coc-quad", "cocVertex", "cocFragment", COC_MSL, COC_GLSL);
+            useSlangShader("dof-coc");
         }
     }
 

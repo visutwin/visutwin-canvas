@@ -5,7 +5,7 @@
 //
 // GPU particle emitter.
 //
-// Simulation runs entirely on the GPU: a compute kernel (particleSimShaders.h,
+// Simulation runs entirely on the GPU: a compute kernel (engine/shaders/slang/programs/particle-sim.slang,
 // dispatched through the backend-agnostic Compute seam) ages, integrates, and
 // respawns particles in a persistent storage buffer; rendering draws one
 // camera-facing quad per particle through a self-contained shader

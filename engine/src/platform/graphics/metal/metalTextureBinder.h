@@ -45,7 +45,19 @@ namespace visutwin::canvas
         // colour) and no constexpr one.
         static constexpr int kMaterialSamplerCount = 6;
         static constexpr int kFirstMaterialSamplerSlot = 1;
-        static constexpr int kSamplerSlotCount = kFirstMaterialSamplerSlot + kMaterialSamplerCount;
+        // A quad draw's Slang program gives each input a sampler slot of its own, since Metal
+        // rejects two combined samplers at one index (bindings.slang, written by
+        // tools/generate_shader_bindings.py, whose QUAD_* constants these mirror): input n
+        // reads the post sampler at kQuadLinearSamplerBase + n and, as a point or depth input,
+        // the nearest sampler at kQuadPointSamplerBase + n.
+        static constexpr int kQuadLinearSamplerBase = 3;
+        static constexpr int kQuadInputCount = 8;
+        static constexpr int kQuadPointSamplerBase = 11;
+        static constexpr int kQuadPointInputs = 5;
+        static constexpr int kSamplerSlotCount = 16;
+        static_assert(kFirstMaterialSamplerSlot + kMaterialSamplerCount <= kSamplerSlotCount);
+        static_assert(kQuadLinearSamplerBase + kQuadInputCount <= kQuadPointSamplerBase);
+        static_assert(kQuadPointSamplerBase + kQuadPointInputs == kSamplerSlotCount);
         // The material TEXTURE slot each material sampler slot follows: base colour,
         // normal, metal-rough / spec-gloss, occlusion, emissive and lightmap — the maps
         // Vulkan reads through a combined image sampler, i.e. through the texture's own

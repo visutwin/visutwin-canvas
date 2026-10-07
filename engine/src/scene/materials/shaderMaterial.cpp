@@ -63,6 +63,17 @@ namespace visutwin::canvas
         createShaderOverride(device, uniqueName, vertexEntry, fragmentEntry, sourceCode);
     }
 
+    ShaderMaterial::ShaderMaterial(const std::string& uniqueName, const std::shared_ptr<Shader>& shader)
+    {
+        setName(uniqueName);
+        setTransparent(false);
+        if (!shader) {
+            spdlog::error("ShaderMaterial '{}' was given no shader. Shader override was not created.", uniqueName);
+            return;
+        }
+        setShaderOverride(shader);
+    }
+
     void ShaderMaterial::createShaderOverride(const std::shared_ptr<GraphicsDevice>& device,
         const std::string& uniqueName, const std::string& vertexEntry,
         const std::string& fragmentEntry, const std::string& sourceCode)

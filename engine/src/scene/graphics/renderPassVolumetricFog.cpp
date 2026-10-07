@@ -14,7 +14,7 @@
 #include <numbers>
 
 #include "scene/graphics/colorTarget.h"
-#include "scene/graphics/quadShader.h"
+#include "scene/shader-lib/slangShaders.h"
 #include "core/math/color.h"
 #include "framework/components/light/lightComponent.h"
 #include "platform/graphics/graphicsDevice.h"
@@ -91,12 +91,6 @@ namespace visutwin::canvas
             float cameraNear = 0.1f;
             float cameraFar = 1000.0f;
         };
-        std::shared_ptr<Shader> fogShader(GraphicsDevice* device, const char* cacheKey,
-            const char* vertexEntry, const char* fragmentEntry,
-            const char* msl, const char* glsl)
-        {
-            return getOrCreateQuadShader(device, cacheKey, vertexEntry, fragmentEntry, msl, glsl);
-        }
 
         // The directional light the fog scatters: the first enabled, casting
         // directional light.
@@ -313,8 +307,7 @@ namespace visutwin::canvas
         uniforms.cameraParams[2] = params.extinction;
 
         if (!shader()) {
-            setShader(fogShader(gd.get(), "volumetric-fog-march", "fogVertex", "fogFragment",
-                volumetric_fog::MARCH_MSL, volumetric_fog::MARCH_GLSL));
+            setShader(getOrCreateSlangShader(gd.get(), "fog-march"));
         }
         if (!shader()) {
             return;
@@ -348,8 +341,7 @@ namespace visutwin::canvas
         Texture* cookieAtlas = atlas ? atlas->cookieAtlasTexture() : nullptr;
 
         if (!_localShader) {
-            _localShader = fogShader(gd.get(), "volumetric-fog-local", "fogLocalVertex", "fogLocalFragment",
-                volumetric_fog::LOCAL_MSL, volumetric_fog::LOCAL_GLSL);
+            _localShader = getOrCreateSlangShader(gd.get(), "fog-local");
             if (!_localShader) {
                 return;
             }
@@ -561,9 +553,7 @@ namespace visutwin::canvas
         uniforms.cameraParams[1] = params.cameraFar;
 
         if (!shader()) {
-            setShader(fogShader(gd.get(), "volumetric-fog-combine",
-                "fogCombineVertex", "fogCombineFragment",
-                volumetric_fog::COMBINE_MSL, volumetric_fog::COMBINE_GLSL));
+            setShader(getOrCreateSlangShader(gd.get(), "fog-combine"));
             // scene * transmittance + inscatter
             auto blend = std::make_shared<BlendState>();
             blend->setEnabled(true);

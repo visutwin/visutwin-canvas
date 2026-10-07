@@ -104,7 +104,7 @@ namespace visutwin::canvas
     void RenderPassSsao::prepareShaders()
     {
         if (!shader()) {
-            useCachedShader("ssao-quad", "ssaoVertex", "ssaoFragment", ssao_shaders::SSAO_MSL, ssao_shaders::SSAO_GLSL);
+            useSlangShader("ssao");
         }
     }
 

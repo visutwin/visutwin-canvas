@@ -4,9 +4,9 @@
 // Created by Arnis Lektauers on 13.07.2026
 //
 #include "particleEmitter.h"
-#include "particleSimShaders.h"
 #include "particleSortShaders.h"
 #include "platform/graphics/compute.h"
+#include "scene/shader-lib/slangShaders.h"
 
 #include <algorithm>
 #include <cmath>
@@ -425,15 +425,7 @@ namespace visutwin::canvas
                 _simUnavailable = true;
                 return;
             }
-            ShaderDefinition definition;
-            definition.name = "particle-sim";
-            definition.cshader = "particleSimKernel";
-            // Both backends can be compiled in and chosen at runtime, so the source
-            // comes from the live device rather than a build-time #ifdef.
-            _simShader = createShader(_device.get(), definition,
-                _device->shaderLanguage() == ShaderLanguage::Glsl
-                    ? particle_sim_shaders::PARTICLE_SIM_GLSL
-                    : particle_sim_shaders::PARTICLE_SIM_MSL);
+            _simShader = getOrCreateSlangShader(_device.get(), "particle-sim");
             if (!_simShader) {
                 _simUnavailable = true;
                 return;
@@ -581,13 +573,7 @@ namespace visutwin::canvas
             createSortBuffers();
         }
         if (!_sortShader) {
-            ShaderDefinition definition;
-            definition.name = "particle-sort";
-            definition.cshader = "particleSortKernel";
-            _sortShader = createShader(_device.get(), definition,
-                _device->shaderLanguage() == ShaderLanguage::Glsl
-                    ? particle_sort_shaders::PARTICLE_SORT_GLSL
-                    : particle_sort_shaders::PARTICLE_SORT_MSL);
+            _sortShader = getOrCreateSlangShader(_device.get(), "particle-sort");
             if (!_sortShader) {
                 return;
             }

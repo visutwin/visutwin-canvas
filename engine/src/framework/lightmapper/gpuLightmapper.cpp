@@ -15,8 +15,7 @@
 #include <spdlog/spdlog.h>
 
 #include "lightmapFilters.h"
-#include "lightmapFilterShaders.h"
-#include "scene/graphics/quadShader.h"
+#include "scene/shader-lib/slangShaders.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
 #include "framework/components/componentSystem.h"
@@ -127,31 +126,22 @@ namespace visutwin::canvas
 
         std::shared_ptr<Shader> filterShader(GraphicsDevice* device, const FilterKind kind)
         {
-            const char* cacheKey = "lightmap-copy";
-            const char* define = "#define LM_COPY 1\n";
+            // engine/shaders/slang/programs/lightmap-filter.slang, one variant per pass.
+            const char* variant = "copy";
             switch (kind) {
             case FilterKind::Dilate:
-                cacheKey = "lightmap-dilate";
-                define = "#define LM_DILATE 1\n";
+                variant = "dilate";
                 break;
             case FilterKind::Denoise:
-                cacheKey = "lightmap-denoise";
-                define = "#define LM_DENOISE 1\n";
+                variant = "denoise";
                 break;
             case FilterKind::AmbientOcclusion:
-                cacheKey = "lightmap-ambient-ao";
-                define = "#define LM_AMBIENT_AO 1\n";
+                variant = "ambient-ao";
                 break;
             case FilterKind::Copy:
                 break;
             }
-            // GLSL needs its #version line first, so the pass switch follows it.
-            return getOrCreateQuadShader(device, cacheKey, "lightmapFilterVertex", "lightmapFilterFragment",
-                [define](const bool glsl) {
-                    return glsl
-                        ? std::string("#version 450\n") + define + lightmap_filter_shaders::LIGHTMAP_FILTER_GLSL
-                        : std::string(define) + lightmap_filter_shaders::LIGHTMAP_FILTER_MSL;
-                });
+            return getOrCreateSlangShader(device, "lightmap-filter", variant);
         }
 
         /// One full-target quad: `sources` on slots 0.., writing `target`. A pass draws
@@ -285,7 +275,7 @@ namespace visutwin::canvas
         camera->setRenderTarget(renderTarget);
         camera->setLightmapBakePass(true);
         // Alpha 0: a texel the unwrap never covers stays at alpha 0, and the dilate and
-        // denoise read alpha as "baked" (lightmapFilterShaders.h).
+        // denoise read alpha as "baked" (lightmap-filter.slang).
         camera->setClearColor(Color(0.0f, 0.0f, 0.0f, 0.0f));
         // The UV-space vertex stage ignores this transform; it exists only so the
         // directional shadow cascades are fitted to the scene rather than to a

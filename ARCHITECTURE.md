@@ -504,7 +504,7 @@ already some example's binding.
 **It is drawn by the engine, as upstream's is**: one `Render2d` quad list, one mesh
 instance, one material, one draw, on the UI layer. Three pieces:
 
-- `Render2d` (`render2d.h`, shader in `render2dShaders.h`, MSL and GLSL): solid rects,
+- `Render2d` (`render2d.h`, the Slang program `render2d`): solid rects,
   MSDF glyphs from pages 0 and 1 of a regular and a bold font (material slots 0, 1, 4,
   5, combined samplers on both backends), and graph rows (slot 3). The vertices reuse
   the 56-byte packed layout (`position.z` is the mode, the normal the colour). Colours
@@ -996,7 +996,8 @@ and the after pass. Every quad-drawing pass derives from `RenderPassShaderQuad`.
 
 The environment bake — equirect-to-cube, reproject, convolve, atlas assembly — is
 written once over `QuadRender` in `scene/graphics/envBake.h`, `envReproject.h` and
-`envLighting.h`, with one MSL and one GLSL body per stage in `envShaders.h`; both
+`envLighting.h`, with one Slang program per stage (`env-equirect-to-cube`, `env-reproject`,
+`env-convolve`; the shared maps in the `vtenv` module); both
 backends run the same importance-sampled convolution over a sample table passed as
 an input texture. It runs inside `GraphicsDevice::beginOfflineWork` /
 `endOfflineWork`, which is what lets ordinary render passes execute outside the

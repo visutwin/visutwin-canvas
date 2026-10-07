@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 02.10.2026
 //
-// The InstanceCuller every backend uses: two kernels (instanceCullShaders.h) dispatched
+// The InstanceCuller every backend uses: two kernels (the Slang programs instance-cull-reset and instance-cull) dispatched
 // through Compute and GraphicsDevice::computeDispatch, over buffers that are ordinary
 // VertexBuffers. A backend gets GPU culling by supporting compute and indirect draws; it
 // writes no culling code of its own.

@@ -40,6 +40,7 @@ namespace visutwin::canvas
         std::string source;                   ///< The module's Slang source
         std::vector<std::string> entryPoints; ///< `[shader(...)]` functions to compile, in order
         SlangTarget target = SlangTarget::Spirv;
+        /// Preprocessor defines. VT_TARGET_METAL is added for the Metal targets.
         std::vector<std::pair<std::string, std::string>> defines;
         std::vector<std::string> searchPaths; ///< Where `import` / `#include` look
         /// Files served from memory by name (the generated bindings.slang, an override of a

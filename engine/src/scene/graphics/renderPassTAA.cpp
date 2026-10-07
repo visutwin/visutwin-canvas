@@ -68,7 +68,7 @@ namespace visutwin::canvas
     void RenderPassTAA::prepareShaders()
     {
         if (!shader()) {
-            useCachedShader("taa-quad", "taaVertex", "taaFragment", taa_shaders::TAA_MSL, taa_shaders::TAA_GLSL);
+            useSlangShader("taa");
         }
     }
 

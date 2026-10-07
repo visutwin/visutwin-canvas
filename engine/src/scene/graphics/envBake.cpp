@@ -11,7 +11,7 @@
 
 #include <spdlog/spdlog.h>
 
-#include "scene/graphics/quadShader.h"
+#include "scene/shader-lib/slangShaders.h"
 #include "core/math/color.h"
 #include "envShaders.h"
 #include "quadRender.h"
@@ -42,24 +42,11 @@ namespace visutwin::canvas
         };
 
 
-        // GLSL needs its #version line first, so the variant switch is spliced in
-        // after it; MSL has no such rule and takes a plain prefix.
-        std::string composeSource(GraphicsDevice* device, const char* body,
-            const bool cubeSource)
-        {
-            const bool glsl = device->shaderLanguage() == ShaderLanguage::Glsl;
-            std::string define = cubeSource ? "#define SRC_CUBE 1\n" : "";
-            return glsl ? ("#version 450\n" + define + body) : (define + body);
-        }
-
+        // engine/shaders/slang/programs/env-reproject.slang: a cube source is its own
+        // variant, since a descriptor holding a cube view cannot serve a 2D sampler.
         std::shared_ptr<Shader> reprojectShader(GraphicsDevice* device, const bool cubeSource)
         {
-            const char* cacheKey = cubeSource ? "env-reproject-cube-quad"
-                                              : "env-reproject-2d-quad";
-            return getOrCreateQuadShader(device, cacheKey, "reprojectVertex", "reprojectFragment",
-                [&](const bool glsl) {
-                    return composeSource(device, glsl ? env_shaders::REPROJECT_GLSL : env_shaders::REPROJECT_MSL, cubeSource);
-                });
+            return getOrCreateSlangShader(device, "env-reproject", cubeSource ? "cube" : "2d");
         }
 
 
@@ -92,12 +79,7 @@ namespace visutwin::canvas
 
         std::shared_ptr<Shader> convolveShader(GraphicsDevice* device, const bool cubeSource)
         {
-            const char* cacheKey = cubeSource ? "env-convolve-cube-quad"
-                                              : "env-convolve-2d-quad";
-            return getOrCreateQuadShader(device, cacheKey, "convolveVertex", "convolveFragment",
-                [&](const bool glsl) {
-                    return composeSource(device, glsl ? env_shaders::CONVOLVE_GLSL : env_shaders::CONVOLVE_MSL, cubeSource);
-                });
+            return getOrCreateSlangShader(device, "env-convolve", cubeSource ? "cube" : "2d");
         }
 
         // The sample table as a 1-row RGBA32F texture. Built and uploaded BEFORE the
@@ -160,8 +142,7 @@ namespace visutwin::canvas
         // One shader per device, cached like every other quad effect's.
         std::shared_ptr<Shader> equirectToCubeShader(GraphicsDevice* device)
         {
-            return getOrCreateQuadShader(device, "env-equirect-to-cube-quad", "equirectToCubeVertex",
-                "equirectToCubeFragment", env_shaders::EQUIRECT_TO_CUBE_MSL, env_shaders::EQUIRECT_TO_CUBE_GLSL);
+            return getOrCreateSlangShader(device, "env-equirect-to-cube");
         }
     }
 

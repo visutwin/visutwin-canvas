@@ -48,19 +48,22 @@ namespace visutwin::canvas
         size_t computeSpirvWords = 0;
     };
 
-    /// The bundle's entry for `program`, or nothing.
-    [[nodiscard]] bool findBundledSlangProgram(std::string_view program, SlangBundledProgram& out);
+    /// The bundle's entry for `program` / `variant`, or nothing. A program declares its
+    /// variants with `// @variant <name>: DEFINE=value ...` lines (each compiled with those
+    /// defines); one without such lines has the single variant "".
+    [[nodiscard]] bool findBundledSlangProgram(std::string_view program, SlangBundledProgram& out,
+        std::string_view variant = {});
 
-    /// Compiles `program` from the source tree for `device`'s backend, as the override
-    /// path does: the code is filled in and true returned, or the diagnostics are logged.
-    /// Public so a test can drive the runtime path without the environment variable.
+    /// Compiles `program` / `variant` from the source tree for `device`'s backend, as the
+    /// override path does: the code is filled in and true returned, or the diagnostics are
+    /// logged. Public so a test can drive the runtime path without the environment variable.
     [[nodiscard]] bool compileSlangProgramFromSource(GraphicsDevice* device, std::string_view program,
-        ShaderCode& code);
+        ShaderCode& code, std::string_view variant = {});
 
-    /// The shader for `program` on `device`, cached on the device under "slang:<program>"
-    /// (with the feature set's hash when `features` is not empty): from the bundle, or from
-    /// the source tree when VISUTWIN_SLANG_RUNTIME is set or the bundle lacks it. Null, with
-    /// an error logged, when neither is possible.
+    /// The shader for `program` / `variant` on `device`, cached on the device under
+    /// "slang:<program>[@<variant>]" (with the feature set's hash when `features` is not
+    /// empty): from the bundle, or from the source tree when VISUTWIN_SLANG_RUNTIME is set
+    /// or the bundle lacks it. Null, with an error logged, when neither is possible.
     std::shared_ptr<Shader> getOrCreateSlangShader(GraphicsDevice* device, const std::string& program,
-        const ShaderFeatureSet& features = {});
+        const std::string& variant = {}, const ShaderFeatureSet& features = {});
 }

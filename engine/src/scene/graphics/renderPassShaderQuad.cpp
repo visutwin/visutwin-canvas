@@ -6,6 +6,8 @@
 //
 #include "renderPassShaderQuad.h"
 
+#include "scene/shader-lib/slangShaders.h"
+
 #include "quadRender.h"
 #include "quadShader.h"
 #include "platform/graphics/graphicsDevice.h"
@@ -23,6 +25,15 @@ namespace visutwin::canvas
         if (_shader) {
             _quadRender = std::make_shared<QuadRender>(_shader);
         }
+    }
+
+    void RenderPassShaderQuad::useSlangShader(const std::string& program, const std::string& variant)
+    {
+        const auto gd = device();
+        if (!gd) {
+            return;
+        }
+        setShader(getOrCreateSlangShader(gd.get(), program, variant));
     }
 
     void RenderPassShaderQuad::useCachedShader(const char* cacheKey, const char* vertexEntry,

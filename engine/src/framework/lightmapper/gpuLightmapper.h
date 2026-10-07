@@ -66,7 +66,7 @@ namespace visutwin::canvas
      * need a second bake output and a directional-lightmap path in both forward chunks);
      * the bake spreads over several rendered frames rather than one synchronous call;
      * lightmaps are always RGBA16F linear, with baked texels
-     * marked by alpha (see lightmapFilterShaders.h). The CPU Lightmapper remains available
+     * marked by alpha (see lightmap-filter.slang). The CPU Lightmapper remains available
      * as a ray-traced reference.
      */
     class GpuLightmapper
@@ -174,7 +174,7 @@ namespace visutwin::canvas
         void prepareAmbientSample(int index);
         void prepareDirectionalSample(int index);
 
-        // The offline quad passes (lightmapFilterShaders.h).
+        // The offline quad passes (engine/shaders/slang/programs/lightmap-filter.slang).
         /// lightmap = curve(occlusion) x ambient, through a temporary target.
         void applyAmbientOcclusion();
         /// (Denoise or dilate) into the temporary target,
