@@ -35,7 +35,7 @@ float4 cookieBlitFragment(QuadVarying input) : SV_Target0
 {
 #if defined(COOKIE_CUBE)
     const float4 projPos = float4(input.uv.x * 2.0 - 1.0, 1.0 - input.uv.y * 2.0, 0.5, 1.0);
-    const float3 dir = mul(u.invViewProj, projPos).xyz;
+    const float3 dir = mul(projPos, u.invViewProj).xyz;
     return blitTexture.SampleLevel(float3(-dir.x, dir.y, dir.z), 0.0);
 #else
     return blitTexture.SampleLevel(input.uv, 0.0);

@@ -181,9 +181,13 @@ namespace visutwin::canvas
             return finish();
         }
 
-        // The engine's matrices are column-major on both backends (a Matrix4 is sixteen
-        // column-major floats), so `mul(M, v)` must read M as columns. Slang's default
-        // is HLSL's row-major; left at that, every transform would be transposed.
+        // The engine's matrices are sixteen column-major floats (Matrix4::store). Read
+        // ROW-major, Slang sees each stored column as a row, i.e. the transpose, so a shader
+        // writes `mul(v, M)` for the engine's M * v. That spelling is what both targets emit
+        // natively: MSL `M * v` and SPIR-V OpMatrixTimesVector, exactly what hand-written MSL
+        // and GLSL produced. The other spelling (column-major, `mul(M, v)`) is the same maths,
+        // but Slang emits it on Metal as a row vector times a rebuilt transposed matrix, which
+        // rounds differently (TAA history amplified it to 34 counts at silhouettes).
         slang::TargetDesc targetDesc{};
         targetDesc.format = targetFormat(request.target);
 
@@ -223,7 +227,7 @@ namespace visutwin::canvas
         sessionDesc.fileSystem = fileSystem.get();
         sessionDesc.targets = &targetDesc;
         sessionDesc.targetCount = 1;
-        sessionDesc.defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR;
+        sessionDesc.defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_ROW_MAJOR;
         sessionDesc.preprocessorMacros = macros.empty() ? nullptr : macros.data();
         sessionDesc.preprocessorMacroCount = static_cast<SlangInt>(macros.size());
         sessionDesc.searchPaths = searchPaths.empty() ? nullptr : searchPaths.data();

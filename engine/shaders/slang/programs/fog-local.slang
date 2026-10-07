@@ -87,7 +87,7 @@ float volSampleShadow(float3 pos, float3 lightVec, float spiral)
     const float resolution = u.lightAtten.z;
     const float2 tapOffset = float2(cos(spiral), sin(spiral)) / resolution;
     if (u.lightDir.w > 0.0) {
-        const float4 projPos = mul(u.lightProjMatrix, float4(pos, 1.0));
+        const float4 projPos = mul(float4(pos, 1.0), u.lightProjMatrix);
         const float3 coord = projPos.xyz / projPos.w;
         return VT_SHADOW_COMPARE(shadowAtlas, coord.xy + tapOffset, coord.z);
     }
@@ -102,7 +102,7 @@ float3 volSampleCookie(float3 pos, float3 lightVec)
 {
     float2 uv;
     if (u.lightDir.w > 0.0) {
-        const float4 projected = mul(u.lightProjMatrix, float4(pos, 1.0));
+        const float4 projected = mul(float4(pos, 1.0), u.lightProjMatrix);
         uv = projected.xy / max(projected.w, 1e-6);
     } else {
         uv = fogCubemapAtlasCoordinates(u.lightAtlas, u.lightAtten.z, lightVec);
@@ -169,7 +169,7 @@ float4 fogLocalFragment(QuadVarying input) : SV_Target0
 {
     const float2 uv = clamp(input.uv, float2(0.0, 0.0), float2(1.0, 1.0));
     const float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
-    const float3 rayDir = normalize(mul(u.invView, float4(ndc * u.projScale.xy, -1.0, 0.0)).xyz);
+    const float3 rayDir = normalize(mul(float4(ndc * u.projScale.xy, -1.0, 0.0), u.invView).xyz);
 
     const float rawDepth = depthTexture.SampleLevel(uv, 0.0);
     const float cameraNear = u.projScale.z;

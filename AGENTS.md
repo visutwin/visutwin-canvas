@@ -218,7 +218,9 @@ slot (Metal ignores `vk::binding`, and a sampler index above 15 fails Apple's co
 `[[vk::constant_id(N)]] const uint vtFeatureMaskN`, bound from `ShaderDefinition::features`
 as Vulkan specialization constants and Metal FUNCTION constants (`MetalShader::newFunction`,
 on when `ShaderCode::specializeFeatures`), so one compiled library serves every variant;
-matrices are column-major (the compiler sets it; `mul(M, v)` reads M as columns).
+matrices are read ROW-major (the compiler and the bundle set it), so the engine's
+column-major `M * v` is written `mul(v, M)` and `A * B` is `mul(B, A)`, and `M[i]` is the
+engine's COLUMN i (`M[3].xyz` a transform's translation).
 `tests/slangCompilerTests.cpp` holds the targets, `tests/slangGpuTests.cpp` (`gpu`) draws
 one module on this build's device and pins the variant, the layout and the bindings.
 
@@ -251,7 +253,10 @@ What binds now:
   precompiled metallib for Metal, SPIR-V per entry point for Vulkan, plus the
   `bindings.slang` text. Every `.slang` under the tree is a dependency. `slangc -target metal`
   does NOT validate what it emits; the metallib step (Apple's compiler) is what rejects a bad
-  binding, so check a new program by building, not by its MSL alone.
+  binding, so check a new program by building, not by its MSL alone. The metallib is built by
+  `xcrun metal -ffast-math` from that MSL, NOT by slangc's metallib target: slangc passes the
+  compiler options of its own, and its library rounded differently from the runtime compile of
+  the same MSL (`MetalShader`, fast math on), so the bundle and an override disagreed.
 - **`VT_TARGET_METAL` is defined for the Metal targets** (`SlangCompiler` adds it, the bundle
   passes it), and `bindings.slang` declares some inputs per target under it. Prefer
   `__target_switch` inside a function; use the define only where the DECLARATIONS must differ.
@@ -278,10 +283,13 @@ What binds now:
   the program's output changed, run through `VISUTWIN_SLANG_RUNTIME` and
   `VISUTWIN_CANVAS_SHADERS`, must change the frame on both backends. A pass that never runs
   matches its reference perfectly too.
-- **Slang spellings that differ from HLSL habit**: `float2x2(a, b, c, d)` is ROW-wise and
-  `*` on matrices is component-wise, so write a matrix-vector product out or use `mul`
-  (column-major layout: `mul(M, v)` reads M as columns); a Metal-only buffer still needs a
-  `[[vk::binding]]` (one SPIR-V never references) or Slang warns (E39029).
+- **Write `mul(v, M)`, never `mul(M, v)`.** Under the row-major reading that spelling is what
+  both targets emit natively — MSL `M * v`, SPIR-V `OpMatrixTimesVector` — exactly what the
+  hand-written shaders compiled to. Column-major with `mul(M, v)` is the same maths, but Slang
+  emits it on Metal as a row vector times a rebuilt transposed matrix, which ROUNDS
+  differently: TAA history amplified that to 34 counts at the fog example's silhouettes.
+  `float2x2(a, b, c, d)` is ROW-wise and `*` on matrices is component-wise; a Metal-only
+  buffer still needs a `[[vk::binding]]` (one SPIR-V never references) or Slang warns (E39029).
 - **Known per-backend differences kept in one source**: the fog shadow compare (above), and
   the rounding of compose's ACES2, the particle spawn sphere and the wide-line dash modulo
   follow the former MSL; Vulkan may differ from its former GLSL by a count where those did.

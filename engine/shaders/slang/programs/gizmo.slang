@@ -37,7 +37,7 @@ struct FragmentOut
 Varyings gizmoVertex(VertexIn input)
 {
     Varyings output;
-    float4 clip = mul(mul(drawViewProjection(), drawModel()), float4(input.position, 1.0));
+    float4 clip = mul(float4(input.position, 1.0), mul(drawModel(), drawViewProjection()));
     clip.z = clamp(clip.z, -abs(clip.w), abs(clip.w));
     clip.z = 0.5 * (clip.z + clip.w);
     output.position = clip;

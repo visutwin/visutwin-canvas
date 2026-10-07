@@ -76,7 +76,7 @@ float4 sampleLut(float4 lut[16], float nlife)
 /// The emitter's position: the translation column of its transform.
 float3 emitterOrigin()
 {
-    return float3(params.emitterTransform[0][3], params.emitterTransform[1][3], params.emitterTransform[2][3]);
+    return params.emitterTransform[3].xyz;
 }
 
 [shader("compute")]
@@ -125,12 +125,12 @@ void particleSimKernel(uint3 dispatchId : SV_DispatchThreadID)
         } else {
             localPos = r3 * params.shapeParams.xyz;
         }
-        p.posAge.xyz = mul(params.emitterTransform, float4(localPos, 1.0)).xyz;
+        p.posAge.xyz = mul(float4(localPos, 1.0), params.emitterTransform).xyz;
 
         float3 vel = params.velocityBase.xyz + (rnd3(lifeSeed + 6u) * 2.0 - 1.0) * params.velocitySpread.xyz;
         if (!localSpace) {
             // World space: rotate the velocity by the emitter orientation.
-            vel = mul(params.emitterTransform, float4(vel, 0.0)).xyz;
+            vel = mul(float4(vel, 0.0), params.emitterTransform).xyz;
         }
         p.velLifetime.xyz = vel;
         p.velLifetime.w = lerp(params.lifeRot.x, params.lifeRot.y, r3b.y);
@@ -152,8 +152,8 @@ void particleSimKernel(uint3 dispatchId : SV_DispatchThreadID)
         const float3 worldVelocity = lerp(sampleLut(params.velocityLut, nlife).xyz,
                                           sampleLut(params.velocityLut2, nlife).xyz, r);
         vel += localSpace
-            ? localVelocity + mul(params.worldToEmitter, float4(worldVelocity, 0.0)).xyz
-            : mul(params.emitterTransform, float4(localVelocity, 0.0)).xyz + worldVelocity;
+            ? localVelocity + mul(float4(worldVelocity, 0.0), params.worldToEmitter).xyz
+            : mul(float4(localVelocity, 0.0), params.emitterTransform).xyz + worldVelocity;
     }
     if (params.graphParams.y > 0.5) {
         p.rotSeedSize.x += lerp(sampleLut(params.localVelocityLut, nlife).w,

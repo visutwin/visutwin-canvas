@@ -7,10 +7,11 @@
 // GraphicsDevice::createShaderFromCode: compiled to MSL for Metal, to SPIR-V for
 // Vulkan, by the same code. It holds the three things phase 0 of the single-source
 // migration has to prove on hardware:
-//   - the matrix layout: the vertex stage applies `mul(params.model, p)` with a
-//     translation of +1 in x, which must shift the quad's oversized triangle onto the
-//     RIGHT half of the target and leave the left half cleared. Read row-major, the
-//     translation lands in the w row and the triangle covers something else;
+//   - the matrix layout: the vertex stage applies `mul(p, params.model)` (the engine's
+//     M * p under the row-major reading) with a translation of +1 in x, which must shift
+//     the quad's oversized triangle onto the RIGHT half of the target and leave the left
+//     half cleared. With the layout or the operand order wrong, the translation lands in
+//     the w row and the triangle covers something else;
 //   - the variant: the fragment picks its colour from feature word 0, bit 0, which the
 //     engine supplies as a function constant (Metal) or a specialization constant
 //     (Vulkan) from ShaderDefinition::features, so ONE compiled library draws both
@@ -73,7 +74,7 @@ struct VSOut { float4 clip : SV_Position; float2 uv : TEXCOORD0; };
 VSOut vsMain(VSIn i)
 {
     VSOut o;
-    o.clip = mul(params.model, float4(i.position, 1.0));
+    o.clip = mul(float4(i.position, 1.0), params.model);
     o.uv = i.uv;
     return o;
 }
@@ -234,7 +235,7 @@ int main()
             const Pixel topRight = at(pixels, (3 * kSize) / 4, kSize / 8);
             const Pixel bottomRight = at(pixels, (3 * kSize) / 4, (7 * kSize) / 8);
             check(isColor(left, 0, 0, 0), definition.name + ": the left half is left cleared " + describe(left) +
-                " (the translation column of the matrix moved the triangle, so mul reads column-major)");
+                " (the translation column of the matrix moved the triangle, so mul(v, M) applies M)");
             const uint8_t r = variant ? 255 : 0;
             const uint8_t g = variant ? 0 : 255;
             check(isColor(right, r, g, 0), definition.name + ": the right half carries the variant's colour " +

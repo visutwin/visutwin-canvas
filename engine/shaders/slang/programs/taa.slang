@@ -40,10 +40,10 @@ float2 reproject(float2 uv, float depth)
     float4 ndc = float4(uv.x * 2.0 - 1.0, 1.0 - 2.0 * uv.y, depth, 1.0);
     ndc.xy -= u.jitters.xy;
 
-    float4 worldPosition = mul(u.viewProjectionInverse, ndc);
+    float4 worldPosition = mul(ndc, u.viewProjectionInverse);
     worldPosition /= worldPosition.w;
 
-    const float4 screenPrevious = mul(u.viewProjectionPrevious, worldPosition);
+    const float4 screenPrevious = mul(worldPosition, u.viewProjectionPrevious);
     const float2 prevNdc = screenPrevious.xy / screenPrevious.w;
     return float2(prevNdc.x * 0.5 + 0.5, 0.5 - prevNdc.y * 0.5);
 }

@@ -46,7 +46,7 @@ float sampleFogShadow(float3 worldPos, float viewDepth)
     const float4 comparisons = step(u.shadowCascadeDistances, float4(viewDepth, viewDepth, viewDepth, viewDepth));
     const int cascadeIndex = int(min(dot(comparisons, float4(1.0, 1.0, 1.0, 1.0)), u.shadowParams.x - 1.0));
 
-    const float4 shadowCoord = mul(u.shadowMatrixPalette[cascadeIndex], float4(worldPos, 1.0));
+    const float4 shadowCoord = mul(float4(worldPos, 1.0), u.shadowMatrixPalette[cascadeIndex]);
     if (shadowCoord.w <= 0.0) {
         return 1.0;
     }
@@ -73,7 +73,7 @@ float4 fogFragment(QuadVarying input) : SV_Target0
     const float extinction = u.cameraParams.z;
 
     const float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
-    const float3 rayDir = normalize(mul(u.invView, float4(ndc * u.projScale.xy, -1.0, 0.0)).xyz);
+    const float3 rayDir = normalize(mul(float4(ndc * u.projScale.xy, -1.0, 0.0), u.invView).xyz);
 
     const float rawDepth = depthTexture.Sample(uv);
     const float sceneDepth = fogLinearDepth(rawDepth, cameraNear, cameraFar);

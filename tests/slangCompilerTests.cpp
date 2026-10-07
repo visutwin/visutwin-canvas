@@ -45,7 +45,7 @@ struct VSOut { float4 clip : SV_Position; float2 uv : TEXCOORD0; };
 VSOut vsMain(VSIn i)
 {
     VSOut o;
-    o.clip = mul(params.model, float4(i.position, 1.0));
+    o.clip = mul(float4(i.position, 1.0), params.model);
     o.uv = i.uv;
     return o;
 }

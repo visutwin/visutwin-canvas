@@ -129,10 +129,10 @@ Varyings wideLineVS(uint vid : SV_VertexID, uint iid : SV_InstanceID)
     const float4 screenSize = params.screenSize;
     const float4x4 projView = drawViewProjection();
 
-    const float4 prevClip = mul(projView, float4(seg.prevWidth.xyz, 1.0));
-    const float4 startClip = mul(projView, float4(seg.startWidth.xyz, 1.0));
-    const float4 endClip = mul(projView, float4(seg.endDistance.xyz, 1.0));
-    const float4 nextClip = mul(projView, float4(seg.nextDistance.xyz, 1.0));
+    const float4 prevClip = mul(float4(seg.prevWidth.xyz, 1.0), projView);
+    const float4 startClip = mul(float4(seg.startWidth.xyz, 1.0), projView);
+    const float4 endClip = mul(float4(seg.endDistance.xyz, 1.0), projView);
+    const float4 nextClip = mul(float4(seg.nextDistance.xyz, 1.0), projView);
 
     const float worldSpace = seg.dashFlags.z;
     const float startHalfWidth = resolveHalfWidth(seg.prevWidth.w, startClip, worldSpace, projView, screenSize);
