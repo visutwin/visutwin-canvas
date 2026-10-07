@@ -8,7 +8,11 @@ import json
 import re
 import struct
 import subprocess
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from shader_bindings import expected_descriptors  # noqa: E402
 
 
 MODULES = (
@@ -39,6 +43,7 @@ MODULES = (
 # hardcoded — the SPIR-V reflection below is checked against THIS, so adding a
 # field stays a one-line edit in materialUniformFields.h.
 MATERIAL_BLOCK_SIZE = 0
+BINDINGS_HEADER = Path()
 
 # Matches one VT_MATERIAL_UNIFORM_FIELDS entry: X(vec4, name, default...).
 MATERIAL_FIELD_RE = re.compile(
@@ -254,48 +259,12 @@ def validate(module: str, reflection: dict) -> None:
             )
         return
 
+    # Sets 1 (material) and 3 (scene) come from the binding table the engine reads
+    # (shaderBindings.h); the blocks and the cluster buffers are listed here.
     expected = {
         (0, 0, "UniformBuffer"),
         (2, 0, "UniformBuffer"),
-        (1, 0, "CombinedImageSampler"),
-        (1, 1, "CombinedImageSampler"),
-        (1, 3, "CombinedImageSampler"),
-        (1, 4, "CombinedImageSampler"),
-        (1, 5, "CombinedImageSampler"),
-        (1, 19, "CombinedImageSampler"),
-        # Separate images through the shared material sampler at 24: 17 parallax
-        # height, 23 detail normal, 7/13/14 clearcoat intensity/gloss/normal.
-        (1, 7, "SampledImage"),
-        (1, 13, "SampledImage"),
-        (1, 14, "SampledImage"),
-        (1, 17, "SampledImage"),
-        (1, 23, "SampledImage"),
-        (1, 24, "Sampler"),
-        # 31-34 = gloss, thickness, refraction and opacity maps, separate images.
-        (1, 31, "SampledImage"),
-        (1, 32, "SampledImage"),
-        (1, 33, "SampledImage"),
-        (1, 34, "SampledImage"),
-        # 1 = directional shadow slot 0 and 22 = slot 1: separate images through
-        # the shared samplers at 12/13.
-        *( (3, binding, "CombinedImageSampler") for binding in (0, 2, 3, 4, 5) ),
-        (3, 1, "SampledImage"),
-        (3, 22, "SampledImage"),
-        *( (3, binding, "SampledImage") for binding in range(6, 12) ),
-        *( (3, binding, "Sampler") for binding in range(12, 14) ),
-        # 14 = clustered spot-shadow atlas (texture2DArray, separate image),
-        # 15/16 = planar reflection colour and distance-from-plane maps.
-        (3, 14, "SampledImage"),
-        (3, 15, "SampledImage"),
-        (3, 16, "SampledImage"),
-        # 17/18 = spot light cookies, 19/20 = omni light cookie cubemaps.
-        (3, 17, "SampledImage"),
-        (3, 18, "SampledImage"),
-        (3, 19, "SampledImage"),
-        (3, 20, "SampledImage"),
-        # 21 = lighting-mode SSAO, 23 = clustered cookie atlas.
-        (3, 21, "SampledImage"),
-        (3, 23, "SampledImage"),
+        *expected_descriptors(BINDINGS_HEADER),
         (5, 0, "StorageBuffer"),
         (5, 1, "StorageBuffer"),
     }
@@ -347,6 +316,8 @@ def emit_array(output: list[str], name: str, values: list[int]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--glslc", required=True)
+    parser.add_argument("--bindings", required=True, type=Path,
+                        help="engine/src/platform/graphics/shaderBindings.h, the binding table")
     parser.add_argument("--spirv-cross", required=True)
     parser.add_argument("--shader-dir", type=Path, required=True)
     parser.add_argument("--features", type=Path, required=True)
@@ -398,6 +369,8 @@ def main() -> None:
     # consecutively. Every vec4 in this list already lands 16-aligned, so the
     # running offset is the block size (rounded up to 16 at the end).
     global MATERIAL_BLOCK_SIZE
+    global BINDINGS_HEADER
+    BINDINGS_HEADER = args.bindings
     offset = 0
     for shader_type, _name in material_fields:
         if shader_type == "vec4":

@@ -5,15 +5,6 @@
 // Bound at fragment buffer slot 9 when VT_FEATURE_ATMOSPHERE is enabled.
 // ---------------------------------------------------------------------------
 
-struct AtmosphereData {
-    float4 planetCenterAndRadius;               // xyz = planet center (camera-local), w = planet radius (m)
-    float4 atmosphereRadiusAndSunIntensity;     // x = atmosphere outer radius (m), y = sun intensity, z = cos(sun disk half-angle), w = 0
-    float4 rayleighCoeffAndScaleHeight;         // xyz = Rayleigh scattering coefficients (per m), w = Rayleigh scale height (m)
-    float4 mieCoeffAndScaleHeight;              // x = Mie scattering coefficient, y = Mie scale height (m), z = Mie g (HG phase), w = 0
-    float4 sunDirection;                        // xyz = normalized sun direction (camera-local), w = 0
-    float4 cameraAltitudeAndParams;             // x = altitude above surface (m), y = primary ray steps, z = secondary ray steps, w = 0
-};
-
 // Ray-sphere intersection. Returns (tNear, tFar) or (-1, -1) if no hit.
 static inline float2 raySphereIntersect(float3 rayOrigin, float3 rayDir, float3 sphereCenter, float sphereRadius)
 {
@@ -35,19 +26,19 @@ static inline float2 raySphereIntersect(float3 rayOrigin, float3 rayDir, float3 
 // radii of ~6.4M meters cause catastrophic cancellation in ray-sphere intersection
 // (b^2 - c where both terms are ~10^12, but float32 only has 7 digits).
 // Density and optical depth are computed in real meters (altitude * planetR).
-static inline float3 nishitaScatter(float3 viewDir, constant AtmosphereData& atmo)
+static inline float3 nishitaScatter(float3 viewDir, constant LightingData& lighting)
 {
-    const float3 planetCenter = atmo.planetCenterAndRadius.xyz;
-    const float planetR = atmo.planetCenterAndRadius.w;
-    const float atmoR = atmo.atmosphereRadiusAndSunIntensity.x;
-    const float sunIntensity = atmo.atmosphereRadiusAndSunIntensity.y;
-    const float sunDiskCos = atmo.atmosphereRadiusAndSunIntensity.z;
-    const float3 betaR = atmo.rayleighCoeffAndScaleHeight.xyz;
-    const float hR = atmo.rayleighCoeffAndScaleHeight.w;
-    const float betaM = atmo.mieCoeffAndScaleHeight.x;
-    const float hM = atmo.mieCoeffAndScaleHeight.y;
-    const float g = atmo.mieCoeffAndScaleHeight.z;
-    const float3 sunDir = normalize(atmo.sunDirection.xyz);
+    const float3 planetCenter = lighting.atmoPlanetCenterAndRadius.xyz;
+    const float planetR = lighting.atmoPlanetCenterAndRadius.w;
+    const float atmoR = lighting.atmoRadiusAndSunIntensity.x;
+    const float sunIntensity = lighting.atmoRadiusAndSunIntensity.y;
+    const float sunDiskCos = lighting.atmoRadiusAndSunIntensity.z;
+    const float3 betaR = lighting.atmoRayleighCoeffAndScale.xyz;
+    const float hR = lighting.atmoRayleighCoeffAndScale.w;
+    const float betaM = lighting.atmoMieCoeffAndScale.x;
+    const float hM = lighting.atmoMieCoeffAndScale.y;
+    const float g = lighting.atmoMieCoeffAndScale.z;
+    const float3 sunDir = normalize(lighting.atmoSunDirection.xyz);
     const float atmoThickness = atmoR - planetR;
 
     // ── Normalize by planet radius so all geometry is near 1.0 ──────────

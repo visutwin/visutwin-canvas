@@ -106,9 +106,9 @@ namespace visutwin::canvas
             _materialSamplers[i] = texture ? samplers.forTexture(texture) : nullptr;
         }
 
-        // Clear material-owned slots not used by this material.
-        constexpr int materialSlots[] = {0, 1, 3, 4, 5, 7, 13, 14, 17, 19, 23, 31, 32, 33, 34};
-        for (const int s : materialSlots) {
+        // Clear material-owned slots not used by this material (the binding table's rows
+        // with metalMaterialSlot).
+        for (const int s : kMetalMaterialTextureSlots) {
             bool used = false;
             for (const auto& [slot, tex] : textureSlots) {
                 if (slot == s) { used = true; break; }
@@ -140,12 +140,12 @@ namespace visutwin::canvas
 
     void MetalTextureBinder::clearMaterialSlots(MTL::RenderCommandEncoder* encoder)
     {
-        // The material's slots among 0-7, NOT 2 and 6: those are the environment atlas
-        // and the shadow map, which bindSceneTextures binds right after this for the same
-        // draw. Clearing them here cost a clear and a rebind of
-        // each on every material-less draw — every opaque shadow caster.
-        constexpr int materialSlots[] = {0, 1, 3, 4, 5, 7};
-        for (const int slot : materialSlots) {
+        // Every material slot of the binding table, and only those: 2 and 6 are the
+        // environment atlas and the shadow map, which bindSceneTextures binds right after
+        // this for the same draw, and clearing them here cost a clear and a rebind of each
+        // on every material-less draw — every opaque shadow caster. clearCached skips a slot
+        // that is already clear, so the list costs nothing once it has run.
+        for (const int slot : kMetalMaterialTextureSlots) {
             clearCached(encoder, slot);
         }
         // No material, no maps: their sampler slots go back to the default sampler, so a

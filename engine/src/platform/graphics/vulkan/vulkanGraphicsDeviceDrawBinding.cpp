@@ -9,6 +9,7 @@
 #include "scene/lighting/worldClusters.h"
 #include "vulkanGraphicsDevice.h"
 
+#include "platform/graphics/lightingBlock.h"
 #include "platform/graphics/lightingDerivation.h"
 
 #include <algorithm>
@@ -1553,16 +1554,28 @@ namespace visutwin::canvas
         const Vector3* ambientSH, const Matrix4* viewProjection, const uint32_t meshLightMask)
     {
         // The values are decided in deriveLighting, shared with the Metal backend; this only
-        // lays them out in VulkanLightingUBO.
+        // lays them out in the shared LightingBlock.
         constexpr uint32_t kMaxLights = 8;
         auto& ubo = _lightingUbo;
         const DerivedLighting derived = deriveLighting(ambientColor, lights, kMaxLights,
             fogParams, shadowParams, ambientSH, viewProjection, meshLightMask);
-        ubo.clusterParams2[1] = derived.clusterLightAccept;
+        LightingBlockTextures textures;
+        packLightingBlock(ubo, textures, derived, shadowParams, cameraPosition, exposure, toneMapping,
+            enableNormalMaps);
+        // The maps are bound in draw(): the directional slots at set 3 bindings 1 and 22.
+        _shadowMapTexture = textures.shadowMap[0];
+        _shadowMapTexture1 = textures.shadowMap[1];
+        _localShadowTexture0 = textures.localShadowMap[0];
+        _localShadowTexture1 = textures.localShadowMap[1];
+        _localShadowVsm0 = textures.localVsm[0];
+        _localShadowVsm1 = textures.localVsm[1];
+        _omniShadowCube0 = textures.omniShadowCube[0];
+        _omniShadowCube1 = textures.omniShadowCube[1];
+        _cookieTexture2D0 = textures.cookie2D[0];
+        _cookieTexture2D1 = textures.cookie2D[1];
+        _cookieTextureCube0 = textures.cookieCube[0];
+        _cookieTextureCube1 = textures.cookieCube[1];
 
-        std::memcpy(ubo.ambientSH, derived.ambientSH, sizeof(ubo.ambientSH));
-        // SSR and refraction project world positions to screen UV with this.
-        std::memcpy(ubo.viewProjection, derived.viewProjection, sizeof(ubo.viewProjection));
         // Grab availability, tracked separately: dynamic refraction needs only
         // the colour grab, while the SSR march needs the depth copy too. Without
         // them the shader would sample the 1×1 white fallbacks.
@@ -1599,122 +1612,6 @@ namespace visutwin::canvas
             _lightingUbo.reflectionDepthParams[3] =
                 reflectionDepthMap() ? 1.0f : 0.0f;
         }
-
-        // Directional cascaded shadows, one block per slot (see ShadowParams). The
-        // cascade matrices, split distances and parameters come straight from the
-        // renderer; the maps are bound at set 3 bindings 1 and 22 in draw(). The
-        // PCSS lanes are read only when specialized with VT_FEATURE_PCSS_SHADOWS,
-        // which the renderer enables from the same shadow type.
-        const auto packDirectional = [&](const int slot, float* matrices, float* distances,
-            float* params, float* params2, float* pcss, float* pcssRadii, float* pcssDepthRanges) -> Texture* {
-            const auto& dir = shadowParams.directional[slot];
-            const bool on = derived.directionalActive[slot];
-            if (on) {
-                std::memcpy(matrices, dir.shadowMatrixPalette, sizeof(dir.shadowMatrixPalette));
-                std::memcpy(distances, dir.shadowCascadeDistances, sizeof(dir.shadowCascadeDistances));
-            }
-            // 0 = off, 1 = PCF depth compare, 2 = EVSM moments (Chebyshev).
-            params[0] = on ? (shadowParams.vsm ? 2.0f : 1.0f) : 0.0f;
-            params[1] = static_cast<float>(dir.numCascades);
-            params[2] = dir.bias;
-            params[3] = dir.strength;
-            params2[0] = dir.normalBias;
-            params2[1] = dir.cascadeBlend;
-            pcss[0] = static_cast<float>(shadowParams.pcssSamples);
-            pcss[1] = static_cast<float>(shadowParams.pcssBlockerSamples);
-            pcss[2] = dir.penumbraSize;
-            pcss[3] = dir.penumbraFalloff;
-            std::memcpy(pcssRadii, dir.pcssCascadeRadii, sizeof(dir.pcssCascadeRadii));
-            std::memcpy(pcssDepthRanges, dir.pcssCascadeDepthRanges, sizeof(dir.pcssCascadeDepthRanges));
-            return on ? dir.shadowMap : nullptr;
-        };
-        _shadowMapTexture = packDirectional(0, ubo.shadowMatrices, ubo.shadowCascadeDistances,
-            ubo.shadowParams, ubo.shadowParams2, ubo.pcssParams, ubo.pcssCascadeRadii, ubo.pcssCascadeDepthRanges);
-        _shadowMapTexture1 = packDirectional(1, ubo.dirShadow1Matrices, ubo.dirShadow1CascadeDistances,
-            ubo.dirShadow1Params, ubo.dirShadow1Params2, ubo.dirShadow1PcssParams, ubo.dirShadow1PcssCascadeRadii,
-            ubo.dirShadow1PcssCascadeDepthRanges);
-        // shadowParams2's other half carries two unrelated values.
-        ubo.shadowParams2[2] = static_cast<float>(toneMapping);
-        ubo.shadowParams2[3] = enableNormalMaps ? 1.0f : 0.0f;
-
-        // Local light shadows (spot 2D + omni cube), up to 2 casters; each light's
-        // coneParams[3] carries its slot. Omni params here: near, far, relative bias, intensity.
-        const auto packLocal = [](const DerivedLocalShadow& ls, float* matrix, float* params,
-                                  float* omni, float* pcss) {
-            std::memcpy(matrix, ls.matrix, sizeof(ls.matrix));
-            std::memcpy(params, ls.params, sizeof(ls.params));
-            std::memcpy(pcss, ls.pcss, sizeof(ls.pcss));
-            if (ls.active && ls.isOmni) {
-                omni[0] = ls.omniNear;
-                omni[1] = ls.omniFar;
-                omni[2] = ls.omniBias;
-                omni[3] = ls.params[2];
-            }
-        };
-        packLocal(derived.localShadows[0], ubo.localShadowMatrix0, ubo.localShadowParams0,
-            ubo.omniShadowParams0, ubo.localShadowPcss0);
-        packLocal(derived.localShadows[1], ubo.localShadowMatrix1, ubo.localShadowParams1,
-            ubo.omniShadowParams1, ubo.localShadowPcss1);
-        _localShadowTexture0 = derived.localShadows[0].spotMap;
-        _localShadowTexture1 = derived.localShadows[1].spotMap;
-        _localShadowVsm0 = derived.localShadows[0].vsm;
-        _localShadowVsm1 = derived.localShadows[1].vsm;
-        _omniShadowCube0 = derived.localShadows[0].omniMap;
-        _omniShadowCube1 = derived.localShadows[1].omniMap;
-
-        std::memcpy(ubo.ambient, derived.ambient, sizeof(derived.ambient));
-        cameraPosition.store(ubo.cameraPosExposure);
-        ubo.cameraPosExposure[3] = exposure;
-
-        ubo.lightCount[0] = derived.lightCount;
-        for (uint32_t i = 0; i < kMaxLights; ++i) {
-            VulkanGpuLight& dst = ubo.lights[i];
-            if (i >= derived.lightCount) {
-                dst = VulkanGpuLight{};
-                dst.colorIntensity[3] = 0.0f;  // zero intensity → contributes nothing
-                continue;
-            }
-            const DerivedLight& light = derived.lights[i];
-            const GpuLightData& src = *light.source;
-            src.position.store(dst.positionRange);
-            dst.positionRange[3] = src.range;
-            src.direction.store(dst.directionType);
-            dst.directionType[3] = static_cast<float>(static_cast<uint32_t>(src.type));
-            dst.colorIntensity[0] = light.linearColor[0];
-            dst.colorIntensity[1] = light.linearColor[1];
-            dst.colorIntensity[2] = light.linearColor[2];
-            dst.colorIntensity[3] = light.intensity;
-            dst.coneParams[0] = src.innerConeCos;
-            dst.coneParams[1] = src.outerConeCos;
-            dst.coneParams[2] = src.falloffModeLinear ? 1.0f : 0.0f;
-            // Shadow slot: -1 = no shadow, else the local (or directional) slot.
-            dst.coneParams[3] = src.castShadows ? static_cast<float>(src.shadowMapIndex) : -1.0f;
-            // An area source: the world half axes, and the LightShape in the width's w.
-            src.areaHalfWidth.store(dst.areaRightHalfWidth);
-            dst.areaRightHalfWidth[3] = static_cast<float>(src.shape);
-            src.areaHalfHeight.store(dst.areaUpHalfHeight);
-            dst.areaUpHalfHeight[3] = 0.0f;
-            dst.cookieFlags[0] = (src.cookieIndex >= 0 && src.cookie) ? 1.0f : 0.0f;
-            dst.cookieFlags[1] = (src.cookieIndex >= 0) ? static_cast<float>(src.cookieIndex) : 0.0f;
-            dst.cookieFlags[2] = static_cast<float>(src.cookieChannel);
-            dst.cookieFlags[3] = src.cookieFalloff ? 1.0f : 0.0f;
-        }
-
-        // Light cookies: two 2D (spot) and two cube (omni) slots.
-        const auto packCookie = [](const DerivedCookieSlot& slot, Texture*& texture, float* matrix, float* params) {
-            texture = slot.texture;
-            std::memcpy(matrix, slot.matrix, sizeof(slot.matrix));
-            std::memcpy(params, slot.params, sizeof(slot.params));
-        };
-        packCookie(derived.cookie2D[0], _cookieTexture2D0, ubo.cookieMatrix2D0, ubo.cookieParams2D0);
-        packCookie(derived.cookie2D[1], _cookieTexture2D1, ubo.cookieMatrix2D1, ubo.cookieParams2D1);
-        std::memcpy(ubo.cookieTransform2D, derived.cookie2D[0].transform, sizeof(derived.cookie2D[0].transform));
-        std::memcpy(ubo.cookieTransform2D + 4, derived.cookie2D[1].transform, sizeof(derived.cookie2D[1].transform));
-        packCookie(derived.cookieCube[0], _cookieTextureCube0, ubo.cookieMatrixCube0, ubo.cookieParamsCube0);
-        packCookie(derived.cookieCube[1], _cookieTextureCube1, ubo.cookieMatrixCube1, ubo.cookieParamsCube1);
-
-        std::memcpy(ubo.fogColorDensity, derived.fogColorDensity, sizeof(derived.fogColorDensity));
-        std::memcpy(ubo.fogStartEndType, derived.fogStartEndType, sizeof(derived.fogStartEndType));
 
         // Re-upload into the ring on the next draw.
         _lightingNeedsUpload = true;

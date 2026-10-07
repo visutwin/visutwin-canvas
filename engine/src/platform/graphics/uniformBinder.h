@@ -12,7 +12,7 @@
 #include <cstdint>
 #include <type_traits>
 
-#include "core/math/packedVector.h"
+#include "platform/graphics/lightingBlock.h"
 
 namespace visutwin::canvas
 {
@@ -20,8 +20,8 @@ namespace visutwin::canvas
     class Texture;
 
     /**
-     * Abstract base for uniform binding. Owns the GPU-side uniform struct definitions
-     * (LightingUniforms, GpuLightUniform) and per-pass deduplication state.
+     * Abstract base for uniform binding. Holds the per-pass lighting block (the shared
+     * LightingBlock) and per-pass deduplication state.
      * Backend subclasses implement actual GPU buffer submission.
      */
     class UniformBinder
@@ -30,136 +30,11 @@ namespace visutwin::canvas
         virtual ~UniformBinder() = default;
 
         // ---------------------------------------------------------------
-        // GPU-side uniform structs (shared across all backends)
+        // The per-pass lighting block: THE layout every backend shares
+        // (platform/graphics/lightingBlock.h), filled by packLightingBlock.
         // ---------------------------------------------------------------
 
-        struct alignas(16) GpuLightUniform
-        {
-            PackedVector4f positionRange = {0.0f, 0.0f, 0.0f, 0.0f};
-            PackedVector4f directionCone = {0.0f, -1.0f, 0.0f, 1.0f};
-            PackedVector4f colorIntensity = {1.0f, 1.0f, 1.0f, 0.0f};
-            PackedVector4f coneAngles = {1.0f, 1.0f, 0.0f, 0.0f};
-            // [0]=lightType, [1]=castsShadows, [2]=falloffLinear, [3]=localShadowMapIndex
-            PackedVector4u typeCastShadows = {0u, 0u, 0u, 0u};
-            // Light cookie: [0]=hasCookie, [1]=cookieIndex (within the 2D or cube
-            // pool selected by the light type), [2]=CookieChannel, [3]=cookieFalloff
-            PackedVector4u cookieFlags = {0u, 0u, 0u, 1u};
-            // An area source: xyz the world half-width axis, w the LightShape (0 punctual,
-            // 1 rect, 2 disk, 3 sphere); xyz the world half-height axis.
-            PackedVector4f areaHalfWidth = {0.0f, 0.0f, 0.0f, 0.0f};
-            PackedVector4f areaHalfHeight = {0.0f, 0.0f, 0.0f, 0.0f};
-        };
-
-        struct alignas(16) LightingUniforms
-        {
-            PackedVector4f ambientColor = {0.0f, 0.0f, 0.0f, 0.0f};
-            PackedVector4u lightCountAndFlags = {0u, 0u, 0u, 0u};
-            PackedVector4u flagsAndPad = {0u, 0u, 0u, 0u};
-            PackedVector4f cameraPositionSkyboxIntensity = {0.0f, 0.0f, 0.0f, 1.0f};
-            PackedVector4f skyboxMipAndPad = {0.0f, 0.0f, 0.0f, 0.0f};
-            GpuLightUniform lights[8];
-            PackedVector4f fogColorDensity = {0.0f, 0.0f, 0.0f, 0.0f};
-            PackedVector4f fogStartEndType = {10.0f, 100.0f, 0.0f, 0.0f};
-            PackedVector4f shadowBiasNormalStrength = {0.001f, 0.0f, 1.0f, 0.0f};
-
-            // CSM: 4 cascade VP matrices (viewport-scaled).
-            float shadowMatrixPalette[64] = {};
-            PackedVector4f shadowCascadeDistances = {0.0f, 0.0f, 0.0f, 0.0f};
-            PackedVector4f shadowCascadeParams = {4.0f, 0.0f, 0.0f, 0.0f};
-
-            PackedVector4f skyDomeCenter = {0.0f, 0.0f, 0.0f, 0.0f};
-            PackedVector4f screenInvResolution = {0.0f, 0.0f, 0.0f, 0.0f};
-
-            PackedVector4f reflectionParams = {1.0f, 0.0f, 1.0f, 0.5f};
-            PackedVector4f reflectionFadeColor = {0.5f, 0.5f, 0.5f, 0.0f};
-            PackedVector4f reflectionDepthParams = {0.0f, 10.0f, 0.0f, 0.0f};
-
-            // Local light shadows (spot/point): up to 2 VP matrices + per-light params.
-            float localShadowMatrix0[16] = {};
-            float localShadowMatrix1[16] = {};
-            PackedVector4f localShadowParams0 = {0.0001f, 0.0f, 1.0f, 0.0f};
-            PackedVector4f localShadowParams1 = {0.0001f, 0.0f, 1.0f, 0.0f};
-
-            // Omni cubemap shadow params.
-            PackedVector4f omniShadowParams0 = {0.01f, 100.0f, 0.0001f, 0.0f};
-            PackedVector4f omniShadowParams0Extra = {1.0f, 0.0f, 0.0f, 0.0f};
-            PackedVector4f omniShadowParams1 = {0.01f, 100.0f, 0.0001f, 0.0f};
-            PackedVector4f omniShadowParams1Extra = {1.0f, 0.0f, 0.0f, 0.0f};
-
-            // Clustered lighting grid parameters.
-            PackedVector4f clusterBoundsMin = {};
-            PackedVector4f clusterBoundsRange = {};
-            PackedVector4f clusterCellsCountByBoundsSize = {};
-            PackedVector4u clusterParams = {};
-            PackedVector4u clusterParams2 = {};
-
-            // Ambient SH light probes: 9 premultiplied irradiance coefficients
-            // (VT_FEATURE_LIGHT_PROBES).
-            PackedVector4f ambientSH[9] = {};
-
-            // Camera view-projection (column-major) for fragment-stage screen
-            // projection (VT_FEATURE_DYNAMIC_REFRACTION grab-pass UV).
-            float viewProjection[16] = {};
-
-            // PCSS directional shadows (VT_FEATURE_PCSS_SHADOWS):
-            // pcssParams = {filterSamples, blockerSamples, penumbraSize, penumbraFalloff};
-            // per-cascade shadow-camera ortho radii and caster depth ranges.
-            PackedVector4f pcssParams = {16.0f, 16.0f, 1.0f, 1.0f};
-            PackedVector4f pcssCascadeRadii = {1.0f, 1.0f, 1.0f, 1.0f};
-            PackedVector4f pcssCascadeDepthRanges = {1.0f, 1.0f, 1.0f, 1.0f};
-
-            // Local light PCSS: [x]=searchArea UV (0=off), [y]=near, [z]=far, [w]=pad.
-            PackedVector4f localShadowPcss0 = {0.0f, 0.01f, 100.0f, 0.0f};
-            PackedVector4f localShadowPcss1 = {0.0f, 0.01f, 100.0f, 0.0f};
-
-            // Light cookies (VT_FEATURE_COOKIE_2D / VT_FEATURE_COOKIE_CUBE): two
-            // slots per kind, matching the local-shadow pools. Spot cookies carry a
-            // world → cookie-UV projection; omni cookies carry the light's world
-            // transform, whose rotation maps the light→fragment vector into cube space.
-            float cookieMatrix2D0[16] = {};
-            float cookieMatrix2D1[16] = {};
-            float cookieMatrixCube0[16] = {};
-            float cookieMatrixCube1[16] = {};
-            // [x]=intensity, [y]=cookieFalloff (spot), [z]=CookieChannel, [w]=pad.
-            PackedVector4f cookieParams2D0 = {1.0f, 1.0f, 0.0f, 0.0f};
-            PackedVector4f cookieParams2D1 = {1.0f, 1.0f, 0.0f, 0.0f};
-            PackedVector4f cookieParamsCube0 = {1.0f, 1.0f, 0.0f, 0.0f};
-            PackedVector4f cookieParamsCube1 = {1.0f, 1.0f, 0.0f, 0.0f};
-
-            // Reflection probe (box-projected cubemap): box bounds + params.
-            // params = {boxProjection flag, intensity, maxMipLod, pad}.
-            PackedVector4f reflectionProbeBoxMin = {-1.0f, -1.0f, -1.0f, 0.0f};
-            PackedVector4f reflectionProbeBoxMax = {1.0f, 1.0f, 1.0f, 0.0f};
-            PackedVector4f reflectionProbeParams = {1.0f, 1.0f, 6.0f, 0.0f};
-            // Camera clip planes for SSR depth linearization: x=near, y=far.
-            PackedVector4f cameraNearFar = {0.1f, 1000.0f, 0.0f, 0.0f};
-
-            // Second directional shadow slot: the slot-0 fields above, for the light
-            // whose shadowMapIndex is 1. Its map is texture slot 35. Same meaning
-            // lane for lane (the PCSS sample counts, being the variant's, are the
-            // same in both slots).
-            PackedVector4f shadow1BiasNormalStrength = {0.001f, 0.0f, 1.0f, 0.0f};
-            float shadow1MatrixPalette[64] = {};
-            PackedVector4f shadow1CascadeDistances = {0.0f, 0.0f, 0.0f, 0.0f};
-            PackedVector4f shadow1CascadeParams = {1.0f, 0.0f, 0.0f, 0.0f};
-            PackedVector4f shadow1PcssParams = {16.0f, 16.0f, 1.0f, 1.0f};
-            PackedVector4f shadow1PcssCascadeRadii = {1.0f, 1.0f, 1.0f, 1.0f};
-            PackedVector4f shadow1PcssCascadeDepthRanges = {1.0f, 1.0f, 1.0f, 1.0f};
-
-            // Scene::skyboxRotation as a 3x3 rotation, one COLUMN per vector (w unused):
-            // environment samples read along R * dir.
-            PackedVector4f skyboxRotation0 = {1.0f, 0.0f, 0.0f, 0.0f};
-            PackedVector4f skyboxRotation1 = {0.0f, 1.0f, 0.0f, 0.0f};
-            PackedVector4f skyboxRotation2 = {0.0f, 0.0f, 1.0f, 0.0f};
-
-            // Spot cookie 2x2 per 2D cookie slot, mat2 columns.
-            PackedVector4f cookieTransform2D0 = {1.0f, 0.0f, 0.0f, 1.0f};
-            PackedVector4f cookieTransform2D1 = {1.0f, 0.0f, 0.0f, 1.0f};
-
-            // Dither jitter: xy offset the opacity dither per frame while the
-            // camera jitters (TAA), zero otherwise. zw unused.
-            PackedVector4f ditherJitter = {0.0f, 0.0f, 0.0f, 0.0f};
-        };
+        using LightingUniforms = LightingBlock;
 
         // ---------------------------------------------------------------
         // Per-pass lifecycle
@@ -187,46 +62,18 @@ namespace visutwin::canvas
         [[nodiscard]] virtual Texture* cookieTextureCube0() const { return nullptr; }
         [[nodiscard]] virtual Texture* cookieTextureCube1() const { return nullptr; }
 
-        /// GPU-side atmosphere uniform struct (Nishita single-scattering parameters).
-        /// 96 bytes (6 × float4), bound at Metal buffer slot 9 when VT_FEATURE_ATMOSPHERE is active.
-        struct alignas(16) AtmosphereUniforms
-        {
-            // CAMERA-LOCAL planet centre: the shader builds its ray origin as
-            // -planetCenter / planetRadius, so a viewer standing on the surface has the
-            // centre one radius below. At (0,0,0) the viewer sits at the planet's core,
-            // every view ray starts underground, and the sky renders black.
-            PackedVector4f planetCenterAndRadius = {0.0f, -6371000.0f, 0.0f, 6371000.0f};
-            PackedVector4f atmosphereRadiusAndSunIntensity = {6471000.0f, 22.0f, 0.9998f, 0.0f};
-            PackedVector4f rayleighCoeffAndScaleHeight = {5.5e-6f, 13.0e-6f, 22.4e-6f, 8500.0f};
-            PackedVector4f mieCoeffAndScaleHeight = {21.0e-6f, 1200.0f, 0.758f, 0.0f};
-            PackedVector4f sunDirection = {0.0f, 1.0f, 0.0f, 0.0f};
-            PackedVector4f cameraAltitudeAndParams = {0.0f, 32.0f, 8.0f, 0.0f};
-        };
 
         /// Access the packed LightingUniforms struct (for backends to submit to GPU).
         [[nodiscard]] const LightingUniforms& lightingUniforms() const { return _lightingUniforms; }
 
-        /// Access the packed AtmosphereUniforms struct.
-        [[nodiscard]] const AtmosphereUniforms& atmosphereUniforms() const { return _atmosphereUniforms; }
-
     protected:
         LightingUniforms _lightingUniforms;
-        AtmosphereUniforms _atmosphereUniforms;
     };
 
-    // The uniform structs are memcpy'd to the GPU and must mirror the MSL
-    // `LightingData`/`AtmosphereData` layout exactly. Lock size/alignment and a
-    // few sentinel offsets so a mis-sized field (which would shift everything
-    // after it and silently corrupt the shader read) fails at compile time.
-    static_assert(sizeof(UniformBinder::GpuLightUniform) == 128);
+    // The block is memcpy'd to the GPU and must mirror the MSL `LightingData` exactly;
+    // the layout itself is locked in lightingBlock.h. A plain aggregate, so alignof is 4:
+    // the layout works because every vec4 lands 16-aligned by construction.
     static_assert(std::is_trivially_copyable_v<UniformBinder::LightingUniforms>);
-    static_assert(alignof(UniformBinder::LightingUniforms) == 16);
     static_assert(sizeof(UniformBinder::LightingUniforms) % 16 == 0);
-    static_assert(offsetof(UniformBinder::LightingUniforms, lights) == 80);
-    static_assert(offsetof(UniformBinder::LightingUniforms, viewProjection) ==
-        offsetof(UniformBinder::LightingUniforms, ambientSH) + 9 * 16);
-    static_assert(offsetof(UniformBinder::LightingUniforms, shadow1MatrixPalette) ==
-        offsetof(UniformBinder::LightingUniforms, cameraNearFar) + 2 * 16);
-    static_assert(std::is_trivially_copyable_v<UniformBinder::AtmosphereUniforms>);
-    static_assert(sizeof(UniformBinder::AtmosphereUniforms) == 96);
+    static_assert(offsetof(UniformBinder::LightingUniforms, lights) == 48);
 }

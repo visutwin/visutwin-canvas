@@ -17,7 +17,7 @@
         lighting.ambientSH[8].xyz * (shN.x * shN.x - shN.y * shN.y),
         float3(0.0));
 #else
-    float3 indirectDiffuse = max(lighting.ambientColor.xyz, float3(0.0));
+    float3 indirectDiffuse = max(lighting.ambient.xyz, float3(0.0));
 #endif
     float3 indirectSpecular = float3(0.0);
 #if VT_FEATURE_ENV_ATLAS
@@ -33,7 +33,7 @@
         const float2 envUvN = toSphericalUv(normalize(diffDir));
         const float3 envAmbient = processEnvironment(
             decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapAmbientUv(envUvN)), lighting),
-            max(lighting.cameraPositionSkyboxIntensity.w, 0.0));
+            max(lighting.envParams.x, 0.0));
         indirectDiffuse = envAmbient;
 #endif
 
@@ -82,7 +82,7 @@
         linear1 = decodeEnvironment(envAtlasTexture.sample(envAtlasSampler, mapRoughnessUv(envUvSpec, ilevel + 1.0)), lighting);
 
         const float3 envSpec = processEnvironment(mix(linear0, linear1, level - ilevel),
-            max(lighting.cameraPositionSkyboxIntensity.w, 0.0));
+            max(lighting.envParams.x, 0.0));
 
         // gloss-dependent Fresnel on reflections.
         float3 fresnelNV = getFresnel(dot(N, V), gloss, F0);
@@ -114,7 +114,7 @@
 
             const float ccNdotV = max(dot(ccNormalW, V), 0.0);
             ccReflection = processEnvironment(ccEnvColor,
-                max(lighting.cameraPositionSkyboxIntensity.w, 0.0)) * getFresnelCC(ccNdotV);
+                max(lighting.envParams.x, 0.0)) * getFresnelCC(ccNdotV);
         }
 #endif
 
@@ -143,7 +143,7 @@
             const float sheenE = sheenIBLApprox(sheenNdotV, sheenRoughness);
 
             sheenSpecularIndirect = processEnvironment(sheenEnvColor,
-                max(lighting.cameraPositionSkyboxIntensity.w, 0.0)) * sheenTint * sheenE;
+                max(lighting.envParams.x, 0.0)) * sheenTint * sheenE;
         }
 #endif
     }

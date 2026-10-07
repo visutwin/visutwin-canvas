@@ -99,9 +99,6 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
                                   texturecube<float> cookieTextureCube0 [[texture(29)]],
                                   texturecube<float> cookieTextureCube1 [[texture(30)]],
 #endif
-#if VT_FEATURE_ATMOSPHERE
-                                  constant AtmosphereData &atmosphere [[buffer(9)]],
-#endif
                                   // Scalar maps (gloss / thickness / refraction): one channel
                                   // each, chosen by material.mapChannelParams — see the MaterialData comment.
                                   texture2d<float> glossMap [[texture(31)]],
@@ -136,20 +133,20 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
     // at globe scale (both values ~10M meters, difference ~1 meter).
     // For SKY_DOME, subtract the dome center so the flattened bottom hemisphere
     // projects as a ground plane (tripod projection).
-    const bool isDome = (lighting.skyDomeCenter.w > 0.5);
+    const bool isDome = (uint(lighting.skyParams2.w + 0.5) & 2u) != 0u;
     const float3 viewDir = isDome
-        ? normalize(rd.worldPos - lighting.skyDomeCenter.xyz)
+        ? normalize(rd.worldPos - lighting.skyParams2.xyz)
         : normalize(rd.worldNormal);
 
 #if VT_FEATURE_ATMOSPHERE
     // Nishita atmospheric scattering — replaces cubemap/atlas for sky visual.
     {
-        const float3 skyLinear = nishitaScatter(viewDir, atmosphere);
+        const float3 skyLinear = nishitaScatter(viewDir, lighting);
         if ((lighting.flagsAndPad.x & (1u << 5)) != 0u) {
             return float4(max(skyLinear, float3(0.0)), 1.0);
         }
-        const float exposure = max(lighting.skyboxMipAndPad.y, 0.0);
-        const float tonemapMode = lighting.skyboxMipAndPad.z;
+        const float exposure = max(lighting.cameraPosExposure.w, 0.0);
+        const float tonemapMode = lighting.shadowParams2.z;
         return float4(linearToSrgb(toneMap(max(skyLinear, float3(0.0)), exposure, tonemapMode)), 1.0);
     }
 #elif VT_FEATURE_SKY_CUBEMAP
@@ -158,12 +155,12 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
         float3 dir = cubeMapRotate(viewDir, lighting);
         dir.x *= -1.0;
         const float4 raw = skyboxCubeMap.sample(defaultSampler, dir);
-        const float3 skyLinear = processEnvironment(decodeEnvironment(raw, lighting), max(lighting.cameraPositionSkyboxIntensity.w, 0.0));
+        const float3 skyLinear = processEnvironment(decodeEnvironment(raw, lighting), max(lighting.envParams.x, 0.0));
         if ((lighting.flagsAndPad.x & (1u << 5)) != 0u) {
             return float4(max(skyLinear, float3(0.0)), 1.0);
         }
-        const float exposure = max(lighting.skyboxMipAndPad.y, 0.0);
-        const float tonemapMode = lighting.skyboxMipAndPad.z;
+        const float exposure = max(lighting.cameraPosExposure.w, 0.0);
+        const float tonemapMode = lighting.shadowParams2.z;
         return float4(linearToSrgb(toneMap(max(skyLinear, float3(0.0)), exposure, tonemapMode)), 1.0);
     }
 #else
@@ -175,8 +172,8 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
     // bilinear, but not anisotropic kernels — so we drop anisotropy here.
     if (envAtlasTexture.get_width() > 0 && envAtlasTexture.get_height() > 0) {
         const float3 dir = cubeMapRotate(viewDir, lighting) * float3(-1.0, 1.0, 1.0);
-        const float skyMip = max(lighting.skyboxMipAndPad.x, 0.0);
-        const float skyInt = max(lighting.cameraPositionSkyboxIntensity.w, 0.0);
+        const float skyMip = max(lighting.envParams.w, 0.0);
+        const float skyInt = max(lighting.envParams.x, 0.0);
         const float2 uv = toSphericalUv(normalize(dir));
         const float3 skyLinear = processEnvironment(decodeEnvironment(
             envAtlasTexture.sample(envAtlasSampler, mapRoughnessUv(uv, skyMip)), lighting), skyInt);
@@ -185,8 +182,8 @@ fragment float4 VT_FRAGMENT_ENTRY(RasterizerData rd [[stage_in]],
         if ((lighting.flagsAndPad.x & (1u << 5)) != 0u) {
             return float4(max(skyLinear, float3(0.0)), 1.0);
         }
-        const float exposure = max(lighting.skyboxMipAndPad.y, 0.0);
-        const float tonemapMode = lighting.skyboxMipAndPad.z;
+        const float exposure = max(lighting.cameraPosExposure.w, 0.0);
+        const float tonemapMode = lighting.shadowParams2.z;
         return float4(linearToSrgb(toneMap(max(skyLinear, float3(0.0)), exposure, tonemapMode)), 1.0);
     }
 #endif

@@ -127,18 +127,13 @@ static inline void applyMorph(thread float3 &position, thread float3 &normal,
 #endif
 
 struct GpuLight {
-    float4 positionRange;
-    float4 directionCone;
-    float4 colorIntensity;
-    float4 coneAngles;
-    uint4 typeCastShadows;
-    // Light cookie: x=hasCookie, y=slot in the 2D or cube pool (the light type
-    // picks which), z=CookieChannel, w=cookieFalloff (spot).
-    uint4 cookieFlags;
-    // An area source: xyz the world half-width axis, w the LightShape (0 punctual,
-    // 1 rect, 2 disk, 3 sphere); xyz the world half-height axis.
-    float4 areaHalfWidth;
-    float4 areaHalfHeight;
+    float4 positionRange;        // xyz position, w range
+    float4 directionType;        // xyz direction, w type (0 dir, 1 point, 2 spot)
+    float4 colorIntensity;       // rgb linear colour, w intensity
+    float4 coneParams;           // innerCos, outerCos, falloffLinear, shadow slot (-1 none; local 0/1, or the directional slot)
+    float4 areaRightHalfWidth;   // xyz world half-width axis, w LightShape (0 punctual, 1 rect, 2 disk, 3 sphere)
+    float4 areaUpHalfHeight;     // xyz world half-height axis
+    float4 cookieFlags;          // hasCookie, cookie slot (2D or cube pool by type), CookieChannel, cookieFalloff
 };
 
 // Clustered lighting: per-light data packed into a Metal buffer (slot 7).
@@ -179,108 +174,89 @@ constant uint VT_DEBUGPASS_EMISSION    = 8u;
 constant uint VT_DEBUGPASS_LIGHTING    = 9u;
 constant uint VT_DEBUGPASS_UV0         = 10u;
 
+// Buffer 4: the per-pass lighting block, THE layout every backend shares
+// (platform/graphics/lightingBlock.h; the GLSL LightingData declares the same).
 struct LightingData {
-    float4 ambientColor;
-    uint4 lightCountAndFlags;
-    uint4 flagsAndPad;
-    float4 cameraPositionSkyboxIntensity;
-    float4 skyboxMipAndPad;
+    float4 ambient;               // rgb ambient (linear)
+    float4 cameraPosExposure;     // xyz camera position, w exposure
+    uint4 lightCount;             // x = active light count
     GpuLight lights[8];
-    float4 fogColorDensity;
-    float4 fogStartEndType;
-    float4 shadowBiasNormalStrength;
-    // CSM: 4 cascade VP matrices (viewport-scaled). Replaces single shadowViewProj.
-    // Each matrix bakes in projection, view, NDC-to-atlas-UV, Metal Y-flip, and Z [0,1] mapping.
-    //_shadowMatrixPalette.
-    float4x4 shadowMatrixPalette[4];
-    // CSM: per-cascade split distances (view-space far distance per cascade).
-    //_shadowCascadeDistances.
-    float4 shadowCascadeDistances;
-    // CSM: [x]=cascadeCount, [y]=cascadeBlend, [z]=pad, [w]=pad
-    float4 shadowCascadeParams;
-    // world-space dome center (tripod).
-    // xyz = center position, w = 1.0 for dome/box, 0.0 for infinite.
-    float4 skyDomeCenter;
-    // DEVIATION: screen inverse resolution for planar reflection screen-space UV.
-    // xy = 1/width, 1/height; zw = width, height.
-    float4 screenInvResolution;
-    // DEVIATION: blurred planar reflection parameters.
-    // x: intensity (0..1), y: blurAmount (0..2), z: fadeStrength (0..5), w: angleFade (0..1)
-    float4 reflectionParams;
-    // rgb: fade color (linear space), w: unused.
-    float4 reflectionFadeColor;
-    // DEVIATION: planar reflection depth pass parameters.
-    // x: planeDistance (world-space Y offset), y: heightRange (normalization), z/w: unused.
-    float4 reflectionDepthParams;
-
-    // Local light shadows (spot/point): up to 2 VP matrices + per-light params.
-    // Matches MetalUniformBinder::LightingUniforms layout.
-    float4x4 localShadowMatrix0;    // VP matrix for local shadow light 0
-    float4x4 localShadowMatrix1;    // VP matrix for local shadow light 1
-    // [x]=bias, [y]=normalBias, [z]=intensity, [w]=reserved
-    float4 localShadowParams0;
+    float4 fogColorDensity;       // rgb fog colour, w density
+    float4 fogStartEndType;       // start, end, type (0 off, 1 linear, 2 exp, 3 exp2), pad
+    float4 envParams;             // skyboxIntensity, hasEnvAtlas, encoding (0 srgb, 1 rgbp, 2 rgbm), skyboxMip
+    // Directional shadows, slot 0: per-cascade world -> shadow-atlas UV + depth
+    // (projection, view, NDC-to-UV, the Y flip and Z [0,1] baked in).
+    float4x4 shadowMatrices[4];
+    float4 shadowCascadeDistances; // per-cascade far split (view-space depth)
+    float4 shadowParams;          // enabled (0 off, 1 PCF, 2 EVSM), numCascades, depthBias, strength
+    float4 shadowParams2;         // normalBias, cascadeBlend, toneMapping mode, enableNormalMaps
+    float4 pcssParams;            // filterSamples, blockerSamples, penumbraSize, penumbraFalloff
+    float4 pcssCascadeRadii;      // per-cascade shadow-camera ortho half-extent
+    float4 pcssCascadeDepthRanges; // per-cascade caster depth span (far - near)
+    float4x4 localShadowMatrix0;  // spot slot 0: world -> shadow UV + depth
+    float4x4 localShadowMatrix1;  // spot slot 1
+    float4 localShadowParams0;    // depthBias, normalBias, intensity, isOmni
     float4 localShadowParams1;
-
-    // Omni cubemap shadow params: [x]=near, [y]=far, [z]=bias, [w]=normalBias
-    float4 omniShadowParams0;
-    // [x]=intensity, [y-w]=reserved
-    float4 omniShadowParams0Extra;
+    float4 omniShadowParams0;     // near, far, relative depthBias, intensity
     float4 omniShadowParams1;
-    float4 omniShadowParams1Extra;
-
-    // Clustered lighting grid parameters.
-    // WorldClusters uniforms.
-    float4 clusterBoundsMin;                // xyz=grid min corner, w=unused
-    float4 clusterBoundsRange;              // xyz=grid size (max-min), w=unused
-    float4 clusterCellsCountByBoundsSize;   // xyz=cells/range (for world→cell conversion), w=unused
-    uint4 clusterParams;                    // x=cellsX, y=cellsY, z=cellsZ, w=maxLightsPerCell
-    uint4 clusterParams2;                   // x=numClusteredLights, y=the cluster-light mask bit this draw accepts, z-w=unused
-
-    // Ambient SH light probes: premultiplied irradiance coefficients.
-    float4 ambientSH[9];
-    // Camera view-projection for fragment-stage screen projection
-    // (VT_FEATURE_DYNAMIC_REFRACTION grab-pass UV).
-    float4x4 viewProjection;
-    // PCSS directional shadows: {filterSamples, blockerSamples, penumbraSize,
-    // penumbraFalloff}; per-cascade shadow-cam ortho radii and depth ranges.
-    float4 pcssParams;
-    float4 pcssCascadeRadii;
-    float4 pcssCascadeDepthRanges;
-    // Local light PCSS (spot/omni contact-hardening shadows):
-    // [x]=searchArea in shadow-map UV (0 = PCSS off, use PCF/hardware compare),
-    // [y]=shadow camera near, [z]=shadow camera far, [w]=pad.
-    float4 localShadowPcss0;
+    float4 localShadowPcss0;      // searchArea UV (0 = off), near, far, 1 for VSM
     float4 localShadowPcss1;
-    // Light cookies: two slots per kind. Spot cookies carry a world → cookie-UV
-    // projection, omni cookies the light's world transform (its rotation maps the
-    // light→fragment direction into cube space).
+    // Light cookies: spot slots carry a world -> cookie-UV projection, omni slots the
+    // light's world transform (its rotation maps light->fragment into cube space).
     float4x4 cookieMatrix2D0;
     float4x4 cookieMatrix2D1;
     float4x4 cookieMatrixCube0;
     float4x4 cookieMatrixCube1;
-    // [x]=intensity, [y]=cookieFalloff, [z]=CookieChannel, [w]=pad
-    float4 cookieParams2D0;
+    float4 cookieParams2D0;       // intensity, cookieFalloff, CookieChannel, pad
     float4 cookieParams2D1;
     float4 cookieParamsCube0;
     float4 cookieParamsCube1;
-    // Reflection probe (box-projected cubemap): world-space box bounds + params.
+    float4 skyParams2;            // xyz sky dome centre, w flags: bit0 cubemap bound, bit1 dome projection
+    // Ambient SH light probes: premultiplied irradiance coefficients.
+    float4 ambientSH[9];
+    // Clustered lighting grid (WorldClusters).
+    float4 clusterBoundsMin;                // xyz = grid min corner
+    float4 clusterBoundsRange;              // xyz = grid size (max - min)
+    float4 clusterCellsCountByBoundsSize;   // xyz = cells / range (world -> cell)
+    uint4 clusterParams;                    // cellsX, cellsY, cellsZ, maxLightsPerCell
+    uint4 clusterParams2;                   // x numClusteredLights, y the cluster-light mask bit this draw accepts
+    // Reflection probe (box-projected cubemap): world-space box, centre, and
     // params = {boxProjection flag, intensity, maxMipLod, pad}.
     float4 reflectionProbeBoxMin;
     float4 reflectionProbeBoxMax;
+    float4 reflectionProbePosition;
     float4 reflectionProbeParams;
-    // Camera clip planes for SSR depth linearization: x=near, y=far, zw=pad.
+    // Camera view-projection for fragment-stage screen projection (the dynamic
+    // refraction grab UV and the SSR march), and the clip planes that linearize
+    // the sampled scene depth: x near, y far, z colour grab bound, w depth grab bound.
+    float4x4 viewProjection;
     float4 cameraNearFar;
-    // Second directional shadow slot (UniformBinder::LightingUniforms::shadow1*):
-    // the slot-0 fields for the light whose shadow index is 1; its map is texture 35.
-    float4 shadow1BiasNormalStrength;
-    float4x4 shadow1MatrixPalette[4];
-    float4 shadow1CascadeDistances;
-    float4 shadow1CascadeParams;
-    float4 shadow1PcssParams;
-    float4 shadow1PcssCascadeRadii;
-    float4 shadow1PcssCascadeDepthRanges;
-    // Scene::skyboxRotation, one column per vector: environment samples read along
-    // R * dir. Identity unless the scene turns its sky.
+    // Nishita atmosphere (common-atmosphere.metal), the Scene's block copied in.
+    float4 atmoPlanetCenterAndRadius;   // xyz planet centre (camera-local), w radius (m)
+    float4 atmoRadiusAndSunIntensity;   // x outer radius (m), y sun intensity, z cos(sun disk half-angle)
+    float4 atmoRayleighCoeffAndScale;   // xyz Rayleigh coefficients (per m), w scale height (m)
+    float4 atmoMieCoeffAndScale;        // x Mie coefficient, y scale height (m), z HG g
+    float4 atmoSunDirection;            // xyz normalized sun direction (camera-local)
+    float4 atmoCameraAltitudeAndParams; // x altitude (m), y primary steps, z secondary steps
+    // DEVIATION: blurred planar reflection.
+    float4 screenInvResolution;         // xy = 1/viewport, zw = viewport
+    float4 reflectionParams;            // intensity (0..1), blurAmount (0..2), fadeStrength (0..5), angleFade (0..1)
+    float4 reflectionFadeColor;         // rgb fade colour (linear)
+    float4 reflectionDepthParams;       // planeDistance, heightRange, colour map bound, depth map bound
+    // [0] bits: bit 5 = the forward pass writes linear HDR for a camera frame;
+    // [1] = the DebugShaderPass mode.
+    uint4 flagsAndPad;
+    // Second directional shadow slot: the slot-0 fields for the light whose
+    // coneParams.w is 1; its map is texture 35.
+    float4x4 dirShadow1Matrices[4];
+    float4 dirShadow1CascadeDistances;
+    float4 dirShadow1Params;            // enabled, numCascades, depthBias, strength
+    float4 dirShadow1Params2;           // normalBias, cascadeBlend
+    float4 dirShadow1PcssParams;
+    float4 dirShadow1PcssCascadeRadii;
+    float4 dirShadow1PcssCascadeDepthRanges;
+    // Scene::skyboxRotation, one column per vector (w of the first says "rotated"):
+    // environment samples read along R * dir.
     float4 skyboxRotation[3];
     // Spot cookie 2x2 per 2D cookie slot, mat2 columns xy, zw.
     float4 cookieTransform2D[2];

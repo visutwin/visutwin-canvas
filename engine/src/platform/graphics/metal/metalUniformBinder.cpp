@@ -8,11 +8,13 @@
 //
 #include "metalUniformBinder.h"
 
+#include "platform/graphics/lightingBlock.h"
 #include "platform/graphics/lightingDerivation.h"
 
 #include <algorithm>
 #include <cassert>
 #include <cstring>
+#include <iterator>
 #include "metalUniformRingBuffer.h"
 #include "metalUtils.h"
 #include "core/math/color.h"
@@ -100,148 +102,30 @@ namespace visutwin::canvas
         const int toneMapping, const Vector3* ambientSH, const Matrix4* viewProjection,
         const uint32_t meshLightMask)
     {
-        // The values are decided in deriveLighting, shared with the Vulkan backend; this only
-        // lays them out in LightingUniforms.
+        // The values are decided in deriveLighting and laid out by packLightingBlock, both
+        // shared with the Vulkan backend; this only keeps the textures to bind.
         markLightingChanged();
         auto& lu = _lightingUniforms;
         const DerivedLighting derived = deriveLighting(ambientColor, lights, std::size(lu.lights),
             fogParams, shadowParams, ambientSH, viewProjection, meshLightMask);
-        lu.clusterParams2[1] = derived.clusterLightAccept;
+        LightingBlockTextures textures;
+        packLightingBlock(lu, textures, derived, shadowParams, cameraPosition, exposure, toneMapping,
+            enableNormalMaps);
 
-        std::memcpy(lu.ambientSH, derived.ambientSH, sizeof(lu.ambientSH));
-        std::memcpy(lu.viewProjection, derived.viewProjection, sizeof(lu.viewProjection));
-        std::memcpy(&lu.ambientColor, derived.ambient, sizeof(derived.ambient));
-
-        lu.lightCountAndFlags[0] = derived.lightCount;
-        lu.lightCountAndFlags[1] = 0u;
-        lu.lightCountAndFlags[2] = 0u;
-        lu.lightCountAndFlags[3] = 0u;
-        for (size_t i = 0; i < std::size(lu.lights); ++i) {
-            auto& dst = lu.lights[i];
-            if (i >= derived.lightCount) {
-                dst = GpuLightUniform{};
-                continue;
-            }
-            const DerivedLight& light = derived.lights[i];
-            const GpuLightData& src = *light.source;
-            src.position.store(&dst.positionRange.x);
-            dst.positionRange[3] = src.range;
-            src.direction.store(&dst.directionCone.x);
-            dst.colorIntensity[0] = light.linearColor[0];
-            dst.colorIntensity[1] = light.linearColor[1];
-            dst.colorIntensity[2] = light.linearColor[2];
-            dst.colorIntensity[3] = light.intensity;
-            dst.directionCone[3] = src.outerConeCos;
-            dst.coneAngles[0] = src.innerConeCos;
-            dst.coneAngles[1] = src.outerConeCos;
-            dst.coneAngles[2] = 0.0f;
-            dst.coneAngles[3] = 0.0f;
-            // An area source: the world half axes, and the LightShape in the width's w.
-            src.areaHalfWidth.store(&dst.areaHalfWidth.x);
-            dst.areaHalfWidth[3] = static_cast<float>(src.shape);
-            src.areaHalfHeight.store(&dst.areaHalfHeight.x);
-            dst.areaHalfHeight[3] = 0.0f;
-            dst.typeCastShadows[0] = static_cast<uint32_t>(src.type);
-            dst.typeCastShadows[1] = src.castShadows ? 1u : 0u;
-            dst.typeCastShadows[2] = src.falloffModeLinear ? 1u : 0u;
-            // The light's shadow slot: a local slot (0/1), or for a directional light its
-            // directional slot. Encoded as uint.
-            dst.typeCastShadows[3] = (src.shadowMapIndex >= 0) ? static_cast<uint32_t>(src.shadowMapIndex) : 0u;
-            dst.cookieFlags[0] = (src.cookieIndex >= 0 && src.cookie) ? 1u : 0u;
-            dst.cookieFlags[1] = (src.cookieIndex >= 0) ? static_cast<uint32_t>(src.cookieIndex) : 0u;
-            dst.cookieFlags[2] = src.cookieChannel;
-            dst.cookieFlags[3] = src.cookieFalloff ? 1u : 0u;
-        }
-
-        if (enableNormalMaps) {
-            lu.flagsAndPad[0] |= (1u << 2);
-        } else {
-            lu.flagsAndPad[0] &= ~(1u << 2);
-        }
-        cameraPosition.store(&lu.cameraPositionSkyboxIntensity.x);
-        lu.skyboxMipAndPad[1] = exposure;
-        // forward-fragment-tail uses this to select the tone mapping curve
-        // when CameraFrame is not active (non-deferred path).
-        lu.skyboxMipAndPad[2] = static_cast<float>(toneMapping);
-
-        std::memcpy(&lu.fogColorDensity, derived.fogColorDensity, sizeof(derived.fogColorDensity));
-        std::memcpy(&lu.fogStartEndType, derived.fogStartEndType, sizeof(derived.fogStartEndType));
-
-        // Directional shadow slots. The PCSS sample counts belong to the variant,
-        // so they ride slot 0's pcssParams for both slots.
-        const auto packDirectional = [&](const int slot,
-            PackedVector4f& biasNormalStrength, float* palette, PackedVector4f& distances,
-            PackedVector4f& cascadeParams, PackedVector4f& pcssParams, PackedVector4f& pcssRadii,
-            PackedVector4f& pcssDepthRanges) {
-            const auto& dir = shadowParams.directional[slot];
-            biasNormalStrength[0] = dir.bias;
-            biasNormalStrength[1] = dir.normalBias;
-            biasNormalStrength[2] = dir.strength;
-            biasNormalStrength[3] = derived.directionalActive[slot] ? 1.0f : 0.0f;
-            pcssParams[0] = static_cast<float>(shadowParams.pcssSamples);
-            pcssParams[1] = static_cast<float>(shadowParams.pcssBlockerSamples);
-            pcssParams[2] = dir.penumbraSize;
-            pcssParams[3] = dir.penumbraFalloff;
-            std::memcpy(&pcssRadii, dir.pcssCascadeRadii, sizeof(pcssRadii));
-            std::memcpy(&pcssDepthRanges, dir.pcssCascadeDepthRanges, sizeof(pcssDepthRanges));
-            std::memcpy(palette, dir.shadowMatrixPalette, sizeof(dir.shadowMatrixPalette));
-            std::memcpy(&distances, dir.shadowCascadeDistances, sizeof(distances));
-            cascadeParams[0] = static_cast<float>(dir.numCascades);
-            cascadeParams[1] = dir.cascadeBlend;
-            cascadeParams[2] = 0.0f;
-            cascadeParams[3] = 0.0f;
-        };
-        packDirectional(0, lu.shadowBiasNormalStrength, lu.shadowMatrixPalette, lu.shadowCascadeDistances,
-            lu.shadowCascadeParams, lu.pcssParams, lu.pcssCascadeRadii, lu.pcssCascadeDepthRanges);
-        packDirectional(1, lu.shadow1BiasNormalStrength, lu.shadow1MatrixPalette, lu.shadow1CascadeDistances,
-            lu.shadow1CascadeParams, lu.shadow1PcssParams, lu.shadow1PcssCascadeRadii,
-            lu.shadow1PcssCascadeDepthRanges);
-        _shadowTexture = derived.directionalActive[0] ? shadowParams.directional[0].shadowMap : nullptr;
-        _shadowTexture1 = derived.directionalActive[1] ? shadowParams.directional[1].shadowMap : nullptr;
-
-        // Local light shadows (spot 2D, omni cube). Omni params: near, far, relative bias,
-        // normal bias, with the intensity in the Extra lane.
-        const DerivedLocalShadow& local0 = derived.localShadows[0];
-        const DerivedLocalShadow& local1 = derived.localShadows[1];
+        _shadowTexture = textures.shadowMap[0];
+        _shadowTexture1 = textures.shadowMap[1];
         // A VSM spot's map is a colour (moments) texture, which a depth2d argument
         // cannot take: it goes to its own slot (37 / 38) and the depth slot stays empty.
-        _localShadowTexture0 = local0.vsm ? nullptr : local0.spotMap;
-        _localShadowTexture1 = local1.vsm ? nullptr : local1.spotMap;
-        _localVsmTexture0 = local0.vsm ? local0.spotMap : nullptr;
-        _localVsmTexture1 = local1.vsm ? local1.spotMap : nullptr;
-        _omniShadowCube0 = local0.omniMap;
-        _omniShadowCube1 = local1.omniMap;
-        const auto packLocal = [](const DerivedLocalShadow& ls, float* matrix, PackedVector4f& params,
-                                  PackedVector4f& pcss, PackedVector4f& omni, PackedVector4f& omniExtra) {
-            std::memcpy(matrix, ls.matrix, sizeof(ls.matrix));
-            std::memcpy(&params, ls.params, sizeof(ls.params));
-            std::memcpy(&pcss, ls.pcss, sizeof(ls.pcss));
-            if (ls.active && ls.isOmni) {
-                omni[0] = ls.omniNear;
-                omni[1] = ls.omniFar;
-                omni[2] = ls.omniBias;
-                omni[3] = ls.params[1];
-                omniExtra[0] = ls.params[2];
-            }
-        };
-        packLocal(local0, lu.localShadowMatrix0, lu.localShadowParams0, lu.localShadowPcss0,
-            lu.omniShadowParams0, lu.omniShadowParams0Extra);
-        packLocal(local1, lu.localShadowMatrix1, lu.localShadowParams1, lu.localShadowPcss1,
-            lu.omniShadowParams1, lu.omniShadowParams1Extra);
-
-        // Light cookies: two 2D (spot) and two cube (omni) slots.
-        const auto packCookie = [](const DerivedCookieSlot& slot, Texture*& texture, float* matrix,
-                                   PackedVector4f& params) {
-            texture = slot.texture;
-            std::memcpy(matrix, slot.matrix, sizeof(slot.matrix));
-            std::memcpy(&params, slot.params, sizeof(slot.params));
-        };
-        packCookie(derived.cookie2D[0], _cookieTexture2D0, lu.cookieMatrix2D0, lu.cookieParams2D0);
-        packCookie(derived.cookie2D[1], _cookieTexture2D1, lu.cookieMatrix2D1, lu.cookieParams2D1);
-        std::memcpy(&lu.cookieTransform2D0, derived.cookie2D[0].transform, sizeof(lu.cookieTransform2D0));
-        std::memcpy(&lu.cookieTransform2D1, derived.cookie2D[1].transform, sizeof(lu.cookieTransform2D1));
-        packCookie(derived.cookieCube[0], _cookieTextureCube0, lu.cookieMatrixCube0, lu.cookieParamsCube0);
-        packCookie(derived.cookieCube[1], _cookieTextureCube1, lu.cookieMatrixCube1, lu.cookieParamsCube1);
+        _localShadowTexture0 = textures.localVsm[0] ? nullptr : textures.localShadowMap[0];
+        _localShadowTexture1 = textures.localVsm[1] ? nullptr : textures.localShadowMap[1];
+        _localVsmTexture0 = textures.localVsm[0] ? textures.localShadowMap[0] : nullptr;
+        _localVsmTexture1 = textures.localVsm[1] ? textures.localShadowMap[1] : nullptr;
+        _omniShadowCube0 = textures.omniShadowCube[0];
+        _omniShadowCube1 = textures.omniShadowCube[1];
+        _cookieTexture2D0 = textures.cookie2D[0];
+        _cookieTexture2D1 = textures.cookie2D[1];
+        _cookieTextureCube0 = textures.cookieCube[0];
+        _cookieTextureCube1 = textures.cookieCube[1];
     }
 
     // -----------------------------------------------------------------------
@@ -267,8 +151,9 @@ namespace visutwin::canvas
     {
         _reflectionProbeCubeTexture = cubemap;
         markLightingChanged();
-        boxMin.store(&_lightingUniforms.reflectionProbeBoxMin.x);
-        boxMax.store(&_lightingUniforms.reflectionProbeBoxMax.x);
+        boxMin.store(_lightingUniforms.reflectionProbeBoxMin);
+        boxMax.store(_lightingUniforms.reflectionProbeBoxMax);
+        ((boxMin + boxMax) * 0.5f).store(_lightingUniforms.reflectionProbePosition);
         _lightingUniforms.reflectionProbeParams[0] = boxProjection ? 1.0f : 0.0f;
         _lightingUniforms.reflectionProbeParams[1] = intensity;
         _lightingUniforms.reflectionProbeParams[2] = maxLod;
@@ -277,29 +162,31 @@ namespace visutwin::canvas
     void MetalUniformBinder::setSkyboxRotation(const Quaternion& rotation)
     {
         const Matrix4 r = Matrix4::trs(Vector3(0.0f), rotation, Vector3(1.0f));
-        PackedVector4f columns[3];
+        float columns[12] = {};
         for (int i = 0; i < 3; ++i) {
             const Vector4 c = r.getColumn(i);
-            columns[i] = {c.getX(), c.getY(), c.getZ(), 0.0f};
+            columns[i * 4 + 0] = c.getX();
+            columns[i * 4 + 1] = c.getY();
+            columns[i * 4 + 2] = c.getZ();
         }
         // w of the first column says "rotated", so an unrotated sky skips the multiply
         // and renders bit-identically.
-        const bool identity = columns[0].x == 1.0f && columns[1].y == 1.0f && columns[2].z == 1.0f;
-        columns[0].w = identity ? 0.0f : 1.0f;
-        if (std::memcmp(columns, &_lightingUniforms.skyboxRotation0, sizeof(columns)) == 0) {
+        const bool identity = columns[0] == 1.0f && columns[5] == 1.0f && columns[10] == 1.0f;
+        columns[3] = identity ? 0.0f : 1.0f;
+        if (std::memcmp(columns, _lightingUniforms.skyboxRotation, sizeof(columns)) == 0) {
             return;
         }
-        std::memcpy(&_lightingUniforms.skyboxRotation0, columns, sizeof(columns));
+        std::memcpy(_lightingUniforms.skyboxRotation, columns, sizeof(columns));
         markLightingChanged();
     }
 
     void MetalUniformBinder::setDitherJitter(const Vector4& jitter)
     {
-        const PackedVector4f value = {jitter.getX(), jitter.getY(), jitter.getZ(), jitter.getW()};
-        if (std::memcmp(&value, &_lightingUniforms.ditherJitter, sizeof(value)) == 0) {
+        const float value[4] = {jitter.getX(), jitter.getY(), jitter.getZ(), jitter.getW()};
+        if (std::memcmp(value, _lightingUniforms.ditherJitter, sizeof(value)) == 0) {
             return;
         }
-        _lightingUniforms.ditherJitter = value;
+        std::memcpy(_lightingUniforms.ditherJitter, value, sizeof(value));
         markLightingChanged();
     }
 
@@ -310,29 +197,28 @@ namespace visutwin::canvas
         _envAtlasTexture = envAtlas;
         _skyboxCubeMapTexture = skyboxCubeMap;
         markLightingChanged();
-        _lightingUniforms.cameraPositionSkyboxIntensity[3] = skyboxIntensity;
-        _lightingUniforms.skyboxMipAndPad[0] = skyboxMip;
 
-        // pack dome center for SKYTYPE_DOME/BOX
-        skyDomeCenter.store(&_lightingUniforms.skyDomeCenter.x);
-        _lightingUniforms.skyDomeCenter[3] = isDome ? 1.0f : 0.0f;
-        if (_envAtlasTexture) {
-            _lightingUniforms.flagsAndPad[0] |= (1u << 1);
-            if (_envAtlasTexture->encoding() == TextureEncoding::RGBP) {
-                _lightingUniforms.flagsAndPad[0] |= (1u << 3);
-            } else {
-                _lightingUniforms.flagsAndPad[0] &= ~(1u << 3);
+        // skyParams2: xyz = dome center, w = flags (bit0 cubemap, bit1 dome).
+        skyDomeCenter.store(_lightingUniforms.skyParams2);
+        _lightingUniforms.skyParams2[3] = static_cast<float>(
+            (skyboxCubeMap ? 1u : 0u) | (isDome ? 2u : 0u));
+
+        _lightingUniforms.envParams[0] = skyboxIntensity;
+        _lightingUniforms.envParams[1] = envAtlas ? 1.0f : 0.0f;
+        if (envAtlas) {
+            switch (envAtlas->encoding()) {
+            case TextureEncoding::RGBP:
+                _lightingUniforms.envParams[2] = static_cast<float>(EnvAtlasEncoding::Rgbp);
+                break;
+            case TextureEncoding::RGBM:
+                _lightingUniforms.envParams[2] = static_cast<float>(EnvAtlasEncoding::Rgbm);
+                break;
+            default:
+                _lightingUniforms.envParams[2] = static_cast<float>(EnvAtlasEncoding::Srgb);
+                break;
             }
-            if (_envAtlasTexture->encoding() == TextureEncoding::RGBM) {
-                _lightingUniforms.flagsAndPad[0] |= (1u << 4);
-            } else {
-                _lightingUniforms.flagsAndPad[0] &= ~(1u << 4);
-            }
-        } else {
-            _lightingUniforms.flagsAndPad[0] &= ~(1u << 1);
-            _lightingUniforms.flagsAndPad[0] &= ~(1u << 3);
-            _lightingUniforms.flagsAndPad[0] &= ~(1u << 4);
         }
+        _lightingUniforms.envParams[3] = skyboxMip;
     }
 
     // -----------------------------------------------------------------------
@@ -341,9 +227,18 @@ namespace visutwin::canvas
 
     void MetalUniformBinder::setAtmosphereUniforms(const void* data, const size_t size)
     {
-        if (data && size <= sizeof(_atmosphereUniforms)) {
-            std::memcpy(&_atmosphereUniforms, data, size);
+        // The six atmosphere vec4s are contiguous in the block and laid out exactly like
+        // the Scene's storage, so the caller's block copies straight in. A short block
+        // writes only its prefix and leaves the remaining defaults.
+        if (!data || size == 0 || size > kLightingBlockAtmosphereBytes) {
+            return;
         }
+        auto* dst = reinterpret_cast<uint8_t*>(&_lightingUniforms) + kLightingBlockAtmosphereOffset;
+        if (std::memcmp(dst, data, size) == 0) {
+            return;
+        }
+        std::memcpy(dst, data, size);
+        markLightingChanged();
     }
 
     // -----------------------------------------------------------------------

@@ -29,7 +29,7 @@
         && material.heightMapFactor > 0.0) {
         // Build tangent-space view direction from vertex TBN.
         const float3 N_geom = normalize(rd.worldNormal);
-        const float3 V_par = normalize(lighting.cameraPositionSkyboxIntensity.xyz - rd.worldPos);
+        const float3 V_par = normalize(lighting.cameraPosExposure.xyz - rd.worldPos);
         float3 T_par = rd.worldTangent.xyz;
         if (length_squared(T_par) >= 1e-6) {
             T_par = normalize(T_par);
@@ -178,13 +178,13 @@
 #endif
         const float3 unlitColor = baseLinear + unlitEmissive;
         const bool linearHdrTarget = (lighting.flagsAndPad.x & (1u << 5)) != 0u;
-        const float exposure = max(lighting.skyboxMipAndPad.y, 0.0);
+        const float exposure = max(lighting.cameraPosExposure.w, 0.0);
 #if VT_FEATURE_NO_TONEMAP
         // useTonemap off (UI): TONEMAP_NONE, which applies neither the curve nor
         // exposure; the gamma encode below still runs.
         const float tonemapMode = 6.0;
 #else
-        const float tonemapMode = lighting.skyboxMipAndPad.z;
+        const float tonemapMode = lighting.shadowParams2.z;
 #endif
 #if VT_FEATURE_MSDF
         {
@@ -230,7 +230,7 @@
 #endif
 
     float3 N = normalize(rd.worldNormal);
-    const float3 cameraPosition = lighting.cameraPositionSkyboxIntensity.xyz;
+    const float3 cameraPosition = lighting.cameraPosExposure.xyz;
     const float3 V = normalize(cameraPosition - rd.worldPos);
 
 #if VT_FEATURE_DOUBLE_SIDED
@@ -407,7 +407,7 @@
 
     float3 directDiffuse = float3(0.0);
     float3 directSpecular = float3(0.0);
-    const uint lightCount = min(lighting.lightCountAndFlags.x, 8u);
+    const uint lightCount = min(lighting.lightCount.x, 8u);
 #if VT_FEATURE_NO_LIGHTS
     // useLighting off: no light reaches the surface; ambient, reflections and the
     // combine below still run. The clustered loop is compiled out with it.

@@ -117,7 +117,10 @@ ctest --preset default
   that does depend on density is caught. The display is the one the window opens on (an
   external 1x monitor, or a sleeping display that comes back at 1x). The script strips
   `VISUTWIN_ANTIALIAS` and `VISUTWIN_MAX_PIXEL_RATIO` from the examples' environment. A density with no set
-  SKIPS its cases; `--update` writes the set for the density it runs at, so a rendering change
+  SKIPS its cases. There is NO `examples` BUILD preset: `ctest --preset golden` only runs the
+  script, so build the tree first with `cmake --build build-examples` (the chunks load from
+  the source dir at launch, and a stale examples tree renders NEW chunks with the OLD engine,
+  which showed as every case black). `--update` writes the set for the density it runs at, so a rendering change
   that is intended needs re-capturing at BOTH densities, on two displays, and on BOTH
   backends: a change re-captured for Metal alone leaves the Vulkan set failing for a
   reason nobody remembers, and the next real Vulkan difference hides behind it (skybox
@@ -274,14 +277,20 @@ not a fixed size. The struct is a plain
 aggregate so `alignof` is 4, not 16 — the layout works because every `vec4` in the
 list lands 16-aligned by construction.
 
-**NOT single-sourced: the LIGHTING block.** `UniformBinder::LightingUniforms` (49
-fields) and `VulkanLightingUBO` (54) are genuinely DIFFERENT layouts, not copies.
-Metal keeps atmosphere in its own buffer at slot 9 while Vulkan folds it into the
-lighting UBO, the per-light structs differ (6 vec4s with packed uints vs 7 with
-area-light data), and most shared fields sit at different indices. Unifying them
-means rewriting one backend's shaders, not extracting a header. When you change it,
-`VulkanLightingUBO`'s size is asserted in `vulkanRenderPipeline.cpp` AND in the
-shader-bundle validator.
+**The LIGHTING block is ONE layout on both backends** (`platform/graphics/lightingBlock.h`,
+`LightingBlock` / `GpuLightBlock`, 2896 bytes, asserted there, in `vulkanRenderPipeline.cpp`
+and in the shader-bundle validator): Metal binds it at buffer 4, Vulkan at set 2 binding 0,
+and the MSL `LightingData` (common-structs.metal) and the GLSL `LightingData`
+(forward-fragment-head.glsl) declare it field for field under the SAME names. The atmosphere
+rides inside it on both (no Metal fragment buffer 9 any more). `packLightingBlock` lays
+`deriveLighting`'s result out ONCE; each backend's `setLightingUniforms` calls it and keeps
+only what it owns (Vulkan's grab flags and reflection blur, each binder's cluster, probe,
+environment, sky-rotation, dither and debug-pass setters, all writing the same named
+fields). A new lighting value is decided in `deriveLighting`, laid out in
+`packLightingBlock`, and declared in BOTH shader structs at the same position; the three
+size asserts catch a struct that drifted, the goldens catch a lane that did. The Metal
+chunks read the GLSL lane conventions now (`shadowParams` / `shadowParams2`, `envParams`,
+`cameraPosExposure.w` for exposure, `coneParams.w` for a light's shadow slot with -1 for none).
 
 What IS single-sourced is the block's CONTENT: `deriveLighting`
 (`platform/graphics/lightingDerivation.h`) decides every value both layouts carry — the
@@ -326,49 +335,57 @@ builds resolve in full on every memo hit and assert the two agree;
 
 ### Adding a texture slot
 
-Bump `MetalTextureBinder::kMaxTextureSlots` AND add the slot to the
-`materialSlots` clear list in `bindMaterialTextures`. Metal fragment SAMPLER slots 1-6 carry
-the texture's own sampler for base colour, normal, metal-rough, occlusion, emissive and
-lightmap (`kMaterialSamplerTextureSlots`, built from `textureSamplerState`, the same mapping
-Vulkan's per-texture samplers use) — exactly the maps Vulkan binds as combined samplers. A
-new map Vulkan binds as a combined sampler needs a sampler slot there, within the budget
-comment in `metalTextureBinder.h`; a separate-image map keeps `defaultSampler` on both. Slots 0-38 are taken today
-(31-33 the gloss, thickness and refraction maps, 34 the opacity map; 35 is the
-second directional shadow map, 36 the clustered cookie atlas and 37-38 the VSM spot
-moments, scene slots, not material ones). The SCENE slots are 2 and 6 and those listed
-from 35; slot 7 is the clearcoat intensity map, a MATERIAL slot (a scene depth bound there
-overwrote it on every draw and Metal rendered every clearcoat map as absent), so check
-`bindSceneTextures` for a collision before giving a scene texture a slot.
-On Vulkan, MoltenVK inherits a 16-SAMPLER-per-stage limit across all sets and the
-fragment stage is at it, so a new material texture is a SEPARATE image
-(`texture2D`) read through the shared sampler at set-1 binding 24, the treatment
-the parallax height map, the detail normal, the displacement map, the three
-clearcoat maps (7/13/14) and the gloss/thickness/refraction/opacity maps (31-34)
-already get; the light cookies do the same on set 3.
+**The binding table is `platform/graphics/shaderBindings.h`, and a slot is ONE ROW there**
+(`VT_MATERIAL_TEXTURE_BINDINGS` for Vulkan set 1, the material maps and the quad inputs;
+`VT_SCENE_TEXTURE_BINDINGS` for set 3, the per-pass scene textures). Each row names the
+Metal fragment texture slot, the Vulkan binding, the descriptor kind and whether the map
+keeps its own sampler, and everything else is derived from it with its previous literal
+pinned by a `static_assert` beside it: `MetalTextureBinder::kMaxTextureSlots`, the material
+slots Metal clears, `kMaterialSamplerTextureSlots`, `kMaterialTextureBindings`,
+`vulkanMaterialBindingIsSeparateImage`, `kMaterialExtraSamplerBinding`,
+`kSceneTextureBindingCount`, `vulkanSceneDescriptorType`, the bundle validator's expected
+descriptor table (`tools/shader_bindings.py` parses the header) and the generated
+`bindings.slang` (`tools/generate_shader_bindings.py`, one declaration macro per row with
+both `register()` and `[[vk::binding]]`; not consumed yet). Adding a row still needs the
+SHADER declarations on both backends (the MSL entry's `[[texture(N)]]` and the GLSL
+`layout(set, binding)`) and the binder code that fills it; what the table removes is the
+three copies of the slot NUMBERS that used to be edited separately and drifted. The rules the
+rows encode:
 
-The set-1 slot list lives in exactly one place, `kMaterialTextureBindings` in
-`vulkanUniformLayouts.h`, and `vulkanMaterialBindingIsSeparateImage` beside it is
-the ONE predicate for which of those are images rather than combined samplers —
-the layout, the descriptor writes and the draw binding all call it, and the bundle
-validator's expected table (`generate_vulkan_shader_bundle.py`) has to name the
-binding too. APPEND a new binding to the list, never insert it in numeric order:
-a quad pass's texture slot i is the i-th entry, so an insertion moves every quad
-input after it. Do not copy the list into layout creation, the binding loop or the
-descriptor writes: with copies, adding a slot to two of the three writes every
-binding to the wrong index.
-
-Set 3 (per-pass scene textures) is sized by `kSceneTextureBindingCount` and typed by
-`vulkanSceneDescriptorType`: the layout, the descriptor writes and the pipeline's
-reflection check all read those two, and the reflection check compares each
-scene binding's KIND, not just its number. The bundle validator's table in
-`generate_vulkan_shader_bundle.py` is the one other place to update.
+- Metal fragment SAMPLER slots 1-6 carry the texture's own sampler for base colour, normal,
+  metal-rough, occlusion, emissive and lightmap (the rows with `ownSampler`, built from
+  `textureSamplerState`, the same mapping Vulkan's per-texture samplers use) — exactly the
+  maps Vulkan binds as combined samplers. A new map Vulkan binds as a combined sampler needs
+  `ownSampler` and a Metal sampler slot within the budget comment in `metalTextureBinder.h`;
+  a separate-image map keeps `defaultSampler` on both. Slots 0-38 are taken today
+  (31-33 the gloss, thickness and refraction maps, 34 the opacity map; 35 is the second
+  directional shadow map, 36 the clustered cookie atlas and 37-38 the VSM spot moments, scene
+  slots, not material ones). Slot 7 is the clearcoat intensity map, a MATERIAL slot (a scene
+  depth bound there overwrote it on every draw and Metal rendered every clearcoat map as
+  absent), so a scene row must not reuse a material row's Metal slot: the table is where
+  that collision is now visible in one place.
+- On Vulkan, MoltenVK inherits a 16-SAMPLER-per-stage limit across all sets and the fragment
+  stage is at it, so a new material texture is a SEPARATE image (`SeparateImage`: `texture2D`
+  read through the shared sampler at set-1 binding 24), the treatment the parallax height
+  map, the detail normal, the displacement map, the three clearcoat maps (7/13/14) and the
+  gloss/thickness/refraction/opacity maps (31-34) already get; the light cookies do the same
+  on set 3.
+- APPEND a material row, never insert it in numeric order: a quad pass's texture slot i is
+  the i-th material row, so an insertion moves every quad input after it. The layout, the
+  descriptor writes and the draw binding all read `kMaterialTextureBindings`; do not copy
+  the list anywhere: with copies, adding a slot to two of the three writes every binding to
+  the wrong index.
+- Set 3 is sized by `kSceneTextureBindingCount` and typed by `vulkanSceneDescriptorType`, both
+  from the scene rows; the pipeline's reflection check compares each scene binding's KIND,
+  not just its number.
 
 ### Metal buffer slots
 
 0=vertex, 1=index (the scene block, vertex AND fragment), 2=model, 3=material,
 4=lighting, 5=scene, 6=palette (dynamic batch + skinning, **mutually exclusive**),
 7-8=clustered (fragment) / gsplat data and order, particle pool and sort order (vertex),
-9=morph deltas / a mesh emitter's vertices, 10=morph params, 11=gsplat / particle params
+9=morph deltas / a mesh emitter's vertices (vertex only; the atmosphere the fragment stage
+once took there is inside the lighting block), 10=morph params, 11=gsplat / particle params
 (particle params reach the fragment stage too).
 
 Vulkan does NOT mirror these numerically — it binds through descriptor sets

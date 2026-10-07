@@ -1506,12 +1506,6 @@ namespace visutwin::canvas
         const uint64_t uniformVersion = boundMaterial ? boundMaterial->uniformsVersion() : 0;
         _uniformBinder.submitPerDrawUniforms(passEncoder, _uniformRing.get(),
             uniformKey, uniformVersion, uniforms.data, uniforms.size, hdrPass());
-
-        // Bind atmosphere uniforms at fragment slot 9 for skybox draws when atmosphere is enabled.
-        if (atmosphereEnabled() && boundMaterial && boundMaterial->isSkybox()) {
-            const auto& atmoUniforms = _uniformBinder.atmosphereUniforms();
-            passEncoder->setFragmentBytes(&atmoUniforms, sizeof(atmoUniforms), 9);
-        }
     }
 
     void MetalGraphicsDevice::bindDrawSampler(MTL::RenderCommandEncoder* passEncoder)

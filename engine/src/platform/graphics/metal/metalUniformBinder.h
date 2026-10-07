@@ -8,6 +8,7 @@
 //
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <simd/simd.h>
 #include <vector>
@@ -38,8 +39,6 @@ namespace visutwin::canvas
     class MetalUniformBinder : public UniformBinder
     {
     public:
-        // Use base class GpuLightUniform and LightingUniforms types.
-        using UniformBinder::GpuLightUniform;
         using UniformBinder::LightingUniforms;
 
         // ---------------------------------------------------------------
@@ -70,7 +69,8 @@ namespace visutwin::canvas
         void setCameraClipPlanes(float nearClip, float farClip);
         void setDebugShaderPass(uint32_t mode);
 
-        /// Pack atmosphere uniforms (Nishita scattering) into AtmosphereUniforms.
+        /// Copies the Scene's atmosphere block (Nishita scattering) into the lighting
+        /// block's six atmosphere vec4s.
         void setAtmosphereUniforms(const void* data, size_t size);
 
         // The three setters below run on EVERY draw (MetalGraphicsDevice::draw), with values
@@ -217,10 +217,13 @@ namespace visutwin::canvas
         void markLightingChanged() { ++_lightingVersion; }
 
         /// Writes one field of the lighting block and bumps the version, if it differs.
-        void writeLightingIfChanged(PackedVector4f& field, const PackedVector4f& value)
+        void writeLightingIfChanged(float (&field)[4], const std::array<float, 4>& value)
         {
-            if (field.x != value.x || field.y != value.y || field.z != value.z || field.w != value.w) {
-                field = value;
+            if (field[0] != value[0] || field[1] != value[1] || field[2] != value[2] || field[3] != value[3]) {
+                field[0] = value[0];
+                field[1] = value[1];
+                field[2] = value[2];
+                field[3] = value[3];
                 markLightingChanged();
             }
         }

@@ -105,7 +105,7 @@ static inline float3 toneMapHejl(float3 color, float exposure)
 }
 
 // dispatch tone mapping by mode.
-// Mode is passed via skyboxMipAndPad.z and matches scene/constants.h:
+// Mode is passed via shadowParams2.z and matches scene/constants.h:
 //   0=linear, 1=filmic, 2=hejl, 3=aces, 4=aces2, 5=neutral, 6=none.
 static inline float3 toneMap(float3 color, float exposure, float mode)
 {

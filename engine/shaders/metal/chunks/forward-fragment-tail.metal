@@ -206,7 +206,7 @@
 
             float3 refrColor = processEnvironment(
                 mix(linear0, linear1, refrLevel - refrILevel),
-                max(lighting.cameraPositionSkyboxIntensity.w, 0.0));
+                max(lighting.envParams.x, 0.0));
 
             // Volume transmittance: KHR_materials_volume Beer's law; distance 0
             // transmits everything.
@@ -440,12 +440,12 @@
     if ((lighting.flagsAndPad.x & (1u << 5)) != 0u) {
         return float4(max(litLinear, float3(0.0)), alpha);
     }
-    const float exposure = max(lighting.skyboxMipAndPad.y, 0.0);
+    const float exposure = max(lighting.cameraPosExposure.w, 0.0);
 #if VT_FEATURE_NO_TONEMAP
     // useTonemap off: TONEMAP_NONE, neither the curve nor exposure; gamma still applies.
     const float tonemapMode = 6.0;
 #else
-    const float tonemapMode = lighting.skyboxMipAndPad.z;
+    const float tonemapMode = lighting.shadowParams2.z;
 #endif
     // The lit colour goes into the curve UNCLAMPED, as the GLSL twin does: a channel
     // driven negative (an albedo above 1 under metalness, whose ambient is scaled by

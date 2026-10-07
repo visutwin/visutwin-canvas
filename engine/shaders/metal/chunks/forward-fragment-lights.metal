@@ -2,9 +2,9 @@
 // Copyright 2025-2026 Arnis Lektauers
     for (uint i = 0u; i < loopLightCount; ++i) {
         const GpuLight light = lighting.lights[i];
-        const uint lightType = light.typeCastShadows.x;
-        const bool lightCastsShadows = (light.typeCastShadows.y != 0u);
-        const bool falloffModeLinear = (light.typeCastShadows.z != 0u);
+        const uint lightType = uint(light.directionType.w + 0.5);
+        const bool lightCastsShadows = (light.coneParams.w >= 0.0);
+        const bool falloffModeLinear = (light.coneParams.z > 0.5);
         const float3 lightColor = max(light.colorIntensity.xyz, float3(0.0));
         const float lightIntensity = max(light.colorIntensity.w, 0.0);
         if (lightIntensity <= 0.0) {
@@ -14,7 +14,7 @@
         // The source's shape (LightShape; 0 punctual): an area light keeps its type's
         // cone, cookie and shadow, takes only the range window as distance falloff, and
         // is shaded with LTC below.
-        const uint lightShape = uint(light.areaHalfWidth.w + 0.5);
+        const uint lightShape = uint(light.areaRightHalfWidth.w + 0.5);
         float3 L = float3(0.0, 1.0, 0.0);
         float attenuation = 1.0;
         float3 lightDirW = float3(0.0);
@@ -27,7 +27,7 @@
         // skipped in exactly that case).
         bool cookieReplacesConeFalloff = false;
         if (lightType == 0u) {
-            const float3 lightDir = light.directionCone.xyz;
+            const float3 lightDir = light.directionType.xyz;
             if (length_squared(lightDir) <= 1e-8) {
                 continue;
             }
@@ -44,10 +44,10 @@
             L = dLightDirNormW;
 
 #if VT_FEATURE_COOKIE_2D || VT_FEATURE_COOKIE_CUBE
-            if (light.cookieFlags.x != 0u) {
-                const uint cookieIdx = light.cookieFlags.y;
-                const uint cookieChannel = light.cookieFlags.z;
-                const bool cookieFalloff = (light.cookieFlags.w != 0u);
+            if (light.cookieFlags.x > 0.5) {
+                const uint cookieIdx = uint(light.cookieFlags.y + 0.5);
+                const uint cookieChannel = uint(light.cookieFlags.z + 0.5);
+                const bool cookieFalloff = (light.cookieFlags.w > 0.5);
 #if VT_FEATURE_COOKIE_2D
                 if (lightType == 2u) {
                     const float4x4 cookieXform = (cookieIdx == 0u)
@@ -94,9 +94,9 @@
             }
 
             if (lightType == 2u && !cookieReplacesConeFalloff) {
-                const float3 spotDir = normalize(light.directionCone.xyz);
-                const float outerConeCos = clamp(light.coneAngles.y, -1.0, 1.0);
-                const float innerConeCos = clamp(light.coneAngles.x, outerConeCos, 1.0);
+                const float3 spotDir = normalize(light.directionType.xyz);
+                const float outerConeCos = clamp(light.coneParams.y, -1.0, 1.0);
+                const float innerConeCos = clamp(light.coneParams.x, outerConeCos, 1.0);
                 attenuation *= getSpotEffect(spotDir, innerConeCos, outerConeCos, -dLightDirNormW);
             }
 #endif
@@ -116,7 +116,7 @@
             && lightType != 1u  // Omni lights handled by cubemap path below
 #endif
         ) {
-            const uint shadowIdx = light.typeCastShadows.w;
+            const uint shadowIdx = uint(max(light.coneParams.w, 0.0) + 0.5);
             const float4x4 shadowMatrix = (shadowIdx == 0u) ? lighting.localShadowMatrix0 : lighting.localShadowMatrix1;
             const float4 shadowParamsLocal = (shadowIdx == 0u) ? lighting.localShadowParams0 : lighting.localShadowParams1;
             const float4 pcssLocal = (shadowIdx == 0u) ? lighting.localShadowPcss0 : lighting.localShadowPcss1;
@@ -178,14 +178,13 @@
         // Direction from light to fragment selects the cubemap face; perspective-mapped
         // depth comparison determines visibility.
         if (lightCastsShadows && lightType == 1u) {
-            const uint shadowIdx = light.typeCastShadows.w;
+            const uint shadowIdx = uint(max(light.coneParams.w, 0.0) + 0.5);
             const float4 omniParams = (shadowIdx == 0u) ? lighting.omniShadowParams0 : lighting.omniShadowParams1;
-            const float4 omniExtra = (shadowIdx == 0u) ? lighting.omniShadowParams0Extra : lighting.omniShadowParams1Extra;
 
             const float near_val = omniParams.x;
             const float far_val = omniParams.y;
             const float bias = omniParams.z;
-            const float intensity = omniExtra.x;
+            const float intensity = omniParams.w;
 
             // Direction from light to fragment (world space) — used for cubemap face selection.
             const float3 lightToFrag = rd.worldPos - light.positionRange.xyz;
@@ -240,18 +239,26 @@
             // CSM: the cascade comes from the fragment's linear view-space depth.
             // rd.position.w = 1/clip.w; clip.w = view-space Z for perspective projection.
             const float linearDepth = 1.0 / rd.position.w;
-            if (light.typeCastShadows.w == 0u) {
-                if (lighting.shadowBiasNormalStrength.w > 0.5) {
-                    shadowFactor = evaluateDirectionalShadow(shadowTexture, lighting.shadowMatrixPalette,
-                        lighting.shadowCascadeDistances, lighting.shadowCascadeParams,
-                        lighting.shadowBiasNormalStrength, lighting.pcssParams, lighting.pcssCascadeRadii,
+            // The helper takes the slot's cascade count and blend as one float4 and its
+            // bias, normal bias and strength as another; the block keeps them in
+            // shadowParams / shadowParams2 (enabled, numCascades, depthBias, strength /
+            // normalBias, cascadeBlend), the layout both backends share.
+            if (int(light.coneParams.w) == 0) {
+                if (lighting.shadowParams.x > 0.5) {
+                    shadowFactor = evaluateDirectionalShadow(shadowTexture, lighting.shadowMatrices,
+                        lighting.shadowCascadeDistances,
+                        float4(lighting.shadowParams.y, lighting.shadowParams2.y, 0.0, 0.0),
+                        float4(lighting.shadowParams.z, lighting.shadowParams2.x, lighting.shadowParams.w, 1.0),
+                        lighting.pcssParams, lighting.pcssCascadeRadii,
                         lighting.pcssCascadeDepthRanges, rd.worldPos, N, L, linearDepth, rd.position.xy);
                 }
-            } else if (lighting.shadow1BiasNormalStrength.w > 0.5) {
-                shadowFactor = evaluateDirectionalShadow(shadowTexture1, lighting.shadow1MatrixPalette,
-                    lighting.shadow1CascadeDistances, lighting.shadow1CascadeParams,
-                    lighting.shadow1BiasNormalStrength, lighting.shadow1PcssParams, lighting.shadow1PcssCascadeRadii,
-                    lighting.shadow1PcssCascadeDepthRanges, rd.worldPos, N, L, linearDepth, rd.position.xy);
+            } else if (lighting.dirShadow1Params.x > 0.5) {
+                shadowFactor = evaluateDirectionalShadow(shadowTexture1, lighting.dirShadow1Matrices,
+                    lighting.dirShadow1CascadeDistances,
+                    float4(lighting.dirShadow1Params.y, lighting.dirShadow1Params2.y, 0.0, 0.0),
+                    float4(lighting.dirShadow1Params.z, lighting.dirShadow1Params2.x, lighting.dirShadow1Params.w, 1.0),
+                    lighting.dirShadow1PcssParams, lighting.dirShadow1PcssCascadeRadii,
+                    lighting.dirShadow1PcssCascadeDepthRanges, rd.worldPos, N, L, linearDepth, rd.position.xy);
             }
         }
 #endif
@@ -284,8 +291,8 @@
             // Area light — LTC (linearly transformed cosines). The world half axes
             // are the light's scaled X and Z.
             const float3 lightPos = light.positionRange.xyz;
-            const LtcAreaLight area = ltcAreaLight(lightShape, lightPos, light.areaHalfWidth.xyz,
-                light.areaHalfHeight.xyz, N, cameraPosition);
+            const LtcAreaLight area = ltcAreaLight(lightShape, lightPos, light.areaRightHalfWidth.xyz,
+                light.areaUpHalfHeight.xyz, N, cameraPosition);
             const float3 areaRadiance = lightColor * cookieMask * lightIntensity * attenuation * shadowFactor;
             const float3 ltcSpecFres = ltcSpecularFresnel(N, V, gloss, F0, areaLightsLutTex2);
 

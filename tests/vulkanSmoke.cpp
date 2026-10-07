@@ -31,6 +31,7 @@
 #include "platform/graphics/depthState.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
 #include "platform/graphics/instanceCuller.h"
+#include "platform/graphics/lightingBlock.h"
 #include "platform/graphics/renderPass.h"
 #include "scene/graphics/quadRender.h"
 #include "scene/graphics/envBake.h"
@@ -1847,10 +1848,32 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
 
             const auto skyColorWith = [&](const Vector3& planetCentre,
                                           const Vector3& sunDir) -> std::array<float, 3> {
-                UniformBinder::AtmosphereUniforms atmo{};
-                atmo.planetCenterAndRadius = {planetCentre.getX(), planetCentre.getY(),
-                    planetCentre.getZ(), kPlanetRadius};
-                atmo.sunDirection = {sunDir.getX(), sunDir.getY(), sunDir.getZ(), 0.0f};
+                // The Scene's 96-byte atmosphere block: the six vec4s of the lighting
+                // block's atmosphere span, in order, with the block's defaults.
+                struct AtmosphereBlock
+                {
+                    float planetCenterAndRadius[4];
+                    float atmosphereRadiusAndSunIntensity[4];
+                    float rayleighCoeffAndScaleHeight[4];
+                    float mieCoeffAndScaleHeight[4];
+                    float sunDirection[4];
+                    float cameraAltitudeAndParams[4];
+                };
+                static_assert(sizeof(AtmosphereBlock) == kLightingBlockAtmosphereBytes);
+                AtmosphereBlock atmo{};
+                {
+                    const LightingBlock defaults{};
+                    std::memcpy(&atmo, reinterpret_cast<const uint8_t*>(&defaults) + kLightingBlockAtmosphereOffset,
+                        sizeof(atmo));
+                }
+                atmo.planetCenterAndRadius[0] = planetCentre.getX();
+                atmo.planetCenterAndRadius[1] = planetCentre.getY();
+                atmo.planetCenterAndRadius[2] = planetCentre.getZ();
+                atmo.planetCenterAndRadius[3] = kPlanetRadius;
+                atmo.sunDirection[0] = sunDir.getX();
+                atmo.sunDirection[1] = sunDir.getY();
+                atmo.sunDirection[2] = sunDir.getZ();
+                atmo.sunDirection[3] = 0.0f;
                 TextureOptions colorOpts{};
                 colorOpts.name = "vulkan-smoke-atmosphere-color";
                 colorOpts.width = 4;

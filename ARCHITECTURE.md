@@ -280,10 +280,10 @@ transform instead; its rotation takes the light→fragment direction into cube s
 Slots: **two 2D + two cubemap per frame** (mirroring the local-shadow pools),
 Metal fragment textures 27-28 / 29-30 (`kMaxTextureSlots` 27→31), Vulkan set 3
 bindings 17-20 as separate images sharing `linearClampSampler` (combined samplers
-would blow the 16-per-stage limit MoltenVK inherits). `GpuLightUniform` carries a
-`cookieFlags` uint4 and `LightingUniforms` a 4-matrix + 4-vec4
-cookie block; `VulkanLightingUBO` mirrors both (its size is
-asserted in `vulkanRenderPipeline.cpp` AND in the shader-bundle validator).
+would blow the 16-per-stage limit MoltenVK inherits). `GpuLightBlock` carries a
+`cookieFlags` float4 and `LightingBlock` a 4-matrix + 4-vec4 cookie block, the ONE layout
+both backends bind (`platform/graphics/lightingBlock.h`; its size is asserted there, in
+`vulkanRenderPipeline.cpp` AND in the shader-bundle validator).
 
 **GOTCHA:** cookie samples sit inside the per-light loop
 behind fragment-varying `continue`s, so screen-space derivatives there are

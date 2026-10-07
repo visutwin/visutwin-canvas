@@ -10,6 +10,7 @@
 
 #include <cstring>
 #include "vulkanGraphicsDevice.h"
+#include "platform/graphics/shaderBindings.h"
 
 #include "spdlog/spdlog.h"
 
@@ -179,17 +180,19 @@ namespace visutwin::canvas
 
     VkDescriptorType vulkanSceneDescriptorType(const uint32_t binding)
     {
-        // Binding 1 and 22 are the two directional shadow maps, SEPARATE images read
-        // through the shared samplers at 12/13 (the fragment stage is at MoltenVK's
-        // 16-sampler limit, so a second combined sampler did not fit).
-        if (binding == 1 || binding == 22) {
-            return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-        }
-        if (binding < 6) {
+        // From the binding table (shaderBindings.h): the five combined samplers (the env
+        // atlas and the four local shadow maps), the two shared samplers at 12 / 13, and
+        // every other scene texture a SEPARATE image read through them — the two
+        // directional shadow maps included, since the fragment stage is at MoltenVK's
+        // 16-sampler limit.
+        switch (shaderBindings::sceneBindingKind(binding)) {
+        case ShaderBindingKind::CombinedSampler:
             return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        }
-        if (binding == 12 || binding == 13) {
+        case ShaderBindingKind::Sampler:
             return VK_DESCRIPTOR_TYPE_SAMPLER;
+        case ShaderBindingKind::SeparateImage:
+        case ShaderBindingKind::MetalOnly:
+            break;
         }
         return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     }

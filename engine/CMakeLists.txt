@@ -209,6 +209,29 @@ if(VISUTWIN_BACKEND_METAL)
     list(APPEND VISUTWIN_CANVAS_SOURCES ${VISUTWIN_CANVAS_MM_SOURCES})
 endif()
 
+# ── The Slang binding declarations ───────────────────────────────────
+# bindings.slang is generated from the binding table (shaderBindings.h): one declaration
+# macro per texture slot carrying both the Metal slot (register) and the Vulkan binding
+# (vk::binding). Nothing consumes it yet; it is the single source the Slang shader
+# modules will declare their bindings from. Backend-independent.
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+set(_SLANG_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/slang")
+set(_SLANG_BINDINGS "${_SLANG_GENERATED_DIR}/bindings.slang")
+add_custom_command(
+    OUTPUT "${_SLANG_BINDINGS}"
+    COMMAND "${Python3_EXECUTABLE}"
+        "${VISUTWIN_ROOT_DIR}/tools/generate_shader_bindings.py"
+        --bindings "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/shaderBindings.h"
+        --output "${_SLANG_BINDINGS}"
+    DEPENDS
+        "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/shaderBindings.h"
+        "${VISUTWIN_ROOT_DIR}/tools/generate_shader_bindings.py"
+        "${VISUTWIN_ROOT_DIR}/tools/shader_bindings.py"
+    COMMENT "Generating bindings.slang from the binding table"
+    VERBATIM
+)
+add_custom_target(visutwin-shader-bindings ALL DEPENDS "${_SLANG_BINDINGS}")
+
 # ── Build-time Vulkan shader bundle ──────────────────────────────────
 # GLSL is compiled before C++ and reflected by SPIRV-Cross. The generator
 # validates descriptor sets, uniform block sizes, and push constants, then
@@ -244,10 +267,14 @@ if(VISUTWIN_BACKEND_VULKAN)
                 "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/shaderFeatures.h"
             --material-fields
                 "${VISUTWIN_ROOT_DIR}/engine/src/scene/materials/materialUniformFields.h"
+            --bindings
+                "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/shaderBindings.h"
             --output "${_VK_SHADER_BUNDLE}"
             --work-dir "${_VK_GENERATED_DIR}/work"
         DEPENDS
             ${_VK_SHADER_SOURCES}
+            "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/shaderBindings.h"
+            "${VISUTWIN_ROOT_DIR}/tools/shader_bindings.py"
             "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/shaderFeatures.h"
             "${VISUTWIN_ROOT_DIR}/engine/src/scene/materials/materialUniformFields.h"
             "${VISUTWIN_ROOT_DIR}/tools/generate_vulkan_shader_bundle.py"

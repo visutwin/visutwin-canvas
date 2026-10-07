@@ -12,6 +12,8 @@
 #include <vector>
 #include <Metal/Metal.hpp>
 
+#include "platform/graphics/shaderBindings.h"
+
 namespace visutwin::canvas
 {
     class MetalSamplerCache;
@@ -50,9 +52,13 @@ namespace visutwin::canvas
         // sampler. The rest (clearcoat, height, detail normal, gloss, thickness,
         // refraction, opacity) are separate images on Vulkan, read through one shared
         // sampler in the default state, so on Metal they keep the default sampler.
-        static constexpr std::array<int, kMaterialSamplerCount> kMaterialSamplerTextureSlots = {0, 1, 3, 4, 5, 19};
+        // Both from the binding table (platform/graphics/shaderBindings.h), which also
+        // names every slot: the rows with ownSampler, and the highest fragment slot + 1.
+        static constexpr std::array<int, kMaterialSamplerCount> kMaterialSamplerTextureSlots =
+            visutwin::canvas::kMaterialSamplerTextureSlots;
+        static_assert(visutwin::canvas::kMaterialSamplerTextureSlots.size() == kMaterialSamplerCount);
 
-        static constexpr int kMaxTextureSlots = 39;  // Slots 0-38; 37-38 = VSM spot shadow moments; 36 = clustered cookie atlas; 6 = directional shadow (slot 0), 35 = directional shadow (slot 1); 11-12 = spot shadow, 15-16 = omni shadow cubemaps, 17 = height map, 18 = SSAO, 19 = lightmap, 20-21 = LTC area-light LUTs, 22 = scene color grab, 23 = detail normal, 24 = reflection probe cubemap, 25 = SSR scene depth grab, 26 = clustered spot-shadow atlas array, 27-28 = spot light cookies, 29-30 = omni light cookie cubemaps, 31 = gloss map, 32 = thickness map, 33 = refraction map, 34 = opacity map
+        static constexpr int kMaxTextureSlots = kMetalMaxTextureSlots;
 
         /// Bind a texture at the given fragment slot, skipping if already bound.
         void bindCached(MTL::RenderCommandEncoder* encoder, int slot, Texture* texture);

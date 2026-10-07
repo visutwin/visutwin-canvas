@@ -27,13 +27,11 @@ static inline float square(float x) { return x * x; }
 
 static inline float3 decodeEnvironment(float4 raw, constant LightingData& lighting) {
 #if VT_FEATURE_ENV_ATLAS
-    const uint envFlags = lighting.flagsAndPad.x;
-    const bool envIsRgbp = (envFlags & (1u << 3)) != 0u;
-    const bool envIsRgbm = (envFlags & (1u << 4)) != 0u;
-    if (envIsRgbp) {
+    const uint enc = uint(lighting.envParams.z + 0.5);
+    if (enc == 1u) {
         return decodeRGBP(raw);
     }
-    if (envIsRgbm) {
+    if (enc == 2u) {
         return decodeRGBM(raw);
     }
 #endif
