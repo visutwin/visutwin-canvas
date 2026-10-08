@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 14.07.2026
 //
-// Port of upstream graphics/post-processing.
+// Port of upstream camera-frame/post-processing.
 //
 // A baked sci-fi platform stage lit by a warm directional light, with the
 // mosquito-in-amber model slowly turning above it (its amber is a transmissive,

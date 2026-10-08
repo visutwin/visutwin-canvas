@@ -120,6 +120,11 @@ namespace visutwin::canvas
 
         void frameUpdate() const override;
 
+        /// Publishes this frame's scene depth, depth grab and lighting-mode SSAO texture
+        /// on the device. Run by the frame's first pass when it renders, not by
+        /// frameUpdate, which runs for every camera while the graph is built.
+        void publishSceneInputs() const;
+
     private:
         void setupRenderPasses(const CameraFrameOptions& options);
         void createPasses(const CameraFrameOptions& options);
@@ -176,6 +181,10 @@ namespace visutwin::canvas
         std::shared_ptr<RenderTarget> _sceneHalfRenderTarget;
         std::shared_ptr<Texture> _sceneTextureHalf;
 
+        // Runs ahead of every other pass of the frame and publishes its inputs then, not
+        // in frameUpdate: frameUpdate runs for every camera while the graph is BUILT, so a
+        // publish there hands each camera's passes the LAST camera's textures.
+        std::shared_ptr<RenderPass> _publishPass;
         std::shared_ptr<RenderPassPrepass> _prePass;
         std::shared_ptr<RenderPassForward> _scenePass;
         std::shared_ptr<RenderPassColorGrab> _colorGrabPass;

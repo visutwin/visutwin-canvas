@@ -128,10 +128,11 @@ namespace visutwin::canvas
     }
 
     void Texture::updateNumLevels() {
-        uint32_t maxLevels = _mipmaps ? TextureUtils::calcMipLevelsCount(_width, _height) : 1;
+        // A volume's chain halves its depth too, so the depth can set the count.
+        uint32_t maxLevels = _mipmaps ? TextureUtils::calcMipLevelsCount(_width, _height, _volume ? _depth : 1) : 1;
 
         if (_numLevelsRequested > 0 && _numLevelsRequested > maxLevels) {
-            spdlog::warn("Texture#numLevels: requested mip level count %u is greater than maximum %u, clamping",
+            spdlog::warn("Texture#numLevels: requested mip level count {} is greater than maximum {}, clamping",
                          _numLevelsRequested, maxLevels);
         }
 

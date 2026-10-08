@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 02.10.2026
 //
-// Port of upstream graphics/volumetric-fog-local-lights.
+// Port of upstream camera-frame/volumetric-fog-local-lights.
 //
 // The low-poly terrain (scaled 30x) at dusk under a dim helipad sky, with its clouds
 // circling over the valley, an orange pillar casting a long shaft, and volumetric

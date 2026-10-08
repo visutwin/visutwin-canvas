@@ -6,7 +6,7 @@
 // The uniform block of the compose pass, engine/shaders/slang/programs/compose.slang.
 //
 // Chain order:
-//   CAS -> DOF -> SSAO -> Fringing -> Bloom -> ColorEnhance -> Grading
+//   CAS -> Fringing -> DOF -> SSAO -> Bloom -> ColorEnhance -> Grading
 //   -> ToneMap -> ColorLUT -> Vignette -> display gamma
 //
 // Textures (quad slots, both backends): 0 scene, 1 bloom, 2 ssao, 3 depth,

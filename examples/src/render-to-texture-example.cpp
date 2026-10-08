@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 21.03.2026
 //
-// Port of upstream graphics/render-to-texture.
+// Port of upstream render-targets/render-to-texture.
 //
 // Three layers: World (objects rendered by both cameras), Excluded (rendered by
 // the main camera only) and Skybox (both). A texture camera orbits the scene and

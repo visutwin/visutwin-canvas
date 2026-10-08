@@ -39,6 +39,9 @@ namespace visutwin::canvas
 
         const std::vector<MeshInstance*>& meshInstances() const;
         MeshInstance* addMeshInstance(std::unique_ptr<MeshInstance> meshInstance);
+        /// Destroys one mesh instance this component owns, found by address (never
+        /// dereferenced); false when it owns no such instance.
+        bool removeMeshInstance(const MeshInstance* meshInstance);
         void clearMeshInstances();
 
         const std::vector<int>& layers() const { return _layers; }

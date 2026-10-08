@@ -720,6 +720,22 @@ namespace visutwin::canvas
         }
     }
 
+    bool RenderComponent::removeMeshInstance(const MeshInstance* meshInstance)
+    {
+        const auto it = std::find_if(_meshInstances.begin(), _meshInstances.end(),
+            [meshInstance](const std::unique_ptr<MeshInstance>& owned) { return owned.get() == meshInstance; });
+        if (meshInstance == nullptr || it == _meshInstances.end()) {
+            return false;
+        }
+        // A batch keeps raw pointers to its sources, so the group goes before the instance.
+        if (auto* batches = batcher()) {
+            batches->sourcesLeaving(_batchGroupId);
+        }
+        _meshInstances.erase(it);
+        _meshInstanceViewDirty = true;
+        return true;
+    }
+
     void RenderComponent::clearMeshInstances()
     {
         if (auto* batches = batcher(); batches && !_meshInstances.empty()) {

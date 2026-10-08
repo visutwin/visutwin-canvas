@@ -4,7 +4,7 @@
 // Created by Arnis Lektauers on 07.10.2026
 //
 // The compose pass, the end of a camera frame's post chain:
-//   CAS -> DOF -> SSAO -> Fringing -> Bloom -> ColorEnhance -> Grading -> ToneMap
+//   CAS -> Fringing -> DOF -> SSAO -> Bloom -> ColorEnhance -> Grading -> ToneMap
 //   -> ColorLUT -> Vignette -> display gamma
 // Inputs: 0 scene, 1 bloom, 2 ssao, 3 depth, 4 colour LUT, 5 colour LUT 2, 6 CoC, 7 DOF
 // blur (the last two only with the multi-pass depth of field; dofMultipass says which).
@@ -13,8 +13,9 @@
 //
 // Order notes. DOF runs BEFORE SSAO, so occlusion multiplies the already-defocused colour
 // and keeps full strength out of focus; where DOF is not blurring the order cannot matter.
-// Fringing runs BEFORE bloom: it re-samples the scene for red and blue, and after bloom it
-// would keep bloom in green only. The CAS weight is NEGATIVE (the CPU remaps the user
+// Fringing runs right after CAS, on the scene image: it re-samples the scene for red and
+// blue, so anything applied before it would survive in green only (bloom), and anything
+// it ran after would be overwritten in red and blue (SSAO's occlusion, DOF's blur). The CAS weight is NEGATIVE (the CPU remaps the user
 // sharpness to lerp(-0.125, -0.2, s)); a positive one turns the kernel into a blur.
 // Tone mapping NONE applies neither the curve nor exposure. The 3D LUT is a 256x16 strip
 // loaded non-sRGB, so its sample is decoded here (DEVIATION: upstream lets the sampler).
@@ -430,7 +431,12 @@ float4 composeFragment(QuadVarying input) : SV_Target0
         result = applyCas(result, uv, u.sharpness, invRes);
     }
 
-    // 2. DOF, before SSAO.
+    // 2. Fringing, on the scene image ahead of the other effects.
+    if (u.fringingIntensity > 0.0) {
+        result = applyFringing(result, uv, u.fringingIntensity);
+    }
+
+    // 3. DOF, before SSAO.
     if (u.dofEnabled != 0u) {
         if (u.dofMultipass != 0u) {
             result = applyDof(result, uv, u.blurTextureUpscale != 0u, float2(u.dofBlurTexelX, u.dofBlurTexelY));
@@ -440,35 +446,30 @@ float4 composeFragment(QuadVarying input) : SV_Target0
         }
     }
 
-    // 3. SSAO.
+    // 4. SSAO.
     if (u.ssaoEnabled != 0u) {
         const float ssao = clamp(ssaoTexture.Sample(uv).r, 0.0, 1.0);
         result *= ssao;
     }
 
-    // 4. Fringing, before bloom.
-    if (u.fringingIntensity > 0.0) {
-        result = applyFringing(result, uv, u.fringingIntensity);
-    }
-
-    // 4b. Bloom.
+    // 5. Bloom.
     if (u.bloomEnabled != 0u) {
         const float3 bloomColor = bloomTexture.Sample(uv).rgb;
         result += bloomColor * max(u.bloomIntensity, 0.0);
     }
 
-    // 4c. Colour enhance (HDR).
+    // 6. Colour enhance (HDR).
     if (u.colorEnhanceEnabled != 0u) {
         result = applyColorEnhance(result, u.ceShadows, u.ceHighlights, u.ceVibrance, u.ceDehaze, u.ceMidtones);
     }
 
-    // 4d. Colour grading (HDR).
+    // 7. Colour grading (HDR).
     if (u.gradingEnabled != 0u) {
         result = applyGrading(result, u.gradingBrightness, u.gradingSaturation, u.gradingContrast,
             float3(u.gradingTintR, u.gradingTintG, u.gradingTintB));
     }
 
-    // 5. Tone mapping.
+    // 8. Tone mapping.
     result = max(result, float3(0.0, 0.0, 0.0));
     if (u.tonemapMode == 1u) {           // FILMIC
         result = toneMapFilmic(result, u.exposure);
@@ -485,19 +486,19 @@ float4 composeFragment(QuadVarying input) : SV_Target0
         result = result * u.exposure;
     }
 
-    // 5b. 3D colour LUT (after tone mapping).
+    // 9. 3D colour LUT (after tone mapping).
     if (u.lutEnabled != 0u) {
         result = applyColorLUT(result, u.lut2Enabled != 0u, u.lutIntensity1, u.lutIntensity2, u.lutBlend);
     }
 
-    // 6. Vignette (tone-mapped linear space, before gamma).
+    // 10. Vignette (tone-mapped linear space, before gamma).
     if (u.vignetteEnabled != 0u) {
         const float3 vigColor = float3(u.vignetteColorR, u.vignetteColorG, u.vignetteColorB);
         result = applyVignette(result, uv, u.vignetteInner, u.vignetteOuter, u.vignetteCurvature,
             u.vignetteIntensity, vigColor);
     }
 
-    // 7. Display gamma: the back buffer is a UNORM format, so gamma is applied here.
+    // 11. Display gamma: the back buffer is a UNORM format, so gamma is applied here.
     result = pow(max(result, float3(0.0, 0.0, 0.0)) + 0.0000001, float3(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2));
     return float4(result, 1.0);
 }

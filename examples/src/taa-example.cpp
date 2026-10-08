@@ -3,12 +3,12 @@
 //
 // Created by Arnis Lektauers on 21.03.2026
 //
-// Port of upstream graphics/taa.
+// Port of upstream camera-frame/taa.
 //
 // The PBR house (scaled 100x) under the table-mountain env atlas (skybox mip 0,
 // exposure 2.5), a shadow-casting directional light, and a cube orbiting the
 // house at radius 130 while it spins. The camera frame runs TAA (jitter 1),
-// ACES tone mapping, bloom 0.02 and sharpness 0.5; an orbit camera frames the
+// ACES tone mapping, bloom 0.02 and sharpness 1; an orbit camera frames the
 // house on start.
 //
 // Keys stand in for upstream's controls panel, over the same parameters:
@@ -119,7 +119,7 @@ protected:
         }
 
         // Camera frame: ACES, bloom 0.02, then the initial control values
-        // (scale 1, bloom on, sharpness 0.5, TAA on with jitter 1).
+        // (scale 1, bloom on, sharpness 1, TAA on with jitter 1).
         if (_cameraComp) {
             _cameraComp->setToneMapping(TONEMAP_ACES);
 
@@ -130,7 +130,7 @@ protected:
 
             auto rendering = _cameraComp->rendering();
             rendering.bloomIntensity = 0.02f;
-            rendering.sharpness = 0.5f;
+            rendering.sharpness = 1.0f;
             rendering.renderTargetScale = 1.0f;
             _cameraComp->setRendering(rendering);
         }

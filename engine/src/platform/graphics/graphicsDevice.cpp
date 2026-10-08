@@ -217,6 +217,11 @@ namespace visutwin::canvas
         const float ratio = pixelRatio();
         const int w = static_cast<int>(std::floor(static_cast<float>(width) * ratio));
         const int h = static_cast<int>(std::floor(static_cast<float>(height) * ratio));
+        // A zero size (a minimised window, or a size below one pixel at this ratio) keeps
+        // the current resolution: there is nothing to render into until it comes back.
+        if (w <= 0 || h <= 0) {
+            return;
+        }
         const auto size = this->size();
         if (w != size.first || h != size.second) {
             setResolution(w, h);

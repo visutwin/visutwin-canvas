@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 21.03.2026
 //
-// SSAO showcase (mirrors upstream graphics/ambient-occlusion): the laboratory
+// SSAO showcase (mirrors upstream camera-frame/ambient-occlusion): the laboratory
 // interior lit by the helipad env atlas, torch omni lights and a shadow-casting
 // directional light, with screen-space ambient occlusion applied through the
 // camera frame. Every SSAO parameter is bound to a key so its effect can be

@@ -129,10 +129,11 @@ The second column is the upstream example each one ports, as
 
 | Example | Upstream | Description |
 |---------|----------|-------------|
-| post-processing | graphics/post-processing | The camera frame's compose chain |
-| taa | graphics/taa | Temporal anti-aliasing over the PBR house |
-| depth-of-field | graphics/depth-of-field | Bokeh depth of field over an apartment interior |
-| ambient-occlusion | graphics/ambient-occlusion | Screen-space ambient occlusion in the laboratory |
+| post-processing | camera-frame/post-processing | The camera frame's compose chain |
+| taa | camera-frame/taa | Temporal anti-aliasing over the PBR house |
+| depth-of-field | camera-frame/depth-of-field | Bokeh depth of field over an apartment interior |
+| ambient-occlusion | camera-frame/ambient-occlusion | Screen-space ambient occlusion in the laboratory |
+| volumetric-fog-local-lights | camera-frame/volumetric-fog-local-lights | Height fog lit by shadowed spot and omni lights over a terrain |
 | ambient-occlusion-davinci | — (original scene) | SSAO over the da Vinci workshop with the colour finishing chain |
 | edge-detect | compute/edge-detect | Compute-shader Sobel filter over an offscreen render |
 
@@ -163,7 +164,7 @@ The second column is the upstream example each one ports, as
 | glb-loader | loaders/glb | A GLB carrying meshes, lights and cameras |
 | layers | graphics/layers | X-ray, character and front layers |
 | multi-view | graphics/multi-view | One board through three cameras and viewports |
-| render-to-texture | graphics/render-to-texture | A camera rendering into a texture shown in the scene |
+| render-to-texture | render-targets/render-to-texture | A camera rendering into a texture shown in the scene |
 
 ### Physics
 

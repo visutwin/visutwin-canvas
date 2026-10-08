@@ -17,6 +17,12 @@
 //         than a dangling raw pointer.
 //  - N10.2 two glTF animations with the same name are both kept; the later one must not
 //         overwrite the earlier in silence.
+//  - A gsplat component given a new resource, or none, removes the splat instance it
+//    attached; otherwise the old cloud goes on drawing beside the new one.
+//  - A volume's mip chain halves its depth too, so a deep volume has more levels than
+//    its width and height alone allow.
+//  - GraphicsDevice::resizeCanvas keeps the current resolution at a zero size (a
+//    minimised window), rather than asking the backend for an empty drawable.
 
 #include <tiny_gltf.h>
 
@@ -28,6 +34,8 @@
 
 #include "framework/components/button/buttonComponent.h"
 #include "framework/components/button/buttonComponentSystem.h"
+#include "framework/components/gsplat/gsplatComponent.h"
+#include "framework/components/render/renderComponent.h"
 #include "framework/components/script/scriptComponent.h"
 #include "framework/components/script/scriptComponentSystem.h"
 #include "framework/engine.h"
@@ -40,6 +48,8 @@
 #include "platform/graphics/vertexBuffer.h"
 #include "platform/graphics/vertexFormat.h"
 #include "platform/graphics/texture.h"
+#include "scene/gsplat/gsplatData.h"
+#include "scene/gsplat/gsplatResource.h"
 #include "scene/materials/standardMaterial.h"
 #include "support/check.h"
 #include "support/stubDevice.h"
@@ -254,6 +264,62 @@ int main()
                 "a Compute buffer parameter is storage");
         }
         check(device->vram().vb == 0 && device->vram().sb == 0, "freeing them returns both buckets to zero");
+    }
+
+    std::cout << "gsplat resource replacement removes the previous splat instance\n";
+    {
+        const auto splatDevice = std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{.cpuBuffers = true});
+        const auto makeResource = [&splatDevice](const float x) {
+            GSplatData::ActivatedSplats splats;
+            splats.count = 1;
+            splats.positions = {x, 0.0f, 0.0f};
+            splats.rotations = {0.0f, 0.0f, 0.0f, 1.0f};
+            splats.scales = {0.1f, 0.1f, 0.1f};
+            splats.opacities = {1.0f};
+            splats.sh0 = {0.5f, 0.5f, 0.5f};
+            return std::make_shared<GSplatResource>(GSplatData::fromActivated(splats, "test"), splatDevice);
+        };
+        Entity entity;
+        auto* gsplat = static_cast<GSplatComponent*>(entity.addComponentInstance(
+            std::make_unique<GSplatComponent>(nullptr, &entity), componentTypeID<GSplatComponent>()));
+        const auto instanceCount = [&entity] {
+            const auto* render = entity.findComponent<RenderComponent>();
+            return render ? render->meshInstances().size() : size_t{0};
+        };
+        gsplat->setResource(makeResource(0.0f));
+        check(instanceCount() == 1, "the first resource attaches one splat instance");
+        gsplat->setResource(makeResource(1.0f));
+        check(instanceCount() == 1, "a second resource replaces it rather than adding another");
+        gsplat->setResource(nullptr);
+        check(instanceCount() == 0, "clearing the resource removes it");
+    }
+
+    std::cout << "a volume's mip chain counts its depth\n";
+    {
+        TextureOptions options;
+        options.width = 4;
+        options.height = 4;
+        options.depth = 32;
+        options.volume = true;
+        options.mipmaps = true;
+        Texture volume(device.get(), options);
+        check(volume.getNumLevels() == 6, "a 4x4x32 volume has 6 levels (32 down to 1), not 3");
+        options.depth = 1;
+        options.volume = false;
+        Texture flat(device.get(), options);
+        check(flat.getNumLevels() == 3, "a 4x4 2D texture still has 3");
+    }
+
+    std::cout << "resizeCanvas keeps the resolution at a zero size\n";
+    {
+        const auto canvasDevice = std::make_shared<StubGraphicsDevice>(
+            StubGraphicsDevice::Options{.size = {640, 480}, .resizable = true});
+        canvasDevice->resizeCanvas(0, 0);
+        check(canvasDevice->size() == std::pair{640, 480}, "a 0x0 canvas keeps 640x480");
+        canvasDevice->resizeCanvas(320, 0);
+        check(canvasDevice->size() == std::pair{640, 480}, "a zero height alone keeps it too");
+        canvasDevice->resizeCanvas(320, 240);
+        check(canvasDevice->size() == std::pair{320, 240}, "a real size still applies");
     }
 
     return finish("triage contracts");

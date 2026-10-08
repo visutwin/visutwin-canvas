@@ -30,6 +30,16 @@ namespace visutwin::canvas
     void GSplatComponent::setResource(const std::shared_ptr<GSplatResource>& resource)
     {
         _resource = resource;
+
+        // A replaced or cleared resource takes its splats with it; otherwise both
+        // clouds would go on drawing.
+        if (_meshInstance && _entity) {
+            if (auto* render = _entity->findComponent<RenderComponent>()) {
+                render->removeMeshInstance(_meshInstance);
+            }
+        }
+        _meshInstance = nullptr;
+
         if (!_resource || !_entity) {
             return;
         }
@@ -39,10 +49,10 @@ namespace visutwin::canvas
         // Attach to the entity's render component (created on demand) — the
         // forward renderer picks splat instances up from the transparent bucket.
         if (auto* render = _entity->findComponent<RenderComponent>()) {
-            render->addMeshInstance(std::move(meshInstance));
+            _meshInstance = render->addMeshInstance(std::move(meshInstance));
         } else {
             auto renderComponent = std::make_unique<RenderComponent>(nullptr, _entity);
-            renderComponent->addMeshInstance(std::move(meshInstance));
+            _meshInstance = renderComponent->addMeshInstance(std::move(meshInstance));
             _entity->addComponentInstance(std::move(renderComponent),
                 componentTypeID<RenderComponent>());
         }

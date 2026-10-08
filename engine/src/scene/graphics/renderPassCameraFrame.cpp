@@ -505,6 +505,47 @@ namespace visutwin::canvas
         _prepassRenderTarget = gd->createRenderTarget(options);
     }
 
+    namespace
+    {
+        // A pass with no target and no work of its own: RenderPass::render runs its
+        // before() at the point the frame graph reaches it, without starting a device pass.
+        class CameraFramePublishPass final : public RenderPass
+        {
+        public:
+            CameraFramePublishPass(const std::shared_ptr<GraphicsDevice>& device,
+                const RenderPassCameraFrame* frame)
+                : RenderPass(device), _frame(frame) {}
+
+            void before() override { _frame->publishSceneInputs(); }
+
+        private:
+            const RenderPassCameraFrame* _frame;
+        };
+    }
+
+    void RenderPassCameraFrame::publishSceneInputs() const
+    {
+        const auto gd = device();
+        if (!gd) {
+            return;
+        }
+        // The sampleable scene depth: written by the scene pass single-sampled, and
+        // by the prepass alone under MSAA. With neither it holds nothing and must
+        // not be published.
+        if (_sceneDepthTexture && (_options.samples == 1 || _options.prepassEnabled)) {
+            gd->setSceneDepthMap(_sceneDepthTexture.get());
+        }
+        // The depth GRAB under MSAA: the prepass texture, see setupScenePass.
+        if (_sceneDepthTexture && _options.sceneDepthMap && _options.samples > 1 && _options.prepassEnabled) {
+            gd->setSceneDepthGrabMap(_sceneDepthTexture.get());
+        }
+        // When SSAO type is "lighting", bind the SSAO texture on the device
+        // so the forward pass fragment shader can sample it (VT_FEATURE_SSAO).
+        gd->setSsaoForwardTexture(
+            _options.ssaoType == SSAOTYPE_LIGHTING && _ssaoPass
+                ? _ssaoPass->ssaoTexture() : nullptr);
+    }
+
     std::vector<std::shared_ptr<RenderPass>> RenderPassCameraFrame::collectPasses() const
     {
         // SSAO applied during SHADING has to be generated before the scene pass, because
@@ -514,7 +555,7 @@ namespace visutwin::canvas
         // includes what the prepass cannot draw.
         const bool ssaoBeforeScene = _options.ssaoType == SSAOTYPE_LIGHTING;
 
-        return {_prePass,
+        return {_publishPass, _prePass,
             ssaoBeforeScene ? _ssaoPass : nullptr,
             _scenePass, _colorGrabPass, _depthGrabPass, _scenePassTransparent,
             ssaoBeforeScene ? nullptr : _ssaoPass,
@@ -524,6 +565,9 @@ namespace visutwin::canvas
 
     void RenderPassCameraFrame::createPasses(const CameraFrameOptions& options)
     {
+        if (!_publishPass) {
+            _publishPass = std::make_shared<CameraFramePublishPass>(device(), this);
+        }
         setupScenePrepass(options);
         setupSsaoPass(options);
         const auto scenePassesInfo = setupScenePass(options);
@@ -957,25 +1001,6 @@ namespace visutwin::canvas
                     }
                 }
             }
-        }
-
-        // The sampleable scene depth: written by the scene pass single-sampled, and
-        // by the prepass alone under MSAA. With neither it holds nothing and must
-        // not be published.
-        if (gd && _sceneDepthTexture && (_options.samples == 1 || _options.prepassEnabled)) {
-            gd->setSceneDepthMap(_sceneDepthTexture.get());
-        }
-        // The depth GRAB under MSAA: the prepass texture, see setupScenePass.
-        if (gd && _sceneDepthTexture && _options.sceneDepthMap && _options.samples > 1 && _options.prepassEnabled) {
-            gd->setSceneDepthGrabMap(_sceneDepthTexture.get());
-        }
-
-        // When SSAO type is "lighting", bind the SSAO texture on the device
-        // so the forward pass fragment shader can sample it (VT_FEATURE_SSAO).
-        if (gd) {
-            gd->setSsaoForwardTexture(
-                _options.ssaoType == SSAOTYPE_LIGHTING && _ssaoPass
-                    ? _ssaoPass->ssaoTexture() : nullptr);
         }
 
         if (_sceneTexture && _sceneDepthTexture) {

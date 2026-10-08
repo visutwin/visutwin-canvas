@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 14.07.2026
 //
-// Depth-of-field showcase — port of upstream graphics/depth-of-field.
+// Depth-of-field showcase — port of upstream camera-frame/depth-of-field.
 //
 // An apartment interior lit purely by the helipad environment atlas, with an
 // Egyptian cat statue on the floor at the focus plane and an emissive neon "love"

@@ -108,7 +108,13 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
         float3 tPar = fragWorldTangent.xyz;
         if (dot(tPar, tPar) >= 1e-6) {
             tPar = normalize(tPar);
+            // The tangent frame is built from the unflipped normal; a back face of a
+            // double-sided material flips only its normal column, so the view still
+            // enters the height field from above.
             float3 bPar = normalize(cross(nGeom, tPar)) * fragWorldTangent.w;
+            if (vtFeatureEnabled(VT_FEATURE_DOUBLE_SIDED_BIT) && !vtFrontFacing) {
+                nGeom = -nGeom;
+            }
             // dot(basis, V) transforms the world view vector into tangent space.
             float3 viewDirTS = normalize(
                 float3(dot(tPar, vPar), dot(bPar, vPar), dot(nGeom, vPar)));
@@ -317,14 +323,15 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
     if (vtFeatureEnabled(VT_FEATURE_ANISOTROPY_BIT)) {
         anisoIntensity = clamp(material.anisotropy, 0.0, 1.0);
         anisoAlpha = getAnisotropicAlpha(1.0 - roughness, anisoIntensity);
-        float3 Ng = normalize(fragWorldNormal);
+        float3 NgUnflipped = normalize(fragWorldNormal);
+        float3 Ng = NgUnflipped;
         if (vtFeatureEnabled(VT_FEATURE_DOUBLE_SIDED_BIT) && !vtFrontFacing) {
             Ng = -Ng;
         }
         float3 Tv = fragWorldTangent.xyz;
         if (dot(Tv, Tv) >= 1e-6) {
             Tv = normalize(Tv);
-            float3 Bv = normalize(cross(Ng, Tv)) * fragWorldTangent.w;
+            float3 Bv = normalize(cross(NgUnflipped, Tv)) * fragWorldTangent.w;
             anisoT = material.anisotropyParams.x * Tv + material.anisotropyParams.y * Bv;
         } else {
             // No tangent stream and no derivative-based fallback, so take any
@@ -351,11 +358,18 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
         ao *= ssao.Sample(linearClampSampler, vtFragCoord.xy * lighting.screenInvResolution.xy).r;
     }
 
-    // Geometric normal, flipped for back faces on double-sided materials.
-    float3 N = normalize(fragWorldNormal);
+    // Geometric normal, flipped for back faces on double-sided materials. Every tangent
+    // frame takes its bitangent from the UNFLIPPED normal and only its normal column is
+    // flipped, so a back face sees the same tangent-space slopes as the front, mirrored
+    // through the surface; deriving the bitangent from the flipped normal would mirror
+    // the v slope of every map on back faces.
+    float3 geometricNormal = normalize(fragWorldNormal);
+    float3 N = geometricNormal;
     if (vtFeatureEnabled(VT_FEATURE_DOUBLE_SIDED_BIT) && !vtFrontFacing) {
         N = -N;
     }
+    // The face's own normal, before any normal map: the clearcoat's base.
+    const float3 faceNormal = N;
 
     // Tangent-space normal mapping (shadowParams2.w = global enable toggle).
     // The detail map overlays the base map, so both share one TBN transform.
@@ -406,7 +420,7 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
             // normalized, with no Gram-Schmidt — it
             // would move the shading normal wherever the
             // interpolated tangent leaves the surface plane.
-            float3 B = normalize(cross(N, T)) * fragWorldTangent.w;
+            float3 B = normalize(cross(geometricNormal, T)) * fragWorldTangent.w;
             N = normalize(mul(tn, float3x3(T, B, N)));
         }
     }
@@ -461,19 +475,20 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
         }
     }
     ccGlossiness += 0.0000001; // prevent divide-by-zero
-    // Clearcoat normal: the shading normal unless a coat normal map overrides it,
-    // blended toward flat by clearCoatBumpiness exactly as the base normal map is
-    // by normalScale, and rotated into the world through the same TBN the base
-    // map used (no map without a tangent stream, for the same reason as above).
-    float3 ccNormalW = N;
+    // Clearcoat normal: the coat is a layer of its own, so it takes the face's normal,
+    // NOT the base normal map, unless a coat normal map overrides it, blended toward
+    // flat by clearCoatBumpiness exactly as the base normal map is by normalScale and
+    // rotated into the world through the geometric tangent frame (no map without a
+    // tangent stream, for the same reason as above).
+    float3 ccNormalW = faceNormal;
     if ((material.flags & (1u << 16)) != 0u) {
         float3 ccSample = clearCoatNormalMap.Sample(materialSampler, uvNormal).xyz * 2.0 - 1.0;
         ccSample = normalize(lerp(float3(0.0, 0.0, 1.0), ccSample, material.clearCoatBumpiness));
         float3 ccT = fragWorldTangent.xyz;
         if (dot(ccT, ccT) >= 1e-6) {
             ccT = normalize(ccT);
-            float3 ccB = normalize(cross(N, ccT)) * fragWorldTangent.w;
-            ccNormalW = normalize(mul(ccSample, float3x3(ccT, ccB, N)));
+            float3 ccB = normalize(cross(geometricNormal, ccT)) * fragWorldTangent.w;
+            ccNormalW = normalize(mul(ccSample, float3x3(ccT, ccB, faceNormal)));
         }
     }
     // The coat's own GGX roughness for DIRECT light, from its gloss (map included).

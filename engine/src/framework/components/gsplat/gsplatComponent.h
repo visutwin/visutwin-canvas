@@ -34,5 +34,8 @@ namespace visutwin::canvas
     private:
 
         std::shared_ptr<GSplatResource> _resource;
+        // The splat instance this component attached to the entity's render component,
+        // removed again when the resource is replaced or cleared.
+        MeshInstance* _meshInstance = nullptr;
     };
 }

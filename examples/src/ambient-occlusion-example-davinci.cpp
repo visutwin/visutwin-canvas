@@ -309,16 +309,9 @@ protected:
             // tone mapping + color finishing (fringing, grading, enhance, 3D LUT)
             auto rendering = _cameraComp->rendering();
             rendering.toneMapping = TONEMAP_NEUTRAL;
-            // Fringing stays OFF here, and that is not just a taste call: compose
-            // runs CAS -> DOF -> SSAO -> fringing, and applyFringing REPLACES the red
-            // and blue channels with fresh samples of the raw scene texture. That
-            // discards the SSAO multiply for two of the three channels, so every
-            // occluded pixel keeps a darkened green over full-strength red and blue —
-            // magenta tracing the exact AO footprint, at any offset size. The
-            // re-sample is by design (it is why fringing must precede
-            // bloom), so an SSAO showcase is simply the wrong place to combine them.
-            // See post-processing-example for fringing shown on a scene without
-            // compose-mode SSAO.
+            // Fringing stays off: a chromatic split would blur the occlusion detail
+            // this scene is there to show. Compose applies it to the scene image
+            // ahead of SSAO, so turning it on no longer tints the occlusion.
             rendering.fringingIntensity = 0.0f;
             rendering.gradingEnabled = true;
             rendering.gradingBrightness = 1.05f;

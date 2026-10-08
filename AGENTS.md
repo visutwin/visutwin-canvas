@@ -662,9 +662,9 @@ systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
 Forward PBR renderer with frame graph:
 `Engine::render()` -> `ForwardRenderer::buildFrameGraph()` -> `FrameGraph::compile()` -> `FrameGraph::render()`
 
-**Compose pass effect chain** (upstream `compose.js` order): CAS → DOF → SSAO →
-**fringing** → bloom → **color enhance** → **color grading** → tonemap → **3D
-color LUT** → vignette → gamma. Configured via
+**Compose pass effect chain** (upstream's order): CAS → **fringing** → DOF → SSAO →
+bloom → **color enhance** → **color grading** → tonemap → **3D color LUT** →
+vignette → gamma. Configured via
 `CameraComponent::RenderingSettings` → CameraFrameOptions → RenderPassCompose →
 ComposePassParams. The colour settings (vignette, fringing, grading, enhance, LUTs) are
 ONE struct, `ComposeColorSettings` (`scene/graphics/composeColorSettings.h`), which both
@@ -681,11 +681,11 @@ there plus its line in `RenderPassCompose::execute`, not a copy at every hop.
   a positive weight turns the same kernel into a 5-tap blur. Verify a sharpness change
   with gradient energy over
   a static crop, not by eye.
-- Fringing (chromatic aberration, user intensity /1024) **must stay BEFORE
-  bloom**: it re-samples the scene texture for R and B, so running it after bloom
-  leaves bloom in green only. It also overwrites R and B from the raw scene
-  texture, which paints magenta over occluded pixels if combined with
-  compose-mode SSAO. That is upstream's own design; fix the scene, not the engine.
+- Fringing (chromatic aberration, user intensity /1024) **runs right after CAS, on
+  the scene image**: it overwrites R and B with fresh samples of the scene texture,
+  so whatever ran before it survives in green only. After bloom it kept bloom in
+  green; after SSAO and DOF (the order until upstream moved it) it painted magenta
+  over every occluded pixel and undid the blur in two channels.
 - **Bloom has a THRESHOLD** (`RenderingSettings::bloomThreshold`, upstream
   `CameraFrame.bloom.threshold`, 192121560): a soft-knee high pass (knee = half the
   threshold) compiled into the FIRST bloom downsample only while the threshold is
@@ -1610,6 +1610,12 @@ present, but the rule below never depends on reading it.
   only a normal-map concern: Metal's anisotropic IBL bends the reflection toward the
   bitangent, so its SIGN picks sky or ground: the `anisotropy` spheres on Metal move
   with it, while Vulkan (a roughness-only approximation) does not.
+- **A back face's tangent frame takes its bitangent from the UNFLIPPED normal.** A
+  double-sided material flips the normal of a back face toward the viewer, and only the
+  frame's normal column flips with it: `cross(flipped N, T)` mirrors the v slope of every
+  normal map, the anisotropy direction and the parallax march on back faces. Assets whose
+  vertex normals oppose their winding hit this on the side you see (the
+  `ambient-occlusion-davinci` floor, the `multi-view` chess board).
 - **A glTF material property must be written to the STANDARDMATERIAL slot, not the
   base Material one.** `StandardMaterial::updateUniforms` pushes its own per-map
   tiling/offset/rotation into `Material`'s `TextureTransform` fields on every pack,
@@ -2720,9 +2726,8 @@ present, but the rule below never depends on reading it.
   pose; an unpinned capture or a differently-posed thumbnail reads as "dimmer than
   upstream" when it is not (pinned, `post-processing`'s amber matched, ours a touch
   brighter, BEFORE the Fresnel weight moved to the refracted colour — re-measure). The refraction offset is scaled by the model's
-  per-axis world scale, as upstream's refractionDynamic (x60 on the amber): Metal passes
-  it from the vertex stage as a flat `modelScale` varying, Vulkan's fragment stage reads
-  the model matrix from the push constants it now shares with the vertex stage. Still
+  per-axis world scale, as upstream's refractionDynamic (x60 on the amber), passed from
+  the vertex stage on both backends as a flat `modelScale` varying. Still
   open: the amber projects LARGER here than upstream at identical camera parameters. Numbers in `ENGINEERING-LOG.md`.
 - **Vulkan's clip space is NOT Y-down for this engine.** The backend rasterises
   through a negated-height viewport so Metal projection matrices work unchanged,
@@ -3116,7 +3121,10 @@ What stays HERE is only what bites during UNRELATED work.
   lighting the default, every spot and omni light is shaded in
   `forward/forward-fragment-clustered.slang`, not the main loop. Direct clearcoat uses
   `ccNormalW` and the gloss-mapped `ccAlpha2`, not the base normal and the
-  material's flat coat roughness. Check with `VISUTWIN_LOCAL_LIGHT=6,2,1,3,15` on
+  material's flat coat roughness. `ccNormalW` is the FACE normal (or the coat's own
+  normal map in the geometric frame), never the base normal map: the coat is a layer of
+  its own, so a coat over a bumpy base reflects smoothly (`clearcoat`'s "Base normal
+  map" row). Check with `VISUTWIN_LOCAL_LIGHT=6,2,1,3,15` on
   `clearcoat`: the light's contribution matches between backends to 0.00 counts on
   average. Sheen, iridescence and Oren-Nayar
   under a local light are ported line for line from the main loop but no example drives

@@ -1287,7 +1287,7 @@ namespace visutwin::canvas
         friend class Shader;
 
         // Index of the currently active render pass
-        int _renderPassIndex;
+        int _renderPassIndex = 0;
 
         // A version number that is incremented every frame. This is used to detect if some object were invalidated.
         // Initialised because frameStart INCREMENTS it, so it is read before it is
