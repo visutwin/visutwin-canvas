@@ -4,9 +4,9 @@
 // Created by Arnis Lektauers on 07.10.2026
 //
 // THE per-pass lighting block, one layout for every backend: Metal binds it at buffer 4,
-// Vulkan at set 2 binding 0, and the shaders of both declare it field for field (MSL
-// `LightingData` in common-structs.metal, GLSL `LightingData` in
-// forward-fragment-head.glsl; both take these names). Every member is a vec4 or a run of
+// Vulkan at set 2 binding 0, and the forward program declares it field for field under these
+// names (`LightingData` in engine/shaders/slang/forward/forward-fragment-head.slang; the
+// bundle's reflected size is held against sizeof(LightingBlock) by slangBundleTests). Every member is a vec4 or a run of
 // exactly four 4-byte scalars, so the natural C++ layout already satisfies std140 and
 // Metal's constant layout, and the size is a multiple of 16; a mismatch shifts every
 // field that follows it. deriveLighting decides every value, packLightingBlock lays it

@@ -162,7 +162,13 @@ namespace visutwin::canvas
         out.entries.clear();
         for (size_t i = 0; i < entry->entryCount; ++i) {
             const auto& e = entry->entries[i];
-            out.entries.push_back({e.stage, e.name, e.spirv, e.spirvWords});
+            SlangBundledProgram::Entry copy{e.stage, e.name, e.spirv, e.spirvWords, {}, e.pushConstantBytes};
+            for (size_t b = 0; b < e.bindingCount; ++b) {
+                const auto& r = e.bindings[b];
+                copy.bindings.push_back({r.name, r.set, r.binding,
+                    static_cast<SlangDescriptorKind>(static_cast<uint8_t>(r.kind)), r.blockBytes});
+            }
+            out.entries.push_back(std::move(copy));
         }
         return true;
 #else

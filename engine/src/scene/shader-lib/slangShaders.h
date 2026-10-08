@@ -32,6 +32,26 @@ namespace visutwin::canvas
     class Shader;
     struct ShaderCode;
 
+    /// A descriptor's kind, as an entry's reflected layout names it.
+    enum class SlangDescriptorKind : uint8_t
+    {
+        UniformBuffer,
+        StorageBuffer,
+        CombinedImageSampler,
+        SampledImage,
+        Sampler
+    };
+
+    /// One descriptor an entry point's SPIR-V uses, from the build's reflection.
+    struct SlangReflectedBinding
+    {
+        std::string_view name;
+        uint32_t set = 0;
+        uint32_t binding = 0;
+        SlangDescriptorKind kind = SlangDescriptorKind::UniformBuffer;
+        uint32_t blockBytes = 0;   // a uniform block's size; 0 otherwise
+    };
+
     /// A program the build compiled into the bundle, as the backends consume it.
     struct SlangBundledProgram
     {
@@ -57,6 +77,11 @@ namespace visutwin::canvas
             std::string_view name;
             const uint32_t* spirv = nullptr;
             size_t spirvWords = 0;
+            /// The descriptors this entry's SPIR-V uses and its push-constant size: the
+            /// layout the Vulkan backend checks its descriptor contract against. Empty when
+            /// the build compiled no SPIR-V.
+            std::vector<SlangReflectedBinding> bindings;
+            uint32_t pushConstantBytes = 0;
         };
         std::vector<Entry> entries;
     };

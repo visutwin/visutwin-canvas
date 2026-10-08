@@ -5,24 +5,21 @@
 //
 // THE per-draw material uniform block, declared once.
 //
-// Four declarations have to agree on this block — the C++ struct, the MSL
-// `MaterialData`, the GLSL block in forward-fragment-head, and the same GLSL block
-// in forward.vert (MoltenVK miscompiles a UBO whose member list differs between
-// stages) — and a mismatch shifts every field after it, which shows up as silent
-// corruption rather than a compile error. So there is one list: the C++ struct
-// expands from it, and the MSL and GLSL declarations are emitted from it — at
-// runtime by ProgramLibrary, and at build time by
-// tools/generate_vulkan_shader_bundle.py for the SPIR-V bundle.
+// Two declarations have to agree on this block, the C++ struct and the shaders'
+// `MaterialData`, and a mismatch shifts every field after it, which shows up as silent
+// corruption rather than a compile error. So there is one list: the C++ struct expands
+// from it, and tools/generate_shader_bindings.py writes the Slang `MaterialData` into
+// bindings.slang from it at build time (the shader bundle's reflected block size is
+// asserted against the struct's).
 //
 // Field types are SHADER types (vec4 / float / uint); the C++ side maps vec4 to
 // float[4] and uint to uint32_t. Scalars pack at 4-byte offsets in both MSL and
 // std140, and every vec4 here is already 16-byte aligned by construction, so one
-// layout serves both languages.
+// layout serves both targets.
 //
 #pragma once
 
 #include <cstdint>
-#include <string>
 
 // Shader type -> C++ storage. A vec4 is four floats (element type + dimension,
 // since the dimension has to follow the member name in C++); scalars map directly.
@@ -140,20 +137,3 @@
     /* x = 1 when the base gloss is inverted, y = 1 when the clearcoat gloss is, */ \
     /* z = the authored clearcoat gloss factor (before inversion), w = pad. */ \
     X(vec4, glossMapParams, {0.0f, 0.0f, 1.0f, 0.0f})
-
-namespace visutwin::canvas
-{
-    /// Shader-language declaration of the material block, emitted from the one
-    /// field list. `msl` picks Metal spelling (float4), otherwise GLSL (vec4).
-    inline std::string materialUniformDeclaration(const bool msl)
-    {
-        std::string s;
-#define VT_EMIT_MATERIAL_FIELD(type, name, ...) \
-        s += std::string("    ") + \
-            (std::string(#type) == "vec4" ? (msl ? "float4" : "vec4") : #type) + \
-            " " + #name + ";\n";
-        VT_MATERIAL_UNIFORM_FIELDS(VT_EMIT_MATERIAL_FIELD)
-#undef VT_EMIT_MATERIAL_FIELD
-        return s;
-    }
-}

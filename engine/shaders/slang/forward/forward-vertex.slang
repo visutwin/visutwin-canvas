@@ -200,6 +200,8 @@ float4x4 skinMatrix(float4 weights, float4 indices)
          + weights.z * palette[joints.z] + weights.w * palette[joints.w];
 }
 
+#include "forward/forward-vertex-local.slang"
+
 // ---- Entries ----
 
 [shader("vertex")]
@@ -213,6 +215,9 @@ ForwardVarying forwardVertex(ForwardVertexIn input)
         localPos += input.normal * ((height - material.detailDisplacementParams.z) *
             material.detailDisplacementParams.y);
     }
+    float3 normal = input.normal;
+    float4 tangent = input.tangent;
+    forwardLocalVertex(localPos, normal, tangent, input.uv0, input.uv1);
     const float4x4 model = drawModel();
     const float4 world = mul(float4(localPos, 1.0), model);
     float4 clip = forwardClip(world);
@@ -225,7 +230,7 @@ ForwardVarying forwardVertex(ForwardVertexIn input)
         // Screen-space UI: the element's world transform already carries it to clip space.
         clip = float4(world.x, world.y, 0.5, 1.0);
     }
-    return forwardFinish(world, clip, drawNormalMatrix(), input.normal, input.tangent, input.uv0, input.uv1, model);
+    return forwardFinish(world, clip, drawNormalMatrix(), normal, tangent, input.uv0, input.uv1, model);
 }
 
 [shader("vertex")]
@@ -247,9 +252,13 @@ ForwardVarying forwardSkyVertex(ForwardVertexIn input)
 [shader("vertex")]
 ForwardVarying forwardColorVertex(ForwardColorVertexIn input)
 {
+    float3 position = input.position;
+    float3 normal = input.normal;
+    float4 tangent = input.tangent;
+    forwardLocalVertex(position, normal, tangent, input.uv0, input.uv1);
     const float4x4 model = drawModel();
-    const float4 world = mul(float4(input.position, 1.0), model);
-    ForwardVarying o = forwardFinish(world, forwardClip(world), drawNormalMatrix(), input.normal, input.tangent,
+    const float4 world = mul(float4(position, 1.0), model);
+    ForwardVarying o = forwardFinish(world, forwardClip(world), drawNormalMatrix(), normal, tangent,
         input.uv0, input.uv1, model);
     o.color = forwardVertexColor(input.color);
     return o;
@@ -298,6 +307,8 @@ ForwardVarying forwardDynamicBatchVertex(ForwardDynamicBatchVertexIn input)
 
 ForwardVarying forwardSkinned(float3 position, float3 normal, ForwardSkinnedVertexIn input)
 {
+    float4 tangent = input.tangent;
+    forwardLocalVertex(position, normal, tangent, input.uv0, input.uv1);
     const float4x4 skin = skinMatrix(input.blendWeights, input.blendIndices);
     const float4x4 model = drawModel();
     const float4 world = mul(mul(float4(position, 1.0), skin), model);
@@ -305,7 +316,7 @@ ForwardVarying forwardSkinned(float3 position, float3 normal, ForwardSkinnedVert
     const float3x3 skin3 = float3x3(skin[0].xyz, skin[1].xyz, skin[2].xyz);
     const float3x3 normalMatrix = drawNormalMatrix();
     ForwardVarying o = forwardFinish(world, forwardClip(world), normalMatrix, mul(normal, skin3),
-        float4(mul(input.tangent.xyz, skin3), input.tangent.w), input.uv0, input.uv1, model);
+        float4(mul(tangent.xyz, skin3), tangent.w), input.uv0, input.uv1, model);
     return o;
 }
 
@@ -330,20 +341,26 @@ ForwardVarying forwardMorphedVertex(ForwardVertexIn input, uint vertexIndex : SV
     float3 position = input.position;
     float3 normal = input.normal;
     applyMorph(position, normal, vertexIndex);
+    float4 tangent = input.tangent;
+    forwardLocalVertex(position, normal, tangent, input.uv0, input.uv1);
     const float4x4 model = drawModel();
     const float4 world = mul(float4(position, 1.0), model);
-    return forwardFinish(world, forwardClip(world), drawNormalMatrix(), normal, input.tangent, input.uv0,
+    return forwardFinish(world, forwardClip(world), drawNormalMatrix(), normal, tangent, input.uv0,
         input.uv1, model);
 }
 
 ForwardVarying forwardInstanced(ForwardVertexIn input, float4x4 instance)
 {
+    float3 position = input.position;
+    float3 normal = input.normal;
+    float4 tangent = input.tangent;
+    forwardLocalVertex(position, normal, tangent, input.uv0, input.uv1);
     // Each instance is placed in its NODE's space: model * instance.
     const float4x4 model = mul(instance, drawModel());
-    const float4 world = mul(float4(input.position, 1.0), model);
+    const float4 world = mul(float4(position, 1.0), model);
     // The bare 3x3 carries the normal (uniform-scale instances).
     const float3x3 normalMatrix = float3x3(model[0].xyz, model[1].xyz, model[2].xyz);
-    return forwardFinish(world, forwardClip(world), normalMatrix, input.normal, input.tangent, input.uv0,
+    return forwardFinish(world, forwardClip(world), normalMatrix, normal, tangent, input.uv0,
         input.uv1, drawModel());
 }
 

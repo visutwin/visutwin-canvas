@@ -91,13 +91,13 @@ fragment float4 fragmentShader(Varyings in [[stage_in]])
 //  - transforms arrive in a 128-byte vertex push constant (viewProjection, model),
 //    not in buffer(1)/buffer(2) uniform blocks;
 //  - there is no normal matrix in the push constant, so the normal is transformed by
-//    mat3(model), exact only under uniform scale (engine/shaders/vulkan/forward.vert
-//    derives the inverse transpose through normal_matrix.glsl);
+//    mat3(model), exact only under uniform scale (the engine's forward vertex stage
+//    derives the inverse transpose from the model matrix);
 //  - the custom uniform block is set 0 / binding 0 (the per-draw material UBO, bound
 //    to both stages) rather than buffer(3);
 //  - the clip.z remap is MANDATORY. Engine projections are GL-style (NDC z in [-1,1])
-//    while Vulkan clips to [0,w], so forward.vert (and particle.vert / gsplat.vert)
-//    all apply `z = 0.5 * (z + w)`. A custom shader that skips it stores roughly half
+//    while Vulkan clips to [0,w], so every engine vertex stage applies
+//    `z = 0.5 * (z + w)`. A custom shader that skips it stores roughly half
 //    the depth every other draw stores, and then wrongly wins depth tests against all
 //    standard-material geometry.
 static const char* kToonShaderSourceGlsl = R"GLSL(
@@ -122,7 +122,7 @@ void main() {
     vec3 lightDir = normalize(toon.uLightPos.xyz - world.xyz);
     vertOutTexCoord = max(0.0, dot(worldNormal, lightDir));
     vec4 clip = pc.viewProjection * world;
-    clip.z = 0.5 * (clip.z + clip.w);   // GL [-1,1] -> Vulkan [0,1], as forward.vert does
+    clip.z = 0.5 * (clip.z + clip.w);   // GL [-1,1] -> Vulkan [0,1], as the engine's vertex stages do
     gl_Position = clip;
 }
 #endif

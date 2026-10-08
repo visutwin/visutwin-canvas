@@ -39,7 +39,6 @@
 #include "scene/materials/material.h"
 #include "spdlog/spdlog.h"
 
-#include "vulkan/vulkan_shader_bundle.h"
 
 namespace visutwin::canvas
 {
@@ -982,21 +981,26 @@ namespace visutwin::canvas
     std::shared_ptr<Shader> VulkanGraphicsDevice::createShader(
         const ShaderDefinition& definition, const std::string& sourceCode)
     {
-        const bool isShadowName = definition.name.rfind("program-shadow", 0) == 0;
+        // A shader from SOURCE is a custom one (ShaderMaterial, a custom quad pass, an
+        // application's): GLSL compiled at run time through shaderc. The engine's own
+        // programs are Slang and arrive through createShaderFromCode. MSL is Metal's and
+        // fails here explicitly rather than becoming some other shader.
+        if (sourceCode.empty()) {
+            spdlog::error("VulkanGraphicsDevice::createShader('{}'): no source", definition.name);
+            return nullptr;
+        }
+        if (!looksLikeGlsl(sourceCode)) {
+            spdlog::error("VulkanGraphicsDevice::createShader('{}'): custom MSL cannot be used by Vulkan; "
+                "provide GLSL", definition.name);
+            return nullptr;
+        }
+        if (!vulkanShaderCompilerAvailable()) {
+            spdlog::error("VulkanGraphicsDevice::createShader('{}'): runtime GLSL requires shaderc, which this "
+                "build lacks", definition.name);
+            return nullptr;
+        }
 
         if (!definition.cshader.empty()) {
-            if (sourceCode.empty() || !looksLikeGlsl(sourceCode)) {
-                spdlog::error(
-                    "VulkanGraphicsDevice::createShader('{}'): compute shaders require GLSL source",
-                    definition.name);
-                return nullptr;
-            }
-            if (!vulkanShaderCompilerAvailable()) {
-                spdlog::error(
-                    "VulkanGraphicsDevice::createShader('{}'): runtime compute GLSL requires shaderc",
-                    definition.name);
-                return nullptr;
-            }
             auto computeSpv = vulkanCompileGlsl(sourceCode,
                 VulkanShaderStage::Compute, definition.name + ".comp");
             if (computeSpv.empty()) {
@@ -1009,151 +1013,20 @@ namespace visutwin::canvas
                 computeSpv.data(), computeSpv.size());
         }
 
-        // Chunk-override path. ProgramLibrary hands over composed GLSL for a
-        // "program-*" shader only when a ShaderChunks override actually changed the
-        // source; without one it passes nothing and the prebuilt bundle below is
-        // used. Only the FRAGMENT stage is recompiled — the vertex stage is a family
-        // of prebuilt modules picked per draw by feature (instanced / skinned /
-        // morphed / sky / ...), and the chunk tree covers the fragment stage. The
-        // module keeps specializesFeatures() so the pipeline specializes it exactly
-        // like the bundled one.
-        const bool isProgramShader = definition.name.rfind("program-", 0) == 0;
-        if (isProgramShader && !sourceCode.empty() && looksLikeGlsl(sourceCode)) {
-            if (!vulkanShaderCompilerAvailable()) {
-                spdlog::error(
-                    "VulkanGraphicsDevice::createShader('{}'): shader chunk overrides "
-                    "need runtime GLSL compilation (shaderc), which this build lacks; "
-                    "falling back to the unmodified bundled shader",
-                    definition.name);
-            } else {
-                auto fragSpv = vulkanCompileGlsl(sourceCode,
-                    VulkanShaderStage::Fragment, definition.name + ".frag");
-                if (fragSpv.empty()) {
-                    spdlog::error(
-                        "VulkanGraphicsDevice::createShader('{}'): overridden shader "
-                        "chunks failed to compile; keeping the bundled shader",
-                        definition.name);
-                } else {
-                    spdlog::info(
-                        "VulkanGraphicsDevice::createShader('{}'): compiled overridden "
-                        "shader chunks at runtime", definition.name);
-                    return std::make_shared<VulkanShader>(this, definition,
-                        vulkan_generated::kForwardVert,
-                        vulkan_generated::kForwardVertWordCount,
-                        fragSpv.data(), fragSpv.size(),
-                        vulkan_generated::kForwardInstancedVert,
-                        vulkan_generated::kForwardInstancedVertWordCount,
-                        vulkan_generated::kForwardSkyVert,
-                        vulkan_generated::kForwardSkyVertWordCount,
-                        vulkan_generated::kForwardColorVert,
-                        vulkan_generated::kForwardColorVertWordCount,
-                        vulkan_generated::kForwardPointVert,
-                        vulkan_generated::kForwardPointVertWordCount,
-                        vulkan_generated::kForwardDynamicBatchVert,
-                        vulkan_generated::kForwardDynamicBatchVertWordCount,
-                        vulkan_generated::kForwardSkinnedVert,
-                        vulkan_generated::kForwardSkinnedVertWordCount,
-                        vulkan_generated::kForwardMorphedVert,
-                        vulkan_generated::kForwardMorphedVertWordCount,
-                        vulkan_generated::kForwardSkinnedMorphedVert,
-                        vulkan_generated::kForwardSkinnedMorphedVertWordCount,
-                        true);
-                }
-            }
-        }
-
-        // Custom GLSL source: compile at runtime via shaderc. The single
-        // source is compiled twice with VT_VERTEX_SHADER / VT_FRAGMENT_SHADER
-        // defines so authors can guard the stages with #ifdef. A failed custom
-        // shader is an error; it never mutates into an unrelated forward shader.
-        if (!sourceCode.empty() && looksLikeGlsl(sourceCode) && vulkanShaderCompilerAvailable()) {
-            auto vertSpv = vulkanCompileGlsl(sourceCode, VulkanShaderStage::Vertex,
-                definition.name + ".vert", {{"VT_VERTEX_SHADER", "1"}});
-            auto fragSpv = vulkanCompileGlsl(sourceCode, VulkanShaderStage::Fragment,
-                definition.name + ".frag", {{"VT_FRAGMENT_SHADER", "1"}});
-            if (!vertSpv.empty() && !fragSpv.empty()) {
-                spdlog::info("VulkanGraphicsDevice::createShader('{}'): compiled custom GLSL at runtime",
-                    definition.name);
-                return std::make_shared<VulkanShader>(this, definition,
-                    vertSpv.data(), vertSpv.size(),
-                    fragSpv.data(), fragSpv.size());
-            }
-            spdlog::error(
-                "VulkanGraphicsDevice::createShader('{}'): custom GLSL failed",
-                definition.name);
+        // One source compiled twice, with VT_VERTEX_SHADER / VT_FRAGMENT_SHADER defined, so an
+        // author guards the stages with #ifdef. A failed custom shader is an error.
+        auto vertSpv = vulkanCompileGlsl(sourceCode, VulkanShaderStage::Vertex,
+            definition.name + ".vert", {{"VT_VERTEX_SHADER", "1"}});
+        auto fragSpv = vulkanCompileGlsl(sourceCode, VulkanShaderStage::Fragment,
+            definition.name + ".frag", {{"VT_FRAGMENT_SHADER", "1"}});
+        if (vertSpv.empty() || fragSpv.empty()) {
+            spdlog::error("VulkanGraphicsDevice::createShader('{}'): custom GLSL failed", definition.name);
             return nullptr;
-        } else if (!sourceCode.empty() && looksLikeGlsl(sourceCode)) {
-            spdlog::error(
-                "VulkanGraphicsDevice::createShader('{}'): runtime custom GLSL "
-                "requires shaderc", definition.name);
-            return nullptr;
-        } else if (!sourceCode.empty() && !looksLikeGlsl(sourceCode)) {
-            // ProgramLibrary composes MSL for Metal, but the definition also
-            // carries the shared feature set consumed by the build-time
-            // Vulkan module family. Arbitrary ShaderMaterial MSL is not a
-            // Vulkan program and must fail explicitly.
-            if (definition.name.rfind("program-", 0) != 0) {
-                spdlog::error(
-                    "VulkanGraphicsDevice::createShader('{}'): custom MSL "
-                    "cannot be used by Vulkan; provide GLSL", definition.name);
-                return nullptr;
-            }
         }
-
-        // A shadow program takes one of three fragment stages, decided by the
-        // features the variant was built with:
-        //   VSM        → the moments writer, the one shadow pass with a colour
-        //                attachment;
-        //   alpha test / shadow dither → the depth-only opacity frontend, whose
-        //                only job is to discard before depth is written;
-        //   neither    → NO fragment stage, which is what every ordinary caster
-        //                wants (an alpha-tested caster must not get it, or it
-        //                throws a solid shadow).
-        const bool shadowNeedsOpacity =
-            definition.features.test(ShaderFeature::AlphaTest) ||
-            definition.features.test(ShaderFeature::ShadowDither);
-        const bool shadowVsm = definition.features.test(ShaderFeature::VsmShadows);
-        const uint32_t* fragment = vulkan_generated::kForwardFrag;
-        size_t fragmentWords = vulkan_generated::kForwardFragWordCount;
-        if (isShadowName) {
-            if (shadowVsm) {
-                fragment = vulkan_generated::kShadowVsmFrag;
-                fragmentWords = vulkan_generated::kShadowVsmFragWordCount;
-            } else if (shadowNeedsOpacity) {
-                fragment = vulkan_generated::kShadowFrag;
-                fragmentWords = vulkan_generated::kShadowFragWordCount;
-            } else {
-                fragment = nullptr;
-                fragmentWords = 0;
-            }
-        }
-        auto shader = std::make_shared<VulkanShader>(this, definition,
-            vulkan_generated::kForwardVert,
-            vulkan_generated::kForwardVertWordCount,
-            fragment, fragmentWords,
-            vulkan_generated::kForwardInstancedVert,
-            vulkan_generated::kForwardInstancedVertWordCount,
-            vulkan_generated::kForwardSkyVert,
-            vulkan_generated::kForwardSkyVertWordCount,
-            vulkan_generated::kForwardColorVert,
-            vulkan_generated::kForwardColorVertWordCount,
-            vulkan_generated::kForwardPointVert,
-            vulkan_generated::kForwardPointVertWordCount,
-            vulkan_generated::kForwardDynamicBatchVert,
-            vulkan_generated::kForwardDynamicBatchVertWordCount,
-            vulkan_generated::kForwardSkinnedVert,
-            vulkan_generated::kForwardSkinnedVertWordCount,
-            vulkan_generated::kForwardMorphedVert,
-            vulkan_generated::kForwardMorphedVertWordCount,
-            vulkan_generated::kForwardSkinnedMorphedVert,
-            vulkan_generated::kForwardSkinnedMorphedVertWordCount,
-            !isShadowName);
-        // The opacity frontend declares no colour output, so it is the one
-        // fragment stage a depth-only pass may run.
-        if (shader && isShadowName && !shadowVsm && shadowNeedsOpacity) {
-            shader->setDepthOnlyFragment(true);
-        }
-        return shader;
+        spdlog::info("VulkanGraphicsDevice::createShader('{}'): compiled custom GLSL at runtime", definition.name);
+        return std::make_shared<VulkanShader>(this, definition,
+            vertSpv.data(), vertSpv.size(),
+            fragSpv.data(), fragSpv.size());
     }
 
     std::unique_ptr<gpu::HardwareTexture> VulkanGraphicsDevice::createGPUTexture(Texture* texture)

@@ -8,7 +8,6 @@
 #include "shaderChunks.h"
 #include <array>
 #include <unordered_map>
-#include <unordered_set>
 #include <string>
 #include <vector>
 
@@ -21,10 +20,11 @@
 namespace visutwin::canvas
 {
     /**
-     * A class responsible for creation and caching of required shaders.
-     * There is a two level cache. The first level generates the shader based on the provided options.
-     * The second level processes this generated shader using processing options - in most cases
-     * modifies it to support uniform buffers.
+     * Resolves and caches the forward and shadow shader variants. A variant is the Slang
+     * program `forward` (or `shadow`) with its feature words specialised at pipeline
+     * creation, so every variant of a program shares one compiled library; the cache key is
+     * the feature set and the chunk-override fingerprints. Materials remember the variant
+     * they resolved to (ForwardShaderMemo), so a repeat costs a compare.
      */
     struct ProgramLibraryTestAccess;   // defined by tests/shaderCompositionTests.cpp
 
@@ -33,12 +33,10 @@ namespace visutwin::canvas
     public:
         explicit ProgramLibrary(const std::shared_ptr<GraphicsDevice>& device);
 
-        void registerProgram(const std::string& name, const std::vector<std::string>& chunkOrder);
-        bool hasProgram(const std::string& name) const;
-
-        /// Mutable shader chunk registry: override chunk
-        /// sources at runtime; affected variants recompile lazily via cache-key
-        /// hashing. Per-material overrides live on Material::setShaderChunk.
+        /// The forward chunk registry: an override (Slang source) replaces a chunk file of
+        /// the forward and shadow programs and compiles them at run time; affected variants
+        /// recompile lazily under their new cache keys. Per-material overrides live on
+        /// Material::setShaderChunk and win over these.
         ShaderChunks& chunks() { return _chunks; }
         const ShaderChunks& chunks() const { return _chunks; }
 
@@ -308,45 +306,19 @@ namespace visutwin::canvas
         static std::string resolveProgramName(const ShaderVariantOptions& options);
         static ShaderFeatureSet makeFeatureSet(const ShaderVariantOptions& options);
         VariantKey makeVariantKey(const std::string& programName, const ShaderVariantOptions& options, const Material* material) const;
+        /// The variant from the Slang program `forward` or `shadow`: the vertex entry picked
+        /// from the options, the fragment from the program and the pass, the feature words
+        /// specialised at pipeline creation. A chunk override (registry or material) is a
+        /// file override of the program, compiled at run time.
         std::shared_ptr<Shader> buildForwardShaderVariant(const std::string& programName, const ShaderVariantOptions& options, uint64_t variantId, const Material* material = nullptr);
-        /// The same from the Slang programs `forward` and `shadow` (both backends): the
-        /// vertex entry picked from the options, the feature words specialised at pipeline
-        /// creation. A chunk override (registry or material) is a file override of the
-        /// program, compiled at run time.
         /// The forward vertex entry for a variant: the vertex layout and deformation the draw
         /// has, in the priority Vulkan's pipeline applies to its family of modules.
         static const char* forwardVertexEntry(const ShaderVariantOptions& options);
-        std::shared_ptr<Shader> buildSlangShaderVariant(const std::string& programName, const ShaderVariantOptions& options, uint64_t variantId, const Material* material);
-        /// The program's code for this device under `overrides` (chunk name -> source), loaded
+        /// The program's code for this device under `overrides` (chunk file -> source), loaded
         /// once per override set; null with the error logged when it cannot be had.
         const SlangProgramBuild* slangProgram(const std::string& program, const SlangFileOverrides& overrides);
-
-        std::string composeProgramVariantMetalSource(const std::string& programName, const ShaderVariantOptions& options,
-            const std::string& vertexEntry, const std::string& fragmentEntry, const Material* material = nullptr);
-
-        // --- Vulkan/GLSL composition ---
-        void registerGlslPrograms();
-        /// Fragment-stage GLSL composed from the chunk tree, with the feature
-        /// preamble the bundled modules also carry. Empty when the program has no
-        /// chunked GLSL form.
-        std::string composeProgramVariantGlslSource(const std::string& programName,
-            const Material* material);
-        /// Runtime twin of the generated shader_features.glsl.
-        static std::string glslFeaturePreamble();
-        /// Runtime twin of the generated shader_material.glsl.
-        static std::string glslMaterialBlock();
-        /// Replaces the VT_MATERIAL_DATA_BLOCK marker in composed MSL with the
-        /// declaration emitted from materialUniformFields.h.
-        static void substituteMaterialBlock(std::string& source, bool msl);
-        /// True when the registry or the material carries any chunk override.
-        bool hasChunkOverrides(const Material* material) const;
-        // Appends each chunk of `chunkOrder` (material override, registry override or
-        // default source, in that order) and a newline; false, with an error logged, when a
-        // chunk is missing. `languageLabel` prefixes "chunk" in that error.
-        bool appendChunks(std::string& source, const std::vector<std::string>& chunkOrder,
-            const Material* material, const char* languageLabel) const;
-        /// Warn (once per name) about overrides Vulkan cannot apply.
-        void warnUnsupportedGlslOverrides() const;
+        /// The registry's overrides with the material's on top, as chunk files, sorted.
+        SlangFileOverrides chunkOverrides(const Material* material) const;
 
         // The composition and variant-key internals, reached by the composition test
         // alone; nothing else in the engine uses this.
@@ -376,8 +348,6 @@ namespace visutwin::canvas
         std::unordered_map<VariantKey, std::shared_ptr<Shader>, VariantKeyHash> _forwardShaderCache;
         /// Slang program builds by program name and override fingerprint.
         std::unordered_map<std::string, std::shared_ptr<SlangProgramBuild>> _slangPrograms;
-        mutable std::unordered_set<std::string> _warnedFeatureFlags;
-        std::unordered_map<std::string, std::vector<std::string>> _registeredPrograms;
         bool _skyCubemapAvailable = false;
         bool _planarReflectionDepthPass = false;
         bool _lightmapBakePass = false;

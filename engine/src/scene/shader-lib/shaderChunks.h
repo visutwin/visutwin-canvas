@@ -16,45 +16,30 @@
 namespace visutwin::canvas
 {
     /**
-     * @brief Registry of named shader chunks with user overrides.
+     * @brief Registry of the forward program's shader chunks, with user overrides.
      * @ingroup group_scene_shaderlib
      *
-     * Holds the engine's default chunk sources (loaded once per process per
-     * language from `engine/shaders/<metal|vulkan>/chunks`, one file per chunk,
-     * keyed by file stem) plus a per-instance override map. `get()` resolves override-over-default. `hash()`
-     * fingerprints the override set and is folded into shader variant cache keys, so
-     * changing a chunk at runtime invalidates affected cached programs instead of
-     * silently reusing stale binaries.
+     * The defaults are the Slang chunks under `engine/shaders/slang/forward` (one file per
+     * chunk, keyed by file stem; `programs/forward.slang` and `programs/shadow.slang`
+     * #include them), read once per process. An override replaces that FILE wherever a
+     * program includes it, as Slang source, and the program is then compiled at run time
+     * (`SlangCompileRequest::virtualFiles`); a name no program includes changes nothing and
+     * is reported. `get()` resolves override-over-default, and `hash()` fingerprints the
+     * override set, folded into the variant cache key so a change compiles a new variant.
      *
-     * One instance lives on each ProgramLibrary — i.e. per graphics device. Per-material overrides layer
-     * on top via `Material::setShaderChunk` and are resolved at composition time.
-     *
-     * Chunk NAMES are shared across languages: `common-tonemap` addresses the tonemap chunk on both
-     * backends, so an application overrides one name and supplies source in the
-     * language its device speaks (`GraphicsDevice::shaderLanguage()`). The Vulkan
-     * tree covers the fragment stage — its vertex stage is a family of prebuilt
-     * modules, so `forward-vertex` / `shadow-vertex` are Metal-only and overriding
-     * them on Vulkan is reported rather than silently ignored.
-     *
-     * DEVIATION: upstream registers ~250 GLSL/WGSL micro-chunks; this port composes
-     * source from a smaller set of ordered chunk files, since a variant is compiled
-     * as one translation unit rather than a fine-grained function library.
+     * One instance lives on each ProgramLibrary, i.e. per graphics device. Per-material
+     * overrides layer on top through `Material::setShaderChunk`; a material's wins.
      */
-    /// The directories a shader source tree (`engine/shaders/<backend>/...`) is looked for
+    /// The directories the shader source tree (`engine/shaders/slang/...`) is looked for
     /// under, in order: $VISUTWIN_CANVAS_SHADERS, the engine's own source tree, the working
     /// directory and two parents, and the installed data directory. Shared by the chunk
-    /// registry and the Slang program lookup.
+    /// registry and the Slang runtime compile.
     std::vector<std::filesystem::path> shaderSourceRoots();
 
     class ShaderChunks
     {
     public:
-        /// Defaults are loaded for `language` — MSL chunks for Metal devices,
-        /// GLSL chunks for Vulkan. Each language's store loads once per process.
-        explicit ShaderChunks(ShaderLanguage language = ShaderLanguage::Msl);
-
-        /// Language of the default chunk sources held here.
-        ShaderLanguage language() const { return _language; }
+        ShaderChunks();
 
         /// True when the default chunk sources were found on disk.
         bool loaded() const { return _defaults != nullptr; }
@@ -87,14 +72,13 @@ namespace visutwin::canvas
         /// variant cache keys for invalidation.
         uint64_t hash() const { return _hash; }
 
-        /// Names of all default chunks.
+        /// Names of all default chunks, sorted.
         std::vector<std::string> names() const;
 
         /// FNV-1a helper shared with per-material override hashing.
         static uint64_t hashChunkMap(const std::unordered_map<std::string, std::string>& chunks);
 
     private:
-        ShaderLanguage _language = ShaderLanguage::Msl;
         const std::unordered_map<std::string, std::string>* _defaults = nullptr;
         std::unordered_map<std::string, std::string> _overrides;
         uint64_t _hash = 0;

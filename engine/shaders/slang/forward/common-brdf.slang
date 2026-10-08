@@ -3,16 +3,15 @@
 //
 // Created by Arnis Lektauers on 07.10.2026
 //
-// ── BRDF terms, the GLSL twin of common-brdf.metal ──
+// ── BRDF terms ──
 //
-// Every GLSL path takes these terms from here, never from a local copy.
-// A shading edit has to land in this file and its Metal twin together; anything
-// that only touches one of the two is a backend divergence by construction.
+// Every path takes these terms from here, never from a local copy; a second
+// spelling of a term is a divergence by construction.
 //
-// Convention, matching Metal: `roughness` is LINEAR roughness
+// Convention: `roughness` is LINEAR roughness
 // (1 - gloss). The distribution squares it twice (alpha = roughness^4) and the
 // visibility squares that again (roughness^8) — a non-standard extra squaring
-// reproduced from upstream, kept deliberately so the two backends agree.
+// reproduced from upstream, kept deliberately.
 
 // GGX normal distribution.
 float distributionGGX(float NdotH, float roughness) {
@@ -26,7 +25,7 @@ float distributionGGX(float NdotH, float roughness) {
 // geometry term: the 1/(4 NdotL NdotV) denominator is folded in, so the caller
 // writes `D * Vis * F` with no further division. The separable Schlick-GGX form
 // (k = (roughness + 1)^2 / 8, then an explicit /(4 NdotV NdotL)) is a different
-// BRDF and would not match Metal on direct specular.
+// BRDF.
 float getVisibilitySmithGGX(float NdotV, float NdotL, float roughness) {
     float a = roughness * roughness;
     float a2 = a * a;          // the distribution's alpha
@@ -36,9 +35,9 @@ float getVisibilitySmithGGX(float NdotV, float NdotL, float roughness) {
     return 0.5 / max(lambdaV + lambdaL, 1e-5);
 }
 
-// Gloss-aware Schlick Fresnel (twin of common-brdf.metal getFresnel). F90 is
-// scaled by gloss squared rather than being a flat 1, so a rough dielectric stops
-// short of full white at grazing angles instead of rimming.
+// Gloss-aware Schlick Fresnel. F90 is scaled by gloss squared rather than being a
+// flat 1, so a rough dielectric stops short of full white at grazing angles instead
+// of rimming.
 float3 getFresnel(float cosTheta, float gloss, float3 specularity) {
     float f = pow(1.0 - clamp(cosTheta, 0.0, 1.0), 5.0);
     float glossSq = gloss * gloss;
@@ -72,7 +71,7 @@ float getVisibilityKelemen(float LdotH) {
 // the tangent by intensity SQUARED. Note that this alpha is one squaring beyond the
 // isotropic distribution's (whose GGX alpha is (1 - gloss)^2), so the highlight
 // narrows as soon as a material turns anisotropy on. That formulation is
-// upstream's, kept so both backends agree with it; the lambda terms line up
+// upstream's, kept deliberately; the lambda terms line up
 // with the isotropic visibility's extra squaring.
 float2 getAnisotropicAlpha(float gloss, float anisotropy) {
     float r = max((1.0 - gloss) * (1.0 - gloss), 0.001);

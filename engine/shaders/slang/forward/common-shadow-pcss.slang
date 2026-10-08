@@ -124,17 +124,15 @@ float pcf5x5Directional(int slot, float2 uv, float receiver) {
     return clamp(sum, 0.0, 1.0);
 }
 
-// ── PCSS: contact-hardening soft shadows (parity with common-shadow-pcss.metal) ──
+// ── PCSS: contact-hardening soft shadows ──
 // Vogel-disk blocker search sizes a per-fragment penumbra, then a second disk
 // pass filters at that radius.  Every shadow map here is already bound through
-// a NEAREST clamp-to-edge non-comparison sampler, which is exactly the raw
-// sampler the Metal chunk uses.  The directional path is selected by the
-// VT_FEATURE_PCSS_SHADOWS specialization constant (mirroring Metal's variant);
-// the spot/omni paths branch at runtime on a non-zero search area, mirroring
-// Metal's uniform branch.
+// a NEAREST clamp-to-edge non-comparison sampler.  The directional path is
+// selected by the VT_FEATURE_PCSS_SHADOWS specialization constant; the
+// spot/omni paths branch at runtime on a non-zero search area.
 
-// Metal uses fmod here; for the non-negative vtFragCoord.xy inputs GLSL's
-// floor-based mod is identical.
+// For the non-negative vtFragCoord.xy inputs fmod and the floor-based glslMod
+// are identical.
 float pcssFractSinRand(float2 uv) {
     const float a = 12.9898, b = 78.233, c = 43758.5453;
     float dt = dot(uv, float2(a, b));

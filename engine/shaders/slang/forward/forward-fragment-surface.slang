@@ -6,7 +6,7 @@
 [shader("fragment")]
 float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
 {
-    // The GLSL chunks' names for the inputs, so every chunk reads its varyings as before.
+    // The inputs under the names every chunk reads them by.
     float4 outColor = float4(0.0, 0.0, 0.0, 0.0);
     vtFragCoord = input.position;
     vtFrontFacing = isFrontFace;
@@ -24,7 +24,7 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
     if (vtFeatureEnabled(VT_FEATURE_SKYBOX_BIT)) {
         // Dome projection: view direction from the dome center rather than
         // the camera so the flattened bottom hemisphere reads as a ground
-        // plane (tripod projection). Mirrors forward-fragment-head.metal.
+        // plane (tripod projection).
         uint skyFlags = uint(lighting.skyParams2.w + 0.5);
         float3 dir = ((skyFlags & 2u) != 0u)
             ? normalize(fragWorldPos - lighting.skyParams2.xyz)
@@ -36,14 +36,14 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
             sky = nishitaScatter(dir);
         } else if ((skyFlags & 1u) != 0u) {
             // High-res skybox cubemap (negated X matches the engine's atlas
-            // lookup handedness — same as the Metal SKY_CUBEMAP path).
+            // lookup handedness).
             float intensity = max(lighting.envParams.x, 0.0);
             float3 cubeDir = cubeMapRotate(dir);
             sky = decodeEnv(skyboxCube.Sample(linearClampSampler, float3(-cubeDir.x, cubeDir.y, cubeDir.z))) * intensity;
         } else if (vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) &&
                    lighting.envParams.y > 0.5) {
-            // Negate X, the same way every other env-atlas lookup in this
-            // backend does (see the diffuse and specular IBL directions in
+            // Negate X, the same way every other env-atlas lookup does (see
+            // the diffuse and specular IBL directions in
             // forward-fragment-ambient) and the cubemap branch just above.
             // Without it the sky renders mirrored: an exact left-right
             // flip, which a full-width mean cannot see because mirroring
@@ -60,8 +60,7 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
         // every other forward draw, must leave linear HDR for compose to expose,
         // tonemap and gamma-encode. Without this the sky would be written already
         // gamma-encoded into the linear HDR target and compose would encode it a
-        // second time. Mirrors the same check in each sky path of
-        // forward-fragment-head.metal.
+        // second time.
         if ((lighting.flagsAndPad[0] & (1u << 5)) != 0u) {
             outColor = float4(max(sky, float3(0.0)), 1.0);
             return outColor;
@@ -144,8 +143,8 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
     bool diffuseVertexColorOff = (material.flags & (1u << 28)) != 0u;
     float4 vertexTint = diffuseVertexColorOff ? float4(1.0, 1.0, 1.0, fragColor.a) : fragColor;
     // Material colours are authored in gamma space, so the
-    // factor AND the texture sample are decoded to linear before lighting, as Metal
-    // does; skipping either leaves every surface brighter and less saturated.
+    // factor AND the texture sample are decoded to linear before lighting;
+    // skipping either leaves every surface brighter and less saturated.
     // An instanced draw with per-instance colours (an 80-byte instance stride) takes its
     // base colour from the instance instead of the material.
     const float4 baseFactor = vtFeatureEnabled(VT_FEATURE_INSTANCING_COLOR_BIT) ? input.instanceColor : material.baseColor;
@@ -154,7 +153,7 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
         baseFactor.a * baseSample.a * vertexTint.a);
 
     // Opacity map (alpha channel), flags bit 19, with the base
-    // colour's UV, as the Metal chunk and the shadow frontend read it.
+    // colour's UV, as the shadow frontend reads it.
     if ((material.flags & (1u << 19)) != 0u) {
         float2 uvOpacity = ((material.flags & (1u << 4)) != 0u) ? fragUV1 : fragUV0;
         uvOpacity = applyUvTransform(uvOpacity, material.baseColorTransform0, material.baseColorTransform1);
@@ -165,7 +164,7 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
     // before it feeds diffuseAlbedo/F0 so the lit result shows the lighting
     // alone rather than the texture. Unlike every other debug mode this one does
     // NOT replace the output — it falls through to the normal lit path, and so
-    // still receives fog and tonemapping. Mirrors forward-fragment-surface.metal.
+    // still receives fog and tonemapping.
     if (vtFeatureEnabled(VT_FEATURE_DEBUG_PASS_BIT) &&
         lighting.flagsAndPad[1] == VT_DEBUGPASS_LIGHTING) {
         albedo.rgb = float3(0.5);
@@ -212,7 +211,7 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
 
     // Point-cloud (unlit) path: the point vertex variant writes a zero world
     // normal as its sentinel — no surface lighting, just exposure + tonemap +
-    // gamma on the tinted color (mirrors Metal's unlit point shader).
+    // gamma on the tinted color.
     if (vtFeatureEnabled(VT_FEATURE_UNLIT_BIT) ||
         dot(fragWorldNormal, fragWorldNormal) < 1e-6) {
         // Emissive still contributes here: an unlit material drops the lights
@@ -220,8 +219,8 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
         // all).
         float3 unlitEmissive = material.emissiveColor.rgb;
         if (vtFeatureEnabled(VT_FEATURE_EMISSIVE_MAP_BIT)) {
-            // Decoded as the lit path and Metal's unlit path decode it; read as raw sRGB
-            // an unlit emissive map would come out brighter than on Metal.
+            // Decoded as the lit path decodes it; read as raw sRGB an unlit emissive
+            // map would come out too bright.
             unlitEmissive *= srgbToLinear(emissiveMap.Sample(uvEmissive).rgb);
         }
         if ((material.flags & (1u << 23)) != 0u) {
@@ -231,8 +230,8 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
         // on the tail and the sky paths; applying them here too clipped an HDR emissive.
         bool linearHdrTarget = (lighting.flagsAndPad[0] & (1u << 5)) != 0u;
         if (vtFeatureEnabled(VT_FEATURE_MSDF_BIT)) {
-            // MSDF, as the Metal chunk: fill, outline and shadow composited
-            // premultiplied in linear, the straight colour encoded at the end. The fill
+            // MSDF: fill, outline and shadow composited premultiplied in linear, the
+            // straight colour encoded at the end. The fill
             // is tone mapped unless compose owes it that (applyToneMap is a no-op for a UI
             // material); outline and shadow are not.
             float3 unlitColor = max(albedo.rgb + unlitEmissive, float3(0.0));
@@ -281,8 +280,7 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
     }
     // KHR_materials_pbrSpecularGlossiness: specular colour + glossiness in place of
     // metallic / roughness. The spec-gloss texture reuses the metal-rough slot (flags bit 21):
-    // rgb the specular colour (sRGB), a the glossiness. Metal had the texture, the Vulkan
-    // chunk only the factors; one source now reads it on both.
+    // rgb the specular colour (sRGB), a the glossiness, read on both backends.
     float3 specGlossColor = float3(0.0);
     if (vtFeatureEnabled(VT_FEATURE_SPEC_GLOSS_BIT)) {
         specGlossColor = clamp(material.specGlossParams.rgb, 0.0, 1.0);
@@ -297,8 +295,7 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
     }
     roughness = clamp(roughness, 0.04, 1.0);
     // Gloss map: one channel scales the authored gloss FACTOR, the product is
-    // inverted under glossInvert, and the result replaces the roughness above, as
-    // the Metal chunk does.
+    // inverted under glossInvert, and the result replaces the roughness above.
     if (material.mapChannelParams.y >= 0.0) {
         float4 glossSample = glossMap.Sample(materialSampler, fragUV0);
         float glossValue = material.mapChannelParams.x * glossSample[int(material.mapChannelParams.y)];
@@ -307,8 +304,8 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
         }
         roughness = clamp(1.0 - glossValue, 0.04, 1.0);
     }
-    // Anisotropic GGX frame, mirrored from forward-fragment-surface.metal; the math
-    // is in common-brdf. The direction is the material's anisotropy rotation: (cos, sin) turning the
+    // Anisotropic GGX frame; the math is in common-brdf.slang. The direction is the
+    // material's anisotropy rotation: (cos, sin) turning the
     // vertex tangent toward the vertex BITANGENT; the CPU folds the deprecated
     // negative strength in as rotation + 90 and uploads the magnitude. B is
     // cross(geometric normal, T), built from the TBN's own normal rather than the
@@ -350,7 +347,7 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
         // rather than replacing it, and is then occluded through exactly the same
         // ambient/direct/specular split. vtFragCoord and the sampler UV share the
         // top-left origin (the pass renders through the same negative-height
-        // viewport), so this is the Metal expression texel for texel.
+        // viewport), so both backends read the same texel.
         ao *= ssao.Sample(linearClampSampler, vtFragCoord.xy * lighting.screenInvResolution.xy).r;
     }
 
@@ -398,16 +395,16 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
         // leaves the attribute zero when the file carries none and the primitive
         // is not triangles, so CPU tangent generation cannot run. normalize() of a
         // zero vector is NaN, which would poison the shading normal and the whole
-        // pixel — so skip normal mapping and keep the geometric normal, which is
-        // what the Metal chunk does. This port has no derivative-based TBN
-        // fallback, so there is nothing else to fall back to.
+        // pixel — so skip normal mapping and keep the geometric normal. This port
+        // has no derivative-based TBN fallback, so there is nothing else to fall
+        // back to.
         float3 T = fragWorldTangent.xyz;
         if (dot(T, T) >= 1e-6) {
             T = normalize(T);
             // Bitangent from the geometric normal with the handedness sign carried
             // in tangent.w. The interpolated tangent and binormal are only
             // normalized, with no Gram-Schmidt — it
-            // would move the shading normal (on Vulkan alone) wherever the
+            // would move the shading normal wherever the
             // interpolated tangent leaves the surface plane.
             float3 B = normalize(cross(N, T)) * fragWorldTangent.w;
             N = normalize(mul(tn, float3x3(T, B, N)));
@@ -417,9 +414,8 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
     // Planar reflection DEPTH PASS: this camera exists only to produce the
     // per-pixel distance-from-plane map that scales the reflection blur, so all
     // lighting is skipped and the distance is written as grayscale. Placed here
-    // rather than at the tail (where forward-fragment-tail.metal has it) because
-    // nothing below affects the result — the surface setup above is the last
-    // thing it shares with the lit path.
+    // rather than at the tail because nothing below affects the result — the
+    // surface setup above is the last thing it shares with the lit path.
     if (vtFeatureEnabled(VT_FEATURE_PLANAR_REFLECTION_DEPTH_PASS_BIT)) {
         float distFromPlane = abs(fragWorldPos.y + lighting.reflectionDepthParams.x) /
             lighting.reflectionDepthParams.y;
@@ -443,16 +439,16 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
     float specularOn = vtFeatureEnabled(VT_FEATURE_NO_SPECULAR_BIT) ? 0.0 : 1.0;
 
     // Clearcoat (VT_FEATURE_CLEARCOAT): a thin dielectric coat (F0 = 0.04) over the
-    // base, twin of the block in forward-fragment-surface.metal, clearcoat
-    // intensity/gloss/normal maps included. The coat's direct and indirect specular
-    // accumulate here and are composed energy-conservingly in the tail (the base is
-    // dimmed by what the coat reflects), never added straight into the colour.
+    // base, clearcoat intensity/gloss/normal maps included. The coat's direct and
+    // indirect specular accumulate here and are composed energy-conservingly in the
+    // tail (the base is dimmed by what the coat reflects), never added straight into
+    // the colour.
     float ccSpecularity = material.clearCoatFactor;
     float ccGlossiness = 1.0 - clamp(material.clearCoatRoughness, 0.0, 1.0);
     // Clearcoat intensity and gloss maps read their GREEN channel,
     // at the base-colour UV. Both are gated on their flag bit, never
-    // on the binding: an unbound slot holds the white fallback here, but the same
-    // gate is what keeps the two backends on one rule.
+    // on the binding: an unbound slot holds a white fallback on one backend and
+    // samples zero on another, so the flag is the one rule both follow.
     if ((material.flags & (1u << 14)) != 0u) {
         ccSpecularity *= clearCoatMap.Sample(materialSampler, uvBase)[int(material.clearCoatMapChannels.x)];
     }
@@ -480,19 +476,18 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
             ccNormalW = normalize(mul(ccSample, float3x3(ccT, ccB, N)));
         }
     }
-    // The coat's own GGX roughness for DIRECT light, from its gloss (map included),
-    // twin of forward-fragment-surface.metal. The light loops take this and the coat
-    // normal, not the flat clearCoatRoughness and the base normal, so a coat normal
-    // or gloss map changes the coat's highlights as well as its reflections.
+    // The coat's own GGX roughness for DIRECT light, from its gloss (map included).
+    // The light loops take this and the coat normal, not the flat clearCoatRoughness
+    // and the base normal, so a coat normal or gloss map changes the coat's
+    // highlights as well as its reflections.
     float ccRoughness = max(1.0 - ccGlossiness, 0.04);
     float ccAlpha2 = ccRoughness * ccRoughness * ccRoughness * ccRoughness;
     float3 ccSpecularLight = float3(0.0);
     float3 ccReflection = float3(0.0);
 
     // Thin-film iridescence, computed once before the light loop and blended into
-    // each Fresnel (direct, IBL, probe) by intensity — the shape
-    // forward-fragment-surface.metal uses. iridescenceParams: x=intensity, y=IOR,
-    // z=thicknessMin(nm), w=thicknessMax(nm).
+    // each Fresnel (direct, IBL, probe) by intensity. iridescenceParams:
+    // x=intensity, y=IOR, z=thicknessMin(nm), w=thicknessMax(nm).
     float iridIntensity = 0.0;
     float3 iridFresnel = F0;
     if (vtFeatureEnabled(VT_FEATURE_IRIDESCENCE_BIT)) {
@@ -526,7 +521,6 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
     float3 directDiffuse = float3(0.0);
 
     // Shadow catcher accumulates directional shadow factors multiplicatively:
-    // 1.0 = fully lit, 0.0 = fully shadowed. Mirrors the declaration in
-    // forward-fragment-surface.metal.
+    // 1.0 = fully lit, 0.0 = fully shadowed.
     float dShadowCatcher = 1.0;
 

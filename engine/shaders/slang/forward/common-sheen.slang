@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 07.10.2026
 //
-// ── Sheen BRDF, the GLSL twin of common-sheen.metal ──
+// ── Sheen BRDF ──
 // Charlie distribution + Ashikhmin visibility, after Estevez & Kulla 2017,
 // "Production Friendly Microfacet Sheen BRDF". Fabric and velvet: a much wider,
 // softer lobe than GGX, brightest at grazing angles.
@@ -27,7 +27,7 @@ float sheenVisibility(float NoV, float NoL) {
 
 // Analytical sheen directional albedo E(NoV, roughness): a piecewise exp fit that
 // stands in for a precomputed DFG lookup, so no LUT texture is
-// needed. Same fit as the Metal chunk.
+// needed.
 float sheenIBLApprox(float NoV, float roughness) {
     float r2 = roughness * roughness;
     float a, b;

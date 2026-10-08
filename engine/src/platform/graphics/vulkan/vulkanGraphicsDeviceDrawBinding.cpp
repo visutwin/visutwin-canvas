@@ -36,7 +36,6 @@
 #include "scene/materials/material.h"
 #include "spdlog/spdlog.h"
 
-#include "vulkan/vulkan_shader_bundle.h"
 
 namespace visutwin::canvas
 {

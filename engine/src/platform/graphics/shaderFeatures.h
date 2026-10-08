@@ -3,16 +3,17 @@
 //
 // Created by Arnis Lektauers on 23.07.2026
 //
-// Shared shader feature contract. ProgramLibrary resolves these once; Metal
-// emits matching preprocessor defines and Vulkan passes the same feature set
-// through specialization constants in its build-time compiled SPIR-V modules.
+// Shared shader feature contract. ProgramLibrary resolves these once, and the shader
+// reads them as `vtFeatureMaskN` constants, specialised per variant: Metal function
+// constants, Vulkan specialization constants.
 //
 // Feature indices are assigned automatically from declaration order, so adding
 // a feature is a one-line edit here and nothing else — there is no bit budget
 // to account for. ShaderFeatureSet widens by one 32-bit word every 32 features,
-// and both backends follow: Metal emits defines by name, and the Vulkan bundle
-// generator (tools/generate_vulkan_shader_bundle.py) reads this same list to
-// emit one specialization constant per word. Order is otherwise arbitrary;
+// and every consumer follows: tools/generate_shader_bindings.py reads this same list to
+// emit one `vtFeatureMaskN` constant per word and a `VT_FEATURE_*_BIT` per feature into
+// bindings.slang, which Metal specialises as function constants and Vulkan as
+// specialization constants. Order is otherwise arbitrary;
 // nothing persists an index across builds, so the list may be reordered freely.
 #pragma once
 

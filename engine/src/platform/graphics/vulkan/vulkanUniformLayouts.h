@@ -5,11 +5,11 @@
 //
 // GPU-side uniform block layouts for the Vulkan backend.
 //
-// These mirror the std140 layout declared in the embedded GLSL shaders
-// (forward.frag). Every member is either a vec4 or a run of exactly
+// These mirror the std140 layout the Slang forward program declares
+// (forward/forward-fragment-head.slang). Every member is either a vec4 or a run of exactly
 // four 4-byte scalars, so the natural C++ layout already satisfies std140 —
-// no explicit padding is required.  Keep these structs and the GLSL blocks in
-// lock-step; a mismatch shifts every field that follows it.
+// no explicit padding is required. A mismatch shifts every field that follows it;
+// validateForwardLayout and slangBundleTests hold the reflected sizes.
 //
 #pragma once
 

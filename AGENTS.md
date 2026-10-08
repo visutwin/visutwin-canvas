@@ -39,10 +39,7 @@ visutwin-canvas/
     src/platform/  # Graphics abstraction + Metal and Vulkan backends, input
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
-    shaders/slang/          # the single-source tree: programs/, modules/, forward/ (the forward chunks)
-    shaders/metal/chunks/   # 25 hand-written Metal forward chunks (VISUTWIN_LEGACY_FORWARD; removed in phase 5)
-    shaders/vulkan/chunks/  # 20 GLSL fragment chunks, same names (forward.frag #includes them; likewise)
-    shaders/vulkan/         # the hand-written GLSL forward and shadow stages (16 files; likewise)
+    shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
   examples/        # 69 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
@@ -118,9 +115,8 @@ ctest --preset default
   external 1x monitor, or a sleeping display that comes back at 1x). The script strips
   `VISUTWIN_ANTIALIAS` and `VISUTWIN_MAX_PIXEL_RATIO` from the examples' environment. A density with no set
   SKIPS its cases. There is NO `examples` BUILD preset: `ctest --preset golden` only runs the
-  script, so build the tree first with `cmake --build build-examples` (the chunks load from
-  the source dir at launch, and a stale examples tree renders NEW chunks with the OLD engine,
-  which showed as every case black). `--update` writes the set for the density it runs at, so a rendering change
+  script, so build the tree first with `cmake --build build-examples` (the shaders are
+  compiled into the engine, so a stale examples tree renders the OLD shaders and says nothing). `--update` writes the set for the density it runs at, so a rendering change
   that is intended needs re-capturing at BOTH densities, on two displays, and on BOTH
   backends: a change re-captured for Metal alone leaves the Vulkan set failing for a
   reason nobody remembers, and the next real Vulkan difference hides behind it (skybox
@@ -162,8 +158,8 @@ ctest --preset default
 - **The `vulkan` preset needs a SYSTEM Vulkan loader.** vcpkg's `vulkan-headers`
   port supplies headers only, and `find_package(Vulkan)` wants the unversioned
   library: `libvulkan-dev` on Ubuntu (the runtime package ships only
-  `libvulkan.so.1`), the Vulkan SDK's `libvulkan.dylib` on macOS. `glslc` and
-  `spirv-cross` come from vcpkg's own `shaderc` and `spirv-cross` tools.
+  `libvulkan.so.1`), the Vulkan SDK's `libvulkan.dylib` on macOS. `slangc` comes from
+  vcpkg's `shader-slang` port; `shaderc` only compiles CUSTOM GLSL at run time.
 - **`ci.yml`'s `VCPKG_COMMIT` must equal `vcpkg.json`'s `builtin-baseline`.** CI checks
   vcpkg out at that commit and keys its binary cache on it; bump the two together. A
   local vcpkg must have that commit CHECKED OUT (or be newer): the baseline is read from
@@ -202,13 +198,16 @@ ctest --preset default
 decides whether the Jolt-backed `PhysicsWorld` is compiled in; the seam itself is
 always there, and the option degrades to a warning if the package is missing.
 
-**Vulkan (`vulkan` feature):** vulkan-headers, vulkan-memory-allocator, vk-bootstrap
+**Vulkan (`vulkan` feature):** vulkan-headers, vulkan-memory-allocator, vk-bootstrap, shaderc
+(optional: the run-time compiler for custom GLSL, `VISUTWIN_HAS_SHADERC`; no engine shader
+needs it)
 
 **Shader compiler:** shader-slang (a prebuilt DYNAMIC library whatever the triplet; its
-standard module sits beside it in `lib/`). `VISUTWIN_SHADER_SLANG` (ON) finds it and degrades
-to a warning when missing. It is the single-source shader toolchain being migrated to (plan
-in the local `docs/slang-shader-migration-plan.md`; phase 0 landed 2026-10-07): one Slang
-module compiled to MSL for Metal and SPIR-V for Vulkan by `SlangCompiler`
+standard module sits beside it in `lib/`). `VISUTWIN_SHADER_SLANG` (ON) finds it; without it
+the engine has NO shaders (every program is Slang), so treat it as required. It is the
+single-source shader toolchain (history in the local `docs/slang-shader-migration-plan.md`,
+done 2026-10-08): one Slang module compiled to MSL for Metal and SPIR-V for Vulkan by
+`SlangCompiler`
 (`platform/graphics/slangCompiler.h`), handed to a backend through
 `GraphicsDevice::createShaderFromCode(ShaderDefinition, ShaderCode)`. Rules that bind
 already: a module declares every binding with BOTH `register(bN/tN/sN)`, which is the METAL
@@ -226,14 +225,14 @@ one module on this build's device and pins the variant, the layout and the bindi
 
 ## Single-source shaders (Slang)
 
-The migration from the twin MSL / GLSL trees to one Slang tree is under way (plan in the
-local `docs/slang-shader-migration-plan.md`; phases 0-4 done 2026-10-07). Every engine
-shader is a Slang program: the effect passes, compute kernels, gizmo, outline, HUD, wide
-lines, particles, splats, and the forward and shadow programs. Still hand-written: marching
-cubes (Metal only: its API hands raw Metal buffers to visutwin-viz) and user custom shaders
-(`ShaderMaterial` with a `ShaderSourceSet`, `RenderPassShaderQuad::useCachedShader`). The
-hand-written forward and shadow programs stay until phase 5 for comparison:
-`VISUTWIN_LEGACY_FORWARD=1` draws with them in the same binary. What binds now:
+Every engine shader is written once, in Slang, under `engine/shaders/slang/`: the forward and
+shadow programs, the effect passes, compute kernels, gizmo, outline, HUD, wide lines,
+particles and splats (the twin MSL / GLSL trees they replaced are gone; history in the local
+`docs/slang-shader-migration-plan.md`, 2026-10-07/08). Outside the tree: marching cubes
+(Metal only: its API hands raw Metal buffers to visutwin-viz) and CUSTOM shaders, which are
+still source in the device's own language (`createShader`, `ShaderMaterial` with a
+`ShaderSourceSet`, `RenderPassShaderQuad::useCachedShader`; MSL on Metal, GLSL through shaderc
+on Vulkan), as are visutwin-geo's globe surface and visutwin-viz's volume shaders. What binds:
 
 - **A Slang program is `engine/shaders/slang/programs/<name>.slang`**, its shared code in
   `engine/shaders/slang/modules/` (`import vtquad;` — a module may not be called `quad`, the
@@ -291,8 +290,10 @@ hand-written forward and shadow programs stay until phase 5 for comparison:
   `float2x2(a, b, c, d)` is ROW-wise and `*` on matrices is component-wise; a Metal-only
   buffer still needs a `[[vk::binding]]` (one SPIR-V never references) or Slang warns (E39029).
 - **The forward program is chunks, not modules**: `programs/forward.slang` `#include`s
-  `forward/<chunk>.slang` in the registered (GLSL) order, and `programs/shadow.slang` the
-  head, the vertex chunk and `shadow-fragment.slang`. ONE library per program serves every
+  `forward/<chunk>.slang`, and `programs/shadow.slang` the head, the vertex chunk and
+  `shadow-fragment.slang`; `ShaderChunks` reads the same files as its defaults, and
+  `tests/shaderCompositionTests.cpp` holds the two equal (a chunk in the registry that no
+  program includes would take an override silently). ONE library per program serves every
   variant: the features are the `vtFeatureMaskN` constants, bound per variant as Metal
   FUNCTION constants and Vulkan specialization constants, the shadow program's included
   (Metal refuses a pipeline from an unspecialised function that reads them). The vertex
@@ -300,11 +301,14 @@ hand-written forward and shadow programs stay until phase 5 for comparison:
   `...ColorVertex`, `...PointVertex`, `...DynamicBatchVertex`, `...SkinnedVertex`,
   `...MorphedVertex`, `...SkinnedMorphedVertex`, Metal's `...InstancedColorVertex`):
   `ProgramLibrary::forwardVertexEntry` names Metal's from the variant, Vulkan's pipeline
-  picks its module per draw as before. A chunk override (`ShaderChunks::set`,
-  `Material::setShaderChunk`) is Slang source replacing `forward/<name>.slang` and compiles
-  at run time; one that does not compile as Slang (an MSL or GLSL override written for the
-  hand-written programs, such as visutwin-viz's `forward-vertex`) falls back to them with
-  one warning until phase 5.
+  picks its module per draw. A chunk override (`ShaderChunks::set`, `Material::setShaderChunk`,
+  material over registry) is Slang source replacing `forward/<name>.slang` wherever a program
+  includes it, compiled at run time from the source tree (installed with the library, under
+  the data directory), and its fingerprint keys the variant. Override the SMALLEST chunk that
+  does the job: `forward-vertex-local` is a hook every mesh entry calls in the mesh's own space
+  (`forwardLocalVertex(position, normal, tangent, uv0, uv1)`, a no-op by default), which a
+  deforming material replaces instead of the whole vertex chunk (visutwin-viz's Navier-Stokes
+  tubes do); the shadow program shares it, so the shadow follows.
 - **A stage that MAY discard must not exist in a variant that never does.** On Apple GPUs a
   fragment function containing a `discard` loses early depth testing whether or not the
   branch runs, so a discard gated only by a RUNTIME material flag costs every draw of the
@@ -335,11 +339,18 @@ hand-written forward and shadow programs stay until phase 5 for comparison:
 - **The sky's view ray is the PRE-TRANSFORM vertex position** (carried in `worldNormal`,
   Metal's choice, which survives globe scale), not the world position minus the camera as the
   hand-written GLSL had it; the two agree for any sky mesh centred on the camera.
+- **The bundle carries each SPIR-V entry's reflected layout** (`SlangBundledProgram::Entry::
+  bindings` / `pushConstantBytes`: every descriptor the entry's module uses, from slangc's
+  reflection JSON joined to the module's own decorations). Vulkan's `validateForwardLayout`
+  refuses a forward or shadow entry that leaves the descriptor contract, and
+  `tests/slangBundleTests.cpp` holds the material, lighting, particle and splat blocks against
+  their C++ structs and the 128-byte draw push block. A new block shared with C++ gets a line
+  there.
 - **Known per-backend differences kept in one source**: the point size (3 on Metal, 1 on
   Vulkan, DEVIATION marked at `forwardPointVertex`), Vulkan's instancing has no instance
-  colour (the material's base colour), the fog shadow compare (above), and
-  the rounding of compose's ACES2, the particle spawn sphere and the wide-line dash modulo
-  follow the former MSL; Vulkan may differ from its former GLSL by a count where those did.
+  colour (the material's base colour), the fog shadow compare (above), and the rounding of
+  compose's ACES2, the particle spawn sphere and the wide-line dash modulo, which follow the
+  MSL they were ported from.
 
 ## Graphics Backends
 
@@ -347,16 +358,18 @@ Two production backends behind one `GraphicsDevice` abstraction, plus one planne
 
 **Metal** — primary and most complete. Every engine program is one precompiled metallib
 from the Slang bundle (or the runtime compile), its `VT_FEATURE_*` words bound as function
-constants per variant; the hand-written MSL chunks (legacy, `VISUTWIN_LEGACY_FORWARD`) emit
-them as preprocessor defines instead.
+constants per variant. A custom shader may still be MSL source (`createShader`), compiled at
+run time.
 
 **Vulkan 1.3** — dynamic rendering + synchronization2, MRT, PBR draw binding,
 PCSS/VSM shadows + clustered shadow atlas, SSR, dynamic refraction, planar
 reflections, shadow catcher, atmosphere, opacity dither, debug passes,
 dual-source blending, compute/particles/culling, post-processing, async uploads,
-MSAA, GPU profiling. GLSL in `shaders/vulkan/` is compiled to SPIR-V at build time and
-bundled by `tools/generate_vulkan_shader_bundle.py`. Feature flags arrive as
-**specialization constants**, not runtime branches, in BOTH stages.
+MSAA, GPU profiling. Every engine program is SPIR-V from the Slang bundle, one module per
+entry point, with its reflected layout checked against the descriptor contract when the
+pipeline layer is built (`validateForwardLayout`). Feature flags arrive as
+**specialization constants**, not runtime branches, in BOTH stages. A custom shader may
+still be GLSL source, compiled at run time through shaderc.
 
 `VulkanGraphicsDevice` is split across
 `vulkanGraphicsDevice{FrameSwapchain,Descriptors,Uploads,DrawBinding,Compute,ResourceInitialization}.cpp`
@@ -367,15 +380,14 @@ ImGui/ImPlot overlay (`viz/overlay/`, uses `imgui_impl_metal`), marching cubes
 and the spec-gloss map.
 
 **Planned next backend: WebGPU** — targets browser and native (Dawn/wgpu). WGSL
-maps onto the same shared feature contract; the specialization-constant approach
-used for Vulkan is the closer model (WGSL `override` constants) than Metal's
-preprocessor variants. Keep new backend-specific code behind `GraphicsDevice`
+maps onto the same shared feature contract: Slang emits WGSL, and the feature words become
+WGSL `override` constants as they are Vulkan specialization and Metal function constants. Keep new backend-specific code behind `GraphicsDevice`
 so a third implementation stays additive.
 
 Standard [0,1] depth (clear 1.0, `LESS_EQUAL` compare) — NOT reverse-Z. Vulkan is
-natively [0,1]; Metal vertex chunks remap clip.z from GL [-1,1], and the Vulkan
-vertex shaders apply the same remap, so both backends share the convention. A
-custom user shader that skips the remap wins every depth test on Vulkan.
+natively [0,1]; every engine vertex stage remaps clip.z from GL [-1,1] (`forwardClip` and its
+twins), so both backends share the convention. A custom user shader that skips the remap
+wins every depth test on Vulkan.
 
 ## Contracts you must not break
 
@@ -383,34 +395,28 @@ custom user shader that skips the remap wins every depth test on Vulkan.
 
 `MaterialUniforms` is declared ONCE, in `scene/materials/materialUniformFields.h`,
 as an X-macro field list (`X(shaderType, name, default...)` — variadic so a braced
-initialiser's commas stay in one argument). Everything else is emitted from it:
-the C++ struct in `material.h`, the MSL `struct MaterialData` substituted into the
-`VT_MATERIAL_DATA_BLOCK` marker in `common-structs.metal`, the GLSL block written
-to `shader_material.glsl` and emitted at runtime by
-`ProgramLibrary::glslMaterialBlock()`, and the generator's size check. **Adding a
-field is one line.**
-
-The GLSL block is `#include`d by BOTH `forward-fragment-head.glsl` and
-`forward.vert`: MoltenVK miscompiles a UBO whose member list differs between
-stages. What is asserted is the real invariant, that the size is a multiple of 16,
-not a fixed size. The struct is a plain
-aggregate so `alignof` is 4, not 16 — the layout works because every `vec4` in the
+initialiser's commas stay in one argument). Everything else is emitted from it: the C++
+struct in `material.h` and the Slang `MaterialData` that `generate_shader_bindings.py` writes
+into `bindings.slang` (`VT_DECLARE_MATERIAL_DATA`, the one declaration every program and
+stage includes). **Adding a field is one line.** The bundle's reflected block size is held
+against `sizeof(MaterialUniforms)` (`tests/slangBundleTests.cpp`, and Vulkan's
+`validateForwardLayout`); the struct asserts that its size is a multiple of 16. The struct is
+a plain aggregate so `alignof` is 4, not 16 — the layout works because every `vec4` in the
 list lands 16-aligned by construction.
 
 **The LIGHTING block is ONE layout on both backends** (`platform/graphics/lightingBlock.h`,
-`LightingBlock` / `GpuLightBlock`, 2896 bytes, asserted there, in `vulkanRenderPipeline.cpp`
-and in the shader-bundle validator): Metal binds it at buffer 4, Vulkan at set 2 binding 0,
-and the MSL `LightingData` (common-structs.metal) and the GLSL `LightingData`
-(forward-fragment-head.glsl) declare it field for field under the SAME names. The atmosphere
-rides inside it on both (no Metal fragment buffer 9 any more). `packLightingBlock` lays
+`LightingBlock` / `GpuLightBlock`, 2896 bytes, asserted there and in `vulkanRenderPipeline.cpp`,
+and held against the bundle's reflection by `tests/slangBundleTests.cpp`): Metal binds it at
+buffer 4, Vulkan at set 2 binding 0, and the Slang `LightingData`
+(`forward/forward-fragment-head.slang`) declares it field for field under the SAME names. The
+atmosphere rides inside it. `packLightingBlock` lays
 `deriveLighting`'s result out ONCE; each backend's `setLightingUniforms` calls it and keeps
 only what it owns (Vulkan's grab flags and reflection blur, each binder's cluster, probe,
 environment, sky-rotation, dither and debug-pass setters, all writing the same named
 fields). A new lighting value is decided in `deriveLighting`, laid out in
-`packLightingBlock`, and declared in BOTH shader structs at the same position; the three
-size asserts catch a struct that drifted, the goldens catch a lane that did. The Metal
-chunks read the GLSL lane conventions now (`shadowParams` / `shadowParams2`, `envParams`,
-`cameraPosExposure.w` for exposure, `coneParams.w` for a light's shadow slot with -1 for none).
+`packLightingBlock`, and declared in the Slang struct at the same position; the size asserts
+catch a struct that drifted, the goldens catch a lane that did. A value only one binder writes
+is a frame that is right on one backend (Metal once never wrote the grab and reflection flags).
 
 What IS single-sourced is the block's CONTENT: `deriveLighting`
 (`platform/graphics/lightingDerivation.h`) decides every value both layouts carry — the
@@ -463,14 +469,12 @@ keeps its own sampler, and everything else is derived from it with its previous 
 pinned by a `static_assert` beside it: `MetalTextureBinder::kMaxTextureSlots`, the material
 slots Metal clears, `kMaterialSamplerTextureSlots`, `kMaterialTextureBindings`,
 `vulkanMaterialBindingIsSeparateImage`, `kMaterialExtraSamplerBinding`,
-`kSceneTextureBindingCount`, `vulkanSceneDescriptorType`, the bundle validator's expected
-descriptor table (`tools/shader_bindings.py` parses the header) and the generated
-`bindings.slang` (`tools/generate_shader_bindings.py`, one declaration macro per row with
-both `register()` and `[[vk::binding]]`; not consumed yet). Adding a row still needs the
-SHADER declarations on both backends (the MSL entry's `[[texture(N)]]` and the GLSL
-`layout(set, binding)`) and the binder code that fills it; what the table removes is the
-three copies of the slot NUMBERS that used to be edited separately and drifted. The rules the
-rows encode:
+`kSceneTextureBindingCount`, `vulkanSceneDescriptorType` and the generated `bindings.slang`
+(`tools/generate_shader_bindings.py` through `tools/shader_bindings.py`, one `VT_DECLARE_*`
+macro per row with both `register()` and `[[vk::binding]]`), which is what the shaders declare
+their bindings with. Adding a row needs the macro in the program that reads it and the binder
+code that fills it; Vulkan's `validateForwardLayout` refuses a forward or shadow entry whose
+reflected bindings fall outside the table. The rules the rows encode:
 
 - Metal fragment SAMPLER slots 1-6 carry the texture's own sampler for base colour, normal,
   metal-rough, occlusion, emissive and lightmap (the rows with `ownSampler`, built from
@@ -705,11 +709,10 @@ deriving them afresh, restoring only a flag that still holds the graph's value; 
 one-way edit would let one frame's adjacency stick to a pass for good. A pass that must
 keep its target for a LATER frame (history, persistent accumulation) sets its own store:
 the graph only sees one frame. `tests/frameGraphTests.cpp` holds propagation, merging,
-before-pass order and the undo; `tests/shaderCompositionTests.cpp` holds `forward.frag`'s
-include order against ProgramLibrary's registered GLSL order, override precedence and
-variant keys.
+before-pass order and the undo; `tests/shaderCompositionTests.cpp` holds the forward chunk
+registry against the files the programs include, override precedence and variant keys.
 
-**Tone mapping.** 6 modes dispatched in `common.metal :: toneMap`: LINEAR (0),
+**Tone mapping.** 6 modes dispatched in `forward/common-tonemap.slang :: toneMapByMode`: LINEAR (0),
 FILMIC (1), ACES (3), ACES2 (4, Stephen Hill RRT+ODT fit), NEUTRAL (5), NONE (6).
 Set scene-wide with `Scene::setToneMapping` or per camera with
 `CameraComponent::setToneMapping` (defaults to `TONEMAP_INHERIT` = -1). NOTE:
@@ -724,10 +727,9 @@ upstream's does; clamping before the curve turned it black on one backend (`refr
 blue ring objects were yellow on Metal).
 
 **Tone mapping NONE applies NEITHER curve NOR exposure**, as upstream's
-`tonemappingNone`. On Vulkan exposure is applied inside the dispatch
-(`toneMapExposed` in `common-tonemap.glsl`, the twin of Metal's `toneMap(color,
-exposure, mode)`); a forward caller that multiplies by exposure first exposes NONE
-on Vulkan alone. The compose pass does the same in both languages.
+`tonemappingNone`: exposure is applied inside the dispatch (`toneMapExposed` in
+`forward/common-tonemap.slang`), so a caller that multiplies by exposure first exposes NONE.
+The compose pass, the particles and the splats call the same function.
 
 **Under CameraFrame the forward pass must output LINEAR HDR** and leave exposure,
 tonemap and gamma to compose. The gate is bit 5 of `LightingData::flagsAndPad[0]`,
@@ -740,35 +742,19 @@ on both backends (`area-picker` shows a missing decode).
 
 ## Shader System
 
-The forward and shadow programs are Slang now (see the single-source section); this section
-describes the MSL / GLSL composition they replaced, which still runs under
-`VISUTWIN_LEGACY_FORWARD=1` and is rewritten in phase 5. The variant key, the memo and the
-override precedence below hold for both.
-
-`ProgramLibrary` with a two-level cache: variant key -> source composition ->
-compiled binary. **ShaderChunks registry** (`shader-lib/shaderChunks.h`): named
-micro-chunk files (file stem = chunk name) concatenated per registered program
-order with `#define VT_FEATURE_*` guards. Overridable globally via
+`ProgramLibrary` resolves the forward and shadow variants: options from the material, the
+draw and the frame switches, an exact `VariantKey`, then the variant cache, building a variant
+on a miss from the Slang program's one library (see the single-source section). **ShaderChunks**
+(`shader-lib/shaderChunks.h`) is the forward chunk registry: the files under
+`engine/shaders/slang/forward`, overridable globally via
 `getProgramLibrary(device)->chunks().set(name, src)` and per material via
-`Material::setShaderChunk(name, src)`; resolution is material > registry >
-default. Both override sets' FNV content hashes fold into the variant cache key.
-Metal chunks hot-reload from the source dir per launch.
+`Material::setShaderChunk(name, src)`, as Slang; resolution is material > registry > default,
+and both override sets' content hashes fold into the variant key.
 
-**Both backends.** `engine/shaders/vulkan/chunks/` holds 20 GLSL **fragment**
-chunks under the same names, and `forward.frag` is a 28-line file that `#include`s
-them, so the build-time bundle and the runtime composition share one source.
-
-- `ProgramLibrary` registers a separate GLSL chunk order that **must stay in step
-  with `forward.frag`'s `#include` order**.
-- Override source must be in the device's language (`GraphicsDevice::shaderLanguage()`).
-- Vulkan hands composed GLSL to `createShader` only when an override actually
-  changed it; otherwise it passes an empty string and gets the prebuilt bundle.
-- `forward-vertex`, `shadow-vertex` and `shadow` have no chunked GLSL form and are
-  Metal-only; overriding them on Vulkan logs a warning.
 - **Fog has a TYPE** (`FogParams::type`, `Scene::setFogType`): NONE/LINEAR/EXP/
   EXP2, uploaded in `fogStartEndType.z`, where 0 also means off. Fog depth is
-  the LINEAR VIEW DEPTH (`fragViewDepth` on Vulkan, `1 / rd.position.w` on
-  Metal), not the radial distance to the camera. No example uses fog, so a change
+  the LINEAR VIEW DEPTH (`fragViewDepth`, clip.w from the vertex stage), not the radial
+  distance to the camera. No example uses fog, so a change
   here has to be driven deliberately to be seen at all.
 - **A pass that samples the depth it has attached must call
   `RenderPass::setDepthReadOnly(true)`.** Sampling an attachment is legal only
@@ -796,25 +782,22 @@ them, so the build-time bundle and the runtime composition share one source.
   check the bisection proves nothing), then add the files back in halves. For example, a
   camera forward vector rebuilt through a quaternion that agrees with the trig it
   replaced only to 3.6e-7 is enough to shift every pixel by a count.
-- **`common-brdf.glsl` is the twin of `common-brdf.metal` and both must change
-  together.** It owns `distributionGGX`, `getVisibilitySmithGGX` (a VISIBILITY
-  term — the `1/(4 NdotL NdotV)` is folded in, so call sites write `D * Vis * F`
-  with no division), `getFresnel` (gloss-aware, DIRECTIONAL lights only —
-  punctual lights take bare specularity), `getFresnelCC` and
-  `getVisibilityKelemen`. A shading edit that lands in one language only is a
-  backend divergence by construction, and a private copy of a BRDF term in another
-  chunk is the same divergence inside one language.
-- Keep each GLSL chunk a self-contained override target. The material-flag
-  constants and `applyUvTransform` live in `common-material-flags`, not in
-  `common-tonemap`, so a minimal tonemap override does not drop them.
+- **`forward/common-brdf.slang` owns the BRDF terms**: `distributionGGX`,
+  `getVisibilitySmithGGX` (a VISIBILITY term — the `1/(4 NdotL NdotV)` is folded in, so
+  call sites write `D * Vis * F` with no division), `getFresnel` (gloss-aware, DIRECTIONAL
+  lights only — punctual lights take bare specularity), `getFresnelCC` and
+  `getVisibilityKelemen`. A private copy of a BRDF term in another chunk is a divergence
+  between the two light loops waiting to happen.
+- Keep each chunk a self-contained override target. The material-flag constants and
+  `applyUvTransform` live in `common-material-flags`, not in `common-tonemap`, so a minimal
+  tonemap override does not drop them.
 
 **Fullscreen effects use `QuadRender`** (`scene/graphics/quadRender.h`), not
 device virtuals. Every engine quad pass is a Slang program
 (`RenderPassShaderQuad::useSlangShader(program, variant)`, the vertex stage and
-`QuadVarying` from the `vtquad` module). A hand-written MSL + GLSL quad shader still goes
+`QuadVarying` from the `vtquad` module). A custom quad pass written as MSL + GLSL goes
 through `getOrCreateQuadShader` (`quadShader.h`) with the prelude and vertex stage from
-`quadShaderSource.h`, which nothing in the engine uses any more but remains the route for a
-custom pass (`useCachedShader`). A quad pass is otherwise a shader,
+`quadShaderSource.h` (`useCachedShader`); nothing in the engine uses that route. A quad pass is otherwise a shader,
 up to 8 input textures on fragment slots 0-7, and one uniform block. The block rides the per-draw MATERIAL slot (Metal buffer 3 / Vulkan
 set 0 binding 0) via `GraphicsDevice::setQuadUniformData`; `kPerDrawUniformCapacity`
 (640; `MaterialUniforms` itself is 560 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
@@ -895,15 +878,12 @@ Each of these has cost real time, and each is self-contained — the incident th
 produced it is recorded in the local `ENGINEERING-LOG.md` where that file is
 present, but the rule below never depends on reading it.
 
-- **The SPIR-V bundle depends on EVERY file under `engine/shaders/vulkan/`**
+- **The Slang bundle depends on EVERY file under `engine/shaders/slang/`**
   (`file(GLOB_RECURSE ... CONFIGURE_DEPENDS)` in `engine/CMakeLists.txt`), so a
-  chunk or header edit regenerates it in any build that reaches the engine target,
+  chunk or module edit regenerates it in any build that reaches the engine target,
   and a new chunk file joins without a reconfigure. Do not go back to a hand list:
-  one that names only the top-level stages leaves a chunk edit unregenerated even in
-  a full build (so you measure the previous binary), and it drifts from the
-  generator's own list.
-  Note the bundle is one header included by many engine sources, and Ninja
-  rebuilds by mtime, so a comment-only chunk edit still recompiles those files.
+  one that names only the programs leaves a chunk edit unregenerated even in a full
+  build, so you measure the previous binary.
 - **A fullscreen quad's v runs DOWN the screen** (row 0 at the top, as every texture
   here), so a pass that rebuilds a view ray from its uv takes NDC y = 1 - 2v, not
   2v - 1. Upstream writes `uv * 2 - 1` because WebGL's uv0 runs up; copied as is, the
@@ -973,12 +953,10 @@ present, but the rule below never depends on reading it.
   `MetalUniformBinder::sharedDefaultBlockKey()` for a draw with no material at all, whose
   default block is uploaded once a pass (every opaque shadow caster and prepass draw
   carries it).
-- **A shader that exists in MSL and GLSL is only shared by CONVENTION.** The two
-  bodies in a `*Shaders.h` sit in separate raw strings, and a migration that
-  unified the uniform BLOCK does not unify the code: one language can carry an older,
-  cruder implementation of a stage unnoticed. Before blaming a backend's
-  lighting for a brightness gap, read the two bodies of the shader that produced
-  the pixel side by side.
+- **A custom shader written in MSL AND GLSL (`ShaderSourceSet`) is shared only by
+  CONVENTION**: the two bodies can drift and one language carry an older stage unnoticed.
+  Every engine shader is single-source for exactly this reason; before blaming a backend
+  for a gap in a custom shader's pixels, read its two bodies side by side.
 - **stb_image's vertical-flip flag is set ONLY through `StbVerticalFlipScope`**
   (`framework/assets/stbImageFlip.h`). stb keeps a global flag and a thread-local
   one, and once the thread-local flag is set on a thread it overrides the global
@@ -1409,12 +1387,12 @@ present, but the rule below never depends on reading it.
   Metal: `buffer(0..b-1)`, the uniform block at `buffer(b)`, textures at
   `texture(0..t-1)`. Vulkan set 0: bindings `0..b-1`, textures `b..b+t-1`, the
   block at `b+t`. So a kernel with BOTH buffers and textures needs different
-  indices in its MSL and its GLSL; nothing in the tree has both yet, and the one
+  `register()` and `[[vk::binding]]` indices; nothing in the tree has both yet, and the one
   shipped kernel (the particle simulation) is the case where the two agree, so the
   table in `compute.h` is the contract rather than any existing kernel. A shader
   that declares them in a different order silently reads the wrong data. Metal also
-  binds NO sampler state to a compute kernel: an MSL kernel that filters declares
-  its own `constexpr sampler`.
+  binds NO sampler state to a compute kernel: a kernel that filters on Metal needs
+  a sampler of its own.
 - **Only ONE SIMD backend compiles per target, so a defect in another one is
   invisible here.** Apple silicon selects the Apple backend; the SSE path is gated
   on `__SSE4_1__` (it uses `_mm_dp_ps` / `_mm_insert_ps`, so `__SSE__` alone could
@@ -1872,7 +1850,7 @@ present, but the rule below never depends on reading it.
   frame's HDR scene (`ParticleEmitter::setOutput`, filled per draw by the renderer like the
   splats' tail). A ramp left undecoded draws every mid-tone of a colour graph BRIGHTER than
   upstream's (a 0.5 grey at about 0.73). The kernel's randomness is an INTEGER hash (PCG of the particle
-  index and a step counter), identical in MSL and GLSL; `fract(sin(x) * 43758)` is not
+  index and a step counter), one source for both backends; `fract(sin(x) * 43758)` is not
   uniform on the GPU (a spark fountain 10% narrower than upstream) and not the same on
   the two backends. An unset graph is a CurveSet whose curves have NO KEYS — a default
   `CurveSet` still holds one empty curve, and treating that as a zero graph2 halves
@@ -2630,8 +2608,8 @@ present, but the rule below never depends on reading it.
   `Matrix4::normalMatrix()`: column i is the cross product of the other two model
   columns — the 3x3 cofactor matrix, cheaper than a 4x4 inverse — divided by the
   SIGNED determinant (their triple product); Vulkan computes the cofactor
-  matrix per vertex in `shaders/vulkan/normal_matrix.glsl`, which every vertex
-  module includes, and applies the determinant's sign explicitly. The two are
+  matrix per vertex (`cofactorNormalMatrix` in the `vtdraw` module, behind
+  `drawNormalMatrix()`), and applies the determinant's sign explicitly. The two are
   equal by construction — a cofactor matrix is the inverse transpose times the
   determinant, and the shader normalizes, so the magnitude cancels and the sign is
   all that has to be put back. Do not "simplify" either side to `mat3(model)`:
@@ -2750,7 +2728,7 @@ present, but the rule below never depends on reading it.
   through a negated-height viewport so Metal projection matrices work unchanged,
   which puts NDC +Y at the TOP row of every target, back buffer and offscreen
   alike. A point projected in a shader therefore maps to a texture coordinate
-  exactly as it does on Metal, `* vec2(0.5, -0.5) + 0.5`. A GLSL call site that
+  exactly as it does on Metal, `* vec2(0.5, -0.5) + 0.5`. A call site that
   assumes Y-down samples the grab upside down.
 - **A grab pass OWNS the texture it publishes, and the device only borrows a raw
   pointer to it.** So a grab pass is persisted across frames rather than rebuilt
@@ -2796,16 +2774,16 @@ present, but the rule below never depends on reading it.
   shadowed through its OWN slot.** DEVIATION: upstream samples every directional
   caster's map; here `ShadowParams::directional[kMaxDirectionalShadows = 2]` holds
   each shadowed light's map, cascade palette, distances and biases, the renderer
-  gives the first two directional casters slots 0 and 1 (`shadowMapIndex`, which
-  Vulkan reads from `coneParams.w` and Metal from `typeCastShadows.w`), and clears
+  gives the first two directional casters slots 0 and 1 (`shadowMapIndex`, which the
+  shader reads from the light's `coneParams.w`), and clears
   `castShadows` on any further one with a one-time warning. The FILTER is chosen
   per shader variant (`VT_FEATURE_VSM_SHADOWS` / `PCSS_SHADOWS`), so a light whose
   shadow type differs from slot 0's is refused the same way. Slot 0 has the base
-  uniforms; slot 1 is an appended block of the same layout (`shadow1*` on Metal,
-  `dirShadow1*` on Vulkan) and one shared function per language evaluates either
-  (`evaluateDirectionalShadow` in `common-shadow-pcss.metal`,
-  `sampleDirectionalShadow(slot, ...)` in `common-shadow-vsm.glsl`). Metal binds
-  slot 1's map at texture 35; on Vulkan BOTH maps are separate images (scene set
+  uniforms; slot 1 is an appended block of the same layout (`dirShadow1*`) and one function
+  evaluates either (`sampleDirectionalShadow(slot, ...)` in `forward/common-shadow-vsm.slang`,
+  called with a LITERAL slot, see the single-source section). Metal binds slot 1's map at
+  texture 35 (and both maps again at 39 / 40 as VSM moments); on Vulkan BOTH maps are
+  separate images (scene set
   bindings 1 and 22) read through the shared samplers at 12 (linear, for EVSM) and
   13 (nearest, for depth), which costs no combined sampler. Check it with
   `VISUTWIN_FILL_LIGHT=35,30,1.5,1` on `ambient-occlusion`: the fill's own shadow term
@@ -3136,14 +3114,14 @@ What stays HERE is only what bites during UNRELATED work.
   upstream's thumbnail.
 - **The cluster loop owes every material term the main light loop has.** With clustered
   lighting the default, every spot and omni light is shaded in
-  `forward-fragment-clustered.*`, not the main loop. Direct clearcoat uses `ccNormalW`
-  and the gloss-mapped `ccAlpha2` on both backends, not the base normal and the
+  `forward/forward-fragment-clustered.slang`, not the main loop. Direct clearcoat uses
+  `ccNormalW` and the gloss-mapped `ccAlpha2`, not the base normal and the
   material's flat coat roughness. Check with `VISUTWIN_LOCAL_LIGHT=6,2,1,3,15` on
   `clearcoat`: the light's contribution matches between backends to 0.00 counts on
   average. Sheen, iridescence and Oren-Nayar
   under a local light are ported line for line from the main loop but no example drives
-  them. When a term lands in one light loop, add it to the other (main, cluster) on both
-  backends. An area light's LTC terms are helpers in `common-ltc`, which both loops call.
+  them. When a term lands in one light loop, add it to the other (main, cluster). An area
+  light's LTC terms are helpers in `common-ltc`, which both loops call.
 - **Clearcoat composes as upstream's energy-conserving
   `lit * (1 - Fc * cc) + (ccDirect + ccReflection) * cc`, with a clearcoat IBL
   reflection, on both backends**, and the three clearcoat maps are on both. A SEPARATE

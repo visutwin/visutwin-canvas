@@ -49,7 +49,7 @@ the [README](README.md).
 - **3D annotations** (upstream's annotations scripts): numbered hotspots that face the camera at a constant screen size and show through occluding geometry at a reduced opacity, with hover colour and a click-to-open tooltip built from UI elements
 - **Localization**: locales with fallbacks, messages from upstream's JSON format, CLDR plural forms, and text elements that follow the locale by key
 - **SIMD math** with SSE, ARM NEON, and Apple SIMD backends (Apple SIMD active on Apple Silicon)
-- **ShaderChunks registry**: 25 named, user-overridable Metal micro-chunks with cache-invalidation hashing, plus build-time-embedded standalone shaders; the Vulkan backend compiles a parallel GLSL set (20 chunks and 19 stage programs, every file a build dependency of the bundle) to SPIR-V and drives the same 58-flag feature contract through specialization constants
+- **Single-source shaders (Slang)**: every engine shader written once and compiled at build time for both backends (31 programs, every file a build dependency of the bundle); the forward program's 23 chunks are user-overridable as Slang (per material or globally) with cache-invalidation hashing, and the 66-flag feature contract specialises one library per program on both backends
 - **XR / ARKit** framework (in development)
 
 ## Module map
@@ -69,7 +69,7 @@ Known Limitations, and `AGENTS.md` records the remaining parity items.
 | Scene / Materials | StandardMaterial with clearcoat, sheen, iridescence, transmission/dispersion/volume, anisotropy, parallax, spec-gloss, Oren-Nayar, detail normals, displacement; opacity and shadow dither |
 | Scene / Lighting | Directional/point/spot + rect/disk/sphere LTC area lights, clustered lighting with a live-resizable shadow and cookie atlas, ambient SH probes, box-projected reflection probes, volumetric fog |
 | Scene / Shadows | CSM (1 cascade default, up to 4, PSSM + blending), PCF/EVSM_16F/PCSS for directional, spot/point depth maps + omni cubemaps, PCSS on local lights, saturated receiver depth |
-| Scene / Shader-lib | 25 overridable Metal chunks, 20 GLSL chunks, 58 shared feature flags (Metal defines / Vulkan specialization constants), cache-invalidation hashing, 2 embedded MSL programs |
+| Scene / Shader-lib | Single-source Slang shaders: 31 programs compiled at build time to MSL + metallib and SPIR-V (with reflected layouts checked against the engine), 23 overridable forward chunks compiled at run time when overridden, 66 shared feature flags as Metal function constants / Vulkan specialization constants, a local-space vertex hook, cache-invalidation hashing |
 | Scene / Graphics | Camera-frame/post stack with MSAA, bloom, SSAO, TAA, multi-pass DOF, volumetric fog, compose, colour and depth grabs under both paths, environment atlas/convolution over QuadRender, HDR cubemaps, spherical harmonics |
 | Scene / GSplat | Classic 3DGS path, background depth sorting, view-dependent SH bands 1-3 on both backends, uncompressed/compressed SuperSplat PLY |
 | Graphics / Metal | Buffers/textures/pipelines, ASTC/BC formats, compute, particles/culling, post-processing, volumetric fog, environment baking, GSplat, texture streaming, GPU timestamp profiling |

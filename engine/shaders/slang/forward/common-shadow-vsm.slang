@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 07.10.2026
 //
-// ── EVSM_16F sampling (parity with common.metal getShadowVSM16) ──
+// ── EVSM_16F sampling ──
 // One-tailed Chebyshev upper bound with reduceLightBleeding(0.1), fed by
 // exponentially-warped moments (c = 5.54). Cleared pixels (moments.z == 0)
 // synthesize fully-lit moments.
@@ -56,7 +56,6 @@ float sampleCascadeVisibility(int slot, float3 coord, int cascade) {
 // cascade from blendFactor x its end distance to its end, move a growing,
 // pseudo-randomly dithered share of the fragments to the NEXT cascade, so the
 // seam between two shadow resolutions dissolves instead of drawing a line.
-// Twin of common-falloff.metal.
 int ditherShadowCascadeIndex(float4 distances, int cascadeIndex, int cascadeCount, float blendFactor, float depth) {
     if (cascadeIndex < cascadeCount - 1) {
         float currentRangeEnd = distances[cascadeIndex];
@@ -97,7 +96,7 @@ float sampleDirectionalShadow(int slot, float3 worldPos, float viewDepth, float3
     }
     // cascadeBlend is a FRACTION: it dithers the cascade pick across
     // the end of each cascade and fades the shadow out toward the shadow
-    // distance, and 0 turns both off. Twin of forward-fragment-lights.metal.
+    // distance, and 0 turns both off.
     float cascadeBlend = params2.y;
     if (cascadeBlend > 0.0) {
         cascade = ditherShadowCascadeIndex(distances, cascade, cascadeCount, cascadeBlend, viewDepth);
@@ -116,11 +115,10 @@ float sampleDirectionalShadow(int slot, float3 worldPos, float viewDepth, float3
         return 1.0;
     }
     float3 coord = sc.xyz / sc.w;
-    // The receiver's depth is SATURATED, not range-tested (twin of the block in
-    // forward-fragment-lights.metal). The shadow camera's near and far are
-    // fitted to the CASTERS each frame, so a receiver that is not itself a
-    // caster — a ground plane, or anything further along the light than the
-    // last caster — projects to z > 1. Rejecting it left such receivers
+    // The receiver's depth is SATURATED, not range-tested. The shadow camera's
+    // near and far are fitted to the CASTERS each frame, so a receiver that is
+    // not itself a caster — a ground plane, or anything further along the light
+    // than the last caster — projects to z > 1. Rejecting it left such receivers
     // unshadowed, and cut a shadow off along a straight line wherever the fit
     // ended inside it, a line that moved with the casters' bounds every frame.
     // Clamped to 1 it reads the cleared map (1.0) as lit and any caster in
@@ -138,8 +136,7 @@ float sampleDirectionalShadow(int slot, float3 worldPos, float viewDepth, float3
 
     // PCF (mode 1) or EVSM Chebyshev (mode 2), scaled by shadow strength.
     // PCSS replaces the PCF tap when the shader is specialized for it — a light
-    // has exactly one shadow type, so VSM and PCSS are mutually exclusive and
-    // the ordering here matches the Metal chunk's #if/#elif chain.
+    // has exactly one shadow type, so VSM and PCSS are mutually exclusive.
     float visible = sampleCascadeVisibility(slot, coord, cascade);
     float shadowFactor = lerp(1.0, visible, params.w);
 
@@ -175,7 +172,7 @@ float sampleSpotShadow(int slot, float3 worldPos, float3 N, float3 L, float ligh
     // A VSM spot (pcss.w): no normal offset.
     bool vsm = pc.w > 0.5;
 
-    // World-space normal bias, scaled by grazing angle (matches Metal).
+    // World-space normal bias, scaled by grazing angle.
     float ndl = clamp(dot(N, L), 0.0, 1.0);
     float sinAngle = sqrt(max(1.0 - ndl * ndl, 0.0));
     float3 biased = vsm ? worldPos : worldPos + N * (sp.y * sinAngle);
@@ -234,16 +231,16 @@ float sampleOmniShadow(int slot, float3 worldPos, float3 lightPos) {
             : getShadowPCSSOmni(omniShadowCube1, dir, pc.x, pc.y, pc.z, bias);
     } else {
         float d = max(abs(dir.x), max(abs(dir.y), abs(dir.z)));
-        // Relative bias applied before the projection — see the matching comment in
-        // forward-fragment-lights.metal: perspective depth is crushed against 1.0 at
-        // these ranges, so a fixed post-projection offset swallows real shadows.
+        // Relative bias applied before the projection: perspective depth is crushed
+        // against 1.0 at these ranges, so a fixed post-projection offset swallows real
+        // shadows.
         float dBiased = d * (1.0 - bias);
         float denom = (farV - nearV) * dBiased;
         float compareValue = farV * (dBiased - nearV) / max(denom, 1e-6);
 
-        // Four diagonal taps around the sample direction. Metal gets bilinear filtering for free from a hardware
-        // sample_compare; a plain .Sample().r fetch here does not, so a single tap
-        // left point-light shadows visibly stair-stepped on this backend alone.
+        // Four diagonal taps around the sample direction. A point fetch of the map
+        // gets no bilinear filtering, so a single tap left point-light shadows
+        // visibly stair-stepped.
         float3 t0 = normalize(dir);
         float3 up = abs(t0.y) < 0.999 ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
         float3 tx = normalize(cross(up, t0));

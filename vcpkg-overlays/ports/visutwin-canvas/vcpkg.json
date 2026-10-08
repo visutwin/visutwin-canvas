@@ -18,6 +18,7 @@
     "boost-core",
     { "name": "imgui", "features": ["sdl3-binding", { "name": "metal-binding", "platform": "osx" }, "docking-experimental"] },
     "implot",
+    "shader-slang",
     { "name": "vcpkg-cmake", "host": true },
     { "name": "vcpkg-cmake-config", "host": true }
   ],
@@ -38,8 +39,7 @@
         "vulkan-headers",
         "vulkan-memory-allocator",
         "vk-bootstrap",
-        "shaderc",
-        "spirv-cross"
+        "shaderc"
       ]
     }
   }

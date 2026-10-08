@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 07.10.2026
 //
-// ── Tonemapping (parity with the Metal common.metal toneMap dispatch) ──
+// ── Tonemapping ──
 // Modes match scene/constants.h: 0=linear, 1=filmic, 2=hejl, 3=aces,
 // 4=aces2, 5=neutral, 6=none. Applied before display-gamma encode.
 
@@ -39,8 +39,8 @@ float3 RRTAndODTFit(float3 v) {
 }
 
 float3 toneMapAces2(float3 color) {
-    // GLSL float3x3 constructors take COLUMNS; these are the transposes of the
-    // row-major matrices in common.metal (which multiplies vector * matrix).
+    // Slang float3x3 constructors take ROWS and mul(v, M) multiplies a row vector,
+    // so each line below is a COLUMN of the published ACES fit matrix (M * v).
     const float3x3 ACESInputMat = float3x3(
         0.59719, 0.07600, 0.02840,
         0.35458, 0.90834, 0.13383,
@@ -81,10 +81,9 @@ float3 toneMapByMode(float3 color, int mode) {
     return color; // LINEAR (0) and NONE (6): exposure only
 }
 
-// Exposure then tonemap, by mode — the twin of common-tonemap.metal's toneMap(color,
-// exposure, mode). NONE (6) returns the colour UNTOUCHED, exposure included.
-// Callers pass exposure here rather than multiplying
-// by it first, or NONE would apply exposure on Vulkan alone.
+// Exposure then tonemap, by mode. NONE (6) returns the colour UNTOUCHED, exposure
+// included. Callers pass exposure here rather than multiplying by it first, or NONE
+// would apply exposure.
 float3 toneMapExposed(float3 color, float exposure, int mode) {
     if (mode == 6) {
         return color;

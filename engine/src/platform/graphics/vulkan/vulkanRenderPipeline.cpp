@@ -12,7 +12,6 @@
 #include "vulkanGraphicsDevice.h"
 #include "vulkanShader.h"
 #include "vulkanUtils.h"
-#include "vulkan/vulkan_shader_bundle.h"
 
 #include <stdexcept>
 
@@ -24,87 +23,76 @@
 #include "platform/graphics/vertexFormat.h"
 #include "scene/materials/material.h"
 #include "scene/mesh.h"
+#include "scene/shader-lib/slangShaders.h"
 #include "spdlog/spdlog.h"
 
 namespace visutwin::canvas
 {
     namespace
     {
-        void validateGeneratedForwardLayout()
+        /// The forward and shadow programs' reflected layouts (every entry point, from the
+        /// Slang bundle) against the engine's descriptor contract: the material block at set
+        /// 0, the material maps at set 1 exactly as kMaterialTextureBindings, the lighting
+        /// block at set 2, the scene textures at set 3 with the kind the layout gives each,
+        /// the skinning and morph buffers at set 4, the cluster buffers at set 5, and a
+        /// 128-byte push block. A shader that declares anything else is a descriptor mismatch
+        /// validation reports only at draw time, or silently reads another binding.
+        void validateForwardLayout()
         {
-            using namespace vulkan_generated;
-            static_assert(kForwardVertPushConstantSize == 128);
-            static_assert(kForwardInstancedVertPushConstantSize == 128);
-            static_assert(kForwardDynamicBatchVertPushConstantSize == 128);
-            static_assert(kForwardSkinnedVertPushConstantSize == 128);
-            static_assert(kForwardMorphedVertPushConstantSize == 128);
-            static_assert(kForwardSkinnedMorphedVertPushConstantSize == 128);
-            static_assert(kForwardSkyVertPushConstantSize == 128);
-            static_assert(kForwardColorVertPushConstantSize == 128);
-            static_assert(kForwardPointVertPushConstantSize == 128);
             static_assert(sizeof(VulkanLightingUBO) == 2896);
-            static_assert(
-                offsetof(MaterialUniforms, emissiveTransform1) +
-                    sizeof(float) * 4 ==
-                224);
-            // The cross-language size check moved into the bundle generator, which
-            // compares the SPIR-V reflection against the size computed from
-            // materialUniformFields.h. What is worth asserting here is the layout
-            // invariant that makes one field list valid for MSL and std140 at once.
-            // NOTE: the struct is a plain aggregate (no alignas), so alignof is 4.
-            // The layout works because every vec4 in the field list lands on a
-            // 16-byte offset by construction — which is exactly what this checks.
+            static_assert(offsetof(MaterialUniforms, emissiveTransform1) + sizeof(float) * 4 == 224);
+            // NOTE: the struct is a plain aggregate (no alignas), so alignof is 4. The
+            // layout works because every vec4 in the field list lands on a 16-byte offset by
+            // construction — which is exactly what this checks.
             static_assert(sizeof(MaterialUniforms) % 16 == 0);
-            // Keep engine/shaders/vulkan/forward.{frag,vert} in step — the block
-            // size is reflected out of the SPIR-V and compared just below.
 
-            for (const auto& reflected : kForwardFragBindings) {
-                const bool uniform =
-                    reflected.kind == ReflectedDescriptorKind::UniformBuffer;
-                const bool sampler = reflected.kind ==
-                    ReflectedDescriptorKind::CombinedImageSampler;
-                const bool separateImage = reflected.kind ==
-                    ReflectedDescriptorKind::SampledImage;
-                const bool separateSampler = reflected.kind ==
-                    ReflectedDescriptorKind::Sampler;
-                const bool validMaterial =
-                    reflected.set == 0 && reflected.binding == 0 && uniform &&
-                    reflected.blockSize == sizeof(MaterialUniforms);
-                const bool validLighting =
-                    reflected.set == 2 && reflected.binding == 0 && uniform &&
-                    reflected.blockSize == sizeof(VulkanLightingUBO);
-                // Set 1 is exactly kMaterialTextureBindings: a binding outside the list
-                // has no descriptor in the layout.
-                const bool validMaterialTexture =
-                    reflected.set == 1 &&
-                    std::find(kMaterialTextureBindings.begin(), kMaterialTextureBindings.end(),
-                        reflected.binding) != kMaterialTextureBindings.end() &&
-                    (sampler || separateImage || separateSampler);
-                // A scene binding must be declared with the type the layout gives
-                // it: a shader declaring binding 1 as a combined sampler against a
-                // layout that says separate image is a descriptor mismatch that
-                // validation only reports at draw time.
-                const VkDescriptorType sceneType = vulkanSceneDescriptorType(reflected.binding);
-                const bool validSceneTexture =
-                    reflected.set == 3 && reflected.binding < kSceneTextureBindingCount &&
-                    ((sampler && sceneType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) ||
-                     (separateImage && sceneType == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) ||
-                     (separateSampler && sceneType == VK_DESCRIPTOR_TYPE_SAMPLER));
-                const bool validGeometry =
-                    reflected.set == 4 &&
-                    ((reflected.binding < 2 &&
-                      reflected.kind == ReflectedDescriptorKind::StorageBuffer) ||
-                     (reflected.binding == 2 && uniform &&
-                      reflected.blockSize == 80));
-                const bool validCluster =
-                    reflected.set == 5 && reflected.binding < 2 &&
-                    reflected.kind == ReflectedDescriptorKind::StorageBuffer;
-                if (!validMaterial && !validLighting &&
-                    !validMaterialTexture && !validSceneTexture &&
-                    !validGeometry && !validCluster) {
-                    throw std::runtime_error(
-                        "VulkanRenderPipeline: reflected shader layout is "
-                        "incompatible with the engine descriptor contract");
+            for (const char* programName : {"forward", "shadow"}) {
+                SlangBundledProgram program;
+                if (!findBundledSlangProgram(programName, program)) {
+                    continue;   // no bundle (the runtime compile path): nothing reflected to check
+                }
+                for (const auto& entry : program.entries) {
+                    if (entry.stage == "vertex" && entry.pushConstantBytes != 128) {
+                        throw std::runtime_error("VulkanRenderPipeline: the " + std::string(entry.name) +
+                            " push block is not 128 bytes");
+                    }
+                    for (const auto& reflected : entry.bindings) {
+                        const bool uniform = reflected.kind == SlangDescriptorKind::UniformBuffer;
+                        const bool sampler = reflected.kind == SlangDescriptorKind::CombinedImageSampler;
+                        const bool separateImage = reflected.kind == SlangDescriptorKind::SampledImage;
+                        const bool separateSampler = reflected.kind == SlangDescriptorKind::Sampler;
+                        const bool storage = reflected.kind == SlangDescriptorKind::StorageBuffer;
+                        const bool validMaterial = reflected.set == 0 && reflected.binding == 0 && uniform &&
+                            reflected.blockBytes == sizeof(MaterialUniforms);
+                        const bool validLighting = reflected.set == 2 && reflected.binding == 0 && uniform &&
+                            reflected.blockBytes == sizeof(VulkanLightingUBO);
+                        // Set 1 is exactly kMaterialTextureBindings: a binding outside the list
+                        // has no descriptor in the layout.
+                        const bool validMaterialTexture = reflected.set == 1 &&
+                            std::find(kMaterialTextureBindings.begin(), kMaterialTextureBindings.end(),
+                                reflected.binding) != kMaterialTextureBindings.end() &&
+                            (sampler || separateImage || separateSampler);
+                        // A scene binding must be declared with the type the layout gives it.
+                        const bool validSceneTexture = reflected.set == 3 &&
+                            reflected.binding < kSceneTextureBindingCount && [&] {
+                                const VkDescriptorType type = vulkanSceneDescriptorType(reflected.binding);
+                                return (sampler && type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) ||
+                                    (separateImage && type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) ||
+                                    (separateSampler && type == VK_DESCRIPTOR_TYPE_SAMPLER);
+                            }();
+                        const bool validGeometry = reflected.set == 4 &&
+                            ((reflected.binding < 2 && storage) ||
+                             (reflected.binding == 2 && uniform && reflected.blockBytes == 80));
+                        const bool validCluster = reflected.set == 5 && reflected.binding < 2 && storage;
+                        if (!validMaterial && !validLighting && !validMaterialTexture && !validSceneTexture &&
+                            !validGeometry && !validCluster) {
+                            throw std::runtime_error("VulkanRenderPipeline: " + std::string(programName) + ":" +
+                                std::string(entry.name) + " declares '" + std::string(reflected.name) +
+                                "' at set " + std::to_string(reflected.set) + " binding " +
+                                std::to_string(reflected.binding) +
+                                ", which the engine descriptor contract does not have");
+                        }
+                    }
                 }
             }
         }
@@ -254,7 +242,7 @@ namespace visutwin::canvas
         : _device(device)
     {
         try {
-            validateGeneratedForwardLayout();
+            validateForwardLayout();
             createLayouts();
         } catch (...) {
             destroy();

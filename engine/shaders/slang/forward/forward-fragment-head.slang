@@ -6,7 +6,7 @@
 // The forward program's declarations: the per-draw material and per-pass lighting blocks,
 // every texture and sampler the fragment stage reads, the cluster buffers, and the helpers
 // the chunks share. Composed first (programs/forward.slang); every later chunk reads these
-// globals by name, as the GLSL chunks did.
+// globals by name.
 //
 // Bindings carry both backends' slots: register() is the Metal one, [[vk::binding]] the
 // Vulkan one (see the binding table, platform/graphics/shaderBindings.h). Where the two
@@ -272,9 +272,9 @@ static const uint VT_DEBUGPASS_EMISSION    = 8u;
 static const uint VT_DEBUGPASS_LIGHTING    = 9u;
 static const uint VT_DEBUGPASS_UV0         = 10u;
 
-// ---- The varyings every forward vertex entry writes (locations 0-6 as the GLSL stages had
-// them). modelScale is the model's per-axis world scale, which dynamic refraction scales its
-// offset by: the vertex stage computes it once, flat. ----
+// ---- The varyings every forward vertex entry writes (locations 0-6). modelScale is the
+// model's per-axis world scale, which dynamic refraction scales its offset by: the vertex
+// stage computes it once, flat. ----
 struct ForwardVarying
 {
     float4 position : SV_Position;

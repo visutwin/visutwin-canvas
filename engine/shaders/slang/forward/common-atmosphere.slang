@@ -4,7 +4,7 @@
 // Created by Arnis Lektauers on 07.10.2026
 //
 
-// ── Nishita single-scattering atmosphere (parity with common-atmosphere.metal) ──
+// ── Nishita single-scattering atmosphere ──
 // Ray-sphere intersection. Returns (tNear, tFar), or (-1, -1) when there is no hit.
 float2 raySphereIntersect(float3 rayOrigin, float3 rayDir, float3 sphereCenter, float sphereRadius) {
     float3 oc = rayOrigin - sphereCenter;
@@ -52,9 +52,8 @@ float3 nishitaScatter(float3 viewDir) {
     float tEndN = hitsGround ? planetHit.x : atmoHit.y;
     if (tEndN <= tStartN) return float3(0.0);
 
-    // Step counts are compile-time constants here, exactly as in the Metal
-    // chunk — cameraAltitudeAndParams.yz carry the same values but a dynamic
-    // loop bound would cost more than it buys.
+    // Step counts are compile-time constants here — cameraAltitudeAndParams.yz
+    // carry the same values but a dynamic loop bound would cost more than it buys.
     const int kPrimarySteps = 32;
     const int kSecondarySteps = 8;
     float segLenN = (tEndN - tStartN) / float(kPrimarySteps);
@@ -130,6 +129,6 @@ float3 nishitaScatter(float3 viewDir) {
 }
 
 // The BRDF terms (distributionGGX, the Smith visibility, the Fresnel) live in
-// common-brdf.glsl, the twin of common-brdf.metal. Do not define local variants
-// here: a second spelling is a backend divergence by construction.
+// common-brdf.slang. Do not define local variants here: a second spelling is a
+// divergence by construction.
 

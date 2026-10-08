@@ -5,25 +5,25 @@
 //
 // Shader composition contracts that only ever broke silently:
 //
-//  - The Vulkan fragment shader exists twice: forward.frag #includes the chunks at build
-//    time, ProgramLibrary composes them at run time when an override is set. The two
-//    ORDERS must agree, or an override build differs from the bundled shader in ways no
-//    single render reveals.
-//  - Every chunk a program registers exists in that language's defaults.
-//  - A chunk resolves material override > registry override > default.
+//  - The forward chunk registry is the files the forward and shadow programs #include:
+//    every chunk they include is in it, and every chunk in it is included by one of them
+//    (an override of a chunk nobody includes would change nothing, and say nothing).
+//  - A chunk override resolves material > registry > default, as the files the program is
+//    compiled with.
 //  - A variant's key changes exactly when an override that feeds it changes, so a new
 //    override compiles a new variant and an unchanged one reuses the cache.
 //  - useLighting(false) keeps the lit pipeline with no lights (VT_FEATURE_NO_LIGHTS, no
 //    clustered lights), setUnlit is the fully unlit path, and vertex colours are linear
 //    unless vertexColorGamma (or variant bit 35) says otherwise.
 //
-// CPU only: a stub device answers the shader language, and nothing is compiled.
+// CPU only: nothing is compiled.
 
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <memory>
 #include <regex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -37,14 +37,9 @@ namespace visutwin::canvas
     // The seam ProgramLibrary befriends for this test.
     struct ProgramLibraryTestAccess
     {
-        static const std::vector<std::string>* chunkOrder(const ProgramLibrary& library, const std::string& program)
+        static SlangFileOverrides overrides(const ProgramLibrary& library, const Material* material)
         {
-            const auto it = library._registeredPrograms.find(program);
-            return it == library._registeredPrograms.end() ? nullptr : &it->second;
-        }
-        static std::string composeGlsl(ProgramLibrary& library, const std::string& program, const Material* material)
-        {
-            return library.composeProgramVariantGlslSource(program, material);
+            return library.chunkOverrides(material);
         }
         static ProgramLibrary::VariantKey key(const ProgramLibrary& library, const Material* material)
         {
@@ -59,28 +54,29 @@ using namespace visutwin::canvas::test;
 
 namespace
 {
-    class StubDevice final : public StubGraphicsDevice
-    {
-    public:
-        explicit StubDevice(const ShaderLanguage language) : _language(language) {}
-        ShaderLanguage shaderLanguage() const override { return _language; }
-    private:
-        ShaderLanguage _language;
-    };
-
-    std::vector<std::string> forwardFragIncludes(const std::filesystem::path& file)
+    // The forward chunks a file includes, transitively ("forward/<name>.slang").
+    void forwardIncludes(const std::filesystem::path& slangRoot, const std::filesystem::path& file,
+        std::set<std::string>& names)
     {
         std::ifstream in(file);
-        std::vector<std::string> names;
-        const std::regex include(R"re(#include\s+"chunks/([A-Za-z0-9_-]+)\.glsl")re");
+        const std::regex include(R"re(#include\s+"forward/([A-Za-z0-9_-]+)\.slang")re");
         std::string line;
         while (std::getline(in, line)) {
             std::smatch m;
-            if (std::regex_search(line, m, include)) {
-                names.push_back(m[1]);
+            if (std::regex_search(line, m, include) && names.insert(m[1]).second) {
+                forwardIncludes(slangRoot, slangRoot / "forward" / (std::string(m[1]) + ".slang"), names);
             }
         }
-        return names;
+    }
+
+    const std::string* overrideFor(const SlangFileOverrides& overrides, const std::string& file)
+    {
+        for (const auto& [name, source] : overrides) {
+            if (name == file) {
+                return &source;
+            }
+        }
+        return nullptr;
     }
 }
 
@@ -88,52 +84,51 @@ int main()
 {
     std::cout << std::unitbuf;
 
-    auto glslDevice = std::make_shared<StubDevice>(ShaderLanguage::Glsl);
-    ProgramLibrary glsl(glslDevice);
-    auto mslDevice = std::make_shared<StubDevice>(ShaderLanguage::Msl);
-    ProgramLibrary msl(mslDevice);
+    auto device = std::make_shared<StubGraphicsDevice>();
+    ProgramLibrary msl(device);
 
-    std::cout << "the two Vulkan compositions agree\n";
-    const auto forwardFrag = glsl.chunks().rootPath().parent_path() / "forward.frag";
-    const auto includes = forwardFragIncludes(forwardFrag);
-    const auto* forward = ProgramLibraryTestAccess::chunkOrder(glsl, "forward");
-    const auto* skybox = ProgramLibraryTestAccess::chunkOrder(glsl, "skybox");
-    check(!includes.empty(), "forward.frag lists its chunks (" + forwardFrag.string() + ")");
-    check(forward && *forward == includes, "ProgramLibrary's GLSL 'forward' order is forward.frag's #include order");
-    check(skybox && *skybox == includes, "and 'skybox' shares it");
-
-    std::cout << "\nevery registered chunk exists\n";
-    for (const auto& [library, language] : {std::pair{&glsl, "GLSL"}, std::pair{&msl, "MSL"}}) {
-        for (const char* program : {"forward", "skybox", "shadow"}) {
-            const auto* order = ProgramLibraryTestAccess::chunkOrder(*library, program);
-            if (!order) {
-                continue;   // GLSL registers no "shadow"
-            }
-            bool all = true;
-            for (const auto& name : *order) {
-                if (!library->chunks().has(name)) {
-                    all = false;
-                    std::cout << "        missing " << language << " chunk '" << name << "'\n";
-                }
-            }
-            check(all, std::string(language) + " '" + program + "': every chunk it names is in the defaults");
+    std::cout << "the registry is the programs' chunks\n";
+    {
+        const auto slangRoot = msl.chunks().rootPath().parent_path();
+        std::set<std::string> included;
+        for (const char* program : {"forward", "shadow"}) {
+            forwardIncludes(slangRoot, slangRoot / "programs" / (std::string(program) + ".slang"), included);
         }
+        const auto names = msl.chunks().names();
+        check(!names.empty() && !included.empty(), "the chunks and the programs are found (" + slangRoot.string() + ")");
+        bool allIncluded = true;
+        for (const auto& name : names) {
+            if (!included.count(name)) {
+                allIncluded = false;
+                std::cout << "        '" << name << "' is in the registry but no program includes it\n";
+            }
+        }
+        check(allIncluded, "every chunk in the registry is included by the forward or shadow program");
+        bool allKnown = true;
+        for (const auto& name : included) {
+            if (!msl.chunks().has(name)) {
+                allKnown = false;
+                std::cout << "        '" << name << "' is included but not in the registry\n";
+            }
+        }
+        check(allKnown, "and every chunk they include is in the registry");
+        check(included.count("forward-vertex-local") == 1, "including the local-space vertex hook");
     }
 
-    std::cout << "\noverride precedence in the composed source\n";
+    std::cout << "\noverride precedence\n";
     {
-        const std::string defaultSource = ProgramLibraryTestAccess::composeGlsl(glsl, "forward", nullptr);
-        glsl.chunks().set("common-dither", "// REGISTRY-OVERRIDE\n");
+        check(ProgramLibraryTestAccess::overrides(msl, nullptr).empty(), "no override, no file replaced");
+        msl.chunks().set("common-dither", "// REGISTRY-OVERRIDE\n");
         StandardMaterial material;
         material.setShaderChunk("common-dither", "// MATERIAL-OVERRIDE\n");
-        const std::string withMaterial = ProgramLibraryTestAccess::composeGlsl(glsl, "forward", &material);
-        const std::string withRegistry = ProgramLibraryTestAccess::composeGlsl(glsl, "forward", nullptr);
-        check(withMaterial.find("MATERIAL-OVERRIDE") != std::string::npos &&
-              withMaterial.find("REGISTRY-OVERRIDE") == std::string::npos, "a material override beats the registry's");
-        check(withRegistry.find("REGISTRY-OVERRIDE") != std::string::npos, "the registry's beats the default");
-        glsl.chunks().remove("common-dither");
-        check(ProgramLibraryTestAccess::composeGlsl(glsl, "forward", nullptr) == defaultSource,
-            "removing it gives the default back, byte for byte");
+        const auto withMaterial = ProgramLibraryTestAccess::overrides(msl, &material);
+        const auto withRegistry = ProgramLibraryTestAccess::overrides(msl, nullptr);
+        const auto* m = overrideFor(withMaterial, "common-dither.slang");
+        const auto* r = overrideFor(withRegistry, "common-dither.slang");
+        check(m && *m == "// MATERIAL-OVERRIDE\n", "a material override beats the registry's");
+        check(r && *r == "// REGISTRY-OVERRIDE\n", "the registry's replaces the default file");
+        msl.chunks().remove("common-dither");
+        check(ProgramLibraryTestAccess::overrides(msl, nullptr).empty(), "removing it gives the default back");
     }
 
     std::cout << "\nvariant keys\n";

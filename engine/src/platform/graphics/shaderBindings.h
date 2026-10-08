@@ -9,8 +9,8 @@
 //     the six material maps that carry their own sampler (kMaterialSamplerTextureSlots);
 //   - Vulkan: kMaterialTextureBindings (set 1, in QUAD SLOT ORDER), the separate-image
 //     predicate, kSceneTextureBindingCount and vulkanSceneDescriptorType (set 3);
-//   - the shader-bundle validator's expected descriptor table
-//     (tools/generate_vulkan_shader_bundle.py parses this header);
+//   - Vulkan's validateForwardLayout, which holds the forward and shadow programs'
+//     reflected bindings to the set-1 and set-3 rows;
 //   - the generated Slang declarations (tools/generate_shader_bindings.py ->
 //     bindings.slang), where a declaration carries BOTH `register(tN)`, the Metal slot,
 //     and `[[vk::binding(b, set)]]`, the Vulkan one.

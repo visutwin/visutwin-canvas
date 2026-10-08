@@ -39,8 +39,7 @@
         { "name": "vulkan-headers"           },
         { "name": "vulkan-memory-allocator"  },
         { "name": "vk-bootstrap"             },
-        { "name": "shaderc"                  },
-        { "name": "spirv-cross"              }
+        { "name": "shaderc"                  }
       ]
     }
   },

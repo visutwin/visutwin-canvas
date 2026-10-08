@@ -19,7 +19,7 @@
                 ClusterLight cl = clusterLights[index1 - 1u];
                 // The light's mask bits (areaHalfHeight.w: 1 affects dynamic meshes, 2
                 // lightmapped ones) against the bit this draw accepts, from its
-                // mesh-instance mask (see the Metal twin).
+                // mesh-instance mask.
                 if ((uint(cl.areaHalfHeight.w + 0.5) & lighting.clusterParams2.y) == 0u) continue;
                 float3 delta = cl.positionRange.xyz - fragWorldPos;
                 float distance = length(delta);
@@ -40,16 +40,15 @@
 
                 // Clustered shadow: each shadow-casting light owns a rect of the
                 // atlas. shadowData = {castShadows, normalOffsetBias, intensity,
-                // 1 spot / 2 omni}. Mirrors forward-fragment-clustered.metal: a
-                // receiver normal offset and an intensity blend; a spot projects
-                // through its viewport-aware VP with NO depth bias (the atlas pass
-                // biases on render, and this projection's depth is far too crushed
-                // for a shader bias to be harmless), an omni picks a cube face from
-                // the direction and takes the cubemap path's relative bias.
+                // 1 spot / 2 omni}: a receiver normal offset and an intensity
+                // blend; a spot projects through its viewport-aware VP with NO depth
+                // bias (the atlas pass biases on render, and this projection's depth
+                // is far too crushed for a shader bias to be harmless), an omni picks
+                // a cube face from the direction and takes the cubemap path's
+                // relative bias.
                 if (cl.shadowData.x > 0.5) {
                     if (cl.shadowData.w > 1.5) {
-                        // Omni receiver offset
-                        // (see the Metal twin): geometric normal * normalBias *
+                        // Omni receiver offset: geometric normal * normalBias *
                         // (1 - NdotL) * distance to the light.
                         float3 Ng = normalize(fragWorldNormal);
                         if (dot(Ng, N) < 0.0) Ng = -Ng;
@@ -73,7 +72,7 @@
                     }
                 }
 
-                // Clustered cookie (see the Metal twin): params.w is 0 for none, else
+                // Clustered cookie: params.w is 0 for none, else
                 // (CookieChannel + 1) * 2 + intensity; read through the shadow's own
                 // projection (spot) or face pick (omni), in the cookie atlas.
                 float3 cookieMask = float3(1.0);
@@ -126,7 +125,7 @@
                 float3 H = normalize(L + V);
                 float nh = max(dot(N, H), 0.0);
                 float vh = max(dot(V, H), 0.0);
-                // Same BRDF as the non-clustered loop (common-brdf.glsl). Clustered
+                // Same BRDF as the non-clustered loop (common-brdf.slang). Clustered
                 // lights are punctual, so the Fresnel is bare specularity — the
                 // gloss-aware curve is the directional case only.
                 float D = distributionGGX(nh, roughness);
@@ -143,10 +142,10 @@
                 float3 radiance = cl.colorIntensity.rgb *
                     cl.colorIntensity.w * atten * cookieMask;
                 // Oren-Nayar, iridescence, clearcoat and sheen below are the main
-                // loop's terms (forward-fragment-lights.glsl), and the Metal twin has
-                // all four. With clustered lighting the default, this is the loop
-                // EVERY spot and omni light goes through, so a term missing here is
-                // missing under every local light.
+                // loop's terms (forward-fragment-lights.slang). With clustered
+                // lighting the default, this is the loop EVERY spot and omni light
+                // goes through, so a term missing here is missing under every local
+                // light.
                 float diffuseTerm = 1.0;
                 if (vtFeatureEnabled(VT_FEATURE_OREN_NAYAR_BIT)) {
                     float sigma2 = roughness * roughness;
@@ -169,9 +168,8 @@
                 bakeDiffuseLight += diffuseTerm * radiance * nl;
                 bakeDirectLight += diffuseTerm * radiance * nl;
                 if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
-                    // Nothing from a light behind the SURFACE, the coat included, as
-                    // Metal skips the whole light there; every other term here already
-                    // carries the surface's NdotL.
+                    // Nothing from a light behind the SURFACE, the coat included; every
+                    // other term here already carries the surface's NdotL.
                     float ccNdotL = max(dot(ccNormalW, L), 0.0);
                     if (nl > 0.0 && ccNdotL > 0.0) {
                         float ccNdotH = max(dot(ccNormalW, H), 0.0);

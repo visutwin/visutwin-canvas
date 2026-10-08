@@ -181,19 +181,9 @@ if(VISUTWIN_BACKEND_VULKAN)
     find_package(Vulkan REQUIRED)
     find_package(VulkanMemoryAllocator CONFIG REQUIRED)
     find_package(vk-bootstrap CONFIG REQUIRED)
-    find_package(Python3 COMPONENTS Interpreter REQUIRED)
-    # Optional runtime compiler for user-provided GLSL. Engine shader modules
-    # are always compiled and reflected at build time below.
+    # Optional runtime compiler for custom GLSL (ShaderMaterial, a custom quad pass, an
+    # application's own shaders). The engine's programs are Slang, compiled at build time.
     find_package(unofficial-shaderc CONFIG QUIET)
-
-    if(NOT Vulkan_GLSLC_EXECUTABLE)
-        find_program(Vulkan_GLSLC_EXECUTABLE NAMES glslc REQUIRED)
-    endif()
-    find_program(VISUTWIN_SPIRV_CROSS_EXECUTABLE
-        NAMES spirv-cross
-        HINTS
-            "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools/spirv-cross"
-        REQUIRED)
 endif()
 
 # ── Source collection ─────────────────────────────────────────────────
@@ -212,8 +202,9 @@ endif()
 # ── The Slang binding declarations ───────────────────────────────────
 # bindings.slang is generated from the binding table (shaderBindings.h): one declaration
 # macro per texture slot carrying both the Metal slot (register) and the Vulkan binding
-# (vk::binding). Nothing consumes it yet; it is the single source the Slang shader
-# modules will declare their bindings from. Backend-independent.
+# (vk::binding), the MaterialData block from materialUniformFields.h and the feature words
+# from shaderFeatures.h. Every Slang program declares its bindings from it.
+# Backend-independent.
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 set(_SLANG_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/slang")
 set(_SLANG_BINDINGS "${_SLANG_GENERATED_DIR}/bindings.slang")
@@ -238,10 +229,12 @@ add_custom_target(visutwin-shader-bindings ALL DEPENDS "${_SLANG_BINDINGS}")
 
 # ── The Slang shader bundle ──────────────────────────────────────────
 # Every program under engine/shaders/slang/programs is compiled by slangc (the vcpkg
-# shader-slang port's) to the targets this build's backends take — MSL source for Metal,
-# SPIR-V per entry point for Vulkan — and embedded in one generated header with the
-# bindings.slang text (the runtime override compile serves it from memory). Every file
-# under the slang directory is a dependency, as for the Vulkan bundle.
+# shader-slang port's) to the targets this build's backends take — MSL source and a metallib
+# for Metal, SPIR-V and its reflected layout per entry point for Vulkan — and embedded in one
+# generated header with the bindings.slang text (the runtime override compile serves it from
+# memory). EVERY file under the slang directory is a dependency (CONFIGURE_DEPENDS globbing,
+# so a new chunk joins without a reconfigure): a hand list that missed a chunk would leave an
+# edit to it unbuilt, and the next run would measure the previous shader.
 if(VISUTWIN_SHADER_SLANG)
     find_program(VISUTWIN_SLANGC_EXECUTABLE
         NAMES slangc
@@ -276,57 +269,6 @@ if(VISUTWIN_SHADER_SLANG)
         VERBATIM
     )
     add_custom_target(visutwin-slang-shaders DEPENDS "${_SLANG_BUNDLE}")
-endif()
-
-# ── Build-time Vulkan shader bundle ──────────────────────────────────
-# GLSL is compiled before C++ and reflected by SPIRV-Cross. The generator
-# validates descriptor sets, uniform block sizes, and push constants, then
-# embeds both SPIR-V and its reflected layout manifest in one generated header.
-if(VISUTWIN_BACKEND_VULKAN)
-    set(_VK_SHADER_DIR "${VISUTWIN_ROOT_DIR}/engine/shaders/vulkan")
-    set(_VK_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/vulkan")
-    set(_VK_SHADER_BUNDLE "${_VK_GENERATED_DIR}/vulkan_shader_bundle.h")
-    # EVERY file under the shader directory is a dependency of the bundle: the
-    # top-level stages, the chunks forward.frag #includes, and the shared .glsl
-    # headers (normal_matrix, shadow_opacity). This used to be a hand-written list
-    # of the top-level files only, so editing a chunk or a header did not
-    # regenerate the bundle even in a full build — the next run measured the
-    # previous binary — and the list had already drifted from the generator's
-    # (shadow.frag was compiled but not listed). CONFIGURE_DEPENDS makes Ninja
-    # re-glob at build time, so a new chunk file joins without a reconfigure.
-    # Nothing outside this directory is #included: the generator's -I paths are
-    # this directory and its own work dir, whose files it writes itself.
-    file(GLOB_RECURSE _VK_SHADER_SOURCES CONFIGURE_DEPENDS
-        "${_VK_SHADER_DIR}/*.vert"
-        "${_VK_SHADER_DIR}/*.frag"
-        "${_VK_SHADER_DIR}/*.comp"
-        "${_VK_SHADER_DIR}/*.glsl"
-    )
-    add_custom_command(
-        OUTPUT "${_VK_SHADER_BUNDLE}"
-        COMMAND "${Python3_EXECUTABLE}"
-            "${VISUTWIN_ROOT_DIR}/tools/generate_vulkan_shader_bundle.py"
-            --glslc "${Vulkan_GLSLC_EXECUTABLE}"
-            --spirv-cross "${VISUTWIN_SPIRV_CROSS_EXECUTABLE}"
-            --shader-dir "${_VK_SHADER_DIR}"
-            --features
-                "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/shaderFeatures.h"
-            --material-fields
-                "${VISUTWIN_ROOT_DIR}/engine/src/scene/materials/materialUniformFields.h"
-            --bindings
-                "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/shaderBindings.h"
-            --output "${_VK_SHADER_BUNDLE}"
-            --work-dir "${_VK_GENERATED_DIR}/work"
-        DEPENDS
-            ${_VK_SHADER_SOURCES}
-            "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/shaderBindings.h"
-            "${VISUTWIN_ROOT_DIR}/tools/shader_bindings.py"
-            "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/shaderFeatures.h"
-            "${VISUTWIN_ROOT_DIR}/engine/src/scene/materials/materialUniformFields.h"
-            "${VISUTWIN_ROOT_DIR}/tools/generate_vulkan_shader_bundle.py"
-        COMMENT "Compiling and reflecting Vulkan shader variants"
-        VERBATIM)
-    add_custom_target(visutwin_vulkan_shaders DEPENDS "${_VK_SHADER_BUNDLE}")
 endif()
 
 # Exclude backend sources that are not enabled
@@ -376,12 +318,6 @@ if(VISUTWIN_CANVAS_SHARED)
             "VISUTWIN_CANVAS_SHARED is not supported on Windows yet: the engine has no "
             "dllexport annotations, so the import library would be empty.")
     endif()
-endif()
-
-if(VISUTWIN_BACKEND_VULKAN)
-    add_dependencies(visutwin-canvas visutwin_vulkan_shaders)
-    target_include_directories(visutwin-canvas PRIVATE
-        "${CMAKE_CURRENT_BINARY_DIR}/generated")
 endif()
 
 add_library(visutwin::canvas ALIAS visutwin-canvas)
@@ -558,10 +494,10 @@ if(VISUTWIN_BACKEND_METAL)
 endif()
 
 # Runtime-loaded chunk trees, in the layout shaderChunks.cpp expects below its root.
-install(DIRECTORY "${VISUTWIN_ROOT_DIR}/engine/shaders/metal/chunks"
-    DESTINATION "${VISUTWIN_CANVAS_INSTALL_SHADER_DIR}/engine/shaders/metal")
-install(DIRECTORY "${VISUTWIN_ROOT_DIR}/engine/shaders/vulkan/chunks"
-    DESTINATION "${VISUTWIN_CANVAS_INSTALL_SHADER_DIR}/engine/shaders/vulkan")
+# The Slang source tree: what a chunk override and VISUTWIN_SLANG_RUNTIME compile from (the
+# bundle inside the library serves everything else).
+install(DIRECTORY "${VISUTWIN_ROOT_DIR}/engine/shaders/slang"
+    DESTINATION "${VISUTWIN_CANVAS_INSTALL_SHADER_DIR}/engine/shaders")
 
 install(FILES "${VISUTWIN_ROOT_DIR}/LICENSE" "${VISUTWIN_ROOT_DIR}/NOTICE"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/visutwin-canvas")

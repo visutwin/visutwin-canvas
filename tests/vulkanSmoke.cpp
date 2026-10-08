@@ -594,8 +594,15 @@ void main() { imageStore(outputTexture, ivec2(0), texelFetch(inputTexture, ivec2
             auto pointFormat = std::make_shared<VertexFormat>(
                 pointStride, std::move(pointElements));
             auto pointBuffer = device->createVertexBuffer(pointFormat, 1, pointOptions);
-            auto shader = device->createShader(
-                ShaderDefinition{.name = "vulkan-smoke"});
+            // The forward program's variant for a plain material: what the depth and caster
+            // draws below use.
+            ProgramLibrary basePrograms(sharedDevice);
+            Material baseMaterial;
+            auto shader = basePrograms.getForwardShader(&baseMaterial, false);
+            if (!shader) {
+                spdlog::error("Vulkan smoke: the forward program has no plain variant");
+                result = 1;
+            }
 
             Material featureMaterial;
             featureMaterial.setBaseColorTexture(color.get());
@@ -1423,7 +1430,7 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
             // closes the gap: it renders through the BUNDLED forward program (empty
             // source + a non-"program-shadow" name resolves to kForwardVert/kForwardFrag,
             // the same modules every mesh uses) and reads the D32_SFLOAT depth
-            // attachment back, so it fails if forward.vert ever loses the remap again.
+            // attachment back, so it fails if the forward vertex stage ever loses the remap again.
             const auto forwardStoredDepth = [&](const float viewDepth) -> float {
                 TextureOptions depthOptions{};
                 depthOptions.name = "vulkan-smoke-forward-depth";
@@ -1460,7 +1467,7 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
 
                 device->frameStart();
                 device->startRenderPass(&pass);
-                device->setShader(shader);            // bundled forward program
+                device->setShader(shader);            // the forward program
                 device->setVertexBuffer(vertexBuffer);
                 device->setTransformUniforms(shadowOrtho, model);
                 device->setBlendState(nullptr);
@@ -1532,11 +1539,11 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
                 // Same assertion, but through the real forward vertex shader and its
                 // D32_SFLOAT depth attachment — full float, so a tight tolerance.
                 const float forwardDepth = forwardStoredDepth(viewDepth);
-                spdlog::info("Vulkan smoke: bundled forward program at viewDepth {}: "
+                spdlog::info("Vulkan smoke: forward program at viewDepth {}: "
                     "depth attachment {:.5f}, receiver expects {:.5f}",
                     viewDepth, forwardDepth, expected);
                 if (forwardDepth < 0.0f || std::abs(forwardDepth - expected) > 1e-4f) {
-                    spdlog::error("Vulkan smoke: forward.vert stored depth {} at viewDepth {}, "
+                    spdlog::error("Vulkan smoke: the forward vertex stage stored depth {} at viewDepth {}, "
                         "but the shadow sample matrix expects {} — the GL->Vulkan clip-z "
                         "remap is missing or wrong", forwardDepth, viewDepth, expected);
                     result = 1;
@@ -1580,7 +1587,7 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
                 Matrix4::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 0.1f, 100.0f);
 
             // world -> atlas UV + [0,1] depth, the same remap the renderer bakes
-            // into viewportMatrix (xy and z each *0.5 + 0.5). forward.vert stores
+            // into viewportMatrix (xy and z each *0.5 + 0.5). The forward vertex stage stores
             // 0.5*z_gl + 0.5, so the z rows must agree or nothing ever compares
             // equal.
             Matrix4 lightShadowMatrix = Matrix4::identity();

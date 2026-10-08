@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 07.10.2026
 //
-// ── Parallax occlusion mapping (parity with common-parallax.metal) ──
+// ── Parallax occlusion mapping ──
 //
 // `heightBase` is the height-map value that sits at the level of the geometry
 // texels above it stand proud, texels below sink in. 1 treats
@@ -26,7 +26,7 @@ float2 parallaxOcclusionMap(float2 uv, float3 viewDirTS, float heightScale, floa
     float layerDepth = 1.0 / float(numSteps);
 
     // The height unit is a TENTH of a uv tile: a factor of 1 is a relief
-    // 0.1 uv deep. See the matching note in common-parallax.metal.
+    // 0.1 uv deep.
     float scale = heightScale * 0.1;
     // UV travelled per unit of depth along the view ray, and the per-layer step.
     float2 uvPerDepth = viewDirTS.xy * scale / (abs(viewDirTS.z) + 1e-5);
@@ -99,7 +99,7 @@ float parallaxSelfShadow(float2 uv, float3 lightDirTS, float heightScale,
 // filtering: one tap compares the four texels around a point with the receiver and
 // blends the four results by the bilinear weights, so a shadow edge moves smoothly
 // across a texel. Upstream's PCF1/3/5 kernels are one, four and nine such taps. No
-// comparison sampler is bound on this backend (the fragment stage is at MoltenVK's
+// comparison sampler is bound on Vulkan (the fragment stage is at MoltenVK's
 // sampler limit), so the tap is done by hand: the four texels are GATHERED and
 // compared here. They are gathered at the exact corner they share, where no sub-texel
 // rounding can pick a different 2x2 block, and weighted by the fraction computed
@@ -107,8 +107,8 @@ float parallaxSelfShadow(float2 uv, float3 lightDirTS, float heightScale,
 // Comparing texels directly with uniform weights instead turns every shadow edge into
 // a staircase of whole texels — plain to see wherever a texel covers several pixels.
 //
-// Every shadow tap on this backend has an explicit LOD (textureGather has none,
-// textureLod 0.0), never .Sample(): the lookups sit inside the per-light loop and
+// Every shadow tap has an explicit LOD (a gather has none, SampleLevel and
+// SampleCmpLevelZero take 0), never .Sample(): the lookups sit inside the per-light loop and
 // behind a per-pixel cascade pick, so a 2x2 quad can straddle two atlas quadrants,
 // and the implicit-LOD derivatives across it span half the atlas.
 
@@ -129,8 +129,7 @@ float shadowTapResult(float4 depths, float2 f, float receiver) {
 }
 
 // One bilinear comparison on a combined-sampler map, and on the clustered atlas (a
-// sampler-constructor macro over a separate image, which GLSL allows only at its point
-// of use, not as a call argument).
+// separate image, read through the nearest sampler).
 float shadowTap(LocalShadowMap tex, float2 uv, float2 size, float receiver) {
 #if defined(VT_TARGET_METAL)
     return shadowCompare(tex, uv, receiver);
@@ -150,7 +149,7 @@ float shadowTapAtlas(float2 uv, float2 size, float receiver) {
 #endif
 }
 
-// Upstream's 3x3 PCF from four bilinear taps (Metal's getShadowPCF3x3): tap i at
+// Upstream's 3x3 PCF from four bilinear taps: tap i at
 // taps[i] with weight weights[i], the weights summing to 1.
 void pcf3x3Taps(float2 uv, float2 size, out float2 taps[4], out float weights[4]) {
     float2 texelUv = uv * size;
@@ -168,7 +167,7 @@ void pcf3x3Taps(float2 uv, float2 size, out float2 taps[4], out float weights[4]
     taps[3] = float2(p1.x, p1.y); weights[3] = w1.x * w1.y / 16.0;
 }
 
-// Upstream's 5x5 PCF from nine bilinear taps (Metal's getShadowPCF5x5).
+// Upstream's 5x5 PCF from nine bilinear taps.
 void pcf5x5Taps(float2 uv, float2 size, out float2 taps[9], out float weights[9]) {
     float2 texelUv = uv * size;
     float2 inv = 1.0 / size;
@@ -221,7 +220,7 @@ float pcf3x3Atlas(float2 uv, float receiver) {
 // axes map to a UV within it, and `tileOffset` is the face's column and row in the
 // slot's 3x3 tile grid. The faces are rendered into top-down storage, so v runs
 // the other way from a bottom-up convention.
-// Twin of common-shadow-pcf.metal; mirrored in LightTextureAtlas::cubemapFaceCoordinates,
+// Mirrored in LightTextureAtlas::cubemapFaceCoordinates,
 // which a test holds against the face cameras' real projection.
 float2 getCubemapFaceCoordinates(float3 dir, out float2 tileOffset) {
     float3 vAbs = abs(dir);

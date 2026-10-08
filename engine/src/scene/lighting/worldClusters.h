@@ -37,7 +37,7 @@ namespace visutwin::canvas
 
     /**
      * GPU-side packed light struct (176 bytes, 16-byte aligned).
-     * Maps 1:1 to the Metal ClusteredLight struct in common-structs.metal.
+     * Maps 1:1 to the ClusterLight struct in engine/shaders/slang/forward/forward-fragment-head.slang.
      */
     struct alignas(16) GpuClusteredLight
     {

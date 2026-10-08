@@ -17,12 +17,19 @@ The generated bindings.slang is on the include path, and its text is embedded to
 runtime override compile can serve it from memory.
 
 The header holds one `Program` per source with its name, entry point names and the code
-for each target that was built (empty where it was not), and `findProgram(name)`.
+for each target that was built (empty where it was not), and `findProgram(name)`. With the
+SPIR-V target each entry also carries its REFLECTED layout: every descriptor the entry's
+module actually uses (set, binding, kind, and a uniform block's size) and its push-constant
+size, from slangc's reflection JSON joined to the entry's own SPIR-V. The Vulkan backend
+checks the forward and shadow entries against its descriptor contract with them, and C++
+asserts the shared blocks' sizes against its structs.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import re
+import struct
 import subprocess
 import sys
 from pathlib import Path
@@ -68,6 +75,70 @@ def entry_points(program: Path, include_dirs: list[Path]) -> list[tuple[str, str
 
     visit(program)
     return found
+
+
+# Reflection-JSON type kind -> the descriptor kind the C++ side names.
+def descriptor_kind(type_info: dict) -> str:
+    kind = type_info.get("kind")
+    if kind == "constantBuffer":
+        return "UniformBuffer"
+    if kind == "samplerState":
+        return "Sampler"
+    if kind == "resource":
+        shape = type_info.get("baseShape", "")
+        if shape in ("structuredBuffer", "byteAddressBuffer"):
+            return "StorageBuffer"
+        return "CombinedImageSampler" if type_info.get("combined") else "SampledImage"
+    raise RuntimeError(f"unhandled reflected parameter kind {kind}")
+
+
+def reflected_parameters(json_path: Path) -> dict[str, tuple[str, int]]:
+    """name -> (descriptor kind, uniform block bytes or 0) for every program parameter, and
+    "@push" -> ("PushConstant", bytes) for the push-constant block."""
+    data = json.loads(json_path.read_text())
+    out: dict[str, tuple[str, int]] = {}
+    for param in data["parameters"]:
+        binding = param.get("binding", {})
+        type_info = param["type"]
+        if binding.get("kind") == "specializationConstant":
+            continue
+        size = 0
+        if type_info.get("kind") == "constantBuffer":
+            size = int(type_info.get("elementVarLayout", {}).get("binding", {}).get("size", 0))
+        if binding.get("kind") == "pushConstantBuffer":
+            out["@push"] = ("PushConstant", size)
+            continue
+        out[param["name"]] = (descriptor_kind(type_info), size)
+    return out
+
+
+def used_descriptors(spirv: bytes) -> tuple[list[tuple[str, int, int]], list[str]]:
+    """(name, set, binding) of every descriptor variable a SPIR-V module declares (Slang
+    drops the globals an entry does not use), and the names of its push-constant variables."""
+    words = struct.unpack(f"<{len(spirv) // 4}I", spirv)
+    names: dict[int, str] = {}
+    sets: dict[int, int] = {}
+    bindings: dict[int, int] = {}
+    push: list[int] = []
+    i = 5
+    while i < len(words):
+        opcode = words[i] & 0xFFFF
+        count = words[i] >> 16
+        args = words[i + 1:i + count]
+        if opcode == 5:   # OpName
+            raw = b"".join(struct.pack("<I", w) for w in args[1:])
+            names[args[0]] = raw.split(b"\0")[0].decode()
+        elif opcode == 71 and len(args) >= 3:   # OpDecorate
+            if args[1] == 34:   # DescriptorSet
+                sets[args[0]] = args[2]
+            elif args[1] == 33:   # Binding
+                bindings[args[0]] = args[2]
+        elif opcode == 59 and len(args) >= 3 and args[2] == 9:   # OpVariable, PushConstant
+            push.append(args[1])
+        i += count
+    used = sorted(((names.get(v, ""), sets[v], bindings[v]) for v in sets if v in bindings),
+                  key=lambda u: (u[1], u[2]))
+    return used, [names.get(v, "") for v in push]
 
 
 def run(command: list[str]) -> None:
@@ -134,12 +205,29 @@ def main() -> None:
         "",
         "namespace visutwin::canvas::slang_generated",
         "{",
+        "    enum class DescriptorKind : uint8_t",
+        "    {",
+        "        UniformBuffer, StorageBuffer, CombinedImageSampler, SampledImage, Sampler",
+        "    };",
+        "",
+        "    struct ReflectedBinding",
+        "    {",
+        "        const char* name;",
+        "        uint32_t set;",
+        "        uint32_t binding;",
+        "        DescriptorKind kind;",
+        "        uint32_t blockBytes;        // a uniform block's size; 0 otherwise",
+        "    };",
+        "",
         "    struct Entry",
         "    {",
         "        const char* stage;          // \"vertex\", \"fragment\" or \"compute\"",
         "        const char* name;",
         "        const uint32_t* spirv;      // this entry alone, compiled to SPIR-V; null when not built",
         "        size_t spirvWords;",
+        "        const ReflectedBinding* bindings;   // the descriptors this entry's SPIR-V uses",
+        "        size_t bindingCount;",
+        "        uint32_t pushConstantBytes; // 0 when the entry reads no push constants",
         "    };",
         "",
         "    struct Program",
@@ -210,11 +298,20 @@ def main() -> None:
                 out.append("    };")
                 fields["metalLibrary"] = f"{ident}MetalLib, sizeof({ident}MetalLib)"
             entry_arrays = {}
+            entry_layouts = {}
             if "spirv" in targets:
-                for stage, entry in found_list:
+                reflection_path = args.work_dir / f"{stem}.reflection.json"
+                parameters: dict[str, tuple[str, int]] = {}
+                for index, (stage, entry) in enumerate(found_list):
                     spv_path = args.work_dir / f"{stem}.{entry}.spv"
-                    run(common + define_flags + [str(program), "-target", "spirv", "-entry", entry,
-                                                 "-stage", STAGE_FLAG[stage], "-o", str(spv_path)])
+                    command = common + define_flags + [str(program), "-target", "spirv", "-entry", entry,
+                                                       "-stage", STAGE_FLAG[stage], "-o", str(spv_path)]
+                    if index == 0:
+                        # The program's parameters (names, kinds, block sizes); one is enough.
+                        command += ["-reflection-json", str(reflection_path)]
+                    run(command)
+                    if index == 0:
+                        parameters = reflected_parameters(reflection_path)
                     data = spv_path.read_bytes()
                     if data[:4] != b"\x03\x02\x23\x07":
                         raise RuntimeError(f"{spv_path}: not SPIR-V")
@@ -224,11 +321,30 @@ def main() -> None:
                     out.append("    };")
                     entry_arrays[entry] = array
                     spirv.setdefault(stage, array)
+
+                    used, push = used_descriptors(data)
+                    rows = []
+                    for binding_name, set_index, binding in used:
+                        if binding_name not in parameters:
+                            raise RuntimeError(f"{program}:{entry}: descriptor '{binding_name}' is not in the reflection")
+                        kind, size = parameters[binding_name]
+                        rows.append(f'        ReflectedBinding{{"{binding_name}", {set_index}u, {binding}u, '
+                                    f'DescriptorKind::{kind}, {size}u}},')
+                    push_bytes = parameters.get("@push", ("PushConstant", 0))[1] if push else 0
+                    bindings_array = f"{ident}{camel(entry)}Bindings"
+                    if rows:
+                        out.append(f"    inline constexpr ReflectedBinding {bindings_array}[] = {{")
+                        out.extend(rows)
+                        out.append("    };")
+                        entry_layouts[entry] = (f"{bindings_array}, {len(rows)}", push_bytes)
+                    else:
+                        entry_layouts[entry] = ("nullptr, 0", push_bytes)
             out.append(f"    inline constexpr Entry {ident}Entries[] = {{")
             for stage, entry in found_list:
                 array = entry_arrays.get(entry)
                 spv = f"{array}, sizeof({array}) / sizeof(uint32_t)" if array else "nullptr, 0"
-                out.append(f'        Entry{{"{stage}", "{entry}", {spv}}},')
+                layout, push_bytes = entry_layouts.get(entry, ("nullptr, 0", 0))
+                out.append(f'        Entry{{"{stage}", "{entry}", {spv}, {layout}, {push_bytes}u}},')
             out.append("    };")
             entry_names = {stage: f'"{found[stage]}"' if stage in found else '""'
                            for stage in ("vertex", "fragment", "compute")}

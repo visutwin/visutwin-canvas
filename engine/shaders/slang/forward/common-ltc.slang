@@ -3,14 +3,14 @@
 //
 // Created by Arnis Lektauers on 07.10.2026
 //
-// ── LTC area lights (parity with common-ltc.metal) ──
+// ── LTC area lights ──
 // Real-Time Polygonal-Light Shading with Linearly Transformed Cosines
 // (Heitz, Dupuy, Hill, Neubelt). Rect, disk and sphere shapes.
 
 static const float LTC_LUT_SIZE = 64.0;
 
-// LUT coordinate. Metal passes gloss and squares (1 - gloss); gloss is
-// 1 - perceptualRoughness there, so this is the same value expressed directly.
+// LUT coordinate. The LUT is indexed by (1 - gloss) squared, gloss being
+// 1 - perceptualRoughness, so this is the same value expressed directly.
 float2 ltcUv(float3 N, float3 V, float perceptualRoughness) {
     float lutRoughness = max(perceptualRoughness * perceptualRoughness, 0.001);
     float dotNV = clamp(dot(N, V), 0.0, 1.0);
@@ -20,7 +20,7 @@ float2 ltcUv(float3 N, float3 V, float perceptualRoughness) {
 
 // Range window only: a non-punctual light gets its
 // physical distance falloff from the LTC form factor, so only the artist-set
-// range is applied here. Range 0 is clamped, as the Metal chunk does,
+// range is applied here. Range 0 is clamped,
 // so it extinguishes the light rather than lifting the range limit (the renderer
 // never uploads less than 1e-4 anyway).
 float ltcFalloffWindow(float range, float3 toLight) {
@@ -247,8 +247,8 @@ float ltcEvaluateDisk(float3 N, float3 V, float3 P, float3x3 mInv,
 
 
 // ── A light with a non-punctual shape (LightShape 1 rect, 2 disk, 3 sphere), as both
-// the main light loop and the cluster loop evaluate it. Twin of the helpers at the end
-// of common-ltc.metal. The corners come back through p0..p3.
+// the main light loop and the cluster loop evaluate it. The corners come back through
+// p0..p3.
 float ltcAreaLight(uint shape, float3 lightPos, float3 halfWidth, float3 halfHeight, float3 N,
                    float3 cameraPosition, out float3 p0, out float3 p1, out float3 p2, out float3 p3) {
     float sphereRadius = max(length(halfWidth), length(halfHeight));

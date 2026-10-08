@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 07.10.2026
 //
-// ── Thin-film iridescence, the GLSL twin of common-iridescence.metal ──
+// ── Thin-film iridescence ──
 // KHR_materials_iridescence, after Belcour & Barla 2017. Wavelength-dependent
 // Fresnel at two interfaces (air to film, film to substrate) with the optical
 // path difference between them producing the hue shift with viewing angle.
@@ -58,8 +58,8 @@ float3 iridescenceSensitivity(float opd, float3 shift) {
 
     xyz /= float3(1.0685e-07);
 
-    // CIE XYZ -> Rec.709. Written COLUMN-major, which is what both GLSL and MSL
-    // constructors take, so the rows below read transposed on the page.
+    // CIE XYZ -> Rec.709. Slang constructors take ROWS and mul(v, M) multiplies a
+    // row vector, so each line below is a COLUMN of the usual matrix.
     const float3x3 XYZ_TO_REC709 = float3x3(
          3.2404542, -0.9692660,  0.0556434,
         -1.5371385,  1.8760108, -0.2040259,

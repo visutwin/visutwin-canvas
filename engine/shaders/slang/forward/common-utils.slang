@@ -3,15 +3,15 @@
 //
 // Created by Arnis Lektauers on 07.10.2026
 //
-// ── Environment atlas layout (matches engine bake / Metal common.metal) ──
+// ── Environment atlas layout (matches the engine's bake) ──
 static const float ATLAS_SIZE = 512.0;
 static const float ATLAS_SEAM = 1.0 / 512.0;
 
 // Equirectangular direction → atlas UV (atan2 azimuth, asin elevation).
 float2 dirToEquirect(float3 dir) {
-    // atan2(0, 0) is undefined in GLSL too. This backend happened to return 0 and
-    // so read the right texel, but the guard is here so neither backend depends
-    // on that. See the matching note in common-utils.metal.
+    // atan2(0, 0) is undefined, and a direction of exactly +/-Y hits it. Some
+    // targets happen to return 0 and so read the right texel; the guard picks
+    // azimuth 0 at the pole so no backend depends on that.
     float azimuth = (dir.x == 0.0 && dir.z == 0.0) ? 0.0 : atan2(dir.x, dir.z);
     float2 sph = float2(azimuth, asin(clamp(dir.y, -1.0, 1.0)));
     float2 uv = sph / float2(6.28318530718, 3.14159265359) + 0.5;
@@ -38,9 +38,8 @@ float2 mapRoughnessUv(float2 uv, float level) {
 
 // Sharp ("shiny") mip chain down the diagonal: rect (1-t, 1-t, t, t/2). The
 // prefiltered chain above is convolved for roughness; level 0 of THIS one is the
-// unconvolved environment, which is what a mirror must sample. Twin of
-// mapShinyUv in common-utils.metal — this backend had no shiny path at all, so
-// every mirror sampled the roughness rect and came out blurred.
+// unconvolved environment, which is what a mirror must sample. Without it every
+// mirror would sample the roughness rect and come out blurred.
 float2 mapShinyUv(float2 uv, float level) {
     float t = 1.0 / exp2(level);
     return mapRect(uv, float4(1.0 - t, 1.0 - t, t, t * 0.5));

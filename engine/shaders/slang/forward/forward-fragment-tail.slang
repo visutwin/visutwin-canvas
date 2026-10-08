@@ -5,13 +5,12 @@
 //
 
     // The layers stack from the inside out: the sheen sits on the base, the
-    // clearcoat on top of both, so the coat's Fresnel also dims the sheen. Twin of
-    // forward-fragment-tail.metal, which also blends the planar reflection after them.
+    // clearcoat on top of both, so the coat's Fresnel also dims the sheen. The
+    // planar reflection is blended after them.
 
     // Sheen energy conservation: the sheen layer takes energy from the base layer
     // rather than adding on top of it. 0.157 is the average directional albedo of
-    // the Charlie BRDF, from fitting its DFG integral. Twin of the block in
-    // forward-fragment-tail.metal.
+    // the Charlie BRDF, from fitting its DFG integral.
     if (vtFeatureEnabled(VT_FEATURE_SHEEN_BIT)) {
         float sheenScaling = 1.0 -
             max(sheenTint.r, max(sheenTint.g, sheenTint.b)) * 0.157;
@@ -19,7 +18,7 @@
     }
 
     if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
-        // Energy-conserving clearcoat composition, twin of forward-fragment-tail.metal:
+        // Energy-conserving clearcoat composition:
         //   f = base * (1 - Fc * ccSpecularity) + (ccSpecularLight + ccReflection) * ccSpecularity
         // Light the coat reflects cannot also reach the base, so the base is dimmed
         // by the coat's Fresnel; the coat's own direct and environment specular are
@@ -33,20 +32,20 @@
     // coat or sheen keeps its full emission.
     color += emissive;
 
-    // ── Blurred planar reflection (parity with forward-fragment-tail.metal) ──
-    // DEVIATION (inherited from the Metal chunk): upstream implements planar
-    // reflection as a ShaderMaterial script; here it is a shader feature fed by
-    // LightingData. The reflection camera renders the mirrored scene into
-    // binding 15; the optional depth camera writes a per-pixel
-    // distance-from-plane into binding 16, which scales the blur radius so
-    // objects touching the ground reflect sharply and distant ones smear.
+    // ── Blurred planar reflection ──
+    // DEVIATION: upstream implements planar reflection as a ShaderMaterial
+    // script; here it is a shader feature fed by LightingData. The reflection
+    // camera renders the mirrored scene into binding 15; the optional depth
+    // camera writes a per-pixel distance-from-plane into binding 16, which scales
+    // the blur radius so objects touching the ground reflect sharply and distant
+    // ones smear.
     if (vtFeatureEnabled(VT_FEATURE_PLANAR_REFLECTION_BIT) &&
         lighting.reflectionDepthParams.z > 0.5) {
         // Screen-space UV. vtFragCoord and the sampler UV are both top-left
         // origin here, and the reflection target was rendered through the same
-        // negative-height viewport as the main pass, so this matches the Metal
-        // path texel for texel — including its Y flip, which mirrors the image
-        // rather than correcting any coordinate convention.
+        // negative-height viewport as the main pass, so both backends read the
+        // same texel. The Y flip mirrors the image rather than correcting any
+        // coordinate convention.
         float2 reflUV = vtFragCoord.xy * lighting.screenInvResolution.xy;
         reflUV.y = 1.0 - reflUV.y;
 
@@ -56,8 +55,8 @@
         float angleFade          = lighting.reflectionParams.w;
         float3  fadeColor          = lighting.reflectionFadeColor.xyz;
 
-        // Metal gates the depth map on get_width(); an unbound separate image
-        // samples as white here, so the flag comes from the uniform instead.
+        // An unbound separate image can sample as white, so whether the depth
+        // map is bound comes from the uniform flag, not from the texture.
         bool hasDepthMap = lighting.reflectionDepthParams.w > 0.5;
         float distFromPlane = hasDepthMap
             ? planarReflectionDepth.Sample(linearClampSampler, reflUV).r : 0.0;
@@ -175,7 +174,7 @@
     // radial distance to the camera: at a wide field of view that would fog the edges
     // of the frame harder than the centre, by 1/cos(fov/2).
     //
-    // fragViewDepth is gl_Position.w from the vertex stage — see forward.vert.
+    // fragViewDepth is clip.w from the vertex stage (forwardFinish).
     uint fogType = vtFeatureEnabled(VT_FEATURE_FOG_BIT)
         ? uint(lighting.fogStartEndType.z + 0.5) : 0u;
     if (fogType != 0u) {
@@ -199,7 +198,7 @@
         // Bake output: light only, sRGB-encoded for the RGBA8 target and the pow(2.2)
         // decode on the sampling side. No exposure or tonemap — the lightmap feeds the
         // lit path, which applies both later.
-        // Linear, so the accumulating virtual-light passes sum correctly (see the Metal chunk).
+        // Linear, so the accumulating virtual-light passes sum correctly.
         // Accumulating passes add only their own light — the first pass wrote the ambient.
         float3 baked = vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BAKE_ACCUM_BIT)
             ? bakeDirectLight : bakeDiffuseLight;
@@ -209,7 +208,7 @@
 
     // When CameraFrame is active (bit 5 of flagsAndPad[0]) the forward pass
     // outputs linear HDR and the compose pass applies exposure, tonemapping and
-    // gamma. Runtime check, not a shader variant — same as the Metal chunk.
+    // gamma. Runtime check, not a shader variant.
     if ((lighting.flagsAndPad[0] & (1u << 5)) != 0u) {
         outColor = float4(max(color, float3(0.0)), albedo.a);
         return outColor;

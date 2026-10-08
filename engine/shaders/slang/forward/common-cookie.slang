@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 07.10.2026
 //
-// ── Light cookies (mirrors common-cookie.metal) ──
+// ── Light cookies ──
 // Every cookie sample below uses ....SampleLevel(0.0). The samples sit inside the
 // per-light loop, behind fragment-varying `continue`s, so screen-space derivatives
 // there are undefined — and an undefined LOD reads a fully averaged mip, which

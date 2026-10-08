@@ -9,17 +9,59 @@
 // tree for the same backend, serving the generated bindings.slang from the bundle's copy.
 // Driven on a stub device, which has a language but no GPU, so it holds the plumbing
 // rather than a pixel; tests/slangGpuTests.cpp draws through createShaderFromCode.
+//
+// In a build with SPIR-V the bundle also carries each entry's reflected layout, and the
+// blocks the C++ side fills are held against their structs here: a field added on one side
+// only shifts everything after it, which no render shows as an error.
 #include <cstdint>
 #include <iostream>
 #include <string>
+#include <string_view>
 
+#include "platform/graphics/graphicsDevice.h"
+#include "platform/graphics/lightingBlock.h"
 #include "platform/graphics/shader.h"
+#include "scene/gsplat/gsplatInstance.h"
+#include "scene/materials/material.h"
 #include "scene/shader-lib/slangShaders.h"
 #include "support/check.h"
 #include "support/stubDevice.h"
 
 using namespace visutwin::canvas;
 using namespace visutwin::canvas::test;
+
+#ifdef VISUTWIN_HAS_VULKAN
+namespace
+{
+    // The block a program's entry reflects under `name`, or nullptr.
+    const SlangReflectedBinding* reflected(const char* program, const char* entry, const char* name)
+    {
+        static SlangBundledProgram found;
+        if (!findBundledSlangProgram(program, found)) {
+            return nullptr;
+        }
+        for (const auto& e : found.entries) {
+            if (e.name != entry) {
+                continue;
+            }
+            for (const auto& binding : e.bindings) {
+                if (binding.name == name) {
+                    return &binding;
+                }
+            }
+        }
+        return nullptr;
+    }
+
+    void checkBlock(const char* program, const char* entry, const char* name, const uint32_t bytes)
+    {
+        const auto* binding = reflected(program, entry, name);
+        check(binding && binding->kind == SlangDescriptorKind::UniformBuffer && binding->blockBytes == bytes,
+            std::string(program) + ":" + entry + " reflects '" + name + "' as " + std::to_string(bytes) + " bytes" +
+            (binding ? " (" + std::to_string(binding->blockBytes) + ")" : " (missing)"));
+    }
+}
+#endif
 
 int main()
 {
@@ -63,6 +105,27 @@ int main()
         ShaderCode none;
         check(!compileSlangProgramFromSource(&device, "no-such-program", none), "a missing program fails");
     }
+
+#ifdef VISUTWIN_HAS_VULKAN
+    std::cout << "\nreflected blocks against their C++ structs\n";
+    checkBlock("forward", "forwardFragment", "lighting", sizeof(LightingBlock));
+    checkBlock("forward", "forwardFragment", "material", sizeof(MaterialUniforms));
+    checkBlock("forward", "forwardVertex", "material", sizeof(MaterialUniforms));
+    checkBlock("shadow", "shadowVsmFragment", "material", sizeof(MaterialUniforms));
+    checkBlock("particle-render", "particleVS", "params", sizeof(GpuParticleRenderParams));
+    checkBlock("particle-render", "particleFS", "params", sizeof(GpuParticleRenderParams));
+    checkBlock("gsplat-render", "gsplatVS", "params", sizeof(GpuGSplatParams));
+    SlangBundledProgram forward;
+    if (findBundledSlangProgram("forward", forward)) {
+        bool all = true;
+        for (const auto& entry : forward.entries) {
+            if (entry.stage == "vertex" && entry.pushConstantBytes != 128) {
+                all = false;
+            }
+        }
+        check(all, "every forward vertex entry reads the 128-byte draw push block");
+    }
+#endif
 
     return finish("slang bundle");
 }

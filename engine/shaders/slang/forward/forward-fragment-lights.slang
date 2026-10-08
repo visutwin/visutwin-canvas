@@ -59,8 +59,7 @@
             }
             // Shadow catcher only tracks directional shadows, and accumulates
             // here — before the NdotL early-out below — so back-facing texels
-            // still report the shadow they receive (parity with
-            // forward-fragment-lights.metal, which does the same).
+            // still report the shadow they receive.
             if (vtFeatureEnabled(VT_FEATURE_SHADOW_CATCHER_BIT)) {
                 dShadowCatcher *= atten;
             }
@@ -122,8 +121,8 @@
         }
 
         if (lightShape != 0u) {
-            // Area light — LTC, twin of the Metal chunk (common-ltc's helpers). The
-            // world half axes are the light's scaled X and Z.
+            // Area light — LTC, through common-ltc.slang's helpers. The world half
+            // axes are the light's scaled X and Z.
             if (atten <= 0.00001) {
                 continue;
             }
@@ -149,7 +148,7 @@
 
             if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
                 // Clearcoat LTC specular with F0 = 0.04, at the coat's own normal and
-                // gloss; accumulated, the tail applies ccSpecularity (as Metal).
+                // gloss; accumulated, the tail applies ccSpecularity.
                 ccSpecularLight += areaRadiance *
                     ltcSpecularFresnel(ccNormalW, V, 1.0 - ccGlossiness, float3(0.04)) *
                     ltcAreaSpecular(lightShape, ccNormalW, V, fragWorldPos, 1.0 - ccGlossiness, p0, p1, p2, p3);
@@ -168,7 +167,7 @@
 
         float D = distributionGGX(NdotH, roughness);
         // Height-correlated visibility folds in 1/(4 NdotL NdotV), so there is no
-        // explicit division here — see common-brdf.glsl.
+        // explicit division here — see common-brdf.slang.
         float Vis = getVisibilitySmithGGX(NdotV, NdotL, roughness);
         if (vtFeatureEnabled(VT_FEATURE_ANISOTROPY_BIT)) {
             // Anisotropic GGX (common-brdf): D carries the whole D * Vis product.
@@ -176,9 +175,8 @@
             Vis = 1.0;
         }
         // Directional lights take the gloss-aware Fresnel; punctual lights take bare
-        // specularity, as the Metal chunk does. Applying the Fresnel to every light
-        // type over-brightened the rim of everything lit by a point or spot light on
-        // this backend.
+        // specularity. Applying the Fresnel to every light type over-brightened the
+        // rim of everything lit by a point or spot light.
         float3 F = (type == 0u) ? getFresnel(VdotH, 1.0 - roughness, F0) : F0;
         if (vtFeatureEnabled(VT_FEATURE_IRIDESCENCE_BIT)) {
             F = lerp(F, iridFresnel, iridIntensity);
@@ -199,11 +197,11 @@
             diffuseTerm = onA + onB * sTerm / tTerm;
         }
         // Direct diffuse is albedo * radiance * NdotL — no 1/PI and no
-        // energy-conservation factor: the Lambert term is a bare
-        // NdotL, the combine multiplies by albedo, and the Metal chunk matches
-        // it. Dividing by PI and multiplying by kD = (1 - F)(1 - metallic) would make
-        // every direct light about a third of Metal's, and kD would apply
-        // (1 - metallic) a second time, since diffuseAlbedo carries it.
+        // energy-conservation factor: the Lambert term is a bare NdotL and the
+        // combine multiplies by albedo. Dividing by PI and multiplying by
+        // kD = (1 - F)(1 - metallic) would make every direct light about a third as
+        // bright, and kD would apply (1 - metallic) a second time, since
+        // diffuseAlbedo carries it.
         // With area lights in the variant, a punctual light's diffuse is
         // scaled by (1 - specularity) (the LTC lights take (1 - their Fresnel)).
         float3 punctualDiffuseScale = (vtFeatureEnabled(VT_FEATURE_AREA_LIGHTS_BIT) && specularOn > 0.0)
@@ -214,13 +212,13 @@
         bakeDirectLight += diffuseTerm * radiance * NdotL;
         directSpecular += specular * specularOn * radiance * NdotL;
         if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
-            // Twin of the clearcoat block in forward-fragment-lights.metal: GGX
-            // distribution, Kelemen visibility (a coat is smooth enough that
-            // Smith-GGX is not worth its cost) and a fixed F0 = 0.04 Fresnel, all
-            // taken at the clearcoat's own half vector, and weighted by NdotL (a
-            // division by 4*NdotV with no NdotL is not a reflectance integral: the coat
-            // would brighten as the surface turned away from the light).
-            // Taken at the COAT normal with the coat's own roughness, as Metal does.
+            // Clearcoat: GGX distribution, Kelemen visibility (a coat is smooth
+            // enough that Smith-GGX is not worth its cost) and a fixed F0 = 0.04
+            // Fresnel, all taken at the clearcoat's own half vector, and weighted by
+            // NdotL (a division by 4*NdotV with no NdotL is not a reflectance
+            // integral: the coat would brighten as the surface turned away from the
+            // light).
+            // Taken at the COAT normal with the coat's own roughness.
             float ccNdotL = max(dot(ccNormalW, L), 0.0);
             float ccNdotH = max(dot(ccNormalW, H), 0.0);
             float ccLdotH = max(dot(L, H), 0.0);
@@ -228,11 +226,11 @@
             float ccD = ccAlpha2 / max(PI * ccDenom * ccDenom, 1e-7);
             float ccVis = getVisibilityKelemen(ccLdotH);
             float ccF = getFresnelCC(ccLdotH);
-            // Accumulated; the tail applies ccSpecularity and dims the base (as Metal).
+            // Accumulated; the tail applies ccSpecularity and dims the base.
             ccSpecularLight += radiance * ccNdotL * ccD * ccVis * ccF;
         }
         if (vtFeatureEnabled(VT_FEATURE_SHEEN_BIT)) {
-            // Charlie distribution + Ashikhmin visibility (common-sheen.glsl),
+            // Charlie distribution + Ashikhmin visibility (common-sheen.slang),
             // accumulated apart so the tail can take its energy out of the base
             // layer. Was an ad-hoc velvet power added straight into color.
             sheenSpecularDirect += radiance * NdotL * sheenTint

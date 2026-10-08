@@ -87,9 +87,12 @@ int main()
         check(library.getForwardShader(&material, false) == first, "switched back, the first is selected again");
 
         // The chunk registry.
+        // An override is compiled, so it is the chunk's own source with a change that alters
+        // nothing but the text.
         const std::string chunk = library.chunks().names().empty() ? std::string() : library.chunks().names().front();
+        check(!chunk.empty(), "the forward chunks are found");
         if (!chunk.empty()) {
-            library.chunks().set(chunk, "// overridden\n");
+            library.chunks().set(chunk, *library.chunks().get(chunk) + "\n// overridden\n");
             const auto overridden = library.getForwardShader(&material, false);
             check(overridden != nullptr && overridden != first, "a registry chunk override selects a new shader");
         }

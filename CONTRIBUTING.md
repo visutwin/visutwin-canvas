@@ -16,7 +16,7 @@ visutwin-canvas/
 │   │   ├── viz/overlay/           # ImGui overlay for digital-twin HUD
 │   │   └── util/                  # General utilities
 │   ├── lib/                       # Vendored: metal-cpp, stb
-│   └── shaders/                   # Metal chunks + embedded programs, Vulkan GLSL
+│   └── shaders/slang/             # Every engine shader, once, in Slang
 ├── examples/                      # 46 example applications (upstream ports + one original scene)
 ├── tests/                         # Unit tests + Vulkan validation smoke test
 ├── tools/                         # Build and utility tools
@@ -94,6 +94,8 @@ from the source tree at launch instead, which picks up an edit without one. Vari
 the feature words of `engine/src/platform/graphics/shaderFeatures.h`, bound as Metal
 function constants and Vulkan specialization constants.
 
-The hand-written forward and shadow programs (`engine/shaders/metal/chunks/`,
-`engine/shaders/vulkan/`) remain until the migration's last phase, selected with
-`VISUTWIN_LEGACY_FORWARD=1` for a comparison in one binary.
+A material or application changes the forward program by overriding one of its chunks with
+Slang source (`Material::setShaderChunk`, `ShaderChunks::set`), which is compiled at run time;
+`forward-vertex-local` is the hook for deforming a mesh in its own space. A custom shader
+outside the engine's programs is still written in the device's language (MSL on Metal, GLSL
+on Vulkan, compiled through shaderc).
