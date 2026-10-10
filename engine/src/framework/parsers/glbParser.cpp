@@ -1809,7 +1809,12 @@ namespace visutwin::canvas
             return -1;
         };
 
-        material->setClearCoat(readNumber("clearcoatFactor", 0.0f));
+        // A deliberately reproduced upstream quirk: the coat's strength is a QUARTER of the
+        // file's clearcoatFactor (upstream calls it a temporary workaround for matching the
+        // glTF sample viewer's clear-coat look). Passed through unscaled, every glTF coat drew
+        // several times stronger than upstream's: ClearCoatTest's coated column added 17
+        // counts of environment reflection where upstream adds 6.5.
+        material->setClearCoat(readNumber("clearcoatFactor", 0.0f) * 0.25f);
         material->setClearCoatGloss(readNumber("clearcoatRoughnessFactor", 0.0f));
         material->setClearCoatGlossInvert(true);
 

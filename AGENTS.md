@@ -3187,7 +3187,10 @@ What stays HERE is only what bites during UNRELATED work.
   light's LTC terms are helpers in `common-ltc`, which both loops call.
 - **Clearcoat composes as upstream's energy-conserving
   `lit * (1 - Fc * cc) + (ccDirect + ccReflection) * cc`, with a clearcoat IBL
-  reflection, on both backends**, and the three clearcoat maps are on both. A SEPARATE
+  reflection, on both backends**, and the three clearcoat maps are on both. A glTF coat's
+  strength is a QUARTER of its `clearcoatFactor` (`applyClearcoat`, a reproduced upstream
+  workaround); passed through whole, ClearCoatTest's coated column read ~10 counts brighter
+  than live upstream's while the base and coat inputs each matched. A SEPARATE
   image read through a shared sampler must be filtered EXACTLY as the per-texture
   sampler would filter it — check anisotropy, not just filter and wrap — or every
   oblique surface diverges by backend (a smooth map such as the parallax height map

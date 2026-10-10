@@ -428,6 +428,9 @@ namespace
                     label(path, "clearcoatNormalTexture.scale is the clearcoat bumpiness"));
                 check(unscaled && unscaled->clearCoatBumpiness() == 1.0f,
                     label(path, "an absent scale is 1"));
+                // The reproduced upstream quirk: a quarter of clearcoatFactor (1 here).
+                check(scaled && scaled->clearCoat() == 0.25f,
+                    label(path, "the coat's strength is a quarter of clearcoatFactor"));
             });
     }
 
