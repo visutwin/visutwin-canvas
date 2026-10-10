@@ -7,6 +7,7 @@
 
 #include <cstring>
 #include <iterator>
+#include <type_traits>
 
 #include "core/math/vector3.h"
 #include "platform/graphics/lightingDerivation.h"
@@ -89,7 +90,9 @@ namespace visutwin::canvas
         cameraPosition.store(block.cameraPosExposure);
         block.cameraPosExposure[3] = exposure;
 
-        constexpr uint32_t kMaxLights = static_cast<uint32_t>(std::size(block.lights));
+        // From the type: a member of a reference parameter is a constant expression only
+        // under P2280 (a C++23 defect report), which Xcode 16's clang does not implement.
+        constexpr uint32_t kMaxLights = static_cast<uint32_t>(std::extent_v<decltype(LightingBlock::lights)>);
         block.lightCount[0] = derived.lightCount;
         for (uint32_t i = 0; i < kMaxLights; ++i) {
             GpuLightBlock& dst = block.lights[i];

@@ -169,6 +169,14 @@ ctest --preset default
   ships the v2 C++ API unchanged beside a new v3 header (`tiny_gltf_v3.h`), which the
   parser does not use. The overlay that pinned 2.9.7 over a regenerated archive's hash is
   gone; `vcpkg-overlays/ports/` now holds only the `visutwin-canvas` port for consumers.
+- **CI's macOS compiler is OLDER than the local one** (Xcode 16.4's Apple clang 17 on the
+  `macos-15` runners; Apple clang 21 here), and the local one accepts code it rejects. The
+  one that broke CI for three days: a member of a REFERENCE parameter in a constant
+  expression (`constexpr auto n = std::size(block.lights)` with `block` a parameter), legal
+  only under P2280, which clang implements from 20. Take such a size from the TYPE
+  (`std::extent_v<decltype(T::member)>`). GCC 14 on the Linux job accepts it too, so only
+  the macOS jobs catch it, and since the build stops at the first error, a broken CI run
+  hides whatever comes after it.
 - **Apple's libc++ hides missing standard includes; GCC's libstdc++ does not.**
   libc++ pulls `<cmath>`, `<cstdint>` and `<array>` in transitively, so a header
   that uses `std::sqrt`, `uint32_t` or `std::array` without including them builds
