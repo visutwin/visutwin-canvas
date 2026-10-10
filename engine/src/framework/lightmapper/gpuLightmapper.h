@@ -168,9 +168,12 @@ namespace visutwin::canvas
         /// Points every bake camera at its lightmap or occlusion target, and sets whether
         /// the frame clears it first and whether it adds to what is there.
         void configureCameras(bool occlusionTargets, bool clear, bool accumulate);
-        /// Each scene light back to its authored enabled state, ANDed with `keep`.
+        /// Each BAKE light (authored mask with MASK_BAKE) back to its authored enabled state,
+        /// ANDed with `keep`; every other light off, since only bake lights reach a lightmap.
         template <typename Predicate>
         void enableSceneLights(Predicate keep);
+        /// Every scene light back to its authored enabled state, at the end of the bake.
+        void restoreSceneLights();
         void prepareAmbientSample(int index);
         void prepareDirectionalSample(int index);
 
@@ -205,8 +208,15 @@ namespace visutwin::canvas
         std::vector<std::pair<LightComponent*, std::vector<int>>> _lightLayerBackup;
         std::vector<std::pair<LightComponent*, uint32_t>> _lightMaskBackup;
         // Each scene light's own enabled flag, which every phase starts from and the end of
-        // the bake restores — a light the app switched off stays off.
-        std::vector<std::pair<LightComponent*, bool>> _lightEnabledBackup;
+        // the bake restores — a light the app switched off stays off — and whether its
+        // authored mask has MASK_BAKE (the bake rewrites the mask, so it is decided up front).
+        struct LightEnabledBackup
+        {
+            LightComponent* light = nullptr;
+            bool enabled = false;
+            bool bakes = false;
+        };
+        std::vector<LightEnabledBackup> _lightEnabledBackup;
 
         // The ambient-occlusion virtual light.
         Entity* _ambientLightEntity = nullptr;

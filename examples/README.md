@@ -123,6 +123,9 @@ The second column is the upstream example each one ports, as
 | lightmap-bake | graphics/lights-baked-a-o | CPU-baked lightmaps with shadows and AO |
 | lightmap-sources | test/lightmap-sources | A material lightmap vs a mesh instance's own bake, and which wins |
 | two-sided-lighting | test/two-sided-lighting | Back faces of double-sided materials lit from the viewer's side |
+| light-masks | test/light-masks | Which lights reach lightmapped, dynamic and baked-only geometry |
+| opacity | test/opacity | Opacity map, alpha test and five blend types on emissive boxes |
+| material-texture-transforms | test/material-texture-transforms | Diffuse, opacity and emissive maps under their own UV transforms |
 
 ### Reflections & environment
 

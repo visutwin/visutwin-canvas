@@ -275,6 +275,9 @@ namespace visutwin::canvas
         void setOpacity(const float value) { _opacity = value; markUniformsDirty(); }
         Texture* opacityMap() const { return _opacityMap; }
         void setOpacityMap(Texture* texture) { _opacityMap = texture; markUniformsDirty(); }
+        /// Channel of the opacity map that supplies opacity (default "a").
+        MapChannel opacityMapChannel() const { return _opacityMapChannel; }
+        void setOpacityMapChannel(const MapChannel value) { _opacityMapChannel = value; markUniformsDirty(); }
         // --- Height / Parallax ---
         Texture* heightMap() const { return _heightMap; }
         void setHeightMap(Texture* texture) { _heightMap = texture; markUniformsDirty(); }
@@ -377,6 +380,12 @@ namespace visutwin::canvas
         void setEmissiveMapOffset(const Vector2& v) { _emissiveMapOffset = v; markUniformsDirty(); }
         float emissiveMapRotation() const { return _emissiveMapRotation; }
         void setEmissiveMapRotation(float deg) { _emissiveMapRotation = deg; markUniformsDirty(); }
+        const Vector2& opacityMapTiling() const { return _opacityMapTiling; }
+        void setOpacityMapTiling(const Vector2& v) { _opacityMapTiling = v; markUniformsDirty(); }
+        const Vector2& opacityMapOffset() const { return _opacityMapOffset; }
+        void setOpacityMapOffset(const Vector2& v) { _opacityMapOffset = v; markUniformsDirty(); }
+        float opacityMapRotation() const { return _opacityMapRotation; }
+        void setOpacityMapRotation(float deg) { _opacityMapRotation = deg; markUniformsDirty(); }
         // --- Rendering flags ---
         bool useFog() const { return _useFog; }
         void setUseFog(const bool value) { _useFog = value; markUniformsDirty(); }
@@ -542,6 +551,7 @@ namespace visutwin::canvas
 
         float _opacity = 1.0f;
         Texture* _opacityMap = nullptr;
+        MapChannel _opacityMapChannel = MapChannel::MAP_CHANNEL_A;
 
         Texture* _heightMap = nullptr;
         Texture* _lightMap = nullptr;
@@ -586,6 +596,10 @@ namespace visutwin::canvas
         Vector2 _emissiveMapTiling{1.0f, 1.0f};
         Vector2 _emissiveMapOffset{0.0f, 0.0f};
         float _emissiveMapRotation = 0.0f;
+
+        Vector2 _opacityMapTiling{1.0f, 1.0f};
+        Vector2 _opacityMapOffset{0.0f, 0.0f};
+        float _opacityMapRotation = 0.0f;
 
         Texture* _reflectionMap = nullptr;
 

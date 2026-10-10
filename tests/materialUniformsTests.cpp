@@ -87,5 +87,35 @@ int main()
             "setParameter override invalidates the cache");
     }
 
+    // The opacity map reads its own channel under its own transform: alpha and identity by
+    // default, so a material that never sets them reads what it always did; a diffuse
+    // transform must not move the opacity map.
+    {
+        auto material = std::make_shared<StandardMaterial>();
+        const MaterialUniforms& defaults = material->packedUniforms();
+        passed &= expect(nearStrict(defaults.opacityTransform0[3], 3.0f, kTolerance),
+            "the opacity map reads alpha by default");
+        passed &= expect(nearStrict(defaults.opacityTransform0[0], 1.0f, kTolerance) &&
+                         nearStrict(defaults.opacityTransform1[1], 1.0f, kTolerance) &&
+                         nearStrict(defaults.opacityTransform0[2], 0.0f, kTolerance) &&
+                         nearStrict(defaults.opacityTransform1[2], 0.0f, kTolerance),
+            "the opacity map's transform is the identity by default");
+
+        material->setDiffuseMapOffset(Vector2(0.25f, 0.0f));
+        material->setOpacityMapChannel(MapChannel::MAP_CHANNEL_R);
+        material->setOpacityMapTiling(Vector2(2.0f, 3.0f));
+        material->setOpacityMapOffset(Vector2(0.5f, 0.125f));
+        const MaterialUniforms& set = material->packedUniforms();
+        passed &= expect(nearStrict(set.opacityTransform0[3], 0.0f, kTolerance),
+            "setOpacityMapChannel selects the channel");
+        passed &= expect(nearStrict(set.opacityTransform0[0], 2.0f, kTolerance) &&
+                         nearStrict(set.opacityTransform1[1], 3.0f, kTolerance) &&
+                         nearStrict(set.opacityTransform0[2], 0.5f, kTolerance) &&
+                         nearStrict(set.opacityTransform1[2], 1.0f - 3.0f - 0.125f, kTolerance),
+            "the opacity map packs its own tiling and offset");
+        passed &= expect(nearStrict(set.baseColorTransform0[2], 0.25f, kTolerance),
+            "the diffuse transform stays the diffuse map's");
+    }
+
     return passed ? 0 : 1;
 }

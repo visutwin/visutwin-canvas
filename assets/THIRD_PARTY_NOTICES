@@ -182,7 +182,7 @@ Resolve before a public release:
   cubemaps/*-env-atlas.png       CC-0 replacements: tools/generate-env-atlas
   cubemaps/xmas_faces/*.png
   textures/heart.png
-  textures/seaside-rocks01-*.jpg
+  textures/seaside-rocks01-*.jpg, seaside-rocks01-diffuse-alpha.png
   models/SunglassesKhronos.glb   (see its entry above)
   models/statue.glb, geometry-camera-light.glb, playcanvas-cube.glb, bitmoji.glb,
   models/Lights.glb,

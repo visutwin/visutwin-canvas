@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 84 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 87 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -816,7 +816,7 @@ through `getOrCreateQuadShader` (`quadShader.h`) with the prelude and vertex sta
 `quadShaderSource.h` (`useCachedShader`); nothing in the engine uses that route. A quad pass is otherwise a shader,
 up to 8 input textures on fragment slots 0-7, and one uniform block. The block rides the per-draw MATERIAL slot (Metal buffer 3 / Vulkan
 set 0 binding 0) via `GraphicsDevice::setQuadUniformData`; `kPerDrawUniformCapacity`
-(640; `MaterialUniforms` itself is 592 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
+(640; `MaterialUniforms` itself is 624 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
 allocation behind it. A smaller block is copied into the front of a full-size
 allocation, so never shorten the allocation. Quad passes draw an oversized
 fullscreen TRIANGLE and, on Metal, bind `_postSampler` (linear, clamp, no anisotropy),
@@ -1301,7 +1301,9 @@ present, but the rule below never depends on reading it.
   so a zero flags word keeps the scene environment, and it drops only the env atlas
   (SH probes and the flat ambient remain), as upstream's `useSceneEnv` does. The
   opacity map (slot / set-1 binding 34, multiplied into the forward and shadow alpha
-  with the base-colour UV) is on both backends. It multiplies ON TOP of the
+  on the base colour's UV SET under its OWN transform, `setOpacityMapTiling` / `Offset` /
+  `Rotation`, reading the channel `setOpacityMapChannel` picks, alpha by default) is on both
+  backends. The channel rides in `opacityTransform0.w`, which the transform never reads. It multiplies ON TOP of the
   base-colour map's alpha, so a material that sets ONE texture as both gets alpha
   squared, which thins every anti-aliased edge: set the opacity map only when it is a
   different texture, or leave the base colour without one (upstream's decal does).
@@ -1505,6 +1507,11 @@ present, but the rule below never depends on reading it.
   it (`PrimitiveGeometry::uvs1`; the plane and sphere use UV0, as upstream). Copying
   UV0 into UV1 would write all six faces of a baked box into one square and show
   their blend; `tests/primitiveGeometryTests.cpp` holds the cells disjoint.
+  **Only a light whose mask HAS `MASK_BAKE` is baked** (`GpuLightmapper`: every other light
+  is switched off for the bake frames, and a bake light is put on `MASK_AFFECT_LIGHTMAPPED`
+  while it bakes so it reaches the bake meshes and casts). A runtime light that reaches
+  lightmapped geometry (`MASK_AFFECT_LIGHTMAPPED` without the bake bit) is NOT in the
+  lightmap; baked as well, it lit those meshes twice. `light-masks` holds the four cases.
 - **The CPU lightmapper's BVH stores BOTH children of a node.** Children are built
   depth-first, so `left + 1` is the right sibling only when the left child is a
   leaf; a walk of `left` and `left + 1` skips most of the tree and answers rays that

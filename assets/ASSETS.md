@@ -26,6 +26,9 @@ for details.
   substitute averaging 0.51 instead of this set's 0.75 sampled a prefiltered level,
   rendering `refraction`'s capsules a flat opaque wash instead of glass. Used by
   `refraction` and `area-light`.
+- `seaside-rocks01-diffuse-alpha.png` (RGBA) and `seaside-rocks01-roughness.jpg` — from the
+  same upstream set, byte-identical. LICENCE TO CONFIRM. Used by `opacity` (the emissive map
+  and the red-channel opacity map).
 - `playcanvas.png` / `playcanvas-grey.png` — logo textures (CC-0 assets, but the
   depicted logo is a third-party mark: branding, not reusable art)
 - `snowflake.png`, `spark.png`, `particles-numbers.png` — particle sprites (CC-0)

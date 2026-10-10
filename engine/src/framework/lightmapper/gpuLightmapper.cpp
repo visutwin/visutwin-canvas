@@ -313,19 +313,21 @@ namespace visutwin::canvas
             if (!lightComponent) {
                 continue;
             }
+            const bool bakes = (lightComponent->mask() & MASK_BAKE) != 0u;
             _lightLayerBackup.emplace_back(lightComponent, lightComponent->layers());
-            _lightEnabledBackup.emplace_back(lightComponent, lightComponent->enabled());
+            _lightEnabledBackup.push_back({lightComponent, lightComponent->enabled(), bakes});
             std::vector<int> layerIds = lightComponent->layers();
             layerIds.insert(layerIds.end(), bakeLayers.begin(), bakeLayers.end());
             lightComponent->setLayers(layerIds);
 
-            // A light on MASK_BAKE reports castShadows() == false by design
-            // (Light::castShadows excludes MASK_BAKE and MASK_NONE),
-            // which suppresses its shadow map — so a bake light would light the texels
-            // but cast nothing. Lift such lights to MASK_AFFECT_LIGHTMAPPED for the bake
-            // and restore their authored mask afterwards.
+            // Only a light whose mask has MASK_BAKE contributes to a lightmap (the others are
+            // switched off for every bake frame, enableSceneLights). The bake meshes wear
+            // MASK_AFFECT_LIGHTMAPPED, so a bake light is put on that mask for the bake: it
+            // then reaches them whatever else its mask holds, and a light on MASK_BAKE alone,
+            // which reports castShadows() == false by design (Light::castShadows excludes
+            // MASK_BAKE and MASK_NONE), casts its shadow into the bake. Restored afterwards.
             _lightMaskBackup.emplace_back(lightComponent, lightComponent->mask());
-            if (lightComponent->mask() == MASK_BAKE) {
+            if (bakes) {
                 lightComponent->setMask(MASK_AFFECT_LIGHTMAPPED);
             }
         }
@@ -340,8 +342,10 @@ namespace visutwin::canvas
         if (!(_options.directionalBakeNumSamples > 1 && _options.directionalBakeArea > 0.0f)) {
             return;
         }
-        for (auto* lightComponent : instancesOf<LightComponent>(_engine ? &_engine->components() : nullptr)) {
-            if (!lightComponent || !lightComponent->active() ||
+        // Bake lights only (widenLightsForBake has recorded which they are).
+        for (const auto& backup : _lightEnabledBackup) {
+            auto* lightComponent = backup.light;
+            if (!lightComponent || !backup.bakes || !lightComponent->active() ||
                 lightComponent->type() != LightType::LIGHTTYPE_DIRECTIONAL) {
                 continue;
             }
@@ -385,9 +389,18 @@ namespace visutwin::canvas
     template <typename Predicate>
     void GpuLightmapper::enableSceneLights(Predicate keep)
     {
-        for (auto& [lightComponent, enabled] : _lightEnabledBackup) {
-            if (lightComponent) {
-                lightComponent->setEnabled(enabled && keep(*lightComponent));
+        for (const auto& backup : _lightEnabledBackup) {
+            if (backup.light) {
+                backup.light->setEnabled(backup.enabled && backup.bakes && keep(*backup.light));
+            }
+        }
+    }
+
+    void GpuLightmapper::restoreSceneLights()
+    {
+        for (const auto& backup : _lightEnabledBackup) {
+            if (backup.light) {
+                backup.light->setEnabled(backup.enabled);
             }
         }
     }
@@ -692,7 +705,7 @@ namespace visutwin::canvas
         _dirSampleCount = 0;
 
         // Every scene light back to the enabled state it had before the bake.
-        enableSceneLights([](const LightComponent&) { return true; });
+        restoreSceneLights();
         _lightEnabledBackup.clear();
 
         delete _ambientLightEntity;

@@ -160,12 +160,12 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
     float4 albedo = float4(baseLinear * vertexTint.rgb,
         baseFactor.a * baseSample.a * vertexTint.a);
 
-    // Opacity map (alpha channel), flags bit 19, with the base
-    // colour's UV, as the shadow frontend reads it.
+    // Opacity map, flags bit 19: one channel (opacityTransform0.w) on the base colour's UV
+    // set under its own transform, as the shadow frontend reads it.
     if ((material.flags & (1u << 19)) != 0u) {
         float2 uvOpacity = ((material.flags & (1u << 4)) != 0u) ? fragUV1 : fragUV0;
-        uvOpacity = applyUvTransform(uvOpacity, material.baseColorTransform0, material.baseColorTransform1);
-        albedo.a *= opacityMap.Sample(materialSampler, uvOpacity).a;
+        uvOpacity = applyUvTransform(uvOpacity, material.opacityTransform0, material.opacityTransform1);
+        albedo.a *= opacityMap.Sample(materialSampler, uvOpacity)[int(material.opacityTransform0.w)];
     }
 
     // DEBUGPASS_LIGHTING: neutralize albedo

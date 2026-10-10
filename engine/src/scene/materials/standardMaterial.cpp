@@ -53,6 +53,7 @@ namespace visutwin::canvas
         _thickness = 0.0f;
         _opacity = 1.0f;
         _opacityMap = nullptr;
+        _opacityMapChannel = MapChannel::MAP_CHANNEL_A;
         _aoMap = nullptr;
 
         _diffuseMapTiling = Vector2(1.0f, 1.0f);
@@ -73,6 +74,9 @@ namespace visutwin::canvas
         _emissiveMapTiling = Vector2(1.0f, 1.0f);
         _emissiveMapOffset = Vector2(0.0f, 0.0f);
         _emissiveMapRotation = 0.0f;
+        _opacityMapTiling = Vector2(1.0f, 1.0f);
+        _opacityMapOffset = Vector2(0.0f, 0.0f);
+        _opacityMapRotation = 0.0f;
 
         _reflectionMap = nullptr;
         _clearCoat = 0.0f;
@@ -164,6 +168,9 @@ namespace visutwin::canvas
             uniforms.occlusionTransform0, uniforms.occlusionTransform1);
         packTextureTransform({_emissiveMapTiling, _emissiveMapOffset, _emissiveMapRotation},
             uniforms.emissiveTransform0, uniforms.emissiveTransform1);
+        packTextureTransform({_opacityMapTiling, _opacityMapOffset, _opacityMapRotation},
+            uniforms.opacityTransform0, uniforms.opacityTransform1);
+        uniforms.opacityTransform0[3] = static_cast<float>(_opacityMapChannel);
         if (_detailNormalMap) {
             packTextureTransform(_detailNormalTransform, uniforms.detailNormalTransform0,
                 uniforms.detailNormalTransform1);

@@ -139,4 +139,9 @@
     X(vec4, glossMapParams, {0.0f, 0.0f, 1.0f, 0.0f}) \
     /* --- Gloss map UV transform (rows as the other maps'), applied to UV0 --- */ \
     X(vec4, glossTransform0, {1, 0, 0, 0}) \
-    X(vec4, glossTransform1, {0, 1, 0, 0})
+    X(vec4, glossTransform1, {0, 1, 0, 0}) \
+    /* --- Opacity map UV transform (rows as the other maps'), on the base colour's UV set --- */ \
+    /* row 0's w (which the transform never reads) is the channel the opacity is read from */ \
+    /* (0=r,1=g,2=b,3=a; default a). */ \
+    X(vec4, opacityTransform0, {1, 0, 0, 3}) \
+    X(vec4, opacityTransform1, {0, 1, 0, 0})
