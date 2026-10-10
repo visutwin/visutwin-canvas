@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 78 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 84 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -1158,7 +1158,9 @@ present, but the rule below never depends on reading it.
   with the shader UV inset to match — port both halves or the tile edges bleed.
 - **A local light's shadow camera has near = range / 1000** (`Light::localShadowNearClip`,
   upstream's), for spots and omni faces, clustered and not, and every lookup that
-  reconstructs that depth takes the same value. A fixed 0.01 crushed an omni face's depth
+  reconstructs that depth takes the same value — the forward chunks AND the volumetric
+  fog's local march (`RenderPassVolumetricFog`'s `omniDepth`), which kept 0.01 at first
+  and read every omni light's fog as shadowed. A fixed 0.01 crushed an omni face's depth
   so close to 1 that the 0.2% relative bias came to a few float ulps; the Metal and Vulkan
   compiles rounded the compare differently and Vulkan speckled the walls nearest
   `clustered-omni-shadows`' lights (365 px off, now 22). The atlas contents were
@@ -2207,7 +2209,8 @@ present, but the rule below never depends on reading it.
   the image stays put. Under ortho the footprint's Jacobian is also evaluated at view
   position (0, 0, 1), and splat fog takes the view depth `-view.z`, not `clip.w` (1 for
   every splat under ortho).
-  No shipped asset has SH bands, so no render shows it.
+  Only `gsplat-spherical-harmonics` (the skull, three SH bands) has view-dependent colour,
+  and it uses a perspective camera, so the ortho rule is still shown by no render.
 - **A splat's clip z is CLAMPED to the depth range, and that only works because
   its screen-space kernel is clamped too.** A gaussian splat is a quad built around
   ONE projected centre, so the whole quad carries that centre's depth: an unclamped
@@ -3138,8 +3141,11 @@ What stays HERE is only what bites during UNRELATED work.
   `ui-particle-system` — user-interface/particle-system — and `text-localization`) port
   upstream's CURRENT versions; `text-emojis` is not ported yet (it draws with upstream's
   `CanvasFont`, a system-font rasteriser this port does not have).
+- **Gaussian splats cast no shadows.** `GSplatResource::createMeshInstance` turns shadow
+  casting off and there is no splat alpha clip for a shadow pass, so
+  `gsplat-spherical-harmonics`' skull leaves its ground unshadowed where upstream's does not.
 - **Example coverage gaps.** Nothing exercises: SH light probes (drive them with
-  `VISUTWIN_AMBIENT_SH`), SSR (drive it with `VISUTWIN_SSR_FLOOR`), gsplat SH bands 1-3, detail
+  `VISUTWIN_AMBIENT_SH`), SSR (drive it with `VISUTWIN_SSR_FLOOR`), detail
   normals (upstream's `test/detail-map` cannot be ported faithfully — it toggles
   diffuse, normal and AO detail maps and only NORMAL exists here), fog of any
   type, or sheen. The last two mean a change to those paths has to be driven

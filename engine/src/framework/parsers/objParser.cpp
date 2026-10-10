@@ -727,7 +727,8 @@ namespace visutwin::canvas
         // Parse with tinyobjloader v2 API
         tinyobj::ObjReaderConfig readerConfig;
         readerConfig.triangulate = true;
-        readerConfig.vertex_color = true;
+        // Vertex colours are not read, so tinyobjloader need not parse them.
+        readerConfig.vertex_color = false;
         readerConfig.mtl_search_path = basedir.string();
 
         tinyobj::ObjReader reader;

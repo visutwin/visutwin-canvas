@@ -32,6 +32,12 @@ models/fox.glb
   Credit:   tomkranis for rigging and animation; @AsoboStudio and @scurest for
             the conversion to glTF
 
+models/carbon-sphere.glb
+  Original: CARBON 60 SPHERE
+  Source:   https://sketchfab.com/3d-models/carbon-60-sphere-5ef45e632eb8431998400ea73ddc51a5
+  Author:   Random13
+  License:  CC-BY 4.0
+
 models/SheenChair.glb
   Original: SheenChair
   Source:   https://github.com/KhronosGroup/glTF-Sample-Models/tree/master/2.0/SheenChair
@@ -179,7 +185,9 @@ Resolve before a public release:
   textures/seaside-rocks01-*.jpg
   models/SunglassesKhronos.glb   (see its entry above)
   models/statue.glb, geometry-camera-light.glb, playcanvas-cube.glb, bitmoji.glb,
-  models/Lights.glb
+  models/Lights.glb,
+  models/heart_draco.glb, simple-instancing.glb, monkey.obj, TwoSidedPlane.glb,
+  models/skull.compressed.ply
   textures/playcanvas*.png, snowflake.png, spark.png, particles-numbers.png,
   textures/normal-map.png, animations/bitmoji/*.glb
   hdri/shanghai-riverside-4k.hdr (by its name Poly Haven's "Shanghai Riverside",

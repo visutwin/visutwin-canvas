@@ -110,6 +110,19 @@ Mirrored from the upstream examples (for visual parity):
 - `playcanvas-cube.glb` — logo cube (CC-0; the logo is a third-party mark)
 - `bitmoji.glb` — Bitmoji character for anim state graph (CC-0)
 - `chess-board.glb` — Chess Board by Idmental, Sketchfab (**CC-BY 4.0**, see .txt)
+- `carbon-sphere.glb` — CARBON 60 SPHERE by Random13, Sketchfab (**CC-BY 4.0**, see .txt),
+  byte-identical to upstream's copy. Used by `volumetric-fog-shafts`.
+- `heart_draco.glb` — a Draco-compressed heart, byte-identical to upstream's example
+  asset (no recorded licence — see THIRD_PARTY_NOTICES). Used by `draco-glb`.
+- `simple-instancing.glb` — an `EXT_mesh_gpu_instancing` sample (JglTF), byte-identical to
+  upstream's (no recorded licence). Used by `instancing-glb`.
+- `monkey.obj` — Blender's Suzanne exported as OBJ, byte-identical to upstream's (its
+  `mtllib monkey.mtl` has no file, upstream ships none either). Used by `obj`.
+- `TwoSidedPlane.glb` — a double-sided normal-mapped plane, byte-identical to upstream's
+  test asset (no recorded licence). Used by `two-sided-lighting`.
+- `skull.compressed.ply` — a compressed gaussian splat with spherical harmonics,
+  byte-identical to upstream's `splats/skull.compressed.ply` (no recorded licence). Used
+  by `gsplat-spherical-harmonics`.
 - `Lights.glb` — four `KHR_lights_punctual` lights and a mesh, byte-identical to
   upstream's example asset (exported from Blender with the physically based light units
   work); upstream records no separate licence — see THIRD_PARTY_NOTICES. Used by

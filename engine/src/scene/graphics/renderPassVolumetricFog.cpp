@@ -493,7 +493,7 @@ namespace visutwin::canvas
             u.lightAtlas[1] = viewport.getY();
             u.lightAtlas[2] = viewport.getZ();
             u.lightAtlas[3] = static_cast<float>(LightTextureAtlas::kShadowEdgePixels);
-            u.omniDepth[0] = 0.01f;
+            u.omniDepth[0] = light->localShadowNearClip();
             u.omniDepth[1] = std::max(light->range(), 0.1f);
             u.omniDepth[2] = -light->shadowBias();
 

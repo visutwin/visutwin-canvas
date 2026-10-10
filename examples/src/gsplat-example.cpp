@@ -21,6 +21,7 @@
 #include "../exampleApp.h"
 #include "framework/components/gsplat/gsplatComponent.h"
 #include "framework/components/gsplat/gsplatComponentSystem.h"
+#include "platform/input/keyboard.h"
 #include "scene/constants.h"
 #include "scene/gsplat/gsplatResource.h"
 #include "scene/materials/standardMaterial.h"
@@ -153,13 +154,12 @@ protected:
         return true;
     }
 
-    bool onEvent(const SDL_Event& event) override
+    void update(const float /*dt*/) override
     {
-        if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F && _controls) {
+        const auto* keyboard = engine()->keyboard();
+        if (keyboard && _controls && keyboard->wasPressed(Key::F)) {
             _controls->focus(_pivot, ORBIT_DISTANCE);
-            return true;
         }
-        return false;
     }
 
     void destroy() override

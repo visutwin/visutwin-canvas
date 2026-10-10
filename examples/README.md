@@ -122,6 +122,7 @@ The second column is the upstream example each one ports, as
 | pcss-local | test/contact-hardening-shadows | PCSS contact-hardening shadows from local lights |
 | lightmap-bake | graphics/lights-baked-a-o | CPU-baked lightmaps with shadows and AO |
 | lightmap-sources | test/lightmap-sources | A material lightmap vs a mesh instance's own bake, and which wins |
+| two-sided-lighting | test/two-sided-lighting | Back faces of double-sided materials lit from the viewer's side |
 
 ### Reflections & environment
 
@@ -140,6 +141,7 @@ The second column is the upstream example each one ports, as
 | depth-of-field | camera-frame/depth-of-field | Bokeh depth of field over an apartment interior |
 | ambient-occlusion | camera-frame/ambient-occlusion | Screen-space ambient occlusion in the laboratory |
 | volumetric-fog-local-lights | camera-frame/volumetric-fog-local-lights | Height fog lit by shadowed spot and omni lights over a terrain |
+| volumetric-fog-shafts | camera-frame/volumetric-fog-shafts | Light shafts from shadowed spot lights through volumetric fog |
 | ambient-occlusion-davinci | — (original scene) | SSAO over the da Vinci workshop with the colour finishing chain |
 | edge-detect | compute/edge-detect | Compute-shader Sobel filter over an offscreen render |
 
@@ -151,6 +153,7 @@ The second column is the upstream example each one ports, as
 | blend-trees-2d | animation/blend-trees-2d-cartesian | 2D-cartesian animation blend tree |
 | mesh-morph | graphics/mesh-morph | Procedural morph targets driven by sine weights |
 | instancing-basic | graphics/instancing-basic | 1000 hardware-instanced cylinders |
+| instancing-glb | graphics/instancing-glb | A glTF using EXT_mesh_gpu_instancing |
 | dynamic-batching | graphics/batching-dynamic | 500 moving primitives in one dynamic batch group |
 | wide-line | graphics/wide-line | Instanced polyline with per-point width and colour |
 
@@ -159,6 +162,7 @@ The second column is the upstream example each one ports, as
 | Example | Upstream | Description |
 |---------|----------|-------------|
 | gsplat | gaussian-splatting/simple | Gaussian splat on a shadow-receiving ground |
+| gsplat-spherical-harmonics | gaussian-splatting/spherical-harmonics | A splat with view-dependent colour from SH bands |
 | particles | compute/particles | 1M compute-simulated particles colliding with spheres |
 | particles-anim-index | graphics/particles-anim-index | Sprite-sheet animation rows selected by animIndex |
 
@@ -168,6 +172,8 @@ The second column is the upstream example each one ports, as
 |---------|----------|-------------|
 | orbit | camera/orbit | Orbit camera controls around the statue |
 | glb-loader | loaders/glb | A GLB carrying meshes, lights and cameras |
+| draco-glb | loaders/draco-glb | A Draco-compressed glTF |
+| obj-loader | loaders/obj | An OBJ file through the OBJ parser |
 | layers | graphics/layers | X-ray, character and front layers |
 | multi-view | graphics/multi-view | One board through three cameras and viewports |
 | render-to-texture | render-targets/render-to-texture | A camera rendering into a texture shown in the scene |
