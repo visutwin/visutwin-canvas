@@ -136,4 +136,7 @@
     /* so under an invert flag roughness = factor x texel. Read only with a map bound. */ \
     /* x = 1 when the base gloss is inverted, y = 1 when the clearcoat gloss is, */ \
     /* z = the authored clearcoat gloss factor (before inversion), w = pad. */ \
-    X(vec4, glossMapParams, {0.0f, 0.0f, 1.0f, 0.0f})
+    X(vec4, glossMapParams, {0.0f, 0.0f, 1.0f, 0.0f}) \
+    /* --- Gloss map UV transform (rows as the other maps'), applied to UV0 --- */ \
+    X(vec4, glossTransform0, {1, 0, 0, 0}) \
+    X(vec4, glossTransform1, {0, 1, 0, 0})

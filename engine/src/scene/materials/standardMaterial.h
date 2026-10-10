@@ -359,6 +359,12 @@ namespace visutwin::canvas
         void setMetalnessMapOffset(const Vector2& v) { _metalnessMapOffset = v; markUniformsDirty(); }
         float metalnessMapRotation() const { return _metalnessMapRotation; }
         void setMetalnessMapRotation(float deg) { _metalnessMapRotation = deg; markUniformsDirty(); }
+        const Vector2& glossMapTiling() const { return _glossMapTiling; }
+        void setGlossMapTiling(const Vector2& v) { _glossMapTiling = v; markUniformsDirty(); }
+        const Vector2& glossMapOffset() const { return _glossMapOffset; }
+        void setGlossMapOffset(const Vector2& v) { _glossMapOffset = v; markUniformsDirty(); }
+        float glossMapRotation() const { return _glossMapRotation; }
+        void setGlossMapRotation(float deg) { _glossMapRotation = deg; markUniformsDirty(); }
         const Vector2& aoMapTiling() const { return _aoMapTiling; }
         void setAoMapTiling(const Vector2& v) { _aoMapTiling = v; markUniformsDirty(); }
         const Vector2& aoMapOffset() const { return _aoMapOffset; }
@@ -569,6 +575,9 @@ namespace visutwin::canvas
         Vector2 _metalnessMapTiling{1.0f, 1.0f};
         Vector2 _metalnessMapOffset{0.0f, 0.0f};
         float _metalnessMapRotation = 0.0f;
+        Vector2 _glossMapTiling{1.0f, 1.0f};
+        Vector2 _glossMapOffset{0.0f, 0.0f};
+        float _glossMapRotation = 0.0f;
 
         Vector2 _aoMapTiling{1.0f, 1.0f};
         Vector2 _aoMapOffset{0.0f, 0.0f};

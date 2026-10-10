@@ -84,6 +84,7 @@
     X(Cookie2D,                  "VT_FEATURE_COOKIE_2D") \
     X(CookieCube,                "VT_FEATURE_COOKIE_CUBE") \
     X(Skybox,                    "VT_FEATURE_SKYBOX") \
+    X(SkyDepth,                  "VT_FEATURE_SKY_DEPTH") \
     X(TransparentPass,           "VT_FEATURE_TRANSPARENT_PASS") \
     X(ScreenSpace,               "VT_FEATURE_SCREEN_SPACE") \
     X(Msdf,                      "VT_FEATURE_MSDF") \

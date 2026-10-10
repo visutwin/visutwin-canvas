@@ -1243,9 +1243,16 @@ The cross-cutting traps stay in `AGENTS.md`.
   `update()` that completes it is overwritten by the next phase.
 
 ### Atmosphere (Nishita)
-`Sky::setDepthWrite` (upstream's `Sky.depthWrite`, default false) makes the sky dome
-write depth, for effects that need a finite depth where the sky is — DOF, fog,
-SSAO. It is applied to the current mesh and to every rebuilt one.
+`Sky::setDepthWrite` (upstream's `Sky.depthWrite`, default false) makes a dome or box sky
+write its REAL depth, for effects that need a finite depth where the sky is — DOF, fog,
+SSAO: the material's depth write compiles `VT_FEATURE_SKY_DEPTH`, which keeps
+`forwardSkyVertex` from pinning the sky to the far plane (every other sky stays there).
+The infinite sky never writes depth (`SkyMesh::setDepthWrite`). DEVIATION: upstream
+keeps that sky on the far plane too and writes its linear depth into a separate
+scene-depth output, so geometry beyond the sky mesh is hidden by it here and not there.
+Before the feature existed the depth write was a no-op: `shadow-catcher`'s DOF blurred
+the dome's floor up to the statue's feet. It is applied to the current mesh and to every
+rebuilt one.
 
 Two traps, both of which silently produce no sky at all:
 - **`Scene::setAtmosphereEnabled` must rebuild the sky mesh.** The atmosphere

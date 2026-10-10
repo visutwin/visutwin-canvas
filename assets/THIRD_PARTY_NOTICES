@@ -32,6 +32,17 @@ models/fox.glb
   Credit:   tomkranis for rigging and animation; @AsoboStudio and @scurest for
             the conversion to glTF
 
+models/SheenChair.glb
+  Original: SheenChair
+  Source:   https://github.com/KhronosGroup/glTF-Sample-Models/tree/master/2.0/SheenChair
+  Author:   Wayfair LLC
+  License:  CC-BY 4.0
+
+hdri/st-peters-square.hdr
+  Original: St Peters Square Night
+  Source:   https://polyhaven.com/a/st_peters_square_night
+  License:  CC-BY 4.0 (as upstream's st-peters-square.txt records it)
+
 models/chess-board.glb
   Original: Chess Board
   Source:   https://sketchfab.com/3d-models/chess-board-901eeeca884f4622ac37b7e8f7cb82c3
@@ -167,7 +178,8 @@ Resolve before a public release:
   textures/heart.png
   textures/seaside-rocks01-*.jpg
   models/SunglassesKhronos.glb   (see its entry above)
-  models/statue.glb, geometry-camera-light.glb, playcanvas-cube.glb, bitmoji.glb
+  models/statue.glb, geometry-camera-light.glb, playcanvas-cube.glb, bitmoji.glb,
+  models/Lights.glb
   textures/playcanvas*.png, snowflake.png, spark.png, particles-numbers.png,
   textures/normal-map.png, animations/bitmoji/*.glb
   hdri/shanghai-riverside-4k.hdr (by its name Poly Haven's "Shanghai Riverside",

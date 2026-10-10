@@ -80,6 +80,9 @@ for details.
 - `shanghai-riverside-4k.hdr` — byte-identical to upstream's example HDRI (by its name
   Poly Haven's "Shanghai Riverside", CC-0; upstream records no source — see
   THIRD_PARTY_NOTICES). Used by `annotations`.
+- `st-peters-square.hdr` — Poly Haven's "St Peters Square Night", byte-identical to
+  upstream's example HDRI (**CC-BY 4.0** per upstream's `st-peters-square.txt`, kept
+  beside it). Used by `shadow-catcher`.
 
 ### models/ — complete
 - `a_beautiful_game.glb` — ABeautifulGame chess set from Khronos glTF-Sample-Assets
@@ -107,6 +110,13 @@ Mirrored from the upstream examples (for visual parity):
 - `playcanvas-cube.glb` — logo cube (CC-0; the logo is a third-party mark)
 - `bitmoji.glb` — Bitmoji character for anim state graph (CC-0)
 - `chess-board.glb` — Chess Board by Idmental, Sketchfab (**CC-BY 4.0**, see .txt)
+- `Lights.glb` — four `KHR_lights_punctual` lights and a mesh, byte-identical to
+  upstream's example asset (exported from Blender with the physically based light units
+  work); upstream records no separate licence — see THIRD_PARTY_NOTICES. Used by
+  `light-physical-units`.
+- `SheenChair.glb` — SheenChair from Khronos glTF-Sample-Models, byte-identical to
+  upstream's copy (**CC-BY 4.0**, Wayfair LLC, see .txt). Its sheen TEXTURES are ignored
+  (sheen is factors-only here). Used by `light-physical-units`.
 - `terrain.glb` — Low-poly terrain, Sketchfab (**CC-BY 4.0**, see .txt)
 - `robot-arm.glb` — Black Honey Robotic Arm, Sketchfab (**CC-BY 4.0**, Draco, see .txt)
 - `glass-table.glb` — Low-poly glass table, Sketchfab (**CC-BY 4.0**, see .txt)

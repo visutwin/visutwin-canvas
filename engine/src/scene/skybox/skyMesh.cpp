@@ -181,14 +181,16 @@ namespace visutwin::canvas
         if (!_material) {
             return;
         }
+        // Only a sky with geometry of its own (dome, box) writes depth; the infinite sky
+        // stays behind everything.
         auto depthState = std::make_shared<DepthState>();
-        depthState->setDepthWrite(value);
+        depthState->setDepthWrite(value && _type != SKYTYPE_INFINITE);
         _material->setDepthState(depthState);
     }
 
     SkyMesh::SkyMesh(const std::shared_ptr<GraphicsDevice>& device, Scene* scene,
         GraphNode* node, Texture* texture, const int type)
-        : _scene(scene)
+        : _scene(scene), _type(type)
     {
         (void)texture;
         if (!device || !_scene || !node) {

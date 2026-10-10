@@ -82,7 +82,7 @@ protected:
         _floorMaterial->setGlossMap(floorGloss);
         _floorMaterial->setDiffuseMapTiling(Vector2(7.0f, 7.0f));
         _floorMaterial->setNormalMapTiling(Vector2(7.0f, 7.0f));
-        _floorMaterial->setMetalnessMapTiling(Vector2(7.0f, 7.0f));
+        _floorMaterial->setGlossMapTiling(Vector2(7.0f, 7.0f));
 
         auto* floor = new Entity();
         floor->setEngine(engine());

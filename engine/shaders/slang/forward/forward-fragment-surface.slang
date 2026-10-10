@@ -81,6 +81,7 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
     float2 uvMetalRough = applyUvTransform(
         ((material.flags & FLAG_METALROUGH_UV1) != 0u) ? fragUV1 : fragUV0,
         material.metalRoughTransform0, material.metalRoughTransform1);
+    float2 uvGloss = applyUvTransform(fragUV0, material.glossTransform0, material.glossTransform1);
     float2 uvOcclusion = applyUvTransform(
         ((material.flags & FLAG_OCCLUSION_UV1) != 0u) ? fragUV1 : fragUV0,
         material.occlusionTransform0, material.occlusionTransform1);
@@ -125,6 +126,7 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
             uvBase       += uvDelta;
             uvNormal     += uvDelta;
             uvMetalRough += uvDelta;
+            uvGloss      += uvDelta;
             uvOcclusion  += uvDelta;
             uvEmissive   += uvDelta;
 
@@ -303,7 +305,7 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
     // Gloss map: one channel scales the authored gloss FACTOR, the product is
     // inverted under glossInvert, and the result replaces the roughness above.
     if (material.mapChannelParams.y >= 0.0) {
-        float4 glossSample = glossMap.Sample(materialSampler, fragUV0);
+        float4 glossSample = glossMap.Sample(materialSampler, uvGloss);
         float glossValue = material.mapChannelParams.x * glossSample[int(material.mapChannelParams.y)];
         if (material.glossMapParams.x > 0.5) {
             glossValue = 1.0 - glossValue;

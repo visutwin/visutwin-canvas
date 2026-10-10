@@ -64,6 +64,9 @@ namespace visutwin::canvas
         _metalnessMapTiling = Vector2(1.0f, 1.0f);
         _metalnessMapOffset = Vector2(0.0f, 0.0f);
         _metalnessMapRotation = 0.0f;
+        _glossMapTiling = Vector2(1.0f, 1.0f);
+        _glossMapOffset = Vector2(0.0f, 0.0f);
+        _glossMapRotation = 0.0f;
         _aoMapTiling = Vector2(1.0f, 1.0f);
         _aoMapOffset = Vector2(0.0f, 0.0f);
         _aoMapRotation = 0.0f;
@@ -155,6 +158,8 @@ namespace visutwin::canvas
             uniforms.normalTransform0, uniforms.normalTransform1);
         packTextureTransform({_metalnessMapTiling, _metalnessMapOffset, _metalnessMapRotation},
             uniforms.metalRoughTransform0, uniforms.metalRoughTransform1);
+        packTextureTransform({_glossMapTiling, _glossMapOffset, _glossMapRotation},
+            uniforms.glossTransform0, uniforms.glossTransform1);
         packTextureTransform({_aoMapTiling, _aoMapOffset, _aoMapRotation},
             uniforms.occlusionTransform0, uniforms.occlusionTransform1);
         packTextureTransform({_emissiveMapTiling, _emissiveMapOffset, _emissiveMapRotation},

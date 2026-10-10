@@ -5,6 +5,7 @@
 //
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <cstddef>
 #include <vector>
@@ -72,6 +73,10 @@ namespace visutwin::canvas
         void upload();
 
         bool needsUpload() const { return _needsUpload; }
+        /// Moves each time the texture's content reaches the GPU (process-wide counter, never
+        /// 0 after the first upload), so a consumer that copies the content elsewhere (the
+        /// clustered cookie atlas) can tell it has changed since its copy.
+        uint64_t uploadVersion() const { return _uploadVersion; }
         bool needsMipmapsUpload() const { return _needsMipmapsUpload; }
 
         void setNeedsUpload(const bool needsUpload) { _needsUpload = needsUpload; }
@@ -233,6 +238,7 @@ namespace visutwin::canvas
         std::unique_ptr<gpu::HardwareTexture> _impl;
 
         bool _needsUpload = false;
+        uint64_t _uploadVersion = 0;
         bool _needsMipmapsUpload = false;
         bool _mipmapsUploaded = false;
 

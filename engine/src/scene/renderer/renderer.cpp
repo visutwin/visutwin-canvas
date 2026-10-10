@@ -1442,7 +1442,11 @@ namespace visutwin::canvas
                 }
 
                 GpuLightData lightData = makeGpuLight(*lightComponent, physicalUnits);
-                if (lightData.intensity <= 0.0f) {
+                // A light of zero intensity lights nothing, but one that casts a shadow
+                // stays: its shadow still reaches a shadow catcher, the documented way to
+                // catch a shadow without lighting the scene. The cluster grid drops it.
+                if (lightData.intensity <= 0.0f && !(lightData.castShadows &&
+                        (lightData.type == GpuLightType::Directional || !clusteredEnabled))) {
                     continue;
                 }
 
@@ -1549,7 +1553,7 @@ namespace visutwin::canvas
         /// set, order-independent: the dispatch list is sorted by apparent size, which
         /// differs per camera, and two layers seeing the same lights must still hash alike.
         void buildClusterLightInput(const std::vector<LightDispatchEntry>& localLights,
-            const bool clusteredCookiesEnabled, const bool clusteredAreaLights,
+            const bool clusteredShadowsEnabled, const bool clusteredCookiesEnabled, const bool clusteredAreaLights,
             std::vector<ClusterLightData>& lights, std::vector<const void*>& members)
         {
             lights.clear();
@@ -1589,7 +1593,9 @@ namespace visutwin::canvas
 
                 // Clustered shadow: the atlas rect assigned by LightTextureAtlas::update
                 // this frame, and for a spot the VP into it computed by cullLocalLights.
-                if (ld.castShadows && dispatchEntry.sceneLight &&
+                // Shadows switched off for the scene stop the atlas being rendered, so the
+                // lights must stop sampling it too, or they keep the last shadows drawn.
+                if (clusteredShadowsEnabled && ld.castShadows && dispatchEntry.sceneLight &&
                     dispatchEntry.sceneLight->atlasViewportAllocated()) {
                     Light* atlasLight = dispatchEntry.sceneLight;
                     lcd.castShadows = true;
@@ -2313,7 +2319,8 @@ namespace visutwin::canvas
             const bool clusteredCookies = _scene && _scene->lighting().cookiesEnabled &&
                 _lightTextureAtlas && _lightTextureAtlas->cookieAtlasTexture();
             const bool clusteredAreaLights = _scene && _scene->lighting().areaLightsEnabled;
-            buildClusterLightInput(lights.local, clusteredCookies, clusteredAreaLights, clusterLights,
+            const bool clusteredShadows = !_scene || _scene->lighting().shadowsEnabled;
+            buildClusterLightInput(lights.local, clusteredShadows, clusteredCookies, clusteredAreaLights, clusterLights,
                 lightSetMembers);
             bindLayerClusterLights(clusterLights, lightSetMembers);
         }

@@ -23,6 +23,8 @@
 //    its width and height alone allow.
 //  - GraphicsDevice::resizeCanvas keeps the current resolution at a zero size (a
 //    minimised window), rather than asking the backend for an empty drawable.
+//  - A StandardMaterial's gloss map tiling reaches the material block (the gloss map
+//    was sampled untransformed, so a tiled ground repeated its other maps alone).
 
 #include <tiny_gltf.h>
 
@@ -320,6 +322,18 @@ int main()
         check(canvasDevice->size() == std::pair{640, 480}, "a zero height alone keeps it too");
         canvasDevice->resizeCanvas(320, 240);
         check(canvasDevice->size() == std::pair{320, 240}, "a real size still applies");
+    }
+
+    std::cout << "gloss map tiling reaches the material block\n";
+    {
+        StandardMaterial material;
+        check(material.packedUniforms().glossTransform0[0] == 1.0f &&
+              material.packedUniforms().glossTransform1[1] == 1.0f, "an untiled gloss map packs the identity");
+        material.setGlossMapTiling(Vector2(17.0f, 7.0f));
+        const auto& packed = material.packedUniforms();
+        check(packed.glossTransform0[0] == 17.0f && packed.glossTransform1[1] == 7.0f,
+            "setGlossMapTiling(17, 7) packs the scale into the gloss transform");
+        check(packed.metalRoughTransform0[0] == 1.0f, "and leaves the metalness map's transform alone");
     }
 
     return finish("triage contracts");

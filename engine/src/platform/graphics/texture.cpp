@@ -7,6 +7,7 @@
 
 #include <assert.h>
 #include <algorithm>
+#include <atomic>
 #include <spdlog/spdlog.h>
 
 #include "graphicsDevice.h"
@@ -210,6 +211,8 @@ namespace visutwin::canvas
             return;
         }
         _impl->uploadImmediate(_device);
+        static std::atomic<uint64_t> uploadCounter{0};
+        _uploadVersion = ++uploadCounter;
         _needsUpload = false;
         _needsMipmapsUpload = false;
         _mipmapsUploaded = _mipmaps;

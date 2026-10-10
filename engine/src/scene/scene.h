@@ -89,10 +89,10 @@ namespace visutwin::canvas
         const Quaternion& skyboxRotation() const { return _skyboxRotation; }
         void setSkyboxRotation(const Quaternion& value) { _skyboxRotation = value; }
 
-        /// Lights shine with their LUMINANCE (candela for
-        /// spot and omni, lux for directional) instead of their intensity. The camera's
-        /// physical exposure (aperture, shutter, sensitivity) is NOT ported; set the
-        /// matching exposure with setExposure.
+        /// Lights shine with their LUMINANCE (candela for spot and omni, lux for
+        /// directional) instead of their intensity, and each camera's physical exposure
+        /// (aperture, shutter, sensitivity: Camera::physicalExposure) replaces the scene
+        /// exposure (exposureFor).
         void setPhysicalUnits(const bool value) { _physicalUnits = value; }
         bool physicalUnits() const { return _physicalUnits; }
 

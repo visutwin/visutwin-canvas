@@ -72,8 +72,11 @@ namespace visutwin::canvas
                 continue;
             }
 
-            // Only render cookie when the slot is reassigned (assuming the cookie texture is static)
-            if (!light->atlasSlotUpdated() && !_forceCopy) {
+            // Copy the cookie when the light's slot is reassigned or the cookie's content
+            // changed since the last copy (a procedural or video cookie updates every frame).
+            const bool cookieUpdated = light->cookie() &&
+                light->cookie()->uploadVersion() != light->cookieRenderVersion();
+            if (!light->atlasSlotUpdated() && !cookieUpdated && !_forceCopy) {
                 continue;
             }
 
@@ -113,6 +116,7 @@ namespace visutwin::canvas
         for (Light* light : _filteredLights) {
             Texture* cookie = light->cookie();
             const Vector4 slot = light->atlasViewport();
+            light->setCookieRenderVersion(cookie->uploadVersion());
             if (light->type() == LightType::LIGHTTYPE_OMNI) {
                 if (!cookie->isCubemap()) {
                     continue;

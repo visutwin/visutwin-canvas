@@ -5,6 +5,7 @@
 //
 #pragma once
 
+#include <cstdint>
 #include <vector>
 
 #include <algorithm>
@@ -85,6 +86,11 @@ namespace visutwin::canvas
         // shadow (and cookie) content has to be rendered again.
         bool atlasSlotUpdated() const { return _atlasSlotUpdated; }
         void setAtlasSlotUpdated(const bool value) { _atlasSlotUpdated = value; }
+
+        // The cookie's Texture::uploadVersion last copied into the cookie atlas: a cookie
+        // whose content changes (procedural, video) is copied again when the two differ.
+        uint64_t cookieRenderVersion() const { return _cookieRenderVersion; }
+        void setCookieRenderVersion(const uint64_t value) { _cookieRenderVersion = value; }
 
         // Clustered local-shadow atlas (LightTextureAtlas): the slot this light
         // renders into, normalized (x, y, width, height) with a top-left origin, and
@@ -293,6 +299,7 @@ namespace visutwin::canvas
         bool _atlasViewportAllocated = false;
 
         bool _atlasSlotUpdated = false;
+        uint64_t _cookieRenderVersion = 0;
 
         Vector4 _atlasViewport = Vector4(0.0f, 0.0f, 1.0f, 1.0f);
         int _atlasSlotIndex = -1;

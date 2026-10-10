@@ -239,8 +239,14 @@ ForwardVarying forwardSkyVertex(ForwardVertexIn input)
     const float4x4 model = drawModel();
     const float4 world = mul(float4(input.position, 1.0), model);
     float4 clip = forwardClip(world);
-    // On the far plane, a hair inside it so rounding cannot push the sky past it.
-    clip.z = clip.w - 1.0e-7;
+    // On the far plane, a hair inside it so rounding cannot push the sky past it. A dome
+    // or box sky that writes depth keeps its real depth instead, so the depth effects
+    // (depth of field, fog) see its projected floor where it is.
+    // DEVIATION: upstream keeps that sky on the far plane too and writes its linear depth
+    // into a separate scene-depth output; here geometry beyond the sky mesh is hidden by it.
+    if (!vtFeatureEnabled(VT_FEATURE_SKY_DEPTH_BIT)) {
+        clip.z = clip.w - 1.0e-7;
+    }
     ForwardVarying o = forwardFinish(world, clip, drawNormalMatrix(), input.normal, input.tangent, input.uv0,
         input.uv1, model);
     // The view ray: the pre-transform vertex position, carried in the normal. The world

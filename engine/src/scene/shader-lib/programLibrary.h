@@ -180,6 +180,8 @@ namespace visutwin::canvas
         struct ShaderVariantOptions
         {
             bool skybox = false;
+            // A dome or box sky that writes depth keeps its real depth (see forwardSkyVertex).
+            bool skyDepth = false;
             bool transparentPass = false;
             bool alphaTest = false;
             bool doubleSided = false;

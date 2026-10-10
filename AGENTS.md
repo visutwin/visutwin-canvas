@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 69 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 78 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -813,7 +813,7 @@ through `getOrCreateQuadShader` (`quadShader.h`) with the prelude and vertex sta
 `quadShaderSource.h` (`useCachedShader`); nothing in the engine uses that route. A quad pass is otherwise a shader,
 up to 8 input textures on fragment slots 0-7, and one uniform block. The block rides the per-draw MATERIAL slot (Metal buffer 3 / Vulkan
 set 0 binding 0) via `GraphicsDevice::setQuadUniformData`; `kPerDrawUniformCapacity`
-(640; `MaterialUniforms` itself is 560 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
+(640; `MaterialUniforms` itself is 592 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
 allocation behind it. A smaller block is copied into the front of a full-size
 allocation, so never shorten the allocation. Quad passes draw an oversized
 fullscreen TRIANGLE and, on Metal, bind `_postSampler` (linear, clamp, no anisotropy),
@@ -1127,8 +1127,15 @@ present, but the rule below never depends on reading it.
   so a scene that needs the non-clustered path (PCSS local shadows) has to say
   `setClusteredLightingEnabled(false)`. Clustered COOKIES come from a cookie atlas laid
   out like the shadow atlas (same slot rects, `RenderPassCookieRenderer` copies each
-  cookie in when its light gets a slot), and only while `LightingParams::cookiesEnabled`
-  is set (off by default, as upstream). A cookie light takes an atlas slot whether or
+  cookie in when its light gets a slot AND whenever the cookie's content changed since
+  the last copy: `Texture::uploadVersion` against `Light::cookieRenderVersion`, so a
+  procedural or video cookie animates — `clustered-light-cookies`), and only while
+  `LightingParams::cookiesEnabled` is set (off by default, as upstream).
+  `LightingParams::shadowsEnabled = false` stops the atlas rendering AND the clustered
+  lights sampling it (`buildClusterLightInput`); stopping only the rendering left every
+  receiver on the last shadows drawn. A light of intensity 0 that casts a shadow stays in
+  the forward light list (the cluster grid still drops it), so a shadow catcher catches
+  the shadow of a light that lights nothing — upstream's documented shadow-only use. A cookie light takes an atlas slot whether or
   not it casts a shadow; a cookie-only spot gets its projection from
   `LightCamera::evalSpotCookieMatrix(light, viewport)`. As upstream, a clustered omni
   cookie ignores the light's rotation (the faces are world-aligned).
@@ -1665,9 +1672,11 @@ present, but the rule below never depends on reading it.
   intensity is photometric, so it is stored twice: as `LightComponent::luminance`
   (times upstream's `getLightUnitConversion`), which a scene shines with under
   `Scene::setPhysicalUnits(true)`, and clamped to [0, 2] as the intensity every other
-  scene uses. Physical units cover the LIGHTS only — there is no camera aperture,
-  shutter or sensitivity, so set the matching `Scene::setExposure` yourself (the
-  `glb-loader` example does). Anything that reads a light's strength for rendering goes
+  scene uses. Under physical units the CAMERA's aperture, shutter and sensitivity
+  (`Camera::setAperture` / `setShutter` in seconds / `setSensitivity`) give the exposure
+  (`Camera::physicalExposure`, read through `Scene::exposureFor`) in place of
+  `Scene::setExposure`; `light-physical-units` drives them. There is no skybox or ambient
+  LUMINANCE on the scene yet: that example applies its numbers by hand. Anything that reads a light's strength for rendering goes
   through `LightComponent::renderIntensity(physicalUnits)`, not `intensity()`.
   `tests/glbCameraLightTests.cpp` checks both load paths.
 - **The four remaining glTF extensions are FACTORS-ONLY where they touch materials.**

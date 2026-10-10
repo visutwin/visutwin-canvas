@@ -112,6 +112,12 @@ The second column is the upstream example each one ports, as
 | shadow-cascades | graphics/shadow-cascades | Cascaded shadow maps over a low-poly terrain |
 | clustered-lighting | graphics/clustered-lighting | 46 local lights via the 3D cluster grid |
 | clustered-spot-shadows | graphics/clustered-spot-shadows | Ten shadow-casting cookie spots through the shadow atlas |
+| clustered-light-cookies | graphics/clustered-light-cookies | Four spot lights with animated cookies through the clustered cookie atlas |
+| clustered-omni-shadows | graphics/clustered-omni-shadows | Shadowed omni lights with cubemap cookies in the shadow atlas |
+| clustered-area-lights | graphics/clustered-area-lights | Rect, disk and sphere area lights through the cluster grid |
+| lights-non-clustered | graphics/lights-non-clustered | Spot, omni and directional lights without clustering |
+| light-physical-units | graphics/light-physical-units | glTF punctual lights in physical units, with exposure |
+| shadow-catcher | graphics/shadow-catcher | A statue under an HDR sky, its shadow caught on an invisible ground |
 | pcss-dither | graphics/dithered-transparency | Blend and dither strengths decoupled, dithered shadows |
 | pcss-local | test/contact-hardening-shadows | PCSS contact-hardening shadows from local lights |
 | lightmap-bake | graphics/lights-baked-a-o | CPU-baked lightmaps with shadows and AO |

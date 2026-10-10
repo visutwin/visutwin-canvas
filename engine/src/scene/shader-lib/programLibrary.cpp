@@ -88,6 +88,7 @@ namespace visutwin::canvas
         options.transparentPass = transparentPass;
         options.screenSpace = screenSpace;
         options.skybox = material && material->isSkybox();
+        options.skyDepth = options.skybox && material->depthState() && material->depthState()->depthWrite();
         options.alphaTest = material && material->alphaMode() == AlphaMode::MASK;
         options.pick = material && material->pickPass();
 
@@ -310,6 +311,7 @@ namespace visutwin::canvas
         };
         set(ShaderFeature::TransparentPass, options.transparentPass);
         set(ShaderFeature::Skybox, options.skybox);
+        set(ShaderFeature::SkyDepth, options.skyDepth);
         set(ShaderFeature::BaseColorMap, options.baseColorMap);
         set(ShaderFeature::NormalMap, options.normalMap);
         set(ShaderFeature::MetallicRoughnessMap, options.metallicRoughnessMap);
