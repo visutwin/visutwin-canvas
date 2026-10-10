@@ -34,6 +34,11 @@ namespace visutwin::canvas
         float threshold() const { return _threshold; }
         void setThreshold(const float value) { _threshold = std::max(value, 0.0f); }
 
+        /// The texture the first downsample READS, when it differs from the one the pass was
+        /// built over (which still sizes the chain): the full-resolution scene under TAA
+        /// alternates between two history textures of one size. Null reads the sizing one.
+        void setSourceTexture(Texture* value);
+
     private:
         void destroyRenderTargets(int startIndex = 0);
         void destroyRenderPasses();
@@ -43,6 +48,8 @@ namespace visutwin::canvas
         void createRenderPasses(int numPasses);
 
         Texture* _sourceTexture = nullptr;
+        Texture* _readTexture = nullptr;
+        RenderPassDownsample* _firstDownsample = nullptr;
         PixelFormat _textureFormat = PixelFormat::PIXELFORMAT_RGBA8;
         int _blurLevel = 16;
         float _threshold = 0.0f;

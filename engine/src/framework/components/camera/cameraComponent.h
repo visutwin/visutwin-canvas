@@ -143,6 +143,11 @@ namespace visutwin::canvas
         // units the scene is rendered in, before exposure and tone mapping, so a scene
         // whose exposure is far from 1 needs it scaled to match. 0 = no threshold.
         float bloomThreshold = 0.0f;
+
+        // Bloom from the FULL-resolution scene (after TAA) instead of its half-resolution
+        // copy: a sharper glow and a stronger core, one more level keeping the blur the same
+        // size on screen, for a chain twice the size. Changing it rebuilds the camera frame.
+        bool bloomHighQuality = false;
     };
 
     /*

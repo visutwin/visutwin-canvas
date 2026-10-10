@@ -701,6 +701,11 @@ there plus its line in `RenderPassCompose::execute`, not a copy at every hop.
   scene-referred units, before exposure. Crossing zero rebuilds the bloom chain; at 0
   no variant exists and the frame is bit-identical to a build without it (check it
   on `post-processing`, both backends, driven by `VISUTWIN_BLOOM_THRESHOLD`).
+  `RenderingSettings::bloomHighQuality` (off by default) blooms from the FULL-resolution
+  scene after TAA instead of its half-resolution copy, with one more level so the blur
+  keeps its size on screen; the first downsample's read texture follows the alternating
+  TAA history every frame (`RenderPassBloom::setSourceTexture`) while the stable scene
+  texture sizes the chain. `VISUTWIN_BLOOM_HIGH_QUALITY=1` drives it; off is bit-identical.
 - The 3D LUT is a 256x16 Unreal strip with dual-LUT blend; the port loads it
   non-sRGB so the sample is pow(2.2)-decoded in-shader. Test asset:
   `assets/textures/lut-teal-orange.tga`.

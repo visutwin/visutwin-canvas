@@ -42,9 +42,18 @@ namespace visutwin::canvas
         }
     }
 
+    void RenderPassBloom::setSourceTexture(Texture* value)
+    {
+        _readTexture = value;
+        if (_firstDownsample) {
+            _firstDownsample->setSourceTexture(_readTexture ? _readTexture : _sourceTexture);
+        }
+    }
+
     void RenderPassBloom::destroyRenderPasses()
     {
         _prefilterPass = nullptr;
+        _firstDownsample = nullptr;
         clearBeforePasses();
     }
 
@@ -90,6 +99,12 @@ namespace visutwin::canvas
             auto pass = std::make_shared<RenderPassDownsample>(device(), passSourceTexture, downsampleOptions);
             if (pass->prefilter()) {
                 _prefilterPass = pass.get();
+            }
+            if (i == 0) {
+                _firstDownsample = pass.get();
+                if (_readTexture) {
+                    pass->setSourceTexture(_readTexture);
+                }
             }
             auto options = std::make_shared<RenderPassOptions>();
             options->resizeSource = std::shared_ptr<Texture>(passSourceTexture, [](Texture*) {});

@@ -191,6 +191,19 @@ namespace visutwin::canvas
             }
         }
 
+        // VISUTWIN_BLOOM_HIGH_QUALITY=1 blooms every camera from its full-resolution scene.
+        // No ported example turns it on; 0 or unset must be bit-identical to today.
+        if (const char* hq = std::getenv("VISUTWIN_BLOOM_HIGH_QUALITY"); hq && *hq == '1') {
+            int cameras = 0;
+            for (GraphNode* node : _engine->root()->find([](GraphNode* n) {
+                    auto* e = dynamic_cast<Entity*>(n);
+                    return e && e->findComponent<CameraComponent>() != nullptr; })) {
+                static_cast<Entity*>(node)->findComponent<CameraComponent>()->rendering().bloomHighQuality = true;
+                ++cameras;
+            }
+            spdlog::info("High-quality bloom on {} camera(s) from VISUTWIN_BLOOM_HIGH_QUALITY", cameras);
+        }
+
         // VISUTWIN_DEBUG_PASS=n renders every camera with DebugShaderPass n (the enum
         // value; ALBEDO and LIGHTING are the ones "Measuring a backend divergence"
         // splits with). Frames that agree in ALBEDO and differ in the lit result put a

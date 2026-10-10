@@ -174,6 +174,7 @@ namespace visutwin::canvas
         options.bloomIntensity = rendering.bloomIntensity;
         options.bloomBlurLevel = std::max(rendering.bloomBlurLevel, 1);
         options.bloomThreshold = std::max(rendering.bloomThreshold, 0.0f);
+        options.bloomHighQuality = rendering.bloomHighQuality;
         options.sharpness = rendering.sharpness;
         static_cast<ComposeColorSettings&>(options) = rendering;
     }
@@ -188,6 +189,7 @@ namespace visutwin::canvas
             options.renderTargetScale != current.renderTargetScale ||
             options.stencil != current.stencil ||
             options.bloomEnabled != current.bloomEnabled ||
+            options.bloomHighQuality != current.bloomHighQuality ||
             options.prepassEnabled != current.prepassEnabled ||
             options.sceneColorMap != current.sceneColorMap ||
             options.sceneDepthMap != current.sceneDepthMap ||
@@ -398,7 +400,8 @@ namespace visutwin::canvas
 
         _hdrFormat = PixelFormat::PIXELFORMAT_RGBA16F;
         _bloomEnabled = options.bloomEnabled && _hdrFormat != PixelFormat::PIXELFORMAT_RGBA8;
-        _sceneHalfEnabled = _bloomEnabled || options.dofEnabled;
+        // A high-quality bloom reads the full-resolution scene, so only DOF wants the copy then.
+        _sceneHalfEnabled = (_bloomEnabled && !options.bloomHighQuality) || options.dofEnabled;
         _renderTargetScale = options.renderTargetScale;
 
         // The scene colour texture is held here: a RenderTarget stores only a raw pointer
@@ -560,7 +563,7 @@ namespace visutwin::canvas
             _scenePass, _colorGrabPass, _depthGrabPass, _scenePassTransparent,
             ssaoBeforeScene ? nullptr : _ssaoPass,
             _volumetricFogPass, _volumetricFogCombinePass, _taaPass, _scenePassHalf,
-            _bloomPass, _dofPass, _composePass, _afterPass};
+            _dofPass, _bloomPass, _composePass, _afterPass};
     }
 
     void RenderPassCameraFrame::createPasses(const CameraFrameOptions& options)
@@ -574,7 +577,7 @@ namespace visutwin::canvas
         setupVolumetricFogPass(options);
         auto* sceneTextureWithTaa = setupTaaPass(options);
         setupSceneHalfPass(options, sceneTextureWithTaa);
-        setupBloomPass(options, _sceneTextureHalf.get());
+        setupBloomPass(options, options.bloomHighQuality ? _sceneTexture.get() : _sceneTextureHalf.get());
         setupDofPass(options, _sceneTexture.get(), _sceneTextureHalf.get());
         setupComposePass(options);
         setupAfterPass(options, scenePassesInfo);
@@ -748,7 +751,11 @@ namespace visutwin::canvas
             // The pass creates Texture + RenderTarget objects in its constructor,
             // so recreating it every frame causes GPU memory growth.
             if (!_ssaoPass) {
-                _ssaoPass = std::make_shared<RenderPassSsao>(device(), _sceneTexture.get(), _cameraComponent, options.ssaoBlurEnabled);
+                // Sized from the scene DEPTH: lighting-mode SSAO runs before the scene pass, and
+                // on the first frame of a frame rendering to a target of its own only the
+                // prepass's depth has been resized by then.
+                _ssaoPass = std::make_shared<RenderPassSsao>(device(), _sceneDepthTexture ? _sceneDepthTexture.get()
+                    : _sceneTexture.get(), _cameraComponent, options.ssaoBlurEnabled);
             }
 
             // Update SSAO pass parameters from CameraComponent settings each frame
@@ -849,7 +856,9 @@ namespace visutwin::canvas
                 _bloomPass = std::make_shared<RenderPassBloom>(device(), inputTexture, _hdrFormat);
             }
             // Applied every rebuild — the pass itself is reused across frames.
-            _bloomPass->setBlurLevel(options.bloomBlurLevel);
+            // From the full-resolution scene the first level is a finer one, and one more level
+            // keeps the blur the same size on screen.
+            _bloomPass->setBlurLevel(options.bloomBlurLevel + (options.bloomHighQuality ? 1 : 0));
             _bloomPass->setThreshold(options.bloomThreshold);
         } else {
             _bloomPass.reset();
@@ -1026,6 +1035,11 @@ namespace visutwin::canvas
             _composePass->setSceneTexture(resolvedTexture);
             if (_scenePassHalf) {
                 _scenePassHalf->setSourceTexture(resolvedTexture);
+            }
+            // A high-quality bloom reads the full-resolution scene, which under TAA alternates
+            // between the two history textures.
+            if (_bloomPass && _options.bloomHighQuality) {
+                _bloomPass->setSourceTexture(resolvedTexture);
             }
             // The high-quality depth of field's far pass reads the full-resolution scene; without
             // this it blurred the raw, jittered frame under TAA.
