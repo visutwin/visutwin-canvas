@@ -1156,10 +1156,17 @@ present, but the rule below never depends on reading it.
   under the depth test at ALWAYS (`clearDepthRect`). Its rects are top-left origin
   like every texture here, and an omni face is rendered 3 px wider than 90 degrees
   with the shader UV inset to match — port both halves or the tile edges bleed.
-- **A clustered spot shadow takes NO depth bias in the shader.** Its projection has
-  near 0.01 against a range of 150, which crushes the whole scene into about 0.001
-  of depth; the non-clustered path's spot bias (upstream's `shadowBias * 20`, so
-  0.08 at an authoring value of 0.4) is eighty times that range and lights every
+- **A local light's shadow camera has near = range / 1000** (`Light::localShadowNearClip`,
+  upstream's), for spots and omni faces, clustered and not, and every lookup that
+  reconstructs that depth takes the same value. A fixed 0.01 crushed an omni face's depth
+  so close to 1 that the 0.2% relative bias came to a few float ulps; the Metal and Vulkan
+  compiles rounded the compare differently and Vulkan speckled the walls nearest
+  `clustered-omni-shadows`' lights (365 px off, now 22). The atlas contents were
+  identical; read them back (`Texture::read`) before blaming the filter.
+- **A clustered spot shadow takes NO depth bias in the shader.** Its perspective depth is
+  crushed against 1 (near a thousandth of the range), so the whole scene spans a few
+  thousandths of depth; the non-clustered path's spot bias (upstream's `shadowBias * 20`, so
+  0.08 at an authoring value of 0.4) is many times that span and lights every
   fragment. Upstream says so in one line of comment — "depth bias is already applied
   on render" — and biases these with hardware polygon offset, which the atlas pass
   already sets. What the shader applies is the receiver NORMAL offset, and

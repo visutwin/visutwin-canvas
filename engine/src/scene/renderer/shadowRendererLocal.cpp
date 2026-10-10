@@ -161,7 +161,7 @@ namespace visutwin::canvas
                     shadowCam->node()->setRotation(
                         lightNode->rotation() * Quaternion::fromEulerAngles(-90.0f, 0.0f, 0.0f));
                     shadowCam->setFov(std::min(light->outerConeAngle() * 2.0f, 179.0f));
-                    shadowCam->setNearClip(0.01f);
+                    shadowCam->setNearClip(light->localShadowNearClip());
                     shadowCam->setFarClip(std::max(light->range(), 0.1f));
                 } else {
                     // Point (omni): LightCamera::create already sets the per-face
@@ -177,7 +177,7 @@ namespace visutwin::canvas
                         fov = std::atan(1.0f + filterSize) * (180.0f / std::numbers::pi_v<float>) * 2.0f;
                     }
                     shadowCam->setFov(fov);
-                    shadowCam->setNearClip(0.01f);
+                    shadowCam->setNearClip(light->localShadowNearClip());
                     shadowCam->setFarClip(std::max(light->range(), 0.1f));
                 }
 

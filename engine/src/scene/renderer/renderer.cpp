@@ -1313,13 +1313,9 @@ namespace visutwin::canvas
             ls.shadowMap = sceneLight->shadowMap()->shadowTexture();
             ls.isOmni = isOmni;
 
-            if (isOmni) {
-                // For omni lights, pack the far clip (range) into VP[0][0] so the
-                // uniform binder can extract it for the cubemap depth comparison.
-                Matrix4 rangePack = Matrix4::identity();
-                rangePack.setElement(0, 0, sceneLight->range());
-                ls.viewProjection = rangePack;
-            } else {
+            // An omni light's cube faces take their near and far from ls.nearClip /
+            // ls.farClip below; only a spot projects through a matrix.
+            if (!isOmni) {
                 ls.viewProjection = sceneLight->shadowViewProjection();
             }
             // Our local-shadow shader subtracts this from the receiver depth,
@@ -1337,7 +1333,7 @@ namespace visutwin::canvas
                 ls.normalBias = sceneLight->vsmBias() / (std::max(sceneLight->range(), 0.1f) / 7.0f);
             }
             ls.intensity = sceneLight->shadowIntensity();
-            ls.nearClip = 0.01f;
+            ls.nearClip = sceneLight->localShadowNearClip();
             ls.farClip = std::max(sceneLight->range(), 0.1f);
 
             // PCSS local shadows: blocker-search
@@ -1604,13 +1600,13 @@ namespace visutwin::canvas
                     // An omni face stores perspective depth over the light's range,
                     // with the same relative bias the cubemap path applies before the
                     // projection (see the omni block of forward-fragment-lights).
-                    lcd.shadowNear = 0.01f;
+                    lcd.shadowNear = atlasLight->localShadowNearClip();
                     lcd.shadowFar = std::max(atlasLight->range(), 0.1f);
                     lcd.shadowRelativeBias = -atlasLight->shadowBias();
                     // NOT the non-clustered path's depth bias. A clustered spot's
-                    // depth is crushed against 1.0 by a near clip of 0.01 against a
-                    // range of 150, so the whole scene spans ~0.001 of depth while
-                    // that bias is 0.08 — it lit every fragment and erased the
+                    // perspective depth is crushed against 1.0 (near a thousandth of
+                    // the range), so the whole scene spans a few thousandths of depth
+                    // while that bias is 0.08 — it lit every fragment and erased the
                     // feature. These are biased on render instead (hardware polygon
                     // offset, which the atlas pass already applies), and the receiver
                     // is offset along its normal in the shader.

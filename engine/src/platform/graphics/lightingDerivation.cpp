@@ -85,8 +85,8 @@ namespace visutwin::canvas
             dst.vsm = ls.vsm && !ls.isOmni;
             if (ls.isOmni) {
                 dst.omniMap = ls.shadowMap;
-                dst.omniNear = DerivedLighting::kOmniShadowNear;
-                dst.omniFar = ls.viewProjection.getElement(0, 0);
+                dst.omniNear = ls.nearClip;
+                dst.omniFar = ls.farClip;
                 dst.omniBias = DerivedLighting::kOmniShadowBias;
             } else {
                 dst.spotMap = ls.shadowMap;

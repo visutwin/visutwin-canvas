@@ -277,6 +277,11 @@ namespace visutwin::canvas
 
         // Range and cone angle — synced from LightComponent for shadow camera setup.
         float range() const { return _range; }
+        /// Near clip of this light's local shadow camera (a spot, or an omni face): a thousandth
+        /// of the range. The stored perspective depth and every lookup that reconstructs it use
+        /// it; a fixed 0.01 crushed an omni face's depth so close to 1 that the 0.2% relative
+        /// bias came to a few float ulps, and the two backends' rounding flipped receivers.
+        float localShadowNearClip() const { return std::max(range(), 0.1f) / 1000.0f; }
         void setRange(const float value) { _range = value; }
 
         float outerConeAngle() const { return _outerConeAngle; }

@@ -88,7 +88,6 @@ namespace visutwin::canvas
         // they are filtered in the shader instead.
         uint32_t clusterLightAccept = MASK_AFFECT_DYNAMIC;
 
-        static constexpr float kOmniShadowNear = 0.01f;
         static constexpr float kOmniShadowBias = 0.002f;
         DerivedLocalShadow localShadows[ShadowParams::kMaxLocalShadows];
 
