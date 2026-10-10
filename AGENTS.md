@@ -798,11 +798,21 @@ and both override sets' content hashes fold into the variant key.
   check the bisection proves nothing), then add the files back in halves. For example, a
   camera forward vector rebuilt through a quaternion that agrees with the trig it
   replaced only to 3.6e-7 is enough to shift every pixel by a count.
-- **`forward/common-brdf.slang` owns the BRDF terms**: `distributionGGX`,
-  `getVisibilitySmithGGX` (a VISIBILITY term — the `1/(4 NdotL NdotV)` is folded in, so
-  call sites write `D * Vis * F` with no division), `getFresnel` (gloss-aware, DIRECTIONAL
-  lights only — punctual lights take bare specularity), `getFresnelCC` and
-  `getVisibilityKelemen`. A private copy of a BRDF term in another chunk is a divergence
+- **`forward/common-brdf.slang` owns the BRDF terms**: `directSpecularLobe` (a light's
+  `D * Vis`), `distributionGGX`, `getVisibilitySmithGGX` (a VISIBILITY term — the
+  `1/(4 NdotL NdotV)` is folded in, so call sites write `D * Vis * F` with no division),
+  `getFresnel` (gloss-aware, DIRECTIONAL lights only — punctual lights take bare
+  specularity) and `getFresnelCC`.
+- **A light's specular lobe is normalised BLINN-PHONG by default, GGX only on request**
+  (`StandardMaterial::setEnableGGXSpecular`, `VT_FEATURE_GGX_SPECULAR`, variant bit 36 for
+  another material), as upstream, whose `enableGGXSpecular` defaults off and is set by its
+  glTF anisotropy extension alone. Exponent `2^(11 gloss)`, scaled by `(n + 2) / 8`, times
+  the Fresnel, the radiance and NdotL, in both light loops, the clearcoat included (its
+  lobe at the coat normal and gloss, weighted by the SURFACE's NdotL, `getFresnelCC`).
+  Anisotropy is a GGX lobe and needs the flag. GGX everywhere made a rough metal's
+  highlight about half as strong as upstream's (`opacity`'s gloss-0.4 ground: 83-147
+  across the frame upstream, 91-126 here; with Blinn-Phong the five points measured match
+  upstream's live frame exactly). The environment reflections are not affected. A private copy of a BRDF term in another chunk is a divergence
   between the two light loops waiting to happen.
 - Keep each chunk a self-contained override target. The material-flag constants and
   `applyUvTransform` live in `common-material-flags`, not in `common-tonemap`, so a minimal

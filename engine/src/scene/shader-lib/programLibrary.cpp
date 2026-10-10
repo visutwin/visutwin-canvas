@@ -125,7 +125,10 @@ namespace visutwin::canvas
         options.fog = stdMat.useFog() && !options.skybox;
         options.parallax = stdMat.heightMap() != nullptr;
         options.clearcoat = stdMat.clearCoat() > 0.0f;
-        options.anisotropy = stdMat.anisotropy() != 0.0f;
+        // Direct specular is normalised Blinn-Phong unless the material asks for GGX, and
+        // anisotropy is a GGX lobe, so it needs the opt-in too.
+        options.ggxSpecular = stdMat.enableGGXSpecular();
+        options.anisotropy = options.ggxSpecular && stdMat.anisotropy() != 0.0f;
         options.sheen = stdMat.sheenRoughness() > 0.0f || stdMat.sheenColor() != Color(0.0f, 0.0f, 0.0f, 1.0f);
         options.iridescence = stdMat.iridescenceIntensity() > 0.0f;
         options.transmission = stdMat.transmissionFactor() > 0.0f;
@@ -216,6 +219,8 @@ namespace visutwin::canvas
         // Gamma-encoded vertex colours: bit 35, for a material that is not a
         // StandardMaterial (which says StandardMaterial::setVertexColorGamma).
         options.vertexColorGamma = options.vertexColorGamma || variantBit(variantBits, 35);
+        // GGX direct specular: bit 36 (StandardMaterial::setEnableGGXSpecular).
+        options.ggxSpecular = options.ggxSpecular || variantBit(variantBits, 36);
     }
 
     void ProgramLibrary::applyDrawOptions(ShaderVariantOptions& options, const uint64_t variantBits,
@@ -338,6 +343,7 @@ namespace visutwin::canvas
         set(ShaderFeature::Morphing, options.morphing);
         set(ShaderFeature::SpecGloss, options.specGloss);
         set(ShaderFeature::NoSpecular, options.noSpecular);
+        set(ShaderFeature::GgxSpecular, options.ggxSpecular);
         set(ShaderFeature::OrenNayar, options.orenNayar);
         set(ShaderFeature::DetailNormals, options.detailNormals);
         set(ShaderFeature::Displacement, options.displacement);

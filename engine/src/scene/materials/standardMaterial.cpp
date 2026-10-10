@@ -46,6 +46,7 @@ namespace visutwin::canvas
         _heightMapShadow = 0.0f;
         _anisotropy = 0.0f;
         _anisotropyRotation = 0.0f;
+        _enableGGXSpecular = false;
         _useMetalnessSpecularColor = false;
         _specularityFactor = 1.0f;
         _transmissionFactor = 0.0f;

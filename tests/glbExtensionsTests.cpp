@@ -184,6 +184,7 @@ namespace
             check(nearStrict(material->anisotropy(), 0.6f, kTolerance) &&
                   nearStrict(material->anisotropyRotation(), 30.0f, kTolerance),
                 "anisotropy: strength, rotation in degrees");
+            check(material->enableGGXSpecular(), "anisotropy turns GGX direct specular on");
             const auto& u = material->packedUniforms();
             // f0(1.5) = 0.04, x colour 0.5 (linear, round-tripped through gamma), x factor 0.5.
             check(nearStrict(u.metalnessSpecular[0], 0.04f * 0.5f * 0.5f, 1e-5f) &&

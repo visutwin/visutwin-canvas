@@ -13,6 +13,15 @@
 // The GLB's materials author clearcoat via KHR_materials_clearcoat (factors +
 // intensity/roughness/normal textures), parsed by glbParser::applyClearcoat.
 //
+// The camera starts where upstream's orbit-camera script puts it: the script frames the
+// whole scene on start, so it orbits the model's bounds centre, at the pitch of the line
+// from the camera's original position (the origin) to that centre, before the example
+// sets yaw 90 and distance 12.
+//
+// DEVIATION: upstream's orbitCamera script (inertia 0.2) becomes the examples'
+// CameraControls in orbit mode, with CameraControls' own damping.
+//
+#include <cmath>
 #include <memory>
 
 #include "../exampleApp.h"
@@ -75,9 +84,16 @@ protected:
         // Yellow directional light, no shadows.
         createDirectionalLight(Vector3(45.0f, 180.0f, 0.0f), Color(1.0f, 1.0f, 0.0f, 1.0f), 1.0f, false);
 
-        // Orbit camera: yaw 90, distance 12 around the model.
-        auto* camera = createCamera(Vector3(12.0f, 0.0f, 1.0f), Vector3(0.0f, 90.0f, 0.0f));
-        addOrbitControls(camera, Vector3(0.0f, 0.0f, 1.0f));
+        // Orbit camera around the model's bounds centre, at the pitch from the origin to
+        // that centre, then yaw 90 and distance 12 (see the header).
+        const Vector3 pivot = entityBounds(modelEntity).center();
+        const float pitch = std::atan2(pivot.getY(),
+            std::sqrt(pivot.getX() * pivot.getX() + pivot.getZ() * pivot.getZ()));
+        constexpr float distance = 12.0f;
+        const Vector3 offset(std::cos(pitch) * distance, -std::sin(pitch) * distance, 0.0f);
+        auto* camera = createCamera(pivot + offset);
+        camera->lookAt(pivot);
+        addOrbitControls(camera, pivot);
 
         spdlog::info("Clear coat: ClearCoatTest.glb (KHR_materials_clearcoat) — the Coated column "
                      "carries highlights from both Base and Coating layers.");

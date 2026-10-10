@@ -50,6 +50,7 @@
     X(Morphing,                  "VT_FEATURE_MORPHS") \
     X(SpecGloss,                 "VT_FEATURE_SPEC_GLOSS") \
     X(NoSpecular,                "VT_FEATURE_NO_SPECULAR") \
+    X(GgxSpecular,               "VT_FEATURE_GGX_SPECULAR") \
     X(OrenNayar,                 "VT_FEATURE_OREN_NAYAR") \
     X(DetailNormals,             "VT_FEATURE_DETAIL_NORMALS") \
     X(Displacement,              "VT_FEATURE_DISPLACEMENT") \

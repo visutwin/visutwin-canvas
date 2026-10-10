@@ -1955,6 +1955,8 @@ namespace visutwin::canvas
         if (!ext) {
             return;
         }
+        // Anisotropy is a GGX lobe, so the extension turns GGX direct specular on.
+        material->setEnableGGXSpecular(true);
         material->setAnisotropy(extensionNumber(*ext, "anisotropyStrength", 0.0f));
         material->setAnisotropyRotation(static_cast<float>(
             extensionNumber(*ext, "anisotropyRotation", 0.0f) * 180.0 / std::numbers::pi));

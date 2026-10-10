@@ -104,6 +104,7 @@ protected:
                 material->setUseMetalness(true);
                 material->setMetalness(1.0f);
                 material->setGloss(gloss);
+                material->setEnableGGXSpecular(true);
                 material->setAnisotropy(aniso);
                 _materials.push_back(material);
 

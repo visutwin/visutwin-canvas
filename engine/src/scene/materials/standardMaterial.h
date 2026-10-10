@@ -301,7 +301,14 @@ namespace visutwin::canvas
          */
         float heightMapShadow() const { return _heightMapShadow; }
         void setHeightMapShadow(const float value) { _heightMapShadow = value; markUniformsDirty(); }
+        /// GGX direct specular. Off (the default), every light's specular lobe is a
+        /// normalised Blinn-Phong of the gloss, as upstream's default; on, an isotropic
+        /// GGX with height-correlated Smith visibility, and anisotropy takes effect.
+        /// A shader variant (VT_FEATURE_GGX_SPECULAR). The glTF anisotropy extension sets it.
+        bool enableGGXSpecular() const { return _enableGGXSpecular; }
+        void setEnableGGXSpecular(const bool value) { _enableGGXSpecular = value; markUniformsDirty(); }
         // --- Anisotropy ---
+        /// Read only with enableGGXSpecular on.
         float anisotropy() const { return _anisotropy; }
         void setAnisotropy(const float value) { _anisotropy = value; markUniformsDirty(); }
         /// In DEGREES: turns the anisotropy direction from
@@ -561,6 +568,7 @@ namespace visutwin::canvas
 
         float _anisotropy = 0.0f;
         float _anisotropyRotation = 0.0f;
+        bool _enableGGXSpecular = false;
         bool _useMetalnessSpecularColor = false;
         float _specularityFactor = 1.0f;
 

@@ -493,12 +493,9 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
             ccNormalW = normalize(mul(ccSample, float3x3(ccT, ccB, faceNormal)));
         }
     }
-    // The coat's own GGX roughness for DIRECT light, from its gloss (map included).
-    // The light loops take this and the coat normal, not the flat clearCoatRoughness
-    // and the base normal, so a coat normal or gloss map changes the coat's
-    // highlights as well as its reflections.
-    float ccRoughness = max(1.0 - ccGlossiness, 0.04);
-    float ccAlpha2 = ccRoughness * ccRoughness * ccRoughness * ccRoughness;
+    // The light loops take the coat's own gloss (ccGlossiness, map included) and normal
+    // for DIRECT light, not the flat clearCoatRoughness and the base normal, so a coat
+    // normal or gloss map changes the coat's highlights as well as its reflections.
     float3 ccSpecularLight = float3(0.0);
     float3 ccReflection = float3(0.0);
 

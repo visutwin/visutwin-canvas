@@ -35,6 +35,20 @@ float getVisibilitySmithGGX(float NdotV, float NdotL, float roughness) {
     return 0.5 / max(lambdaV + lambdaL, 1e-5);
 }
 
+// A light's specular lobe, the D * Vis product the light loops multiply by the
+// Fresnel, the radiance and NdotL. Normalised Blinn-Phong of the gloss by default
+// (exponent 2^(11 gloss), scaled by (n + 2) / 8), which is upstream's default light
+// specular; with `ggx` (VT_FEATURE_GGX_SPECULAR) the GGX distribution and Smith
+// visibility above. The image-based terms are unaffected either way.
+float directSpecularLobe(float NdotH, float NdotV, float NdotL, float gloss, bool ggx) {
+    if (ggx) {
+        const float roughness = 1.0 - gloss;
+        return distributionGGX(NdotH, roughness) * getVisibilitySmithGGX(NdotV, NdotL, roughness);
+    }
+    const float specPow = max(exp2(gloss * 11.0), 0.0001);
+    return pow(NdotH, specPow) * (specPow + 2.0) / 8.0;
+}
+
 // Gloss-aware Schlick Fresnel. F90 is scaled by gloss squared rather than being a
 // flat 1, so a rough dielectric stops short of full white at grazing angles instead
 // of rimming.
@@ -56,11 +70,6 @@ float getFresnelCC(float cosTheta) {
     return 0.04 + 0.96 * pow(1.0 - clamp(cosTheta, 0.0, 1.0), 5.0);
 }
 
-// Kelemen visibility for clearcoat — simpler than Smith-GGX because a coat is
-// typically smooth. V = 0.25 / LdotH^2. Used by Filament.
-float getVisibilityKelemen(float LdotH) {
-    return 0.25 / max(LdotH * LdotH, 1e-5);
-}
 
 // ── Anisotropic GGX ──
 //

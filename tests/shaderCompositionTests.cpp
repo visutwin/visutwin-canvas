@@ -211,6 +211,24 @@ int main()
         check(ProgramLibraryTestAccess::key(msl, &generic).features.test(ShaderFeature::VertexColorGamma),
             "and variant bit 35 makes them gamma encoded");
 
+        // Direct specular is Blinn-Phong unless GGX is asked for, and anisotropy is a GGX
+        // lobe: without the opt-in it compiles nothing.
+        check(!base.features.test(ShaderFeature::GgxSpecular),
+            "a default material's light specular is Blinn-Phong, not GGX");
+        a.setAnisotropy(0.5f);
+        check(ProgramLibraryTestAccess::key(msl, &a) == base,
+            "anisotropy without enableGGXSpecular changes no variant");
+        a.setEnableGGXSpecular(true);
+        const auto ggx = ProgramLibraryTestAccess::key(msl, &a);
+        check(ggx.features.test(ShaderFeature::GgxSpecular) && ggx.features.test(ShaderFeature::Anisotropy),
+            "setEnableGGXSpecular(true) compiles VT_FEATURE_GGX_SPECULAR, and anisotropy with it");
+        a.setAnisotropy(0.0f);
+        a.setEnableGGXSpecular(false);
+        check(ProgramLibraryTestAccess::key(msl, &a) == base, "and turning both off returns to the old key");
+        generic.setShaderVariantKey(1ull << 36);
+        check(ProgramLibraryTestAccess::key(msl, &generic).features.test(ShaderFeature::GgxSpecular),
+            "variant bit 36 asks a generic material for GGX");
+
         msl.setClusteredLightingEnabled(false);
         msl.setAreaLightsEnabled(false);
         msl.setLocalShadowsEnabled(false);

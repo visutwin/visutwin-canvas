@@ -165,10 +165,11 @@
         float NdotH = max(dot(N, H), 0.0);
         float VdotH = max(dot(V, H), 0.0);
 
-        float D = distributionGGX(NdotH, roughness);
-        // Height-correlated visibility folds in 1/(4 NdotL NdotV), so there is no
-        // explicit division here — see common-brdf.slang.
-        float Vis = getVisibilitySmithGGX(NdotV, NdotL, roughness);
+        // The lobe (Blinn-Phong, or GGX under VT_FEATURE_GGX_SPECULAR) carries the
+        // whole D * Vis product — see common-brdf.slang.
+        float D = directSpecularLobe(NdotH, NdotV, NdotL, 1.0 - roughness,
+            vtFeatureEnabled(VT_FEATURE_GGX_SPECULAR_BIT));
+        float Vis = 1.0;
         if (vtFeatureEnabled(VT_FEATURE_ANISOTROPY_BIT)) {
             // Anisotropic GGX (common-brdf): D carries the whole D * Vis product.
             D = getLightSpecularAnisoGGX(N, V, H, L, anisoT, anisoB, anisoAlpha);
@@ -212,22 +213,14 @@
         bakeDirectLight += diffuseTerm * radiance * NdotL;
         directSpecular += specular * specularOn * radiance * NdotL;
         if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
-            // Clearcoat: GGX distribution, Kelemen visibility (a coat is smooth
-            // enough that Smith-GGX is not worth its cost) and a fixed F0 = 0.04
-            // Fresnel, all taken at the clearcoat's own half vector, and weighted by
-            // NdotL (a division by 4*NdotV with no NdotL is not a reflectance
-            // integral: the coat would brighten as the surface turned away from the
-            // light).
-            // Taken at the COAT normal with the coat's own roughness.
-            float ccNdotL = max(dot(ccNormalW, L), 0.0);
-            float ccNdotH = max(dot(ccNormalW, H), 0.0);
-            float ccLdotH = max(dot(L, H), 0.0);
-            float ccDenom = ccNdotH * ccNdotH * (ccAlpha2 - 1.0) + 1.0;
-            float ccD = ccAlpha2 / max(PI * ccDenom * ccDenom, 1e-7);
-            float ccVis = getVisibilityKelemen(ccLdotH);
-            float ccF = getFresnelCC(ccLdotH);
+            // Clearcoat: the base's lobe (common-brdf) taken at the COAT normal with
+            // the coat's own gloss, the fixed F0 = 0.04 Fresnel, and weighted by the
+            // SURFACE's NdotL, as every term of this light is.
             // Accumulated; the tail applies ccSpecularity and dims the base.
-            ccSpecularLight += radiance * ccNdotL * ccD * ccVis * ccF;
+            float ccNdotH = max(dot(ccNormalW, H), 0.0);
+            float ccLobe = directSpecularLobe(ccNdotH, max(dot(ccNormalW, V), 0.0),
+                max(dot(ccNormalW, L), 0.0), ccGlossiness, vtFeatureEnabled(VT_FEATURE_GGX_SPECULAR_BIT));
+            ccSpecularLight += radiance * NdotL * ccLobe * getFresnelCC(max(dot(V, H), 0.0));
         }
         if (vtFeatureEnabled(VT_FEATURE_SHEEN_BIT)) {
             // Charlie distribution + Ashikhmin visibility (common-sheen.slang),

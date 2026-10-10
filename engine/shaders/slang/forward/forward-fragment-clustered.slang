@@ -128,8 +128,9 @@
                 // Same BRDF as the non-clustered loop (common-brdf.slang). Clustered
                 // lights are punctual, so the Fresnel is bare specularity — the
                 // gloss-aware curve is the directional case only.
-                float D = distributionGGX(nh, roughness);
-                float Vis = getVisibilitySmithGGX(NdotV, nl, roughness);
+                float D = directSpecularLobe(nh, NdotV, nl, 1.0 - roughness,
+                    vtFeatureEnabled(VT_FEATURE_GGX_SPECULAR_BIT));
+                float Vis = 1.0;
                 if (vtFeatureEnabled(VT_FEATURE_ANISOTROPY_BIT)) {
                     // Anisotropic GGX (common-brdf): D carries the whole D * Vis product.
                     D = getLightSpecularAnisoGGX(N, V, H, L, anisoT, anisoB, anisoAlpha);
@@ -168,16 +169,14 @@
                 bakeDiffuseLight += diffuseTerm * radiance * nl;
                 bakeDirectLight += diffuseTerm * radiance * nl;
                 if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
-                    // Nothing from a light behind the SURFACE, the coat included; every
-                    // other term here already carries the surface's NdotL.
-                    float ccNdotL = max(dot(ccNormalW, L), 0.0);
-                    if (nl > 0.0 && ccNdotL > 0.0) {
+                    // The main loop's coat term: the lobe at the coat normal and gloss,
+                    // weighted by the SURFACE's NdotL like every other term here.
+                    if (nl > 0.0) {
                         float ccNdotH = max(dot(ccNormalW, H), 0.0);
-                        float ccLdotH = max(dot(L, H), 0.0);
-                        float ccDenom = ccNdotH * ccNdotH * (ccAlpha2 - 1.0) + 1.0;
-                        float ccD = ccAlpha2 / max(PI * ccDenom * ccDenom, 1e-7);
-                        ccSpecularLight += radiance * ccNdotL * ccD *
-                            getVisibilityKelemen(ccLdotH) * getFresnelCC(ccLdotH);
+                        float ccLobe = directSpecularLobe(ccNdotH, max(dot(ccNormalW, V), 0.0),
+                            max(dot(ccNormalW, L), 0.0), ccGlossiness,
+                            vtFeatureEnabled(VT_FEATURE_GGX_SPECULAR_BIT));
+                        ccSpecularLight += radiance * nl * ccLobe * getFresnelCC(max(dot(V, H), 0.0));
                     }
                 }
                 if (vtFeatureEnabled(VT_FEATURE_SHEEN_BIT)) {

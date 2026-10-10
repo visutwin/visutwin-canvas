@@ -219,6 +219,7 @@ namespace visutwin::canvas
             bool morphing = false;
             bool specGloss = false;
             bool noSpecular = false;         // useSpecular false: no direct, area, clustered or reflected specular
+            bool ggxSpecular = false;        // GGX direct specular instead of the default normalised Blinn-Phong
             bool orenNayar = false;
             bool detailNormals = false;
             bool displacement = false;
