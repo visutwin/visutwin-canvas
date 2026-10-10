@@ -105,8 +105,8 @@ def quad_inputs(material: list[BindingRow]) -> list[str]:
                 lines.append(f"#define VT_DECLARE_QUAD_POINT_INPUT{n}(name) {vk}Sampler2D name : register(t{n}) : register(s{point});")
                 # A depth map for comparison taps, read with VT_SHADOW_COMPARE: on Metal a DEPTH
                 # texture through the comparison sampler (the hardware compare, bilinear), on Vulkan
-                # the point-sampled combined sampler compared by hand (no comparison sampler fits
-                # MoltenVK's 16-sampler budget). It must be DepthTexture2D on Metal: a Texture2D
+                # the combined sampler gathered and compared by hand, with the same bilinear blend
+                # (no comparison sampler fits MoltenVK's 16-sampler budget). It must be DepthTexture2D on Metal: a Texture2D
                 # is declared texture2d and pointer-cast to depth2d for sample_compare, which
                 # reads as fully shadowed (a local light's fog vanished).
                 metal_only.append(f"#define VT_DECLARE_QUAD_SHADOW_INPUT{n}(name) {vk}DepthTexture2D name : register(t{n});")
@@ -121,11 +121,23 @@ def quad_inputs(material: list[BindingRow]) -> list[str]:
     lines.append("// Per target: the bundle and the runtime compile define VT_TARGET_METAL for Metal.")
     lines.append("#if defined(VT_TARGET_METAL)")
     lines += metal_only
-    lines.append("// 1 where `reference` <= the stored depth (lit), 0 where it is behind it; level 0.")
-    lines.append("#define VT_SHADOW_COMPARE(name, uv, reference) name.SampleCmpLevelZero(quadCompareSampler, uv, reference)")
+    lines.append("// The bilinear comparison of a `size` x `size` depth map at `uv`: 1 where `reference` <= the")
+    lines.append("// stored depth (lit), 0 where it is behind it, blended over the four texels around `uv`; level 0.")
+    lines.append("#define VT_SHADOW_COMPARE(name, uv, reference, size) name.SampleCmpLevelZero(quadCompareSampler, uv, reference)")
     lines.append("#else")
     lines += other
-    lines.append("#define VT_SHADOW_COMPARE(name, uv, reference) ((reference) <= name.SampleLevel(uv, 0.0) ? 1.0 : 0.0)")
+    lines.append("// The comparison sampler done by hand: gather the four texels at the corner they share and")
+    lines.append("// blend their comparisons by the tap's bilinear fraction, as the forward pass's shadow taps do.")
+    lines.append("float vtShadowCompareGather(Sampler2D<float> map, float2 uv, float reference, float size)")
+    lines.append("{")
+    lines.append("    const float2 t = uv * size - 0.5;")
+    lines.append("    const float2 base = floor(t);")
+    lines.append("    const float2 f = t - base;")
+    lines.append("    // Gather order: x (i0, j1), y (i1, j1), z (i1, j0), w (i0, j0).")
+    lines.append("    const float4 lit = step(float4(reference), map.GatherRed((base + 1.0) / size));")
+    lines.append("    return lerp(lerp(lit.w, lit.z, f.x), lerp(lit.x, lit.y, f.x), f.y);")
+    lines.append("}")
+    lines.append("#define VT_SHADOW_COMPARE(name, uv, reference, size) vtShadowCompareGather(name, uv, reference, size)")
     lines.append("#endif")
     return lines
 

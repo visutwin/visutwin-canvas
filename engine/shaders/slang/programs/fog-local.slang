@@ -89,13 +89,13 @@ float volSampleShadow(float3 pos, float3 lightVec, float spiral)
     if (u.lightDir.w > 0.0) {
         const float4 projPos = mul(float4(pos, 1.0), u.lightProjMatrix);
         const float3 coord = projPos.xyz / projPos.w;
-        return VT_SHADOW_COMPARE(shadowAtlas, coord.xy + tapOffset, coord.z);
+        return VT_SHADOW_COMPARE(shadowAtlas, coord.xy + tapOffset, coord.z, resolution);
     }
     const float2 uv = fogCubemapAtlasCoordinates(u.lightAtlas, resolution, lightVec);
     const float3 absDir = abs(lightVec);
     const float d = max(absDir.x, max(absDir.y, absDir.z)) * (1.0 - u.omniDepth.z);
     const float compareValue = u.omniDepth.y * (d - u.omniDepth.x) / max((u.omniDepth.y - u.omniDepth.x) * d, 1e-6);
-    return VT_SHADOW_COMPARE(shadowAtlas, uv + tapOffset, compareValue);
+    return VT_SHADOW_COMPARE(shadowAtlas, uv + tapOffset, compareValue, resolution);
 }
 
 float3 volSampleCookie(float3 pos, float3 lightVec)

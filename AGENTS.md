@@ -276,8 +276,11 @@ on Vulkan), as are visutwin-geo's globe surface and visutwin-viz's volume shader
   `generate_shader_bindings.py` and `MetalTextureBinder` (`kQuadLinearSamplerBase` ...);
   change both. A material row's sampler keeps its own slot (1-6).
 - **Two inputs differ per target.** `VT_DECLARE_QUAD_SHADOW_INPUTn` + `VT_SHADOW_COMPARE(name,
-  uv, ref)`: Metal compares in hardware (a bilinear PCF of four texels), Vulkan point-samples
-  and compares by hand, because its fragment stage has no comparison sampler to spare.
+  uv, ref, size)`: Metal compares in hardware (a bilinear PCF of four texels), Vulkan, whose
+  fragment stage has no comparison sampler to spare, gathers the four texels at their shared
+  corner and blends the comparisons itself (`vtShadowCompareGather`, the forward taps'
+  scheme), so it needs the map's `size`. A point compare there left every shadow edge inside
+  `volumetric-fog-shafts`' light shafts a whole texel apart between backends (8.4k px, now 63).
   `VT_DECLARE_QUAD_TEXEL_INPUTn` is an input read only with `Load`: a plain image on Metal,
   where `Load` through a combined sampler emits code Apple's compiler rejects.
 - **`VISUTWIN_SLANG_RUNTIME=1` compiles from the source tree instead** (found through
@@ -356,7 +359,7 @@ on Vulkan), as are visutwin-geo's globe surface and visutwin-viz's volume shader
   there.
 - **Known per-backend differences kept in one source**: the point size (3 on Metal, 1 on
   Vulkan, DEVIATION marked at `forwardPointVertex`), Vulkan's instancing has no instance
-  colour (the material's base colour), the fog shadow compare (above), and the rounding of
+  colour (the material's base colour), and the rounding of
   compose's ACES2, the particle spawn sphere and the wide-line dash modulo, which follow the
   MSL they were ported from.
 

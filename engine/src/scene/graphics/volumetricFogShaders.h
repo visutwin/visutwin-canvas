@@ -32,7 +32,7 @@ namespace visutwin::canvas::volumetric_fog
         float scatterParams[4];            // offset 448  x=anisotropy y=steps z=noiseOffset w=shadowIntensity
         float shadowCascadeDistances[4];   // offset 464
         float shadowParams[4];             // offset 480  x=cascadeCount y=bias z=hasShadows w=shadowDistance
-        float cameraParams[4];             // offset 496  x=near y=far z=extinction
+        float cameraParams[4];             // offset 496  x=near y=far z=extinction w=shadow map size
     };
     static_assert(sizeof(FogUniforms) == 512);
 

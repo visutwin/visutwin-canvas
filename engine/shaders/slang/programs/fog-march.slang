@@ -9,7 +9,7 @@
 // rgb = in-scattered light, a = transmittance. Inputs: 0 scene depth (point sampled),
 // 1 the cascaded shadow map. The quad's v runs DOWN the screen, so NDC y is 1 - 2v. The
 // depth buffer stores distance along the view axis, so the ray length divides by the ray's
-// projection on the forward vector. The shadow tap differs per backend (VT_SHADOW_COMPARE).
+// projection on the forward vector. The shadow tap is a bilinear comparison (VT_SHADOW_COMPARE).
 import vtquad;
 import vtfog;
 #include "bindings.slang"
@@ -29,7 +29,7 @@ struct FogUniforms
     float4 scatterParams;          // x anisotropy, y steps, z noise offset, w shadow intensity
     float4 shadowCascadeDistances;
     float4 shadowParams;           // x cascade count, y bias, z has shadows, w shadow distance
-    float4 cameraParams;           // x near, y far, z extinction
+    float4 cameraParams;           // x near, y far, z extinction, w shadow map size
 };
 VT_DECLARE_QUAD_UNIFORMS(FogUniforms, u)
 VT_DECLARE_QUAD_DEPTH_INPUT0(depthTexture)
@@ -55,7 +55,7 @@ float sampleFogShadow(float3 worldPos, float viewDepth)
     if (any(coord.xy < float2(0.0, 0.0)) || any(coord.xy > float2(1.0, 1.0))) {
         return 1.0;
     }
-    return VT_SHADOW_COMPARE(shadowTexture, coord.xy, coord.z - u.shadowParams.y);
+    return VT_SHADOW_COMPARE(shadowTexture, coord.xy, coord.z - u.shadowParams.y, u.cameraParams.w);
 }
 
 [shader("vertex")]

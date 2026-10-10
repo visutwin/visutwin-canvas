@@ -305,6 +305,7 @@ namespace visutwin::canvas
         uniforms.cameraParams[0] = params.cameraNear;
         uniforms.cameraParams[1] = params.cameraFar;
         uniforms.cameraParams[2] = params.extinction;
+        uniforms.cameraParams[3] = params.shadowTexture ? static_cast<float>(params.shadowTexture->width()) : 1.0f;
 
         if (!shader()) {
             setShader(getOrCreateSlangShader(gd.get(), "fog-march"));
