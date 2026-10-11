@@ -15,9 +15,7 @@
 // lighting flips only the normal and not the tangents, so the marched relief on
 // those faces comes out inside out. Every face front-facing avoids that.
 //
-// DEVIATIONS from upstream: the roughness map is dropped for a constant gloss,
-// because this port's gloss map has no tiling of its own, so it could not repeat with
-// the other maps; the sphere is a primitive
+// DEVIATIONS from upstream: the sphere is a primitive
 // rather than a 128-band generated mesh, so its silhouette is coarser; and upstream
 // exposes the sample count and the parallax mode as controls, where this march
 // adapts its step count to the view angle instead.
@@ -55,7 +53,7 @@ protected:
 
         _envAtlas = std::make_unique<Asset>(
             "helipad-env-atlas", AssetType::TEXTURE,
-            assetPath("cubemaps/helipad-env-atlas.png"),
+            assetPath("cubemaps/morning-env-atlas.png"),
             AssetData{.type = TextureType::TEXTURETYPE_RGBP, .mipmaps = false});
         if (Texture* envTexture = _envAtlas->resourceAs<Texture>()) {
             scene()->setEnvAtlas(envTexture);
@@ -65,6 +63,7 @@ protected:
         _normal = load("normal", "textures/bricks076a/normal.png");
         _height = load("height", "textures/bricks076a/height.png");
         _ao = load("ao", "textures/bricks076a/ao.png");
+        _roughness = load("roughness", "textures/bricks076a/roughness.png");
         if (_color == nullptr || _height == nullptr) {
             spdlog::error("parallax-mapping needs the bricks076a texture set");
             return false;
@@ -146,7 +145,6 @@ protected:
             comp->camera()->setFarClip(50.0f);
         }
         auto* controls = addOrbitControls(camera, spherePosition);
-        controls->setOrbitDistance(4.3f);
         controls->storeResetState();
 
         spdlog::info("Parallax mapping on brickwork: height 0.4, base 0.5 "
@@ -174,9 +172,11 @@ private:
         material->setNormalMap(_normal);
         material->setHeightMap(_height);
         material->setAoMap(_ao);
+        // The map is roughness rather than gloss, so it is used inverted.
+        material->setGlossMap(_roughness);
+        material->setGlossInvert(true);
         material->setUseMetalness(true);
         material->setMetalness(0.0f);
-        material->setGloss(0.35f);
 
         // Tuned values: a relief 0.4 deep, pivoting around mid-grey.
         material->setHeightMapFactor(0.4f);
@@ -189,6 +189,7 @@ private:
         material->setDiffuseMapTiling(tiling);
         material->setNormalMapTiling(tiling);
         material->setAoMapTiling(tiling);
+        material->setGlossMapTiling(tiling);
 
         _materials.push_back(material);
         return material;
@@ -202,6 +203,7 @@ private:
     Texture* _normal = nullptr;
     Texture* _height = nullptr;
     Texture* _ao = nullptr;
+    Texture* _roughness = nullptr;
 };
 
 VISUTWIN_EXAMPLE_MAIN(ParallaxMappingExample)

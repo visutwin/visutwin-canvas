@@ -53,7 +53,6 @@ protected:
 
     bool create() override
     {
-        scene()->setToneMapping(TONEMAP_ACES);
         scene()->setAmbientLight(0.2f, 0.2f, 0.2f);
 
         _gray = material(Color(0.7f, 0.7f, 0.7f, 1.0f));
@@ -86,7 +85,8 @@ protected:
         }
         _camera = camera;
         auto* controls = addOrbitControls(camera, Vector3(0.0f, 2.0f, 0.0f));
-        controls->setOrbitDistance(19.0f);
+        // The authored camera at (0, 6, 18), looking at (0, 2, 0): 18.44 units away.
+        controls->setOrbitDistance(Vector3(0.0f, 4.0f, 18.0f).length());
         controls->storeResetState();
 
         buildDoor();

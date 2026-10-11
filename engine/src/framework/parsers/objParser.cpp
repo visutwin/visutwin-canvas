@@ -236,11 +236,13 @@ namespace visutwin::canvas
                 return nullptr;
             }
 
-            // OBJ textures typically use bottom-left origin (OpenGL convention)
+            // Row 0 at the top, as every texture here. OBJ's bottom-left UV origin is
+            // handled once, by flipping V into the vertices (cornerUv); flipping the
+            // image as well would mirror every texture top to bottom.
             int w, h, comp;
             stbi_uc* pixels = nullptr;
             {
-                const StbVerticalFlipScope flipScope(true);
+                const StbVerticalFlipScope flipScope(false);
                 pixels = stbi_load(texPath.string().c_str(), &w, &h, &comp, 4);
             }
             if (!pixels) {

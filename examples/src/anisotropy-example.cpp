@@ -13,10 +13,8 @@
 //   * Z axis (rows): gloss 0 -> 1 (z / (NUM_SPHERES_Z - 1)) — upstream labels this
 //     axis "Roughness" even though it sets gloss.
 //
-// Upstream also sets material.enableGGXSpecular; this engine has no equivalent
-// flag because the anisotropic path is gated automatically on a non-zero
-// anisotropy value (programLibrary.cpp: options.anisotropy = anisotropy() != 0),
-// so the leftmost column renders isotropic.
+// Every material sets enableGGXSpecular, as upstream's do: anisotropy is a GGX lobe and
+// takes effect only with it. The leftmost column (anisotropy 0) renders isotropic.
 //
 // The two axis labels ("Anisotropy", "Roughness") lie flat on the ground plane as
 // WORLD-SPACE text: a Text element with no ScreenComponent ancestor is parented to
@@ -28,6 +26,7 @@
 // Orbit camera (CameraControls).
 //
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <string>
 #include <vector>
@@ -126,14 +125,14 @@ protected:
 
         createAxisLabels();
 
-        // Camera pose: translate(0, 9, 9) + rotate(-48, 0, 0).
-        // CameraControls derives its orbit state FROM this pose rather than moving
-        // the camera, so the default framing matches while orbiting still works.
-        // (The -48 deg pitch is ~3 deg off looking straight at the origin;
-        // the controls settle on the exact look-at, which is visually identical.)
+        // Camera pose: translate(0, 9, 9) + rotate(-48, 0, 0). The orbit focus is where
+        // that view ray meets the ground, so the controls keep the pitch exactly (aimed
+        // at the origin they would settle 3 degrees steeper).
         auto* camera = createCamera(Vector3(0.0f, 9.0f, 9.0f), Vector3(-48.0f, 0.0f, 0.0f));
+        constexpr float pitch = 48.0f * 3.14159265358979323846f / 180.0f;
+        const Vector3 orbitFocus(0.0f, 0.0f, 9.0f - 9.0f / std::tan(pitch));
 
-        auto* cameraControls = addOrbitControls(camera, _focusPoint);
+        auto* cameraControls = addOrbitControls(camera, orbitFocus);
         cameraControls->setMoveSpeed(2.0f * _gridRadius);
         cameraControls->setMoveFastSpeed(4.0f * _gridRadius);
         cameraControls->setMoveSlowSpeed(_gridRadius);

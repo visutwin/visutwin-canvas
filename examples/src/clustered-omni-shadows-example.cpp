@@ -28,8 +28,8 @@
 // - The towers' tumble comes from a fixed-seed generator instead of Math.random(), so
 //   every run shows the same towers and screenshots are comparable.
 // - Upstream's orbit camera focuses the bounding box of everything in the scene when
-//   it starts, the room's centre (0, 200, 0), and keeps the authored camera position;
-//   this port orbits that point from the same position. distanceMax 1200 becomes the
+//   it starts (about (0, 190, 0): the tumbled towers reach below the floor) and keeps
+//   the authored camera position; this port orbits that point from the same position. distanceMax 1200 becomes the
 //   zoom range; CameraControls has no inertia factor.
 // - The atlas debug overlay upstream draws on WebGPU is left out.
 //
@@ -143,8 +143,8 @@ protected:
             comp->camera()->setFarClip(1500.0f);
             comp->setToneMapping(TONEMAP_ACES);
         }
-        // The centre of the room's bounds.
-        if (auto* controls = addOrbitControls(camera, Vector3(0.0f, 200.0f, 0.0f))) {
+        // The centre of the scene's bounds.
+        if (auto* controls = addOrbitControls(camera, entityBounds(root()).center())) {
             controls->setZoomRange(Vector2(0.01f, 1200.0f));
             controls->storeResetState();
         }

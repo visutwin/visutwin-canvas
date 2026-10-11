@@ -10,8 +10,8 @@
 // textured model takes to load.
 //
 // What must hold is that every image comes out exactly as the one-at-a-time path made
-// it — RGBA8 whatever the file's channel count, flipped vertically (the parser flips V
-// into the vertices, so its textures are stored bottom row first) — and that images
+// it — RGBA8 whatever the file's channel count, top row first as the file stores it (glTF's
+// UV origin is the image's top-left corner, as every texture's here) — and that images
 // decoded side by side do not end up in each other's slots.
 
 #include <cstdint>
@@ -70,12 +70,12 @@ namespace
         return png;
     }
 
-    // What the parser stores for `source`: RGBA8, bottom row first.
+    // What the parser stores for `source`: RGBA8, top row first.
     std::vector<uint8_t> expectedRgba(const Source& source)
     {
         std::vector<uint8_t> rgba(static_cast<size_t>(source.width) * source.height * 4);
         for (int y = 0; y < source.height; ++y) {
-            const int sourceRow = source.height - 1 - y;
+            const int sourceRow = y;
             for (int x = 0; x < source.width; ++x) {
                 const uint8_t* src = &source.pixels[(static_cast<size_t>(sourceRow) * source.width + x) * source.components];
                 uint8_t* dst = &rgba[(static_cast<size_t>(y) * source.width + x) * 4];
@@ -119,7 +119,7 @@ int main()
         check(image.width == 0 && image.height == 0, "with no decoded size yet");
     }
 
-    std::cout << "\nevery channel count comes out RGBA8, bottom row first\n";
+    std::cout << "\nevery channel count comes out RGBA8, top row first\n";
     {
         const std::vector<Source> sources = {
             makeSource(5, 3, 4, 1), makeSource(4, 4, 3, 2), makeSource(2, 6, 1, 3), makeSource(3, 5, 2, 4)};

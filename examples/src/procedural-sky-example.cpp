@@ -16,10 +16,12 @@
 // renders a Preetham analytic daylight sky (a port of the three.js `Sky` shader) into an
 // equirect texture, bakes image-based lighting from it, and adds a night sky with stars,
 // a moon disk and a twilight band. This port drives the engine's built-in Nishita
-// single-scattering atmosphere from the same sun direction instead. The scene, the
-// lighting, the framing, the effects and the time-of-day behaviour all match; the sky
-// itself is a different scattering model and has no night phase, so the cycle here skips
-// the night (20:00 wraps back to 05:00).
+// single-scattering atmosphere from the same sun direction instead. The scene, the sun
+// light (direction, colour and intensity curve), the framing, the effects and the
+// time-of-day behaviour match; the sky itself is a different scattering model and has no
+// night phase, so the cycle here skips the night (20:00 wraps back to 05:00) and there is
+// no moon light. Nor is image-based lighting baked from the sky, so the faces in shadow
+// get no sky ambient.
 //
 // @credit Laboratory by Sketchfab, CC BY 4.0
 // @credit FREE - Dry Sand Terrain by josevega, Sketchfab, CC BY 4.0
@@ -46,6 +48,7 @@ constexpr float INITIAL_HOUR = 9.0f;
 constexpr float TIME_SPEED = 1.0f;      // hours per second
 constexpr float SKY_EXPOSURE = 1.8f;
 constexpr float TORCH_INTENSITY = 60.0f;
+constexpr float SUN_INTENSITY = 6.0f;    // the sun at full height
 
 // GPU-side atmosphere uniform block. MUST be a byte-exact mirror of
 // UniformBinder::AtmosphereUniforms (6 x float4 = 96 bytes) — a mis-sized or re-ordered
@@ -235,7 +238,7 @@ protected:
         // Sun — PCSS soft shadows over four cascades, re-rendered every frame
         // ---------------------------------------------------------------------
         _sunEntity = createDirectionalLight(Vector3(0.0f, 0.0f, 0.0f),
-            Color(1.0f, 1.0f, 1.0f, 1.0f), 6.0f, true);
+            Color(1.0f, 1.0f, 1.0f, 1.0f), SUN_INTENSITY, true);
         if (auto* sun = _sunEntity->findComponent<LightComponent>()) {
             sun->setShadowType(ShadowType::SHADOW_PCSS_32F);
             sun->setPenumbraSize(0.03f);
@@ -316,8 +319,23 @@ protected:
         const Vector3 sunDir =
             Vector3(cosEl * std::sin(az), std::sin(el), cosEl * std::cos(az)).normalized();
 
-        // The light shines FROM the sun, so its forward axis is the negated direction.
-        _sunEntity->lookAt(_sunEntity->position() + (sunDir * -1.0f));
+        // A directional light shines along its entity's -Y, so the entity's +Y points at the
+        // sun (lookAt would aim -Z instead).
+        const Vector3 ref = std::abs(sunDir.getY()) > 0.99f ? Vector3(1.0f, 0.0f, 0.0f) : Vector3(0.0f, 1.0f, 0.0f);
+        const Vector3 axisX = sunDir.cross(ref).normalized();
+        const Vector3 axisZ = axisX.cross(sunDir).normalized();
+        Matrix4 basis = Matrix4::identity();
+        basis.setColumn(0, Vector4(axisX.getX(), axisX.getY(), axisX.getZ(), 0.0f));
+        basis.setColumn(1, Vector4(sunDir.getX(), sunDir.getY(), sunDir.getZ(), 0.0f));
+        basis.setColumn(2, Vector4(axisZ.getX(), axisZ.getY(), axisZ.getZ(), 0.0f));
+        _sunEntity->setRotation(Quaternion::fromMatrix4(basis));
+
+        // Warm near the horizon, white towards the zenith, fading out below the horizon.
+        if (auto* sun = _sunEntity->findComponent<LightComponent>()) {
+            const float t = std::clamp(sunDir.getY() / 0.4f, 0.0f, 1.0f);
+            sun->setColor(Color(1.0f, 0.6f + 0.4f * t, 0.35f + 0.63f * t, 1.0f));
+            sun->setIntensity(SUN_INTENSITY * std::clamp(sunDir.getY() / 0.1f, 0.0f, 1.0f));
+        }
 
         // Sky luminance follows the elevation.
         const float luminance = _luminanceCurve.value(elevation);
@@ -327,8 +345,6 @@ protected:
         atmosphere.sunDirection[2] = sunDir.getZ();
         // DEVIATION: upstream's `luminance` curve is a Preetham control with no Nishita
         // counterpart — the scattering integral already darkens the sky as the sun sets.
-        // The curve still drives the sun light's own intensity, so the ground lighting
-        // follows the same day curve.
         (void)luminance;
         scene()->setAtmosphereUniforms(&atmosphere, sizeof(atmosphere));
 

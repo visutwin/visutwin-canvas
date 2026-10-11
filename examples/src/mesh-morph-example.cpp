@@ -14,13 +14,14 @@
 // This is the only example that exercises morph weights, and the targets are built
 // here rather than loaded, so it also covers the CPU side of MorphTarget.
 //
+// The camera circles the spheres at radius 16 on the clock, as upstream drives it.
+//
 #include <cmath>
 #include <cstring>
 #include <memory>
 #include <random>
 #include <vector>
 
-#include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
 #include "platform/graphics/vertexFormat.h"
 #include "scene/constants.h"
@@ -35,7 +36,7 @@ using namespace visutwin::canvas;
 namespace
 {
     constexpr float PI_F = 3.14159265358979323846f;
-    constexpr int kBands = 64;
+    constexpr int kBands = 200;
 
     /// The sphere's own vertex data, kept on the CPU because the morph targets are
     /// deltas against it.
@@ -165,11 +166,8 @@ public:
 protected:
     bool create() override
     {
-        scene()->setToneMapping(TONEMAP_ACES);
-        scene()->setAmbientLight(0.2f, 0.2f, 0.2f);
-
         createDirectionalLight(Vector3(45.0f, 30.0f, 0.0f),
-            Color(1.0f, 1.0f, 1.0f, 1.0f), 1.5f, false);
+            Color(1.0f, 1.0f, 1.0f, 1.0f), 1.0f, false);
 
         const SphereData base = buildSphere(kBands);
 
@@ -178,12 +176,11 @@ protected:
             createMorphedSphere(base, Vector3(spread(_rng), spread(_rng), spread(_rng)));
         }
 
-        // Upstream orbits the camera itself at radius 16; the orbit controls do the
-        // same job here and let the scene be inspected.
-        auto* camera = createCamera(Vector3(0.0f, 4.0f, 16.0f));
-        auto* controls = addOrbitControls(camera, Vector3(0.0f, 0.0f, 0.0f));
-        controls->setOrbitDistance(16.5f);
-        controls->storeResetState();
+        _camera = createCamera(Vector3(0.0f, 4.0f, 16.0f));
+        if (auto* comp = _camera->findComponent<CameraComponent>(); comp && comp->camera()) {
+            comp->camera()->setClearColor(Color(0.1f, 0.1f, 0.1f, 1.0f));
+        }
+        _camera->lookAt(Vector3(0.0f, 0.0f, 0.0f));
 
         spdlog::info("Three spheres, three morph targets each, weights driven by "
                      "sine curves of different frequency.");
@@ -200,6 +197,10 @@ protected:
             instance->setWeight(1, std::abs(std::sin(_time * 0.3f + offset)));
             instance->setWeight(2, std::abs(std::sin(_time * 0.7f + offset)));
         }
+
+        // Orbit the camera around the origin.
+        _camera->setLocalPosition(16.0f * std::sin(_time * 0.2f), 4.0f, 16.0f * std::cos(_time * 0.2f));
+        _camera->lookAt(Vector3(0.0f, 0.0f, 0.0f));
     }
 
 private:
@@ -256,9 +257,6 @@ private:
         _morphs.push_back(morph);
 
         auto material = std::make_shared<StandardMaterial>();
-        material->setDiffuse(Color(0.6f, 0.65f, 0.75f, 1.0f));
-        material->setMetalness(0.0f);
-        material->setGloss(0.5f);
         _materials.push_back(material);
 
         auto* entity = new Entity();
@@ -282,6 +280,7 @@ private:
     std::vector<std::shared_ptr<StandardMaterial>> _materials;
     std::mt19937 _rng{20260905};
     float _time = 0.0f;
+    Entity* _camera = nullptr;
 };
 
 VISUTWIN_EXAMPLE_MAIN(MeshMorphExample)

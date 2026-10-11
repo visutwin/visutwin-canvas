@@ -48,7 +48,6 @@ public:
 protected:
     bool create() override
     {
-        scene()->setToneMapping(TONEMAP_ACES);
         scene()->setSkyboxMip(3);
         scene()->setSkyboxIntensity(0.1f);
 

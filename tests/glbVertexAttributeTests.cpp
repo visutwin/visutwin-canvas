@@ -332,9 +332,9 @@ namespace
                       nearStrict(box.center() + box.halfExtents(), 3.0f, 4.0f, 0.0f, kTolerance),
                     label(path, "and its bounds are finite and exact"));
                 if (v.size() == 3 * 14) {
-                    // V is flipped on load: v' = 1 - v.
-                    check(nearStrict(v[6], 0.0f, kTolerance) && nearStrict(v[7], 1.0f, kTolerance) &&
-                          nearStrict(v[2 * 14 + 6], 1.0f, kTolerance) && nearStrict(v[2 * 14 + 7], 1.0f, kTolerance),
+                    // Taken as the file has them: glTF's UV origin is the top-left corner, as here.
+                    check(nearStrict(v[6], 0.0f, kTolerance) && nearStrict(v[7], 0.0f, kTolerance) &&
+                          nearStrict(v[2 * 14 + 6], 1.0f, kTolerance) && nearStrict(v[2 * 14 + 7], 0.0f, kTolerance),
                         label(path, "a base-less normalized uint16 TEXCOORD_0 de-quantises its override"));
                 }
             });

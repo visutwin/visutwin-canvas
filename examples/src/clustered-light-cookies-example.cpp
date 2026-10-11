@@ -25,7 +25,9 @@
 // - `textures.draw(cookieAtlas, 0.05, 0.75, 0.2, 0.2)` has no immediate equivalent:
 //   the atlas preview is a RenderPassDownsample appended to the frame graph with the
 //   same viewport-fraction rectangle, so it draws over everything, once the atlas
-//   exists (the first frame with a cookie light creates it).
+//   exists (the first frame with a cookie light creates it). The copy shows the atlas's
+//   raw values, where upstream's texture renderer gamma-encodes the linear atlas for
+//   display, so the preview reads darker in its mid-tones.
 // - orbitCamera is CameraControls around the board's bounds centre, from the
 //   camera's authored position; distanceMax 200 becomes the zoom range, and
 //   CameraControls has no inertia factor.

@@ -5,9 +5,10 @@
 //
 // Port of upstream physics/falling-shapes.
 //
-// A grey floor with restitution 0.5, and forty dynamic shapes dropped onto it one
-// every 0.2 seconds from ten metres up, each a random pick from box, sphere,
-// capsule, cylinder and a torus with a `mesh` collision volume.
+// A floor with restitution 0.5, and forty dynamic shapes dropped onto it one
+// every 0.2 seconds from ten metres up, spinning, each a random pick from box, sphere,
+// capsule, cylinder and a torus with a `mesh` collision volume. Every frame an active
+// body is drawn red and a sleeping one grey.
 //
 // The two lines that matter are in configure(): the engine owns no simulation, so
 // an application supplies a PhysicsWorld through AppOptions, the same way it
@@ -17,6 +18,10 @@
 // state, so it is generated here with upstream's TorusGeometry at the glb's size
 // (ring radius 1, tube radius 0.25). Its `mesh` collision volume is a dynamic body,
 // which Jolt simulates as the convex hull of the mesh (see CollisionComponent).
+//
+// A reproduced upstream quirk: upstream's physics engine reports its STATIC floor as
+// active, so the floor is drawn red; Jolt's static bodies are never active, so the
+// example counts a static body as active itself.
 //
 #include <memory>
 #include <random>
@@ -52,7 +57,6 @@ protected:
 
     bool create() override
     {
-        scene()->setToneMapping(TONEMAP_ACES);
         scene()->setAmbientLight(0.2f, 0.2f, 0.2f);
 
         _red = material(Color(1.0f, 0.3f, 0.3f, 1.0f));
@@ -70,6 +74,7 @@ protected:
                 floor->addComponent<RigidBodyComponent>());
             body->setType(RigidBodyType::Static);
             body->setRestitution(0.5f);
+            _bodies.push_back(body);
         }
 
         auto* light = createDirectionalLight(Vector3(45.0f, 30.0f, 0.0f),
@@ -97,20 +102,37 @@ protected:
 
     void update(const float dt) override
     {
-        if (_remaining <= 0) {
-            return;
+        if (_remaining > 0) {
+            _timer -= dt;
+            if (_timer <= 0.0f) {
+                _timer = kInterval;
+                --_remaining;
+                spawn();
+            }
         }
-        _timer -= dt;
-        if (_timer > 0.0f) {
-            return;
+
+        // Show active bodies in red and sleeping bodies in grey.
+        for (auto* body : _bodies) {
+            auto* render = body->entity()->findComponent<RenderComponent>();
+            if (!render || render->meshInstances().empty()) {
+                continue;
+            }
+            const bool active = body->type() == RigidBodyType::Static || body->isActive();
+            render->meshInstances()[0]->setMaterial(active ? _red : _gray);
         }
-        _timer = kInterval;
-        --_remaining;
-        spawn();
     }
 
 private:
     static constexpr float kInterval = 0.2f;
+
+    // A random spin in [-5, 5) rad/s per axis, given before the body exists and applied
+    // when it is created.
+    void spin(RigidBodyComponent* body)
+    {
+        std::uniform_real_distribution<float> rate(-5.0f, 5.0f);
+        body->setAngularVelocity(Vector3(rate(_rng), rate(_rng), rate(_rng)));
+        _bodies.push_back(body);
+    }
 
     std::shared_ptr<StandardMaterial> material(const Color& color)
     {
@@ -157,6 +179,7 @@ private:
         body->setType(RigidBodyType::Dynamic);
         body->setMass(50.0f);
         body->setRestitution(0.5f);
+        spin(body);
     }
 
     void spawnPrimitive(const Vector3& position)
@@ -187,9 +210,11 @@ private:
         body->setType(RigidBodyType::Dynamic);
         body->setMass(50.0f);
         body->setRestitution(0.5f);
+        spin(body);
     }
 
     std::vector<std::shared_ptr<StandardMaterial>> _materials;
+    std::vector<RigidBodyComponent*> _bodies;
     std::shared_ptr<StandardMaterial> _red, _gray;
     std::shared_ptr<Mesh> _torusMesh;
     std::mt19937 _rng{20260905};

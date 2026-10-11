@@ -4,7 +4,8 @@
 // Created by Arnis Lektauers on 25.09.2026
 //
 // OBJ and STL files written to disk, parsed, and the vertex and index buffers read
-// back: positions, normals, UVs, winding and the config transforms.
+// back: positions, normals, UVs, winding and the config transforms, and a material
+// texture's row order (OBJ's V is flipped once, into the vertices).
 //
 // The rule every case checks is the one a render cannot tell apart from shading: a
 // vertex normal must point to the side the triangle's WINDING says is its front, or
@@ -267,6 +268,31 @@ int main()
         check(withinDistance(g.aabb.center(), Vector3(1.0f, 0.5f, 0.0f)) &&
               withinDistance(g.aabb.halfExtents(), Vector3(1.0f, 0.5f, 0.0f)),
             "the bounds are the quad's");
+    }
+
+    std::cout << "\nOBJ: a texture keeps the file's row order\n";
+    {
+        // A 1x2 uncompressed TGA stored TOP row first (descriptor bit 5): red above blue.
+        // With v flipped into the vertices, the image must come in as the file has it,
+        // row 0 at the top; flipped as well, every OBJ texture renders upside down.
+        const unsigned char tga[18 + 8] = {
+            0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 2, 0, 32, 0x28,
+            0, 0, 255, 255,   // top row: red (BGRA)
+            255, 0, 0, 255};  // bottom row: blue
+        write("rows.tga", std::string(reinterpret_cast<const char*>(tga), sizeof(tga)));
+        write("rows.mtl", "newmtl rows\nmap_Kd rows.tga\n");
+        const auto container = ObjParser::parse(write("rows.obj",
+            "mtllib rows.mtl\nusemtl rows\nv 0 0 0\nv 1 0 0\nv 1 1 0\nvt 0 0\nvt 1 0\nvt 1 1\n"
+            "f 1/1 2/2 3/3\n"), device);
+        const auto* material = container && !container->meshPayloads().empty()
+            ? container->meshPayloads()[0].material.get() : nullptr;
+        const auto* texture = material ? material->baseColorTexture() : nullptr;
+        const auto* pixels = texture ? static_cast<const unsigned char*>(texture->getLevel(0)) : nullptr;
+        check(pixels != nullptr, "the map_Kd texture is loaded with its pixels");
+        if (pixels) {
+            check(pixels[0] == 255 && pixels[2] == 0 && pixels[4] == 0 && pixels[6] == 255,
+                "row 0 is the image's top row (red), row 1 its bottom (blue)");
+        }
     }
 
     std::cout << "\nOBJ: a cube with NO normals, flat ('s off')\n";

@@ -39,8 +39,6 @@ struct SceneData { float4x4 projViewMatrix; };
 struct ModelData {
     float4x4 modelMatrix;
     float4x4 normalMatrix;
-    float     normalSign;
-    float3    _pad;
 };
 
 // Replaces MaterialData at buffer(3), carrying the uLightPos parameter.
@@ -59,7 +57,7 @@ vertex Varyings vertexShader(VertexData v [[stage_in]],
 {
     Varyings out;
     float4 world = model.modelMatrix * float4(v.position, 1.0);
-    float3 worldNormal = normalize((model.normalMatrix * float4(v.normal, 0.0)).xyz) * model.normalSign;
+    float3 worldNormal = normalize((model.normalMatrix * float4(v.normal, 0.0)).xyz);
 
     // Vector to the light source.
     float3 lightDir = normalize(toon.lightPos.xyz - world.xyz);

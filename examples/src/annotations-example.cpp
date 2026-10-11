@@ -85,7 +85,8 @@ protected:
     bool create() override
     {
         _jetAsset = std::make_unique<Asset>("jet-fighter", AssetType::CONTAINER, assetPath("models/jet-fighter.glb"));
-        _hdrAsset = std::make_unique<Asset>("shanghai", AssetType::TEXTURE, assetPath("hdri/shanghai-riverside-4k.hdr"));
+        _hdrAsset = std::make_unique<Asset>("shanghai", AssetType::TEXTURE, assetPath("hdri/shanghai-riverside-4k.hdr"),
+            AssetData{.mipmaps = false});
         _fontAsset = std::make_unique<Asset>("font", AssetType::FONT, assetPath("fonts/roboto-regular.json"));
         _boldAsset = std::make_unique<Asset>("bold", AssetType::FONT, assetPath("fonts/roboto-bold.json"));
         _uiAtlasTexture = std::make_unique<Asset>("ui", AssetType::TEXTURE, assetPath("ui/ui-atlas.png"),

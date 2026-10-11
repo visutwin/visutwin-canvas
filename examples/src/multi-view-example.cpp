@@ -65,26 +65,6 @@ void setRenderShadowsRecursive(GraphNode* node, const bool cast, const bool rece
     }
 }
 
-BoundingBox calcEntityAABB(Entity* entity)
-{
-    BoundingBox bbox;
-    bbox.setCenter(0, 0, 0);
-    bbox.setHalfExtents(0, 0, 0);
-    if (!entity) return bbox;
-    bool hasAny = false;
-    for (auto* render : entity->findComponents<RenderComponent>()) {
-        if (!render || !render->entity()) continue;
-        auto* owner = render->entity();
-        if (owner != entity && !owner->isDescendantOf(entity)) continue;
-        for (auto* mi : render->meshInstances()) {
-            if (!mi) continue;
-            if (!hasAny) { bbox = mi->aabb(); hasAny = true; }
-            else { bbox.add(mi->aabb()); }
-        }
-    }
-    return bbox;
-}
-
 // Debug shader passes on the top viewport.
 // Switching costs no shader recompile — the mode is a runtime uniform.
 struct DebugPassEntry
@@ -236,7 +216,9 @@ protected:
             _topCam->camera()->setClearDepthBuffer(false);
             _topCam->camera()->setClearStencilBuffer(false);
         }
-        topCamEntity->lookAt(Vector3(0.0f, 7.0f, 0.0f));
+        // Upstream's orbit script (focusEntity root, no frame on start) re-aims the camera at
+        // the scene's bounds centre when it starts, replacing the example's lookAt(0, 7, 0).
+        topCamEntity->lookAt(entityBounds(root()).center());
 
         // Guard against unintended extra cameras rendering full-screen.
         for (auto* cameraComp : engine()->components().instances<CameraComponent>()) {
@@ -293,7 +275,7 @@ protected:
         root()->addChild(_spotLightEntity);
 
         applyDebugPass();
-        spdlog::info("Press D to step the top viewport's debug shader pass (stops auto-cycling)");
+        spdlog::info("Press D to step the top viewport's debug shader pass (the passes do not cycle on their own)");
 
         return true;
     }
@@ -394,7 +376,7 @@ private:
     Entity* _spotLightEntity = nullptr;
 
     size_t _debugPassIndex = 0;
-    bool _debugPassAutoCycle = true;
+    bool _debugPassAutoCycle = false;
     float _debugPassTimer = 0.0f;
     float _time = 0.0f;
 };

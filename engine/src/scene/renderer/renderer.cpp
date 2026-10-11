@@ -887,6 +887,9 @@ namespace visutwin::canvas
             Matrix4 viewMatrix = Matrix4::identity();
             Matrix4 projMatrix = Matrix4::identity();
             Matrix4 viewProjection = Matrix4::identity();
+            // The sky's: always a perspective projection, so an orthographic camera still
+            // sees the sky around it rather than a flat slab of the sky mesh.
+            Matrix4 viewProjectionSkybox = Matrix4::identity();
             PixelRect viewport;
             PixelRect scissor;
             int toneMapping = TONEMAP_LINEAR;
@@ -937,6 +940,16 @@ namespace visutwin::canvas
             }
             view.viewProjection = view.projMatrix * view.viewMatrix;
             camera.storeShaderMatrices(view.viewProjection, jitterX, jitterY, device.renderVersion());
+            if (camera.projection() == ProjectionType::Perspective) {
+                view.viewProjectionSkybox = view.viewProjection;
+            } else {
+                Matrix4 projSkybox = camera.projectionMatrixSkybox();
+                if (camera.jitter() > 0.0f) {
+                    projSkybox.setElement(2, 0, projSkybox.getElement(2, 0) + jitterX);
+                    projSkybox.setElement(2, 1, projSkybox.getElement(2, 1) + jitterY);
+                }
+                view.viewProjectionSkybox = projSkybox * view.viewMatrix;
+            }
 
             // Per-camera tone mapping overrides the
             // scene-wide value; TONEMAP_INHERIT keeps the scene's.
@@ -1947,7 +1960,8 @@ namespace visutwin::canvas
                     }
                 }
 
-                device.setTransformUniforms(view.viewProjection,
+                const bool sky = variant.material && variant.material->isSkybox();
+                device.setTransformUniforms(sky ? view.viewProjectionSkybox : view.viewProjection,
                     forwardModelMatrix(meshInstance, variant.material, ctx.scene, view.position));
                 device.draw(entry.primitive, entry.indexBuffer, 1, -1, true, true);
             }

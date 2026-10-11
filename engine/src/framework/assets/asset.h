@@ -56,7 +56,10 @@ namespace visutwin::canvas
     struct AssetData
     {
         std::string type = TextureType::TEXTURETYPE_DEFAULT;
-        bool mipmaps = false;
+        /// Mipmapped by default, as upstream's textures are: a detailed texture seen at a
+        /// distance aliases without them. An environment atlas (RGBP and kin) must say
+        /// false, since its rects are sampled at explicit levels.
+        bool mipmaps = true;
         /// AssetType::CUBEMAP (asset with six face textures): the
         /// face image files in the engine's cube order +X, -X, +Y, -Y, +Z, -Z. The
         /// asset's own `file` is not read. DEVIATION: upstream names six texture ASSETS

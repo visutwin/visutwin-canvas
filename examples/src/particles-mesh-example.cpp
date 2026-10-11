@@ -59,8 +59,9 @@ protected:
         _clouds = std::make_unique<Asset>("color", AssetType::TEXTURE, assetPath("textures/clouds.jpg"));
         _cloudsTexture = _clouds->resourceAs<Texture>();
 
-        // Camera orbiting (0, 5, 0) from (0, 4, 20).
-        auto* camera = createCamera(Vector3(0.0f, 4.0f, 20.0f));
+        // Upstream's orbit script starts around the empty root's centre, then the example
+        // moves the pivot to (0, 5, 0) keeping the offset: the camera starts at (0, 9, 20).
+        auto* camera = createCamera(Vector3(0.0f, 9.0f, 20.0f));
         if (auto* component = camera->findComponent<CameraComponent>(); component && component->camera()) {
             component->camera()->setClearColor(Color(0.0f, 0.0f, 0.05f, 1.0f));
         }

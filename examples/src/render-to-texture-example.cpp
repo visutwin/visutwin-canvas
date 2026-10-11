@@ -26,11 +26,11 @@
 //    The preview is a RenderPassDownsample appended to the frame graph with the
 //    same viewport-fraction rectangle, so it draws over everything rather than
 //    straight after the skybox, and does not follow a window resize.
-//  - orbitCamera is CameraControls. Upstream's orbit camera keeps the camera's
-//    lookAt(1, 4, 0) direction and places it at its current distance from the
-//    focus entity (the plane, at the origin); the camera here is placed at that
-//    resulting pose. distanceMax 20 becomes the zoom range; CameraControls has
-//    no inertia factor.
+//  - orbitCamera is CameraControls. Upstream's orbit camera re-aims the camera at
+//    its focus entity's bounds centre (the plane, at the origin) when it starts,
+//    replacing the example's lookAt(1, 4, 0), and keeps its position (0, 9, 15);
+//    the camera here starts at that pose. distanceMax 20 becomes the zoom range;
+//    CameraControls has no inertia factor.
 //
 #include <algorithm>
 #include <cmath>
@@ -134,12 +134,8 @@ protected:
         createParticleSystem(Vector3(2.0f, 3.0f, 0.0f));
 
         // Create main camera, which renders entities in world, excluded and skybox layers.
-        // translate(0, 9, 15), lookAt(1, 4, 0), then the orbit camera keeps that
-        // direction and re-seats the camera at the same distance from the plane's centre.
-        const Vector3 initialPosition(0.0f, 9.0f, 15.0f);
-        const Vector3 lookDirection = (Vector3(1.0f, 4.0f, 0.0f) - initialPosition).normalized();
-        const float orbitDistance = initialPosition.length();
-        auto* camera = createCamera(lookDirection * -orbitDistance);
+        // translate(0, 9, 15); the orbit camera then aims it at the plane's centre.
+        auto* camera = createCamera(Vector3(0.0f, 9.0f, 15.0f));
         camera->setName("Camera");
         auto* cameraComp = camera->findComponent<CameraComponent>();
         cameraComp->camera()->setFov(100.0f);

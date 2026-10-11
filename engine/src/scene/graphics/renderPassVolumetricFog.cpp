@@ -217,12 +217,15 @@ namespace visutwin::canvas
 
         auto* lightComponent = findDirectionalLight(_scene ? _scene->componentRegistry() : nullptr);
         if (lightComponent) {
-            const Color& color = lightComponent->color();
-            const float scale = _settings.intensity *
-                lightComponent->renderIntensity(_scene && _scene->physicalUnits()) * exposure;
-            params.lightColor[0] = color.r * scale;
-            params.lightColor[1] = color.g * scale;
-            params.lightColor[2] = color.b * scale;
+            // The light's LINEAR colour and intensity split, as every lit path takes them; the
+            // authored colour is gamma encoded, and used raw it over-lit the fog (a moon tinted
+            // (0.6, 0.75, 1) scattered 1.5 to 2.8 times too much).
+            const LightRadiance radiance = lightRadiance(lightComponent->color(),
+                lightComponent->renderIntensity(_scene && _scene->physicalUnits()));
+            const float scale = _settings.intensity * radiance.intensity * exposure;
+            params.lightColor[0] = radiance.linearColor[0] * scale;
+            params.lightColor[1] = radiance.linearColor[1] * scale;
+            params.lightColor[2] = radiance.linearColor[2] * scale;
 
             // direction() is the direction light travels; the phase function wants the direction
             // towards the light (same convention as the forward pass's `L = -lightDir`).

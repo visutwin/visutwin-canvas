@@ -124,7 +124,8 @@ protected:
         // Camera.
         auto* cameraEntity = createCamera(Vector3(-14.0f, 12.0f, 20.0f));
 
-        const Vector3 focusPoint(0.0f, 4.0f, 0.0f);
+        // Upstream's orbit script aims at the scene's bounds centre when it starts.
+        const Vector3 focusPoint = entityBounds(root()).center();
         if (auto* cameraComponent = cameraEntity->findComponent<CameraComponent>()) {
             if (cameraComponent->camera()) {
                 cameraComponent->camera()->setFov(70.0f);

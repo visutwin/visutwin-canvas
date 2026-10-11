@@ -281,9 +281,10 @@ protected:
             cameraComp->camera()->setFarClip(500.0f);
         }
 
-        // addOrbitControls derives the orbit distance and angles from the current camera
-        // position, so the authored pose is preserved exactly.
-        auto* cameraControls = addOrbitControls(camera, Vector3(0.0f, 40.0f, 0.0f));
+        // The orbit focuses the whole scene's bounds, aimed at from the authored position;
+        // addOrbitControls derives the distance and angles from where the camera stands.
+        const Vector3 focusPoint = entityBounds(root()).center();
+        auto* cameraControls = addOrbitControls(camera, focusPoint);
         cameraControls->setMoveSpeed(60.0f);
         cameraControls->storeResetState();
 

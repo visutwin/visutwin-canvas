@@ -986,16 +986,21 @@ present, but the rule below never depends on reading it.
 - **stb_image's vertical-flip flag is set ONLY through `StbVerticalFlipScope`**
   (`framework/assets/stbImageFlip.h`). stb keeps a global flag and a thread-local
   one, and once the thread-local flag is set on a thread it overrides the global
-  one there for good — stb cannot unset it. The GLB parser decodes flipped through
-  the thread-local flag, so a loader that clears only the GLOBAL flag is ignored
-  after a GLB on the same thread: an environment atlas comes out upside down, a
-  bitmap font's glyphs flip, and an OBJ "flip" through the global flag is silently a
-  no-op. The scope sets the thread-local flag
+  one there for good — stb cannot unset it. No loader flips today (see the row-0
+  rule below), but every decode still states its flag through the scope: once
+  anything on a thread has set the thread-local flag, a loader that only clears the
+  GLOBAL one is ignored there, and an environment atlas comes out upside down or a
+  bitmap font's glyphs flip. The scope sets the thread-local flag
   and restores the enclosing value on exit, so a flip cannot leak into the next
   decode. Never call `stbi_set_flip_vertically_on_load*` directly, and never
   include `stb_image.h` from a header: stb guards its declarations but not its
   implementation, which `asset.cpp` compiles. `tests/stbImageFlipTests.cpp` loads
   an asymmetric atlas through the font path after a leaked flip.
+- **A texture ASSET is mipmapped unless it says otherwise** (`AssetData::mipmaps`,
+  true, as upstream's textures). A map seen at a distance aliases into noise without
+  mips, and a shimmering floor reads as a shading bug. Anything sampled at EXPLICIT
+  levels must pass false: an environment atlas (its rects are the levels) and an HDR
+  equirect handed to the env bake.
 - **`atan2(0, 0)` is undefined, and a normal of exactly +/-Y hits it** — which is
   every fragment of an unrotated ground plane, the most common surface there is.
   Metal returns an out-of-range azimuth, so `mapAmbientUv` maps outside its rect
@@ -1606,10 +1611,10 @@ present, but the rule below never depends on reading it.
   `Wheel2`; roots keep their names) by `glbNodeNames`, the one table the node payload, the
   channels and the skin bones read. `tests/glbAnimationBindingTests.cpp` builds the models in
   memory and holds all of it. Hand-authored tracks keep working with bare names.
-- **`KHR_texture_transform` cannot be copied from upstream, because this parser
-  flips V into the vertex and upstream does not.** The composed transform is
-  derived in the comment above `applyTextureTransforms`; what matters outside it is
-  that a sign error in the V term is INVISIBLE under a pure scale (the two
+- **`KHR_texture_transform` is converted exactly as upstream converts it** (offset y
+  `1 - scale y - offset y`, rotation negated), which holds only because glTF UVs and
+  images are both taken as the file has them (row-0 rule below); a parser that flips V
+  owes a different conversion. A sign error in the V term is INVISIBLE under a pure scale (the two
   spellings differ by a whole number of tiles, which REPEAT wrapping hides) and
   that `toy_car.glb`, the only shipped asset with the extension, puts it on a
   black fabric where it cannot be seen either. Test it by rendering a transform
@@ -1623,8 +1628,15 @@ present, but the rule below never depends on reading it.
   plane. A flipped plane hides well: a lying plane with a checkerboard or a rock
   texture does not look wrong either way, and only render-to-texture's tv shows it
   (its sky at the bottom).
-  `tests/primitiveGeometryTests.cpp` pins the orientation; test anything new here
-  with an ASYMMETRIC image, never a checker.
+  A LOADER flips V at most ONCE, and never the image: glTF's UV origin is the top-left
+  corner already, so its UVs and images are both taken as the file has them; OBJ's is
+  the bottom-left, so `cornerUv` writes `1 - v` and the image is decoded top row first;
+  Assimp flips through `aiProcess_FlipUVs`. Flipping V AND the image cancels for a PNG
+  or JPEG and mirrors anything that is not decoded through stb — a KTX2 / Basis texture
+  is transcoded as stored, so `annotations`' jet wore its camouflage upside down while
+  every PNG model looked right. `tests/primitiveGeometryTests.cpp` pins the primitives,
+  `tests/glbImageDecodeTests.cpp` and `tests/objStlRoundTripTests.cpp` the loaders' row
+  order; test anything new here with an ASYMMETRIC image, never a checker.
 - **The picker renders an id buffer, as upstream, and unprojects through the pixel
   CENTRE.** `Picker::prepare` draws private clones of the candidates (hidden mesh
   instances, `visible() == false`, are not candidates; their material
@@ -1685,12 +1697,12 @@ present, but the rule below never depends on reading it.
   tinygltf callback decodes nothing.** `GlbParser::loadImageData` keeps each image's
   encoded bytes and marks it `as_is` (KTX2 payloads are recognised by their magic);
   `prepareFromModel` decodes or transcodes every image in a `parallelFor`, straight to
-  RGBA8 through `StbVerticalFlipScope`, which is per thread. Decoding inside the
+  RGBA8, top row first (`StbVerticalFlipScope(false)`, per thread). Decoding inside the
   callback decodes a model's images one after another on the loading thread — three
   quarters of what a textured model takes to load. An image that is NOT `as_is` holds
   pixels someone else decoded (a model built in memory) and only gets widened to RGBA.
   The body of that loop may touch nothing shared: each image fills its own slot.
-  `tests/glbImageDecodeTests.cpp` holds every channel count, the flip and 48 images
+  `tests/glbImageDecodeTests.cpp` holds every channel count, the row order and 48 images
   staying in their own slots.
 - **glTF cameras and `KHR_lights_punctual` lights are imported DISABLED**, as upstream's
   `createCamera` / `createLight` build them; an app enables the ones it wants

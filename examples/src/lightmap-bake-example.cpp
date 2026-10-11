@@ -16,12 +16,14 @@
 // lightmaps ON/OFF. C runs the CPU ray-traced baker instead (a reference, not
 // upstream's). Esc quits.
 //
-// DEVIATIONS: upstream's orbit-camera script becomes CameraControls; the HUD's
-// numeric fields (sample counts, contrast, brightness, filter range and smoothness)
-// keep their default values, only its toggles are keys.
+// DEVIATIONS: upstream's orbit-camera script becomes CameraControls, starting where the
+// script's frame-on-start puts it; the HUD's numeric fields (sample counts, contrast,
+// brightness, filter range and smoothness) keep their default values, only its toggles
+// are keys; the lights' shadow bias is 0.05 where upstream's is 0.2 (see addBakeLight).
 //
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <string>
 #include <utility>
@@ -132,10 +134,15 @@ protected:
         _directionalLight = addBakeLight("Directional", LightType::LIGHTTYPE_DIRECTIONAL,
             Color(0.7f, 0.7f, 0.5f), 1.6f, Vector3(0.0f, 0.0f, 0.0f), Vector3(-55.0f, 0.0f, -30.0f), 0.0f);
         _directionalLight->setShadowDistance(100.0f);
+        _directionalLight->setShadowResolution(2048);
         _omniLight = addBakeLight("Omni", LightType::LIGHTTYPE_OMNI, Color(1.0f, 1.0f, 0.0f),
             0.9f, Vector3(-4.0f, 10.0f, 5.0f), Vector3(0.0f, 0.0f, 0.0f), 25.0f);
+        _omniLight->setShadowDistance(25.0f);
+        _omniLight->setShadowResolution(512);
         _spotLight = addBakeLight("Spot", LightType::LIGHTTYPE_SPOT, Color(1.0f, 0.0f, 0.0f),
             2.5f, Vector3(-5.0f, 10.0f, -7.5f), Vector3(0.0f, 0.0f, 0.0f), 10.0f);
+        _spotLight->setShadowDistance(50.0f);
+        _spotLight->setShadowResolution(512);
 
         _gpuBakeStart = std::chrono::steady_clock::now();
 
@@ -193,7 +200,14 @@ protected:
 
         // JS: camera clearColor (0.4, 0.45, 0.5), farClip 100, nearClip 1, position (40, 20, 40),
         //     orbiting the house.
-        auto* camera = createCamera(Vector3(40.0f, 20.0f, 40.0f));
+        // The orbit script frames the house on start: along the authored direction, at
+        // 1.5 x the largest half extent over sin(fov / 2), capped at distanceMax 60.
+        const Vector3 houseCenter = _houseBounds.center();
+        const Vector3 houseHalf = _houseBounds.halfExtents();
+        const float houseRadius = std::max({houseHalf.getX(), houseHalf.getY(), houseHalf.getZ()});
+        const float framing = std::min(houseRadius * 1.5f / std::sin(0.5f * 45.0f * DEG_TO_RAD), 60.0f);
+        auto* camera = createCamera(houseCenter +
+            (Vector3(40.0f, 20.0f, 40.0f) - houseCenter).normalized() * framing);
         if (auto* cameraComponent = camera->findComponent<CameraComponent>();
             cameraComponent && cameraComponent->camera()) {
             cameraComponent->camera()->setClearColor(Color(0.4f, 0.45f, 0.5f, 1.0f));
@@ -321,7 +335,7 @@ private:
         // small ones (the tree and the car lost their shadows entirely).
         light->setShadowBias(0.05f);
         light->setShadowNormalBias(0.05f);   // JS: normalOffsetBias 0.05
-        light->setShadowResolution(2048);    // JS: shadowResolution 2048
+        light->setShadowType(ShadowType::SHADOW_PCF3_32F);
         light->setMask(MASK_BAKE);
         if (range > 0.0f) {
             light->setRange(range);

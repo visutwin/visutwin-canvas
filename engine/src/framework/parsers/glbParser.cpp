@@ -1091,7 +1091,6 @@ namespace visutwin::canvas
                     const draco::AttributeValueIndex uvValueIndex = uvAttr->mapped_index(pointIndex);
                     if (uvValueIndex >= 0) {
                         uvAttr->ConvertValue<float, 2>(uvValueIndex, uv.data());
-                        uv[1] = 1.0f - uv[1];
                     }
                 }
 
@@ -1100,7 +1099,6 @@ namespace visutwin::canvas
                     const draco::AttributeValueIndex uv1ValueIndex = uv1Attr->mapped_index(pointIndex);
                     if (uv1ValueIndex >= 0) {
                         uv1Attr->ConvertValue<float, 2>(uv1ValueIndex, uv1.data());
-                        uv1[1] = 1.0f - uv1[1];
                     }
                 }
 
@@ -1109,7 +1107,8 @@ namespace visutwin::canvas
                     const draco::AttributeValueIndex tangentValueIndex = tangentAttr->mapped_index(pointIndex);
                     if (tangentValueIndex >= 0) {
                         tangentAttr->ConvertValue<float, 4>(tangentValueIndex, tangent.data());
-                        // Flip tangent handedness when flipping V.
+                        // glTF's bitangent sign is the opposite of the engine's (the generated
+                        // tangents below take the same sign).
                         tangent[3] = -tangent[3];
                     }
                 }
@@ -1284,9 +1283,9 @@ namespace visutwin::canvas
             int components = 0;
             stbi_uc* decoded = nullptr;
             {
-                // Per-thread flip state, restored after the decode so it cannot leak
-                // into the next image loaded on this thread (see stbImageFlip.h).
-                const StbVerticalFlipScope flipScope(true);
+                // Row 0 at the top, as the file stores it and as glTF's UVs address it.
+                // The flip state is per thread and restored afterwards (stbImageFlip.h).
+                const StbVerticalFlipScope flipScope(false);
                 decoded = stbi_load_from_memory(image.image.data(), static_cast<int>(image.image.size()),
                     &width, &height, &components, 4);
             }
@@ -1674,24 +1673,15 @@ namespace visutwin::canvas
      * read separately: base colour, metallic-roughness, normal, occlusion and
      * emissive, which are the five StandardMaterial can transform.
      *
-     * DEVIATION from upstream's texture-transform code, which cannot be copied
-     * literally: upstream feeds its shader the glTF UVs unchanged, while this
-     * parser flips V into the vertex (v = 1 - v) — so the transform is composed
-     * with a flip on both sides and the constants come out different.
-     *
-     * glTF maps uv by [[sx cosT, sy sinT, gx], [-sx sinT, sy cosT, gy]], where T is
-     * the rotation counter-clockwise in radians. Substituting v_engine = 1 - v_gltf
-     * on both sides and matching `packTransform`'s
-     *     u' = cos(r) tx u - sin(r) ty v + ox
+     * The UVs are the file's own (v = 0 at the image's top row), and the per-map packing
+     * is upstream's, so upstream's conversion applies as it stands: tiling = scale,
+     * rotation = -T in degrees, offset = (gx, 1 - sy - gy). The packing's
      *     v' = sin(r) tx u + cos(r) ty v + (1 - ty - oy)
-     * term by term gives tiling = scale, rotation = +T (upstream negates it), and
-     * an offset that picks up the rotation:
-     *     ox = gx + sy sinT
-     *     oy = gy - sy (1 - cosT)
-     * At rotation 0 that is just the raw glTF offset. Verified by rendering a
-     * transform against the same transform baked into the mesh UVs; a sign error
-     * in the V term is invisible under a pure SCALE, because the two spellings
-     * then differ by a whole number of tiles and REPEAT wrapping hides it.
+     * then reproduces glTF's [[sx cosT, sy sinT, gx], [-sx sinT, sy cosT, gy]] term by
+     * term. Test a change here with a rotation AND an offset rendered against the same
+     * transform baked into the mesh UVs: a sign error in the V term is invisible under a
+     * pure SCALE, because the two spellings then differ by a whole number of tiles and
+     * REPEAT wrapping hides it.
      *
      * These are the STANDARDMATERIAL per-map properties, not the base Material's
      * TextureTransform fields: `StandardMaterial::updateUniforms` pushes its own
@@ -1739,12 +1729,9 @@ namespace visutwin::canvas
             }
 
             constexpr float RAD_TO_DEG = 180.0f / 3.14159265358979323846f;
-            const float sinRotation = std::sin(rotation);
-            const float cosRotation = std::cos(rotation);
             out.tiling = Vector2(scaleX, scaleY);
-            out.offset = Vector2(offsetX + scaleY * sinRotation,
-                offsetY - scaleY * (1.0f - cosRotation));
-            out.rotation = rotation * RAD_TO_DEG;
+            out.offset = Vector2(offsetX, 1.0f - scaleY - offsetY);
+            out.rotation = -rotation * RAD_TO_DEG;
             return true;
         };
 
@@ -2827,16 +2814,12 @@ namespace visutwin::canvas
                     // Overwritten by generated face normals when the file has none.
                     float normal[3] = {0.0f, 1.0f, 0.0f};
                     normals.read(i, normal, 3);
-                    // glTF UVs are authored for GL-style sampling conventions. Texture
-                    // sampling here uses a top-left origin, so V is flipped.
+                    // glTF's UV origin is the image's top-left corner, as every texture's
+                    // here is, so UVs and images are both taken as the file has them.
                     float uv[2] = {0.0f, 0.0f};
-                    if (uvs.read(i, uv, 2)) {
-                        uv[1] = 1.0f - uv[1];
-                    }
+                    uvs.read(i, uv, 2);
                     float uv1[2] = {uv[0], uv[1]};
-                    if (uvs1.read(i, uv1, 2)) {
-                        uv1[1] = 1.0f - uv1[1];
-                    }
+                    uvs1.read(i, uv1, 2);
                     // Leave the tangent zero when the file carries none; triangle
                     // primitives get one generated below (generateTangents), and the
                     // shaders skip normal mapping on a degenerate tangent rather than
@@ -2844,7 +2827,8 @@ namespace visutwin::canvas
                     // fallback in this port.
                     float tangent[4] = {0.0f, 0.0f, 0.0f, 1.0f};
                     if (tangents.read(i, tangent, 4)) {
-                        // V is flipped above, so an imported tangent flips handedness.
+                        // glTF's bitangent sign is the opposite of the engine's (the generated
+                        // tangents below take the same sign).
                         tangent[3] = -tangent[3];
                     }
                     if (!colors.empty()) {
@@ -2886,6 +2870,11 @@ namespace visutwin::canvas
             }
             if (!hasTangents && mode == TINYGLTF_MODE_TRIANGLES) {
                 generateTangents(vertices, parsedIndices);
+                // The generator points the bitangent toward increasing v; a glTF tangent
+                // frame takes the opposite sign, as an imported tangent does.
+                for (auto& vertex : vertices) {
+                    vertex.tw = -vertex.tw;
+                }
             }
             pd.mode = mode;
 

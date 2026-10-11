@@ -852,7 +852,14 @@ namespace visutwin::canvas
                 if (!meshInstance) {
                     continue;
                 }
-                bounds.add(meshInstance->aabb());
+                // The first box seeds the union: unioned onto the empty box at the origin,
+                // every bounds would reach the origin, and a pivot taken from it would
+                // aim away from a model standing anywhere else.
+                if (hasAny) {
+                    bounds.add(meshInstance->aabb());
+                } else {
+                    bounds = meshInstance->aabb();
+                }
                 hasAny = true;
             }
         }

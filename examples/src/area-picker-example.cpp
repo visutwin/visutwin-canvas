@@ -148,10 +148,11 @@ protected:
         if (_cameraComponent && _cameraComponent->camera()) {
             _cameraComponent->camera()->setClearColor(Color(0.1f, 0.1f, 0.1f, 1.0f));
         }
-        // Bloom (intensity 0.01).
+        // Bloom (intensity 0.01, blur level 4).
         if (_cameraComponent) {
             auto rendering = _cameraComponent->rendering();
             rendering.bloomIntensity = 0.01f;
+            rendering.bloomBlurLevel = 4;
             _cameraComponent->setRendering(rendering);
         }
 
@@ -196,8 +197,9 @@ protected:
             static_cast<int>(WINDOW_WIDTH * PICKER_SCALE),
             static_cast<int>(WINDOW_HEIGHT * PICKER_SCALE), true);
 
-        _mouseX = WINDOW_WIDTH / 2;
-        _mouseY = WINDOW_HEIGHT / 2;
+        // The 1x1 probe starts at the top-left corner until the mouse moves.
+        _mouseX = 0;
+        _mouseY = 0;
 
         // Outline rods for the four areas (all pink).
         for (int i = 0; i < 4; ++i) {

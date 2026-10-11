@@ -18,8 +18,10 @@
 //
 // DEVIATIONS:
 // - upstream's orbitCamera script (inertia 0.2, distanceMax 60, frameOnStart off) is the
-//   examples' CameraControls in orbit mode: the pivot is the model's bounds centre (the orbit camera's),
-//   the distance is the authored camera position's, the zoom is capped at 60 and the
+//   examples' CameraControls in orbit mode: the pivot is the instanced cube's OWN bounds
+//   centre, (0.5, 0.5, 0.5) — upstream's mesh instance reports the base mesh's box, not the
+//   instances' union, and its orbit camera aims there — the distance is the authored camera
+//   position's, the zoom is capped at 60 and the
 //   pitch at +/-90 degrees. Its damping is CameraControls' own, not the 0.2 s inertia.
 // - upstream caps the pixel ratio at 2; the examples render at one pixel per point.
 //
@@ -92,8 +94,18 @@ protected:
             comp->setToneMapping(TONEMAP_ACES);
         }
 
-        // Orbit the model with mouse and touch
-        if (auto* controls = addOrbitControls(camera, entityBounds(entity).center())) {
+        // Orbit the instanced cube's own bounds centre (see the header) with mouse and touch
+        Vector3 pivot(0.5f, 0.5f, 0.5f);
+        for (auto* render : entity->findComponents<RenderComponent>()) {
+            for (auto* meshInstance : render->meshInstances()) {
+                if (meshInstance && meshInstance->mesh()) {
+                    pivot = meshInstance->node()->worldTransform().transformPoint(
+                        meshInstance->mesh()->aabb().center());
+                }
+            }
+        }
+        camera->lookAt(pivot);
+        if (auto* controls = addOrbitControls(camera, pivot)) {
             controls->setPitchRange(Vector2(-90.0f, 90.0f));
             controls->setZoomRange(Vector2(0.0f, 60.0f));
             controls->storeResetState();

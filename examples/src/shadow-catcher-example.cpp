@@ -67,7 +67,8 @@ protected:
     bool create() override
     {
         _statueAsset = std::make_unique<Asset>("statue", AssetType::CONTAINER, assetPath("models/statue.glb"));
-        _hdrAsset = std::make_unique<Asset>("hdri", AssetType::TEXTURE, assetPath("hdri/st-peters-square.hdr"));
+        _hdrAsset = std::make_unique<Asset>("hdri", AssetType::TEXTURE, assetPath("hdri/st-peters-square.hdr"),
+            AssetData{.mipmaps = false});
         auto* statue = _statueAsset->resourceAs<ContainerResource>();
         auto* hdr = _hdrAsset->resourceAs<Texture>();
         if (!statue || !hdr) {

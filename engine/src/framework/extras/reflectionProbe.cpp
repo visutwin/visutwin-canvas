@@ -21,6 +21,19 @@ namespace visutwin::canvas
 {
     namespace
     {
+        // The face cameras of a COLOUR cubemap, +X, -X, +Y, -Y, +Z, -Z. Not the omni shadow
+        // cameras' (LightCamera::pointLightRotations): those roll the side faces 180
+        // degrees for the shadow lookup's own convention, and a cube sampled as an ordinary
+        // cubemap (reflections, reprojection) then shows every side face upside down.
+        const Quaternion kFaceRotations[6] = {
+            Quaternion::fromEulerAngles(0.0f, 90.0f, 0.0f),
+            Quaternion::fromEulerAngles(0.0f, -90.0f, 0.0f),
+            Quaternion::fromEulerAngles(-90.0f, 0.0f, 180.0f),
+            Quaternion::fromEulerAngles(90.0f, 0.0f, 180.0f),
+            Quaternion::fromEulerAngles(0.0f, 180.0f, 0.0f),
+            Quaternion::fromEulerAngles(0.0f, 0.0f, 0.0f)
+        };
+
         int mipLevelsFor(int size)
         {
             int levels = 1;
@@ -68,7 +81,7 @@ namespace visutwin::canvas
 
             auto* faceEntity = new Entity();
             faceEntity->setEngine(_engine);
-            faceEntity->setLocalRotation(LightCamera::pointLightRotations[face]);
+            faceEntity->setLocalRotation(kFaceRotations[face]);
             _node->addChild(faceEntity);
             _faceEntities[face] = faceEntity;
 
