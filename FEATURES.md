@@ -5,15 +5,15 @@ module has been carried. For an overview and getting-started instructions, see
 the [README](README.md).
 
 ## Rendering & materials
-- **Forward PBR renderer** (metalness/roughness) with multi-light support (directional, point, spot, rectangular/disk/spherical **area lights** via LTC) and a frame-graph pass scheduler
-- **StandardMaterial** with clearcoat, anisotropy, sheen, iridescence, transmission, **parallax occlusion mapping** (height base + self-shadowing), **spec-gloss** (KHR_materials_pbrSpecularGlossiness), **Oren-Nayar** diffuse, **detail normals** (reoriented blend), and vertex-stage **displacement mapping**
+- **Forward PBR renderer** (metalness and specular workflows; normalised Blinn-Phong light specular by default, GGX on request) with multi-light support (directional, point, spot, rectangular/disk/spherical **area lights** via LTC) and a frame-graph pass scheduler
+- **StandardMaterial** with clearcoat, anisotropy, sheen, iridescence, transmission, **parallax occlusion mapping** (height base + self-shadowing), **spec-gloss** (KHR_materials_pbrSpecularGlossiness), **Oren-Nayar** diffuse, **detail normals** (reoriented blend), and vertex-stage **displacement mapping**; an **opacity map** with its own channel and UV transform, and an **ambient tint**
 - **Wide lines**: connected polylines with per-point colour and width, caps, joins and dash patterns, batched into one instanced draw
 - **Rigid-body physics** behind an application-supplied `PhysicsWorld` seam, with a Jolt backend: box/sphere/capsule/cylinder shapes, static/dynamic/kinematic bodies, forces, impulses, raycasts, and **joints** (fixed, ball, hinge, slider, 6dof) with limits, motors and break impulses
 - **Image-based lighting**: environment atlas (GGX/Lambert prefiltered), HDR cubemap skybox, **ambient SH light probes**, and **box-projected cubemap reflection probes** (parallax-corrected local reflections)
 - **Dynamic grab-pass refraction** with chromatic **dispersion** and KHR_materials_volume Beer-law attenuation
 - **Screen-space reflections**: a per-fragment world-space march against the scene depth and colour grabs, reaching 0.4 of the camera range, with bisection-refined hits, a roughness cone that reads the colour grab's mips, and env/probe fallback; works under the standalone and the camera-frame (post-processing) paths
 - **Vertex colors**, **point-size** primitives, **opacity dither** (Bayer8 order-independent transparency), and **lightmap** (UV1) sampling
-- **GPU instancing** with per-instance color and optional per-frame GPU frustum culling (compute-driven indirect draw), plus **dynamic batching** with a bone-index matrix palette
+- **GPU instancing** with per-instance colour (Metal; Vulkan instances take the material colour) and optional per-frame GPU frustum culling (compute-driven indirect draw), plus **dynamic batching** with a bone-index matrix palette
 - **MSAA** on the back buffer (4x, on by default, resolved per pass, colour and depth grabs included) and on the offscreen scene target, and **dual-source blending** (`BLENDMODE_SRC1_*`) for custom blend setups
 
 ## Lighting & shadows
@@ -21,6 +21,7 @@ the [README](README.md).
 - **PCF**, **EVSM_16F** (Exponential Variance Shadow Maps: separable Gaussian blur, Chebyshev sampling, caster-AABB depth tightening), and **PCSS** contact-hardening soft shadows for directional lights
 - **Spot/point** 2D depth maps and **omnidirectional cubemap** shadows, with PCSS also supported on spot/omni local lights
 - **Clustered lighting** for many-light scenes with a packed **shadow atlas** whose resolution can change at runtime, plus a **shadow catcher** material for compositing
+- **Physical light units** (photometric glTF light intensities, exposure from the camera's aperture, shutter and sensitivity) and **light masks** separating dynamic, lightmapped and bake-only lights
 - **Lightmap baking**, two bakers: a **CPU** baker that ray-traces ambient occlusion and soft shadows (LDR, single bounce) and a **GPU** baker that rasterises each mesh in UV space lit by the scene's own shadow maps over a few frames: soft directional shadows and ambient occlusion from virtual lights, then the bilateral denoise and dilate
 - **Volumetric fog**: shadow-sampled directional ray march (Henyey-Greenstein phase, height falloff, Beer-Lambert extinction) at reduced resolution with a depth-aware upsample; clustered spot and omni lights scatter in it through their own volumes, with atlas shadows and cookies (`localOmniLights` / `localSpotLights`, per-light `volumetricScattering`)
 
@@ -39,18 +40,19 @@ the [README](README.md).
 - **Debug shader passes**: replace the forward output with a single surface quantity (albedo, world normal, opacity, specularity, gloss, metalness, AO, emission, lighting, UV0) — one variant, mode switched at runtime with no recompile
 - **GPU timestamp profiler** (per-pass timings on both backends) and a **MiniStats** HUD built on it, drawn by the engine itself (one-draw quad list, MSDF text, history graphs) on both backends
 - **In-engine measurement hooks** in the examples harness: env-driven screenshot capture (by frame or by time, single or burst), a uniform SH probe, and a mirror floor with a pillar for screen-space-reflection checks
-- **KTX2/Basis compressed textures** transcoded to ASTC 4×4 on the loader thread
+- **KTX2/Basis compressed textures** transcoded on the loader thread to the best format the device supports (ASTC, BC7, DXT5, otherwise RGBA8)
 - **ImGui overlay** (Metal/SDL3 bindings) for digital-twin HUDs, **immediate-mode** debug rendering, **transform gizmos**, and an **outline renderer** + **view cube** (extras)
 
 ## Foundation
-- **Scene graph** with an entity-component system (14 component types) and layer composition with render-action scheduling
-- **GLB/glTF loading** with Draco decompression, plus OBJ/STL/Assimp parsers
+- **Scene graph** with an entity-component system (18 component types), entity cloning that remaps references inside the cloned subtree, and a fixed-timestep `fixedUpdate` phase with a time scale and layer composition with render-action scheduling
+- **GLB/glTF loading** with Draco decompression, mesh quantization, Basis/WebP/AVIF textures, cameras and `KHR_lights_punctual`, `KHR_materials_variants`, `EXT_mesh_gpu_instancing` and `KHR_gaussian_splatting` (sheen, specular, iridescence and anisotropy as factors only), plus OBJ/STL/Assimp parsers
 - **Screen-space and world-space UI** with anchored elements, image and MSDF text elements, buttons with tint and sprite states, nested stencil masks (rectangles and sprite shapes), layout groups, scrollbars and sliders, draggable elements, scroll views with momentum and bounce, and mouse and touch input events (hover, press, click, bubbling, hit padding)
+- **Input devices**: keyboard, mouse, touch and gamepads, fed from the application's event loop, with press and release edges that survive a press and release inside one frame
+- **Picking** through an id buffer, with the world-space point under the cursor read back from depth
 - **3D annotations** (upstream's annotations scripts): numbered hotspots that face the camera at a constant screen size and show through occluding geometry at a reduced opacity, with hover colour and a click-to-open tooltip built from UI elements
 - **Localization**: locales with fallbacks, messages from upstream's JSON format, CLDR plural forms, and text elements that follow the locale by key
 - **SIMD math** with SSE, ARM NEON, and Apple SIMD backends (Apple SIMD active on Apple Silicon)
-- **Single-source shaders (Slang)**: every engine shader written once and compiled at build time for both backends (31 programs, every file a build dependency of the bundle); the forward program's 23 chunks are user-overridable as Slang (per material or globally) with cache-invalidation hashing, and the 66-flag feature contract specialises one library per program on both backends
-- **XR / ARKit** framework (in development)
+- **Single-source shaders (Slang)**: every engine shader written once and compiled at build time for both backends (31 programs, every file a build dependency of the bundle); the forward program's 23 chunks are user-overridable as Slang (per material or globally) with cache-invalidation hashing, and the 68-flag feature contract specialises one library per program on both backends
 
 ## Module map
 
@@ -65,11 +67,11 @@ Known Limitations, and `AGENTS.md` records the remaining parity items.
 | Core / Math | Vector2/3/4, Matrix4, Quaternion (dot/slerp/nlerp per backend), Curve, Color, Random; SIMD backends SSE, NEON, Apple, scalar, with a per-backend contract test |
 | Core / Events | EventHandler, EventHandle |
 | Core / Shapes | BoundingBox, BoundingSphere, OrientedBox, Plane, Ray, Tri |
-| Scene / Renderer | Forward PBR, camera frame graph, 22 render-pass classes, per-frame mesh and light culling, shadow-caster collection, packed sort keys with per-layer sort modes, post-processing scheduling |
+| Scene / Renderer | Forward PBR, camera frame graph, 24 render-pass classes, per-frame mesh and light culling, shadow-caster collection, packed sort keys with per-layer sort modes, post-processing scheduling |
 | Scene / Materials | StandardMaterial with clearcoat, sheen, iridescence, transmission/dispersion/volume, anisotropy, parallax, spec-gloss, Oren-Nayar, detail normals, displacement; opacity and shadow dither |
 | Scene / Lighting | Directional/point/spot + rect/disk/sphere LTC area lights, clustered lighting with a live-resizable shadow and cookie atlas, ambient SH probes, box-projected reflection probes, volumetric fog |
 | Scene / Shadows | CSM (1 cascade default, up to 4, PSSM + blending), PCF/EVSM_16F/PCSS for directional, spot/point depth maps + omni cubemaps, PCSS on local lights, saturated receiver depth |
-| Scene / Shader-lib | Single-source Slang shaders: 31 programs compiled at build time to MSL + metallib and SPIR-V (with reflected layouts checked against the engine), 23 overridable forward chunks compiled at run time when overridden, 66 shared feature flags as Metal function constants / Vulkan specialization constants, a local-space vertex hook, cache-invalidation hashing |
+| Scene / Shader-lib | Single-source Slang shaders: 31 programs compiled at build time to MSL + metallib and SPIR-V (with reflected layouts checked against the engine), 23 overridable forward chunks compiled at run time when overridden, 68 shared feature flags as Metal function constants / Vulkan specialization constants, a local-space vertex hook, cache-invalidation hashing |
 | Scene / Graphics | Camera-frame/post stack with MSAA, bloom, SSAO, TAA, multi-pass DOF, volumetric fog, compose, colour and depth grabs under both paths, environment atlas/convolution over QuadRender, HDR cubemaps, spherical harmonics |
 | Scene / GSplat | Classic 3DGS path, background depth sorting, view-dependent SH bands 1-3 on both backends, uncompressed/compressed SuperSplat PLY |
 | Graphics / Metal | Buffers/textures/pipelines, ASTC/BC formats, compute, particles/culling, post-processing, volumetric fog, environment baking, GSplat, texture streaming, GPU timestamp profiling |
@@ -80,11 +82,12 @@ Known Limitations, and `AGENTS.md` records the remaining parity items.
 | Framework / Gizmo | Upstream's transform gizmos: translate (arrows, plane handles, centre), rotate (half/full arc rings, view ring, orbit sphere, angle guides), scale (box-lines, planes, uniform centre); triangle picking, hover themes, snapping, drag modes, span guide lines, constant screen size |
 | Framework / Assets | Async container/texture/font loading; GLB/glTF (+Draco, quantised attributes, texture transform, node identity for unnamed nodes), OBJ/STL/Assimp; KTX2/Basis transcoding to ASTC or BC |
 | Framework / Lightmapper | CPU ray-traced baker and GPU UV-space baker |
-| Viz / Overlay | Metal-only ImGui/ImPlot HUD integration, input capture, digital-twin theme, 3D-anchored labels/panels |
+| Overlay | Metal-only ImGui/ImPlot HUD integration, input capture, digital-twin theme, 3D-anchored labels/panels |
 
 ## Known Limitations
 
-- Metal remains the primary graphics backend; Vulkan is functional and covers most rendering paths, but not yet at full parity. Metal-only today: volumetric fog, texture streaming, the ImGui/ImPlot overlay, and the compute passes used by the sibling visualization project (marching cubes)
+- Metal remains the primary graphics backend; Vulkan is functional and covers most rendering paths, but not yet at full parity. Metal-only today: texture streaming, the ImGui/ImPlot overlay, and the compute passes used by the sibling visualization project (marching cubes)
+- No XR: `XrManager` is an empty placeholder
 - No audio subsystem; no sprite component (sprites are data an image element shows)
 - Gaussian splatting: WebP-packed SOG format and the unified octree/LOD streaming path are not ported
 - Reflection probes support runtime scene-capture baking (dynamic cubemap) as well as supplied cubemaps; per-level GGX cube prefilter is deferred (roughness uses hardware trilinear cube mips)

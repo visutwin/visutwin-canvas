@@ -386,9 +386,10 @@ still be GLSL source, compiled at run time through shaderc.
 `vulkanGraphicsDevice{FrameSwapchain,Descriptors,Uploads,DrawBinding,Compute,ResourceInitialization}.cpp`
 — add new code to the matching component, not one monolith.
 
-**Metal-only today:** volumetric fog on the compute path, texture streaming, the
-ImGui/ImPlot overlay (`viz/overlay/`, uses `imgui_impl_metal`), marching cubes
-and the spec-gloss map.
+**Metal-only today:** texture streaming, the ImGui/ImPlot overlay
+(`engine/src/overlay/`, uses `imgui_impl_metal`) and marching cubes. Volumetric fog
+(the `fog-march`, `fog-local` and `fog-combine` quad programs) and the spec-gloss map
+run on both backends.
 
 **Planned next backend: WebGPU** — targets browser and native (Dawn/wgpu). WGSL
 maps onto the same shared feature contract: Slang emits WGSL, and the feature words become
@@ -1322,7 +1323,7 @@ present, but the rule below never depends on reading it.
   base-colour map's alpha, so a material that sets ONE texture as both gets alpha
   squared, which thins every anti-aliased edge: set the opacity map only when it is a
   different texture, or leave the base colour without one (upstream's decal does).
-  The spec-gloss map is Metal only; the clearcoat intensity/gloss/normal maps are on BOTH
+  The spec-gloss map is on both backends (it reuses the metal-rough slot, 3); the clearcoat intensity/gloss/normal maps are on BOTH
   backends (Vulkan reads them as separate images through the shared material
   sampler, gated on flag bits 14/15/16 as Metal is). DEVIATIONS kept on purpose,
   marked at the code: `refractionIndex` and `iridescenceIOR` are IORs where upstream
