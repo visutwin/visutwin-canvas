@@ -1,6 +1,6 @@
 # VisuTwin Canvas Examples
 
-47 example applications, each a small self-contained program built on the
+87 example applications, each a small self-contained program built on the
 engine. All but one are ports of [PlayCanvas](https://playcanvas.com/) engine
 examples, so they can be compared side by side with upstream: the file header names
 the upstream example and lists every place the port could not follow it. The

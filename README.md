@@ -8,23 +8,76 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
 [![Backends](https://img.shields.io/badge/backends-Metal%20%7C%20Vulkan-orange.svg)](FEATURES.md)
+[![Examples](https://img.shields.io/badge/examples-87-purple.svg)](examples/README.md)
 [![Home](https://img.shields.io/badge/home-canvas.visutwin.com-green.svg)](https://canvas.visutwin.com/?utm_source=github&utm_medium=readme)
 
-A C++23 real-time rendering engine for **digital twins, geospatial scenes, and
-scientific visualization** — running natively on Apple Metal and Vulkan 1.3,
-built for applications that need a physically based renderer they can embed.
+**A native C++23 port of the [PlayCanvas](https://github.com/playcanvas/engine)
+engine, extended for digital twins, geospatial scenes and scientific
+visualization.** It runs on Apple Metal and Vulkan 1.3, and every shader is
+written once in [Slang](https://shader-slang.org/) for both. It is a library
+you link into your application: no browser, editor or scripting VM.
 
-Its architecture derives from an established open-source web engine
-("upstream" below; see [Attribution](#attribution)), rebuilt in C++23 and
-substantially extended — with a Vulkan backend, volumetric fog, a ray-traced
-lightmap baker, instanced wide lines, a pluggable physics seam with a Jolt
-backend, and geospatial and scientific-visualization layers that have no
-upstream equivalent.
+<p align="center">
+  <img src="media/volumetric-shafts.gif" alt="Volumetric light shafts through a perforated sphere, rendered in real time" width="480">
+</p>
 
-> **Status: Alpha.** The engine renders the scenes shown here and ships more
-> than 70 working examples, most of them ports of upstream's own examples, but the API is
-> not stable and changes without notice. [FEATURES.md](FEATURES.md) lists what is
-> implemented, module by module, along with the known gaps.
+Beyond the PlayCanvas feature set it adds a Vulkan backend, volumetric fog, a
+ray-traced lightmap baker, instanced wide lines and a Jolt physics backend. The
+geospatial, scientific-visualization and robotics layers built on it have no
+PlayCanvas equivalent.
+
+> **Status: alpha.** The engine renders everything shown on this page and ships
+> 87 working examples, all but one ported from PlayCanvas's own examples so the
+> two can be compared side by side. The API is not stable and changes without
+> notice. [FEATURES.md](FEATURES.md) lists what is implemented and the known gaps.
+
+## Quick start
+
+```bash
+git clone https://github.com/visutwin/visutwin-canvas.git && cd visutwin-canvas
+export VCPKG_ROOT=/path/to/vcpkg          # dependencies come from vcpkg
+cmake --preset examples && cmake --build build-examples
+open build-examples/examples/visutwin-post-processing.app
+```
+
+The first configure builds the dependencies through vcpkg, so it takes a while.
+You need CMake 3.28+, Ninja, [vcpkg](https://vcpkg.io/) and a C++23 compiler
+(Apple Clang from a current Xcode, or GCC 14). Run any example with
+`VISUTWIN_BACKEND=vulkan` to switch backends without rebuilding.
+
+| Platform | Engine | Examples | CI |
+|---|---|---|---|
+| macOS, Apple silicon, Metal | Yes | Yes | Build, unit tests, sanitizers |
+| macOS, Apple silicon, Vulkan (MoltenVK) | Yes | Yes | Local validation and golden-image runs |
+| Linux, Vulkan 1.3 | Yes | Not yet verified | Build and unit tests (GCC 14) |
+| Windows | Not yet | No | No |
+
+Vulkan needs a system loader: the [Vulkan SDK](https://vulkan.lunarg.com/) on
+macOS, `libvulkan-dev` on Ubuntu.
+
+## Examples
+
+A few of the 87 examples, each a small self-contained program
+([the full list](examples/README.md)):
+
+| | | | |
+|:---:|:---:|:---:|:---:|
+| <img src="media/examples/post-processing.jpg" width="200"><br>`post-processing` | <img src="media/examples/depth-of-field.jpg" width="200"><br>`depth-of-field` | <img src="media/examples/gsplat-spherical-harmonics.jpg" width="200"><br>`gsplat-spherical-harmonics` | <img src="media/examples/reflection-planar-blurred.jpg" width="200"><br>`reflection-planar-blurred` |
+| <img src="media/examples/refraction.jpg" width="200"><br>`refraction` | <img src="media/examples/volumetric-fog-local-lights.jpg" width="200"><br>`volumetric-fog-local-lights` | <img src="media/examples/clustered-lighting.jpg" width="200"><br>`clustered-lighting` | <img src="media/examples/lightmap-bake.jpg" width="200"><br>`lightmap-bake` |
+| <img src="media/examples/clearcoat.jpg" width="200"><br>`clearcoat` | <img src="media/examples/shadow-cascades.jpg" width="200"><br>`shadow-cascades` | <img src="media/examples/area-light.jpg" width="200"><br>`area-light` | <img src="media/examples/volumetric-fog-shafts.jpg" width="200"><br>`volumetric-fog-shafts` |
+
+## Built on VisuTwin Canvas
+
+| | |
+|---|---|
+| <img src="media/flybody-fly.jpg" width="420"> | **Biomechanics.** A fruit fly model walking, taking off and flying a ring, with MuJoCo physics running inside the renderer and controllers in Julia over an in-situ link. Built with `visutwin-robotics`. |
+| <img src="media/isabel-storm.jpg" width="420"> | **Volumetric scientific visualization.** Marching-cubes isosurfaces of the Hurricane Isabel dataset (IEEE Visualization 2004 contest data). Built with `visutwin-viz`. |
+| <img src="media/pbr-rendering.jpg" width="420"> | **Physically based rendering.** Image-based lighting, soft shadows, and screen-space ambient occlusion — the `ambient-occlusion-davinci` example. |
+
+The globe at the top is rendered with `visutwin-geo`
+(WGS84 ellipsoid, 3D Tiles, terrain tiling, atmosphere) on top of this engine.
+Imagery © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors
+and [OpenTopoMap](https://opentopomap.org/) (CC-BY-SA).
 
 ## Why this exists
 
@@ -44,12 +97,13 @@ overlap:
   constant rate (`Script::fixedUpdate`), independent of the frame rate, and
   exposes an interpolation factor for smooth rendering in between. A coupled
   simulation and its visualization stay in step, and runs are reproducible.
-- **Two backends, one feature contract** — Metal and Vulkan compile the same 60
-  shader features from one declaration, and nine golden-image scenes are
-  checked against reference images on each. A few paths are still Metal-only; FEATURES.md
-  lists them.
+- **Two backends, one shader source** — every engine shader is written once in
+  Slang and compiled to Metal and SPIR-V, with shader features bound as
+  function and specialization constants on both. Nine golden-image scenes are
+  checked against reference images on each backend. A few paths are still
+  Metal-only; FEATURES.md lists them.
 - **Readable by design** — an established engine architecture ported
-  deliberately, with deviations from upstream documented in the code.
+  deliberately, with deviations from PlayCanvas documented in the code.
 
 ## What's inside
 
@@ -73,62 +127,7 @@ overlap:
 
 [FEATURES.md](FEATURES.md) has the full inventory and the known gaps.
 
-## Gallery
-
-| | |
-|---|---|
-| <img src="media/flybody-fly.jpg" width="420"> | **Biomechanics.** A fruit fly model walking, taking off and flying a ring, with MuJoCo physics running inside the renderer and controllers in Julia over an in-situ link. Built with `visutwin-robotics`. |
-| <img src="media/isabel-storm.jpg" width="420"> | **Volumetric scientific visualization.** Marching-cubes isosurfaces of the Hurricane Isabel dataset (IEEE Visualization 2004 contest data). Built with `visutwin-viz`. |
-| <img src="media/pbr-rendering.jpg" width="420"> | **Physically based rendering.** Image-based lighting, soft shadows, and screen-space ambient occlusion — the `ambient-occlusion-davinci` example. |
-
-The globe above is rendered with `visutwin-geo`
-(WGS84 ellipsoid, 3D Tiles, terrain tiling, atmosphere) on top of this engine.
-Imagery © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors
-and [OpenTopoMap](https://opentopomap.org/) (CC-BY-SA).
-
-## Getting started
-
-Runs on macOS on Apple Silicon (Metal or Vulkan through MoltenVK) and on Linux
-(Vulkan 1.3). Windows is not supported yet. Requires CMake 3.28+, a C++23
-compiler (Apple Clang from a current Xcode on macOS, GCC 14 on Linux),
-[vcpkg](https://vcpkg.io/), and Ninja. The `vulkan` preset also needs a system
-Vulkan loader: the Vulkan SDK on macOS, `libvulkan-dev` on Ubuntu.
-
-```bash
-export VCPKG_ROOT=/path/to/vcpkg
-
-cmake --preset default
-cmake --build --preset default
-ctest --preset default
-```
-
-| Preset | Builds |
-|---|---|
-| `default` | Debug, Metal (`build/`) |
-| `release` | Release |
-| `examples` | Debug with every example (`build-examples/`) |
-| `vulkan` | Debug, Vulkan (`build-vulkan/`) |
-| `sanitize` | Debug under AddressSanitizer and UndefinedBehaviorSanitizer (`build-sanitize/`) |
-
-The backends can also be chosen explicitly with `VISUTWIN_BACKEND_METAL=ON|OFF`
-and `VISUTWIN_BACKEND_VULKAN=ON|OFF`; at least one must be on.
-
-The Metal backend uses Apple's header-only metal-cpp, carried in
-`engine/lib/metal-cpp` and installed to
-`<prefix>/include/visutwin/canvas-metal-cpp` for downstream consumers. This is
-the authoritative copy for the VisuTwin projects; `visutwin-sim` keeps a
-fallback so it builds on its own and is normally pointed here instead:
-
-```bash
-cmake -S . -B build -DVISUTWIN_SIM_ENABLE_METAL=ON \
-  -DVISUTWIN_SIM_METAL_CPP_DIR=../visutwin-canvas/engine/lib/metal-cpp
-```
-
-`VISUTWIN_CANVAS_METAL_CPP_DIR` does the same for this project, so the shared
-copy can live anywhere. Keep the copies in step when upgrading; nothing checks
-that automatically.
-
-### Using the engine in your project
+## Using the engine in your project
 
 The engine installs as a CMake package. Build and install it once:
 
@@ -244,15 +243,24 @@ The Vulkan backend creates its own swap chain from the window instead (an
 `SDL_WINDOW_VULKAN` window, no SDL renderer); `examples/exampleApp.cpp` sets up
 either backend, plus input devices and camera controls.
 
-### Examples
-
-The examples are opt-in:
+## Building and testing
 
 ```bash
-cmake --preset examples
-cmake --build build-examples
-open build-examples/examples/visutwin-taa.app
+cmake --preset default
+cmake --build --preset default
+ctest --preset default
 ```
+
+| Preset | Builds |
+|---|---|
+| `default` | Debug, Metal (`build/`) |
+| `release` | Release |
+| `examples` | Debug with every example (`build-examples/`) |
+| `vulkan` | Debug, Vulkan (`build-vulkan/`) |
+| `sanitize` | Debug under AddressSanitizer and UndefinedBehaviorSanitizer (`build-sanitize/`) |
+
+The backends can also be chosen explicitly with `VISUTWIN_BACKEND_METAL=ON|OFF`
+and `VISUTWIN_BACKEND_VULKAN=ON|OFF`; at least one must be on.
 
 Any application built on the engine honours `VISUTWIN_BACKEND` (`metal` or
 `vulkan`) and `VISUTWIN_SCREENSHOT` (write a PNG of the back buffer, with
@@ -262,8 +270,6 @@ add their own measurement hooks — `VISUTWIN_FIXED_DT` for deterministic
 animation, `VISUTWIN_MAX_PIXEL_RATIO`, `VISUTWIN_CPU_STATS` and others — listed
 in [AGENTS.md](AGENTS.md).
 
-### Tests
-
 `ctest --preset default` runs the unit tests (also under the `sanitize` and
 `vulkan` presets). Two GPU suites need a window and run locally:
 `ctest --preset vulkan-smoke` runs the Vulkan backend under the validation
@@ -271,6 +277,26 @@ layers, and `ctest --preset golden` compares nine deterministic examples against
 reference images. CI builds the Metal preset with every example, runs the unit
 tests on macOS (also under the sanitizers) and on Linux with Vulkan, and checks
 the SIMD math on each backend.
+
+<details>
+<summary>Sharing metal-cpp with other VisuTwin projects</summary>
+
+The Metal backend uses Apple's header-only metal-cpp, carried in
+`engine/lib/metal-cpp` and installed to
+`<prefix>/include/visutwin/canvas-metal-cpp` for downstream consumers. This is
+the authoritative copy for the VisuTwin projects; `visutwin-sim` keeps a
+fallback so it builds on its own and is normally pointed here instead:
+
+```bash
+cmake -S . -B build -DVISUTWIN_SIM_ENABLE_METAL=ON \
+  -DVISUTWIN_SIM_METAL_CPP_DIR=../visutwin-canvas/engine/lib/metal-cpp
+```
+
+`VISUTWIN_CANVAS_METAL_CPP_DIR` does the same for this project, so the shared
+copy can live anywhere. Keep the copies in step when upgrading; nothing checks
+that automatically.
+
+</details>
 
 ## Docs
 
