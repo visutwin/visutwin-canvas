@@ -245,12 +245,14 @@ namespace visutwin::canvas
 
                 // The palette holds 4 column-major matrices back to back, each already baking in
                 // projection, view, the atlas viewport remap and the [0,1] depth mapping.
-                const auto& palette = sceneLight->shadowMatrixPalette();
+                // The fit this camera samples (its own for a realtime shadow).
+                const Camera* fogCamera = _cameraComponent ? _cameraComponent->camera() : nullptr;
+                const auto& palette = sceneLight->shadowMatrixPalette(fogCamera);
                 for (int cascade = 0; cascade < 4; ++cascade) {
                     // The palette is column-major, 16 floats per cascade: Matrix4's own layout.
                     params.shadowMatrixPalette[cascade] = Matrix4::load(&palette[cascade * 16]);
                 }
-                const auto& distances = sceneLight->shadowCascadeDistances();
+                const auto& distances = sceneLight->shadowCascadeDistances(fogCamera);
                 for (int i = 0; i < 4; ++i) {
                     params.shadowCascadeDistances[i] = distances[i];
                 }

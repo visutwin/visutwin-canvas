@@ -78,6 +78,14 @@ namespace visutwin::canvas
         float activeStateProgress() const { return _controller->activeStateProgress(); }
         float activeStateDuration() const { return _controller->activeStateDuration(); }
         bool transitioning() const { return _controller->transitioning(); }
+        /** How far the current transition has run, 0 to 1 (1 when not transitioning). */
+        float transitionProgress() const { return _controller->transitionProgress(); }
+        /** The state a transition is blending away from; empty when there is none. */
+        std::string previousState() const
+        {
+            const AnimState* state = _controller->previousState();
+            return state ? state->name() : std::string();
+        }
 
         void assignAnimation(const std::string& path, const std::shared_ptr<AnimTrack>& track,
                              const std::optional<float> speed = std::nullopt,

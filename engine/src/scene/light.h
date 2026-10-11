@@ -64,6 +64,14 @@ namespace visutwin::canvas
         // list only in that same frame — it holds raw pointers — and collects for
         // itself otherwise.
         int visibleCastersFrame = -1;
+
+        // DIRECTIONAL, face 0: the sampling matrices and cascade split distances of the
+        // fit made for `camera`. A realtime directional shadow is fitted and rendered per
+        // camera, right before that camera draws, so each camera samples the shared map
+        // with the fit it was rendered with.
+        std::array<float, 64> shadowMatrixPalette = {};
+        std::array<float, 4> shadowCascadeDistances = {};
+        bool hasDirectionalFit = false;
     };
 
     /**
@@ -198,6 +206,17 @@ namespace visutwin::canvas
         float* shadowMatrixPaletteData() { return _shadowMatrixPalette.data(); }
         const std::array<float, 4>& shadowCascadeDistances() const { return _shadowCascadeDistances; }
         float* shadowCascadeDistancesData() { return _shadowCascadeDistances.data(); }
+
+        /// Keeps the light's current palette and split distances as `camera`'s
+        /// directional fit (called right after the fit for that camera).
+        void storeDirectionalFit(Camera* camera);
+        /// The camera whose directional fit `camera` samples: `camera` itself when it has
+        /// one, otherwise the camera of the latest fit (a one-shot shadow, rendered once
+        /// for one camera and sampled by all).
+        Camera* directionalFitCamera(Camera* camera) const;
+        /// The palette and split distances `camera` samples (see directionalFitCamera).
+        const std::array<float, 64>& shadowMatrixPalette(const Camera* camera) const;
+        const std::array<float, 4>& shadowCascadeDistances(const Camera* camera) const;
 
         // The light owns its shadow map: replacing it (setNumCascades,
         // setShadowType, setShadowResolution) or destroying the light frees the
@@ -371,6 +390,9 @@ namespace visutwin::canvas
         std::shared_ptr<ShadowMap> _shadowMap;
 
         std::vector<std::unique_ptr<LightRenderData>> _renderData;
+        Camera* _latestDirectionalFitCamera = nullptr;
+
+        const LightRenderData* findRenderData(const Camera* camera, int face) const;
 
         ShadowType _shadowType = SHADOW_PCF3_32F;
         ShadowType _requestedShadowType = SHADOW_PCF3_32F;

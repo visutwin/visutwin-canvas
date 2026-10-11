@@ -277,7 +277,6 @@ protected:
             _cameraComponent->setSsao(ssao);
 
             auto rendering = _cameraComponent->rendering();
-            rendering.toneMapping = TONEMAP_NEUTRAL;
             rendering.bloomIntensity = 0.0f;   // driven by the sun elevation below
             rendering.bloomBlurLevel = 16;
             _cameraComponent->setRendering(rendering);

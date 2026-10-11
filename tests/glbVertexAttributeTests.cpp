@@ -10,6 +10,8 @@
 //     vertices of its own with its face normal (strips and fans become lists), and
 //     the derived tangents are perpendicular to those normals. Before, every vertex
 //     was lit with (0, 1, 0).
+//   - A file's TANGENT keeps its handedness, and a generated tangent takes the same
+//     frame (bitangent toward the image's top row).
 //   - Sparse accessors apply to vertex attributes: overrides over a base view, a
 //     base-less accessor (zeros plus overrides), and quantised sparse values. Before,
 //     only the base view was read, and a base-less POSITION read nothing.
@@ -238,6 +240,52 @@ namespace
                 check(v.size() == 3 * 14 && nearStrict(normalOf(v, 0), 0.0f, 0.0f, -1.0f, kTolerance),
                     label(path, "a file's own normals are kept"));
             });
+    }
+
+    // ── Tangent frames ───────────────────────────────────────────────
+
+    // A triangle facing +Z whose v DEcreases up +Y (glTF's origin is the image's top
+    // row), so the frame glTF defines is T = +X with w = +1: B = cross(N, T) * w = +Y,
+    // toward the image's top, where the engine's bitangent points too. With a TANGENT
+    // the file's w must come through unchanged; without one the generated frame must
+    // agree with it. Negating an imported w turned the green of every normal map that
+    // came with its own tangents (taa's house shaded its bevels as rounded tubes).
+    tinygltf::Model tangentTriangle(const bool withTangent)
+    {
+        tinygltf::Model model;
+        tinygltf::Buffer buffer;
+        tinygltf::Primitive primitive;
+        primitive.mode = TINYGLTF_MODE_TRIANGLES;
+        primitive.attributes["POSITION"] = addAccessor(model, buffer.data,
+            {0.0f, 0.0f, 0.0f,  2.0f, 0.0f, 0.0f,  0.0f, 2.0f, 0.0f}, 3, TINYGLTF_TYPE_VEC3);
+        primitive.attributes["NORMAL"] = addAccessor(model, buffer.data,
+            {0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f}, 3, TINYGLTF_TYPE_VEC3);
+        primitive.attributes["TEXCOORD_0"] = addAccessor(model, buffer.data,
+            {0.0f, 1.0f,  1.0f, 1.0f,  0.0f, 0.0f}, 3, TINYGLTF_TYPE_VEC2);
+        if (withTangent) {
+            primitive.attributes["TANGENT"] = addAccessor(model, buffer.data,
+                {1.0f, 0.0f, 0.0f, 1.0f,  1.0f, 0.0f, 0.0f, 1.0f,  1.0f, 0.0f, 0.0f, 1.0f}, 3, TINYGLTF_TYPE_VEC4);
+        }
+        return finishModel(std::move(model), std::move(buffer), {primitive});
+    }
+
+    void tangentTests(const std::shared_ptr<GraphicsDevice>& device)
+    {
+        std::cout << "\ntangent frames\n";
+        for (const bool withTangent : {true, false}) {
+            forEachContainer([withTangent] { return tangentTriangle(withTangent); }, device, 1,
+                [withTangent](const GlbContainerResource& container, const LoadPath path) {
+                    const auto v = vertexFloats(container, 0);
+                    bool frame = v.size() == 3 * 14;
+                    for (size_t i = 0; frame && i < 3; ++i) {
+                        frame = nearStrict(Vector3(v[i * 14 + 8], v[i * 14 + 9], v[i * 14 + 10]), 1.0f, 0.0f, 0.0f,
+                                    1e-4f) && v[i * 14 + 11] == 1.0f;
+                    }
+                    check(frame, label(path, withTangent
+                        ? "a file's tangent keeps its handedness (T = +X, w = +1)"
+                        : "a generated tangent takes glTF's frame (T = +X, w = +1)"));
+                });
+        }
     }
 
     // ── Sparse vertex attributes ─────────────────────────────────────
@@ -523,6 +571,7 @@ int main()
 {
     auto device = std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{.cpuBuffers = true});
     flatNormalTests(device);
+    tangentTests(device);
     sparseTests(device);
     materialTests(device);
     colorTests(device);

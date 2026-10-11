@@ -731,10 +731,10 @@ registry against the files the programs include, override precedence and variant
 **Tone mapping.** 6 modes dispatched in `forward/common-tonemap.slang :: toneMapByMode`: LINEAR (0),
 FILMIC (1), ACES (3), ACES2 (4, Stephen Hill RRT+ODT fit), NEUTRAL (5), NONE (6).
 Set scene-wide with `Scene::setToneMapping` or per camera with
-`CameraComponent::setToneMapping` (defaults to `TONEMAP_INHERIT` = -1). NOTE:
-`RenderingSettings::toneMapping` is a separate, currently **unread** field —
-`applyCameraSettings` never copies it into `CameraFrameOptions`. Use
-`setToneMapping`.
+`CameraComponent::setToneMapping` (defaults to `TONEMAP_INHERIT` = -1), which a camera
+frame's compose uses too. There is no separate camera-frame tone mapping: the
+`RenderingSettings::toneMapping` field that looked like one was never read and is gone
+(`depth-of-field` set ACES there and rendered LINEAR, darker and over-saturated).
 
 **The forward tail tone-maps the lit colour UNCLAMPED on both backends**; only the gamma
 encode clamps at 0. A channel driven negative (an albedo above 1 under metalness: the
@@ -1667,10 +1667,17 @@ present, but the rule below never depends on reading it.
   Change a primitive's UVs and
   the frame follows; the test checks every corner against its triangle's UV
   gradient. `DEBUGPASS_WORLDNORMAL` on a normal-mapped box beside a plane wall shows
-  a wrong frame in one frame: matching faces must match in colour. The frame is not
-  only a normal-map concern: Metal's anisotropic IBL bends the reflection toward the
-  bitangent, so its SIGN picks sky or ground: the `anisotropy` spheres on Metal move
-  with it, while Vulkan (a roughness-only approximation) does not.
+  a wrong frame in one frame: matching faces must match in colour.
+  A glTF's OWN `TANGENT` is taken as the file has it: its bitangent `cross(N, T) * w`
+  already points toward the image's top row, as the engine's does. Negating its w (as
+  the parser did since the V-flip days) inverted the green of every normal map that
+  shipped with tangents: `taa`'s house shaded its baked bevels as rounded tubes. Only
+  GENERATED tangents (`generateTangents`, bitangent toward +v) are negated;
+  `tests/glbVertexAttributeTests.cpp` holds both.
+  Anisotropy does NOT use this frame on a material without a normal, clearcoat-normal or
+  height map: like upstream it takes an OBJECT-SPACE frame, B = N x objectUp, T = N x B
+  (the `objectUp` varying, the normal matrix's +Y). On a UV frame the `anisotropy`
+  spheres stretch their reflections 90 degrees off upstream's.
 - **A back face's tangent frame takes its bitangent from the UNFLIPPED normal.** A
   double-sided material flips the normal of a back face toward the viewer, and only the
   frame's normal column flips with it: `cross(flipped N, T)` mirrors the v slope of every
@@ -2927,6 +2934,20 @@ present, but the rule below never depends on reading it.
   The general rule: a setter that returns early on an unchanged value NEVER RUNS for the
   default, so anything it derives must also be derived at construction, from the same
   function; a dirty flag that starts false is the same trap.
+- **A REALTIME directional shadow is fitted and rendered PER CAMERA; a one-shot or
+  static one has ONE fit.** Each light has one shadow atlas and one live palette, so
+  `Renderer::cullShadowmaps` keeps every camera's palette and cascade distances in that
+  camera's `LightRenderData` (`Light::storeDirectionalFit`), `ForwardRenderer` adds a
+  camera's directional shadow passes right before its FIRST render action
+  (`addDirectionalShadowPasses`), and lighting and volumetric fog read the drawing
+  camera's fit (`Light::shadowMatrixPalette(camera)`, `directionalFitCamera`). The atlas
+  is reused camera after camera, in frame order. The designated camera
+  (`selectShadowFitCamera`: the presentation camera, or a lightmap bake's) fits every
+  directional shadow; other cameras fit only REALTIME lights that light one of their
+  layers, because a one-shot or static shadow is rendered once and every camera must
+  sample the fit it was rendered with. With one fit for all, every camera but one
+  sampled the map with another camera's matrices: `reflection-probe-dynamic`'s six
+  capture faces saw the whole floor in shadow.
 - **The default is ONE shadow cascade, as upstream.** A one-shot directional shadow
   is unusable with more than one: the receiver picks its cascade by VIEW depth, so
   moving the camera carries the scene into cascades whose maps were fitted once to the

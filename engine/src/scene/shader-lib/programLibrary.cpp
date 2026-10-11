@@ -102,6 +102,9 @@ namespace visutwin::canvas
         applyDrawOptions(options, variantBits, dynamicBatch, skinning, morphing, instancing, instancingColor,
             instanceLightmap);
         applyFrameOptions(options, variantBits);
+        // The scene's reflection probe replaces only the specular of a material that
+        // asks for it, as a cube is given to one material at a time.
+        options.reflectionProbe = options.reflectionProbe && material && material->useReflectionProbe();
         return options;
     }
 

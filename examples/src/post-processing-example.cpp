@@ -385,7 +385,6 @@ private:
 
         // Scene
         rendering.renderTargetScale = s.enabled ? s.scale : 1.0f;
-        rendering.toneMapping = s.tonemapping;
         _cameraComp->setToneMapping(s.tonemapping);
 
         // TAA

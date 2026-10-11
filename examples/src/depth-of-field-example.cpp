@@ -187,8 +187,8 @@ protected:
             dof.highQuality = true;
             _cameraComp->setDof(dof);
 
+            _cameraComp->setToneMapping(TONEMAP_ACES);
             auto rendering = _cameraComp->rendering();
-            rendering.toneMapping = TONEMAP_ACES;
             rendering.samples = 4;             // 4x MSAA on the offscreen scene target
             rendering.bloomIntensity = 0.03f;
             rendering.bloomBlurLevel = 7;      // tighter glow than the 16-level default

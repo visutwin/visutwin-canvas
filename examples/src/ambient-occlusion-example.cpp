@@ -183,7 +183,6 @@ protected:
             // tone mapping, and 4x MSAA on the scene target. The camera
             // frame's target is already RGBA16F.
             auto rendering = _cameraComp->rendering();
-            rendering.toneMapping = TONEMAP_NEUTRAL;
             rendering.samples = 4;
             _cameraComp->setRendering(rendering);
         }

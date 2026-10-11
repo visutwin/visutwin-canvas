@@ -30,16 +30,15 @@ namespace visutwin::canvas
      * This replaces the hand-authored / static cubemap the probe otherwise needs.
      *
      * The six face cameras are ordinary `CameraComponent`s pointed along
-     * ±X/±Y/±Z (reusing `LightCamera::pointLightRotations`). They must render
+     * ±X/±Y/±Z with a colour cubemap's upright face rotations. They must render
      * before the main camera samples the probe. Cameras render in priority order and
      * equal priorities (the default 0) keep construction order, so **construct the
      * probe BEFORE the main camera**, or give the main camera a higher priority.
      *
      * The captured faces hold tonemapped/gamma-encoded LDR (the normal forward
-     * output), which the probe shader sRGB-decodes — matching the existing
-     * static-cubemap path. DEVIATIONS: roughness picks a box-filtered cube mip
-     * (upstream samples the cube unfiltered and ignores gloss;
-     * the env ATLAS is where upstream GGX-prefilters); a single probe;
+     * output, tone mapped as `setToneMapping` says), which the probe shader
+     * sRGB-decodes. The cube is sampled as a plain cubemap whatever the gloss, as
+     * upstream samples a material's cubeMap. DEVIATIONS: a single scene-wide probe;
      * directional-shadow cascades are fit only for the presentation camera, so
      * probe faces may miss directional shadows.
      *
@@ -67,6 +66,10 @@ namespace visutwin::canvas
 
         /// Which layers the probe captures (default WORLD + SKYBOX).
         void setLayers(const std::vector<int>& layers);
+
+        /// Tone mapping of the six capture cameras (default TONEMAP_INHERIT, the
+        /// scene's). Upstream's capture cameras take the probe camera's setting.
+        void setToneMapping(int toneMapping);
 
         /// true (default): recapture every frame (reflections track the scene).
         /// false: capture once, then disable the face cameras (static bake).

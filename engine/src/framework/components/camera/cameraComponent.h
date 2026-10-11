@@ -128,7 +128,6 @@ namespace visutwin::canvas
         float renderTargetScale = 1.0f;
         float sharpness = 0.0f;
         float bloomIntensity = 0.0f;  // 0 = disabled
-        int toneMapping = TONEMAP_LINEAR;
 
         // MSAA sample count of the offscreen scene target (1 = off). Clamped to the
         // device maximum; changing it rebuilds the camera frame's render targets.
@@ -164,10 +163,9 @@ namespace visutwin::canvas
 
         const Matrix4& projectionMatrix() const { return _camera->projectionMatrix(); }
 
-        // Per-camera tone mapping. Defaults to
-        // TONEMAP_INHERIT, which keeps using Scene::toneMapping. Applies to the standard
-        // forward path; the HDR camera-frame path is configured through
-        // RenderingSettings::toneMapping instead.
+        // Per-camera tone mapping. Defaults to TONEMAP_INHERIT, which keeps using
+        // Scene::toneMapping. Applies to the forward path and to a camera frame's compose
+        // alike (there is no separate camera-frame tone mapping setting).
         int toneMapping() const { return _camera->toneMapping(); }
         void setToneMapping(const int value) { _camera->setToneMapping(value); }
 

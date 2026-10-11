@@ -8,7 +8,8 @@
 // These are the properties an application depends on and that a stub silently
 // fails: a dynamic body falls, it STOPS on a static one rather than passing
 // through, restitution makes it bounce, a kinematic body does not move itself,
-// and a raycast reports the nearest body with a sensible normal.
+// and a raycast reports the nearest body with a sensible normal. A box of zero height
+// (a footprint-only ground collider) is created and hit.
 //
 #include <cmath>
 #include <cstdio>
@@ -166,6 +167,18 @@ int main()
         const auto besideApex = world->raycastFirst(Vector3(20.45f, 5.0f, 0.0f), Vector3(20.45f, -5.0f, 0.0f));
         check(besideApex.has_value() && besideApex->point.getY() < 0.3f,
             "near the rim the cone's surface is near its base, not a cylinder's top");
+
+        // A box of zero height (a ground collider that is only a footprint) is thinner
+        // than the backend's default convex radius; it must still be created and hit.
+        PhysicsBodyDesc slab;
+        slab.shape = PhysicsShapeType::Box;
+        slab.motion = PhysicsMotionType::Static;
+        slab.halfExtents = Vector3(7.5f, 0.0f, 7.5f);
+        slab.position = Vector3(40.0f, 0.0f, 0.0f);
+        check(world->createBody(slab) != nullptr, "the world creates a box of zero height");
+        const auto slabHit = world->raycastFirst(Vector3(42.0f, 5.0f, 1.0f), Vector3(42.0f, -5.0f, 1.0f));
+        check(slabHit.has_value() && std::abs(slabHit->point.getY()) < 0.01f,
+            "and a ray down onto it hits its plane");
 
         PhysicsBodyDesc floor;
         floor.shape = PhysicsShapeType::Mesh;

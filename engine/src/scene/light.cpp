@@ -223,6 +223,57 @@ namespace visutwin::canvas
         std::erase_if(_renderData, [camera](const std::unique_ptr<LightRenderData>& rd) {
             return rd && rd->camera == camera;
         });
+        if (_latestDirectionalFitCamera == camera) {
+            _latestDirectionalFitCamera = nullptr;
+        }
+    }
+
+    const LightRenderData* Light::findRenderData(const Camera* camera, const int face) const
+    {
+        for (const auto& rd : _renderData) {
+            if (rd && rd->camera == camera && rd->face == face) {
+                return rd.get();
+            }
+        }
+        return nullptr;
+    }
+
+    void Light::storeDirectionalFit(Camera* camera)
+    {
+        LightRenderData* rd = getRenderData(camera, 0);
+        rd->shadowMatrixPalette = _shadowMatrixPalette;
+        rd->shadowCascadeDistances = _shadowCascadeDistances;
+        rd->hasDirectionalFit = true;
+        _latestDirectionalFitCamera = camera;
+    }
+
+    Camera* Light::directionalFitCamera(Camera* camera) const
+    {
+        const LightRenderData* rd = findRenderData(camera, 0);
+        if ((rd && rd->hasDirectionalFit) || !_latestDirectionalFitCamera) {
+            return camera;
+        }
+        return _latestDirectionalFitCamera;
+    }
+
+    const std::array<float, 64>& Light::shadowMatrixPalette(const Camera* camera) const
+    {
+        const LightRenderData* rd = findRenderData(camera, 0);
+        if (rd && rd->hasDirectionalFit) {
+            return rd->shadowMatrixPalette;
+        }
+        const LightRenderData* latest = findRenderData(_latestDirectionalFitCamera, 0);
+        return latest && latest->hasDirectionalFit ? latest->shadowMatrixPalette : _shadowMatrixPalette;
+    }
+
+    const std::array<float, 4>& Light::shadowCascadeDistances(const Camera* camera) const
+    {
+        const LightRenderData* rd = findRenderData(camera, 0);
+        if (rd && rd->hasDirectionalFit) {
+            return rd->shadowCascadeDistances;
+        }
+        const LightRenderData* latest = findRenderData(_latestDirectionalFitCamera, 0);
+        return latest && latest->hasDirectionalFit ? latest->shadowCascadeDistances : _shadowCascadeDistances;
     }
 
     BoundingSphere Light::boundingSphere() const

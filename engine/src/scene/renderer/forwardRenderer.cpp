@@ -36,15 +36,14 @@ namespace visutwin::canvas
             return cameras;
         }
 
-        // Directional cascades are fit for ONE designated camera per frame.
-        // Each light owns a single shadow atlas and matrix palette, so
-        // fitting per camera makes the fits overwrite each other and every
-        // camera except the last-fitted one samples the atlas with
-        // mismatched matrices — shadows swim/flicker as the fits diverge
-        // (planar-reflection cameras are mirrored below the ground and
-        // produce wildly different fits). Designate the presentation
-        // camera: the last camera that renders to the backbuffer
-        // (null render target); fall back to the last camera seen.
+        // The DESIGNATED camera of the frame fits every directional shadow. A realtime
+        // shadow is also fitted for each other camera and rendered right before it draws,
+        // each camera keeping its own matrices (Light::storeDirectionalFit), so the
+        // light's one atlas serves the cameras in turn. A one-shot or static shadow is
+        // rendered once, into that same atlas, so it has ONE fit, the designated
+        // camera's, which every camera samples. Designate the presentation camera: the
+        // last camera that renders to the backbuffer (null render target); fall back to
+        // the last camera seen.
         //
         // A lightmap bake takes priority for the frame it runs in: its cameras always
         // have a render target, so the rule above would fit the cascades to the
@@ -125,9 +124,6 @@ namespace visutwin::canvas
         resetClusters();
 
         cullDirectionalShadowsAndInstances(*layerComposition);
-        if (auto* directionalShadowRenderer = shadowRendererDirectional()) {
-            directionalShadowRenderer->buildNonClusteredRenderPasses(frameGraph, _cameraDirShadowLights);
-        }
 
         addRenderActionPasses(frameGraph, layerComposition);
 
@@ -311,13 +307,21 @@ namespace visutwin::canvas
         // cameras don't linger as stale (dangling) keys.
         _cameraDirShadowLights.clear();
 
+        // The designated camera fits every directional shadow (one-shot and static ones are
+        // rendered once, for it, and sampled by all); every other camera fits its own
+        // realtime ones, rendered right before it draws (addRenderActionPasses).
         const auto& actions = layerComposition.renderActions();
         Camera* shadowFitCamera = selectShadowFitCamera(actions);
         const std::vector<Camera*> cameras = uniqueCameras(actions);
         for (Camera* cam : cameras) {
-            if (cam == shadowFitCamera) {
-                cullShadowmaps(cam);
+            const CameraComponent* cameraComponent = nullptr;
+            for (const auto* action : actions) {
+                if (action && action->camera && action->camera->camera() == cam) {
+                    cameraComponent = action->camera;
+                    break;
+                }
             }
+            cullShadowmaps(cam, cameraComponent, cam == shadowFitCamera);
         }
 
         // GPU instance culling, once for every camera that draws this frame, each into
@@ -337,6 +341,11 @@ namespace visutwin::canvas
 
         for (int i = 0; i < actionCount; i++) {
             auto* renderAction = renderActions[i];
+            // A camera's directional shadows render right before its first action: the
+            // light's one map is reused camera after camera, each with its own fit.
+            if (renderAction->firstCameraUse && renderAction->camera) {
+                addDirectionalShadowPasses(frameGraph, renderAction->camera->camera());
+            }
             if (renderAction->useCameraPasses) {
                 // schedule render passes from the camera
                 for (const auto& renderPass : renderAction->camera->renderPasses()) {
@@ -360,6 +369,16 @@ namespace visutwin::canvas
                 newStart = true;
             }
         }
+    }
+
+    void ForwardRenderer::addDirectionalShadowPasses(FrameGraph* frameGraph, Camera* camera)
+    {
+        auto* directionalShadowRenderer = shadowRendererDirectional();
+        const auto entry = _cameraDirShadowLights.find(camera);
+        if (!directionalShadowRenderer || entry == _cameraDirShadowLights.end()) {
+            return;
+        }
+        directionalShadowRenderer->buildNonClusteredRenderPasses(frameGraph, {{camera, entry->second}});
     }
 
     bool ForwardRenderer::endsRenderActionBlock(const RenderAction& action, const RenderAction* next,

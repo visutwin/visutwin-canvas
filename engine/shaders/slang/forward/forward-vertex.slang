@@ -169,9 +169,11 @@ ForwardVarying forwardFinish(float4 world, float4 clip, float3x3 normalMatrix, f
     o.worldTangent = float4(1.0, 0.0, 0.0, 1.0);
     o.modelScale = float3(1.0, 1.0, 1.0);
     o.instanceColor = float4(1.0, 1.0, 1.0, 1.0);
+    o.objectUp = float3(0.0, 1.0, 0.0);
 #else
     o.worldNormal = normalize(mul(normal, normalMatrix));
     o.worldTangent = float4(normalize(mul(tangent.xyz, normalMatrix)), tangent.w);
+    o.objectUp = normalize(mul(float3(0.0, 1.0, 0.0), normalMatrix));
     o.modelScale = forwardModelScale(model);
     o.instanceColor = material.baseColor;
 #endif

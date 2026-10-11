@@ -166,6 +166,15 @@ namespace visutwin::canvas
         }
     }
 
+    void ReflectionProbe::setToneMapping(const int toneMapping)
+    {
+        for (auto* cameraComponent : _faceCameras) {
+            if (cameraComponent) {
+                cameraComponent->setToneMapping(toneMapping);
+            }
+        }
+    }
+
     void ReflectionProbe::setDynamic(const bool dynamic)
     {
         _dynamic = dynamic;

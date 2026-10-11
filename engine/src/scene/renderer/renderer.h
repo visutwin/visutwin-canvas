@@ -26,6 +26,7 @@
 namespace visutwin::canvas
 {
     class Camera;
+    class CameraComponent;
     class LightTextureAtlas;
     class GraphNode;
     class MeshInstance;
@@ -61,8 +62,13 @@ namespace visutwin::canvas
 
         // Collects directional shadow-casting lights for a camera, allocates shadow maps,
         // and calls ShadowRendererDirectional::cull() to position shadow cameras.
-        // Must be called once per frame before buildFrameGraph().
-        void cullShadowmaps(Camera* camera);
+        // Called once per camera per frame, before the frame graph is built.
+        /// Fits the directional shadows `camera` samples. The designated camera fits every
+        /// shadow-casting directional light (a one-shot or static shadow is rendered once,
+        /// for it, and sampled by all); any other camera fits, and later renders, only the
+        /// REALTIME lights that light one of its layers.
+        void cullShadowmaps(Camera* camera, const CameraComponent* cameraComponent = nullptr,
+            bool designated = true);
 
         /**
          * Clears Light::visibleThisFrame on every light. Call ONCE at the top of a
@@ -281,9 +287,6 @@ namespace visutwin::canvas
             bool clusteredEnabled);
 
         void resolveClusterConfig();
-
-        /// The camera the directional cascades were fitted for this frame.
-        Camera* directionalShadowFitCamera(Camera* camera) const;
 
         // Frame statistics are counted into GraphicsDevice::frameCounters(), which the
         // shadow passes and depth-only draws reach too; see frameCounters.h.

@@ -308,7 +308,6 @@ protected:
 
             // tone mapping + color finishing (fringing, grading, enhance, 3D LUT)
             auto rendering = _cameraComp->rendering();
-            rendering.toneMapping = TONEMAP_NEUTRAL;
             // Fringing stays off: a chromatic split would blur the occlusion detail
             // this scene is there to show. Compose applies it to the scene image
             // ahead of SSAO, so turning it on no longer tints the occlusion.

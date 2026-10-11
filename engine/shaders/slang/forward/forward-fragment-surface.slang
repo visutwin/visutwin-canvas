@@ -202,10 +202,12 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
             discard;
         }
 
-        // Coupled (legacy) use is an opaque-pass technique, so forcing alpha keeps the
-        // target's alpha channel clean. Decoupled use is the blend-AND-dither case,
-        // where alpha must survive to drive the blend.
-        if (!hasAlphaDither) {
+        // An OPAQUE material that dithers writes alpha 1, keeping the target's alpha
+        // channel clean (nothing blends on it). A blended one keeps its opacity, which
+        // still drives the blend whether or not alphaDither decouples the dither density:
+        // forced to 1, a coupled blended material is opaque wherever the dither keeps it
+        // (dithered-transparency's left table read as dark glass).
+        if (!vtFeatureEnabled(VT_FEATURE_TRANSPARENT_PASS_BIT)) {
             albedo.a = 1.0;
         }
     }
@@ -331,7 +333,26 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
             Ng = -Ng;
         }
         float3 Tv = fragWorldTangent.xyz;
-        if (dot(Tv, Tv) >= 1e-6) {
+        // Reproduced upstream frame choice: a material with no normal, clearcoat-normal or
+        // height map lays its anisotropy on an OBJECT-SPACE frame, B = N x objectUp and
+        // T = N x B (T down the meridian of a sphere), where one with such a map uses the
+        // tangent frame. Taking the UV tangent here instead turns the anisotropy of every
+        // map-less material by 90 degrees (the anisotropy example's spheres).
+        const bool tangentFrame = vtFeatureEnabled(VT_FEATURE_NORMAL_MAP_BIT) ||
+            vtFeatureEnabled(VT_FEATURE_PARALLAX_BIT) || (material.flags & (1u << 16)) != 0u;
+        if (!tangentFrame) {
+            float3 up = normalize(input.objectUp);
+            float3 Bo = cross(Ng, up);
+            if (dot(Bo, Bo) < 1e-12) {
+                // The normal is parallel to the object's up: take the major axis's partner.
+                const float major = max(max(Ng.x, Ng.y), Ng.z);
+                Bo = cross(Ng, Ng.x == major ? float3(0.0, 1.0, 0.0)
+                    : (Ng.y == major ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0)));
+            }
+            Bo = normalize(Bo);
+            const float3 To = normalize(cross(Ng, Bo));
+            anisoT = material.anisotropyParams.x * To + material.anisotropyParams.y * Bo;
+        } else if (dot(Tv, Tv) >= 1e-6) {
             Tv = normalize(Tv);
             float3 Bv = normalize(cross(NgUnflipped, Tv)) * fragWorldTangent.w;
             anisoT = material.anisotropyParams.x * Tv + material.anisotropyParams.y * Bv;

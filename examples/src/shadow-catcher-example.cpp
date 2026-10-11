@@ -169,7 +169,6 @@ protected:
 
         // Camera frame rendering, to give us access to Depth of Field
         auto rendering = _cameraComp->rendering();
-        rendering.toneMapping = TONEMAP_ACES;
         _cameraComp->setRendering(rendering);
 
         auto dof = _cameraComp->dof();

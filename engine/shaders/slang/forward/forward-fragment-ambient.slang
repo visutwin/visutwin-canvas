@@ -212,13 +212,14 @@
         // The engine's cube convention flips X, the same as every sky path here.
         float3 cubeDir = float3(-sampleDir.x, sampleDir.y, sampleDir.z);
         float gloss = 1.0 - roughness;
-        float probeLod = clamp(1.0 - gloss, 0.0, 1.0) * lighting.reflectionProbeParams.z;
-        // The captured cube is written gamma-encoded, so it owes a decode before it
-        // can be added to linear light — the same split the base-colour and
-        // emissive maps follow. Without it the probe reads far too bright, which is
-        // what washed every metallic surface here out to pale pastel.
+        // A probe cube is a plain cubemap, sampled as upstream samples a material's
+        // cubeMap: whatever the gloss, at the level the screen-space footprint picks,
+        // so a probe reflection is a mirror (a gloss-picked prefiltered level is what
+        // an environment atlas provides). The captured cube is written gamma-encoded,
+        // so it owes a decode before it can be added to linear light — the same split
+        // the base-colour and emissive maps follow.
         float3 probeSpecular =
-            pow(max(reflectionProbeCube.SampleLevel(linearClampSampler, cubeDir, probeLod).rgb, float3(0.0)),
+            pow(max(reflectionProbeCube.Sample(linearClampSampler, cubeDir).rgb, float3(0.0)),
                 float3(2.2)) * lighting.reflectionProbeParams.y;
 
         // Gloss-aware Fresnel, not a raw F0 multiply.

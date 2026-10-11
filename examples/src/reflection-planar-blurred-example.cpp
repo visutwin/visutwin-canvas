@@ -134,7 +134,7 @@ protected:
         const int rtWidth = std::max(1, deviceWidth);
         const int rtHeight = std::max(1, deviceHeight);
 
-        _reflectionDepthTexture = createReflectionTexture("ReflectionDepthRT", rtWidth, rtHeight);
+        _reflectionDepthTexture = createReflectionTexture("ReflectionDepthRT", rtWidth, rtHeight, false);
         auto reflectionDepthRT = createReflectionTarget("ReflectionDepthRenderTarget",
             _reflectionDepthTexture.get());
 
@@ -145,7 +145,7 @@ protected:
         _depthCamComp->camera()->setRenderTarget(reflectionDepthRT);
         _depthCamComp->camera()->setPlanarReflectionDepthPass(true);
 
-        _reflectionTexture = createReflectionTexture("ReflectionRT", rtWidth, rtHeight);
+        _reflectionTexture = createReflectionTexture("ReflectionRT", rtWidth, rtHeight, true);
         auto reflectionRT = createReflectionTarget("ReflectionRenderTarget", _reflectionTexture.get());
 
         // Colour camera: the main camera's layers minus the excluded ground and minus
@@ -295,15 +295,18 @@ protected:
     }
 
 private:
-    std::shared_ptr<Texture> createReflectionTexture(const char* name, int width, int height) const
+    // The colour map is mipmapped: the ground blurs through coarser levels as the
+    // distance from the plane grows. The depth map is read at level 0 only.
+    std::shared_ptr<Texture> createReflectionTexture(const char* name, int width, int height,
+        const bool mipmaps) const
     {
         TextureOptions options;
         options.name = name;
         options.width = width;
         options.height = height;
         options.format = PixelFormat::PIXELFORMAT_RGBA8;
-        options.mipmaps = false;
-        options.minFilter = FilterMode::FILTER_LINEAR;
+        options.mipmaps = mipmaps;
+        options.minFilter = mipmaps ? FilterMode::FILTER_LINEAR_MIPMAP_LINEAR : FilterMode::FILTER_LINEAR;
         options.magFilter = FilterMode::FILTER_LINEAR;
         return std::make_shared<Texture>(device().get(), options);
     }

@@ -229,6 +229,11 @@ namespace visutwin::canvas
         void setOcclusionUvSet(const int uvSet) { _occlusionUvSet = uvSet; markUniformsDirty(); }
         float occlusionStrength() const { return _occlusionStrength; }
         void setOcclusionStrength(const float value) { _occlusionStrength = value; markUniformsDirty(); }
+        /// Whether the scene's reflection probe (Scene::setReflectionProbe) replaces this
+        /// material's environment specular. Off by default: a probe cube reflects only on
+        /// the materials it is meant for, as a material is given a cubeMap upstream.
+        bool useReflectionProbe() const { return _useReflectionProbe; }
+        void setUseReflectionProbe(const bool value) { _useReflectionProbe = value; markUniformsDirty(); }
         bool occludeDirect() const { return _occludeDirect; }
         void setOccludeDirect(const bool value) { _occludeDirect = value; markUniformsDirty(); }
         uint32_t occludeSpecular() const { return _occludeSpecular; }
@@ -426,6 +431,7 @@ namespace visutwin::canvas
         float _occlusionStrength = 1.0f;
         bool _occludeDirect = false;
         uint32_t _occludeSpecular = SPECOCC_AO;
+        bool _useReflectionProbe = false;
         float _occludeSpecularIntensity = 1.0f;
         Color _emissiveFactor = Color(0.0f, 0.0f, 0.0f, 1.0f);
         Texture* _emissiveTexture = nullptr;

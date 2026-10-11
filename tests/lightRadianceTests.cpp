@@ -100,11 +100,14 @@ namespace
         }
         check(roundTrips, "intensityForLinearScale is the inverse, through lightRadiance too");
 
-        // The lightmapper's soft directional copies: N copies of a light at 1.6 must sum to it.
+        // The lightmapper's soft directional copies, upstream's split: 15 copies of a light at
+        // 1.6 sum to 1.6^2.2 through lightRadiance, 1.76 times the live light.
         constexpr int kCopies = 15;
-        const float copy = intensityForLinearScale(linearScaleForIntensity(1.6f) / kCopies);
+        const float copy = bakeCopyIntensity(1.6f, kCopies);
         check(copy < 1.0f, "a 1.6 light split 15 ways is below 1 per copy");
-        check(nearRelative(linearScaleForIntensity(copy) * kCopies, 1.6, 1e-5), "and the copies sum to the light");
+        check(nearRelative(linearScaleForIntensity(copy) * kCopies, std::pow(1.6, 2.2), 1e-5),
+            "and the copies sum to the light's 2.2 power");
+        check(nearRelative(bakeCopyIntensity(0.5f, 1), 0.5, 1e-6), "one copy is the light itself");
     }
 
     GpuLightData light(const float intensity)

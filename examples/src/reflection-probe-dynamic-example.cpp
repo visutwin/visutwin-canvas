@@ -20,9 +20,8 @@
 //  - upstream drives the capture with its `cubemapRenderer` utility script and binds
 //    the result to ONE material (`shinyMat.cubeMap`, `useSkybox = false`). This engine
 //    exposes the same technique as framework/extras/ReflectionProbe, whose cube is
-//    installed SCENE-wide via Scene::setReflectionProbe — there is no per-material
-//    probe assignment yet. The orbiting primitives and the ground therefore take their
-//    specular from the captured cube too, where upstream leaves them on the skybox.
+//    installed scene-wide via Scene::setReflectionProbe and reflected only by the
+//    materials that opt in (`setUseReflectionProbe`), here the shiny ball alone.
 //  - upstream rebuilds the env atlas every frame. EnvLighting::generateAtlas allocates
 //    a fresh texture per call and runs a 1024/2048-sample convolution, so this builds
 //    it once from the first captured cube instead.
@@ -185,6 +184,9 @@ protected:
         _shinyMaterial->setDiffuse(Color(0.6f, 0.6f, 0.6f, 1.0f));   // darken the reflection a little
         _shinyMaterial->setMetalness(1.0f);                          // shiny, no diffuse component
         _shinyMaterial->setUseMetalness(true);
+        // The captured cube in place of the sky: the only material the probe reflects on.
+        _shinyMaterial->setUseSkybox(false);
+        _shinyMaterial->setUseReflectionProbe(true);
 
         _shinyMesh = createHighQualitySphere(device(), 200, 200);
 
@@ -207,11 +209,13 @@ protected:
         // here) render in construction order, so building it later would leave the
         // main camera sampling the previous frame's cube.
         //
-        // The camera on the ball renders the World and Skybox layers only.
+        // The camera on the ball renders the World and Skybox layers only, ACES tone
+        // mapped like the main camera.
         // -----------------------------------------------------------------------
         _probe = std::make_unique<ReflectionProbe>(engine(), PROBE_FACE_SIZE);
         _probe->setPosition(Vector3(0.0f, 0.0f, 0.0f));
         _probe->setLayers({LAYERID_WORLD, LAYERID_SKYBOX});
+        _probe->setToneMapping(TONEMAP_ACES);
         // No box projection: the capture is treated as an infinite environment.
         _probe->setBox(Vector3(0.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 0.0f), false);
         _probe->setDynamic(true);

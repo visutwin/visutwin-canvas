@@ -64,14 +64,23 @@ namespace visutwin::canvas
     }
 
     /// The authored intensity at which lightRadiance scales a light's decoded colour by
-    /// exactly `linearScale`: the inverse of linearScaleForIntensity. For code that has to
-    /// split a light into copies whose contributions add up linearly (the lightmapper's
-    /// soft directional copies).
+    /// exactly `linearScale`: the inverse of linearScaleForIntensity.
     inline float intensityForLinearScale(const float linearScale)
     {
         if (linearScale >= 1.0f) {
             return linearScale;
         }
         return linearScale > 0.0f ? std::pow(linearScale, 1.0f / 2.2f) : 0.0f;
+    }
+
+    /// The intensity of each of `count` soft copies a light is baked as (the lightmapper's
+    /// directional copies). Reproduced upstream quirk: pow(I^2.2 / count, 1 / 2.2), which
+    /// divides the 2.2 power evenly; a copy below 1 shades at its own 2.2 power, so the
+    /// copies sum to I^2.2 where the live light shades at I, and a light of intensity 1 or
+    /// more bakes I^1.2 brighter than it lights.
+    inline float bakeCopyIntensity(const float intensity, const int count)
+    {
+        const float copies = static_cast<float>(count > 1 ? count : 1);
+        return std::pow(std::pow(intensity > 0.0f ? intensity : 0.0f, 2.2f) / copies, 1.0f / 2.2f);
     }
 }

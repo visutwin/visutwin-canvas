@@ -138,7 +138,6 @@ protected:
             taa.jitter = 1.0f;
             cameraComponent->setTaa(taa);
             auto rendering = cameraComponent->rendering();
-            rendering.toneMapping = TONEMAP_ACES;
             rendering.sharpness = INITIAL_TAA ? 1.0f : 0.0f;
             cameraComponent->setRendering(rendering);
             cameraComponent->setToneMapping(TONEMAP_ACES);

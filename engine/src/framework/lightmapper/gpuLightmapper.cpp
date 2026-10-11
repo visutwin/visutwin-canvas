@@ -558,15 +558,11 @@ namespace visutwin::canvas
                 const float half = _options.directionalBakeArea * 0.5f;
                 node->rotateLocal(dx * half, 0.0f, dy * half);
             }
-            // The lightmap accumulates in linear space, so the copies split the LINEAR
-            // scale the light shades with, and the N of them sum to the live light. A
-            // light under an intensity of 1 shades at its 2.2 power (lightRadiance), so
-            // the split goes through that curve and back rather than dividing the
-            // authored intensity, which would make each copy far too dark. A directional
-            // light's unit conversion is 1, so its luminance splits the same way.
-            const float share = 1.0f / static_cast<float>(std::max(_dirSampleCount, 1));
-            lightComponent->setIntensity(intensityForLinearScale(linearScaleForIntensity(intensity) * share));
-            lightComponent->setLuminance(intensityForLinearScale(linearScaleForIntensity(luminance) * share));
+            // Each copy takes bakeCopyIntensity, upstream's split, which bakes a light of
+            // intensity 1 or more I^1.2 brighter than it lights (1.76 times at 1.6). A
+            // directional light's unit conversion is 1, so its luminance splits the same way.
+            lightComponent->setIntensity(bakeCopyIntensity(intensity, _dirSampleCount));
+            lightComponent->setLuminance(bakeCopyIntensity(luminance, _dirSampleCount));
         }
     }
 

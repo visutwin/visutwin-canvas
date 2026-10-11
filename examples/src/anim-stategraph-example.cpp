@@ -3,336 +3,259 @@
 //
 // Created by Arnis Lektauers on 21.03.2026
 //
-// Anim state-graph example — mirrors upstream's `locomotion` example. The
-// skinned bitmoji character is driven through an AnimComponent state graph:
-// an "Idle" state transitions into a 1D "Locomotion" blend tree (Walk <-> Run)
-// based on a float "speed" parameter. The idle/walk/run animation clips live in
-// SEPARATE GLB files (assets/animations/bitmoji/*.glb) and are retargeted onto
-// the bitmoji rig by node name via DefaultAnimBinder — cross-GLB retargeting.
+// Port of upstream's animation/locomotion example. Click the ground and the bitmoji
+// character walks there (or jogs, with Run on), turning to face the way it goes, and
+// stops on arrival. An anim state graph on the character picks the clip: an integer
+// "speed" (0 still, 1 walk, 2 jog) moves it between Idle, Walk and Jog, and a "jump"
+// trigger sends any state to Jump, which hands back to Idle at 80% of its clip. The
+// character's speed across the ground follows the state, blended through a
+// transition. The clips come from their own GLB files and bind to the rig by node name;
+// the click finds the ground through a raycast against its static collider.
 //
-// Keys: 1 = idle (speed 0), 2 = walk (1.0), 3 = run (2.0), 4 = 50/50 blend (1.5).
+// Keys stand in for upstream's control panel:
+//   Space  Jump (ignored while already jumping)
+//   R      toggle Run: the next click jogs instead of walking
 //
-#include <algorithm>
+#include <cmath>
 #include <memory>
 #include <string>
 
-#include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
-#include "core/shape/boundingBox.h"
 #include "framework/assets/asset.h"
 #include "framework/components/anim/animComponent.h"
 #include "framework/components/anim/animComponentSystem.h"
-#include "framework/components/animation/animationComponent.h"
+#include "framework/components/collision/collisionComponent.h"
+#include "framework/components/collision/collisionComponentSystem.h"
+#include "framework/components/rigidbody/rigidBodyComponent.h"
+#include "framework/components/rigidbody/rigidBodyComponentSystem.h"
 #include "framework/parsers/glbContainerResource.h"
+#include "framework/physics/jolt/joltPhysicsWorld.h"
+#include "platform/input/keyboard.h"
+#include "platform/input/mouse.h"
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"
-#include "framework/components/componentRegistry.h"
 
 using namespace visutwin::canvas;
 
-// Load a container GLB and return its first parsed animation track (each
-// bitmoji animation GLB contains exactly one clip). Returns nullptr on failure.
-std::shared_ptr<AnimTrack> loadFirstAnimTrack(Asset* asset)
+namespace
 {
-    if (!asset) {
-        return nullptr;
+    // The first animation track of a container (each bitmoji clip file holds one).
+    std::shared_ptr<AnimTrack> firstAnimTrack(Asset* asset)
+    {
+        auto* glb = asset ? dynamic_cast<GlbContainerResource*>(asset->resourceAs<ContainerResource>()) : nullptr;
+        if (!glb || glb->animTracks().empty()) {
+            spdlog::error("Animation '{}' holds no animation track", asset ? asset->name() : "?");
+            return nullptr;
+        }
+        return glb->animTracks().begin()->second;
     }
-    ContainerResource* container = asset->resourceAs<ContainerResource>();
-    if (!container) {
-        spdlog::error("Animation GLB '{}' failed to load as a container", asset->name());
-        return nullptr;
+
+    // How many units a second the character covers in each state.
+    float speedForState(const std::string& state)
+    {
+        if (state == "Walk") {
+            return 1.0f;
+        }
+        if (state == "Jog") {
+            return 4.0f;
+        }
+        return 0.0f;
     }
-    auto* glb = dynamic_cast<GlbContainerResource*>(container);
-    if (!glb || glb->animTracks().empty()) {
-        spdlog::error("Animation GLB '{}' contains no animation tracks", asset->name());
-        return nullptr;
-    }
-    const auto& tracks = glb->animTracks();
-    const auto& [name, track] = *tracks.begin();
-    spdlog::info("Loaded animation track '{}' from '{}' ({} curves)",
-        name, asset->name(), track ? track->curves().size() : 0);
-    return track;
 }
 
 class AnimStateGraphExample final: public ExampleApp
 {
 public:
-    AnimStateGraphExample()
-        : ExampleApp({.title = "A Windy Day", .width = 1200, .height = 800}) {}
+    AnimStateGraphExample(): ExampleApp({.title = "Locomotion"}) {}
 
 protected:
     void configure(AppOptions& options) override
     {
         options.registerComponentSystem<AnimComponentSystem>();
+        options.registerComponentSystem<CollisionComponentSystem>();
+        options.registerComponentSystem<RigidBodyComponentSystem>();
+        options.physicsWorld = createJoltPhysicsWorld();
     }
 
     bool create() override
     {
-        spdlog::info("*** Animation Example — A Windy Day ***");
+        _groundTexture = std::make_unique<Asset>("playcanvasGreyTexture", AssetType::TEXTURE,
+            assetPath("textures/playcanvas-grey.png"));
+        _modelAsset = std::make_unique<Asset>("model", AssetType::CONTAINER, assetPath("models/bitmoji.glb"));
+        _idleAsset = std::make_unique<Asset>("idleAnim", AssetType::CONTAINER,
+            assetPath("animations/bitmoji/idle.glb"));
+        _walkAsset = std::make_unique<Asset>("walkAnim", AssetType::CONTAINER,
+            assetPath("animations/bitmoji/walk.glb"));
+        _jogAsset = std::make_unique<Asset>("jogAnim", AssetType::CONTAINER,
+            assetPath("animations/bitmoji/run.glb"));
+        _jumpAsset = std::make_unique<Asset>("jumpAnim", AssetType::CONTAINER,
+            assetPath("animations/bitmoji/jump-flip.glb"));
+        _helipad = std::make_unique<Asset>("helipad-env-atlas", AssetType::TEXTURE,
+            assetPath("cubemaps/helipad-env-atlas.png"),
+            AssetData{.type = TextureType::TEXTURETYPE_RGBP, .mipmaps = false});
 
+        // The sky dome.
         scene()->setSkyboxMip(2);
         scene()->setSkyboxIntensity(0.7f);
-        scene()->setExposure(1.0f);
-        scene()->setToneMapping(TONEMAP_ACES);
-
-        // Character model (skinned rig) + the separate per-clip animation GLBs. Each
-        // animation GLB's curves target the shared bitmoji rig by node name, so the
-        // tracks retarget onto the instantiated character via DefaultAnimBinder.
-        _modelAsset = std::make_unique<Asset>(
-            "bitmoji", AssetType::CONTAINER, assetPath("models/bitmoji.glb"));
-        _idleAnimAsset = std::make_unique<Asset>(
-            "idleAnim", AssetType::CONTAINER, assetPath("animations/bitmoji/idle.glb"));
-        _walkAnimAsset = std::make_unique<Asset>(
-            "walkAnim", AssetType::CONTAINER, assetPath("animations/bitmoji/walk.glb"));
-        _runAnimAsset = std::make_unique<Asset>(
-            "runAnim", AssetType::CONTAINER, assetPath("animations/bitmoji/run.glb"));
-        _groundTexAsset = std::make_unique<Asset>(
-            "playcanvas-grey", AssetType::TEXTURE, assetPath("textures/playcanvas-grey.png"));
-        _envAtlas = std::make_unique<Asset>(
-            "helipad-env-atlas",
-            AssetType::TEXTURE,
-            assetPath("cubemaps/helipad-env-atlas.png"),
-            AssetData{
-                .type = TextureType::TEXTURETYPE_RGBP,
-                .mipmaps = false
-            }
-        );
-
-        // Load environment atlas for IBL
-        if (Texture* envAtlasTexture = _envAtlas->resourceAs<Texture>()) {
-            scene()->setEnvAtlas(envAtlasTexture);
-        } else {
-            spdlog::warn("Failed to load environment atlas — continuing without IBL");
+        if (Texture* helipad = _helipad->resourceAs<Texture>()) {
+            scene()->setEnvAtlas(helipad);
         }
 
-        // -----------------------------------------------------------------------
-        // Load the bitmoji character model
-        // -----------------------------------------------------------------------
-        spdlog::info("Loading bitmoji character GLB...");
+        // translateLocal(0.5, 3, 8), then rotateLocal(-30, 0, 0).
+        _camera = createCamera(Vector3(0.5f, 3.0f, 8.0f), Vector3(-30.0f, 0.0f, 0.0f));
+        _camera->setName("Camera");
+        if (auto* camera = _camera->findComponent<CameraComponent>(); camera && camera->camera()) {
+            camera->camera()->setClearColor(Color(0.1f, 0.15f, 0.2f, 1.0f));
+            camera->setToneMapping(TONEMAP_ACES);
+        }
+
+        auto* lightEntity = createDirectionalLight(Vector3(60.0f, 30.0f, 0.0f),
+            Color(1.0f, 1.0f, 1.0f, 1.0f), 2.0f, true);
+        if (auto* light = lightEntity->findComponent<LightComponent>()) {
+            light->setShadowBias(0.2f);
+            light->setShadowDistance(16.0f);
+            light->setShadowNormalBias(0.05f);
+            light->setShadowResolution(2048);
+        }
+
+        // The character entity carries the anim component and is moved by update();
+        // the rendered model is its child, so the clips drive the model's nodes.
         auto* container = _modelAsset->resourceAs<ContainerResource>();
-        if (!container) {
-            spdlog::error("GLB load failed: the asset did not load as a container");
+        Entity* renderEntity = container ? container->instantiateRenderEntity() : nullptr;
+        if (!renderEntity) {
+            spdlog::error("bitmoji.glb failed to load");
             return false;
         }
+        _character = new Entity();
+        _character->setEngine(engine());
+        _character->addChild(renderEntity);
 
-        auto* modelEntity = container->instantiateRenderEntity();
-        if (!modelEntity) {
-            spdlog::error("GLB instantiate failed");
+        const auto idle = firstAnimTrack(_idleAsset.get());
+        const auto walk = firstAnimTrack(_walkAsset.get());
+        const auto jog = firstAnimTrack(_jogAsset.get());
+        const auto jump = firstAnimTrack(_jumpAsset.get());
+        if (!idle || !walk || !jog || !jump) {
             return false;
-        }
-        modelEntity->setEngine(engine());
-        root()->addChild(modelEntity);
-
-        // Load the separate per-clip animation GLBs and extract their tracks. These
-        // will be retargeted onto the bitmoji rig by node name.
-        auto idleTrack = loadFirstAnimTrack(_idleAnimAsset.get());
-        auto walkTrack = loadFirstAnimTrack(_walkAnimAsset.get());
-        auto runTrack = loadFirstAnimTrack(_runAnimAsset.get());
-
-        // Log model stats
-        {
-            int renderComps = 0, meshInsts = 0;
-            for (auto* render : engine()->components().instances<RenderComponent>()) {
-                if (!render || !render->entity()) continue;
-                auto* owner = render->entity();
-                if (owner != modelEntity && !owner->isDescendantOf(modelEntity)) continue;
-                renderComps++;
-                meshInsts += static_cast<int>(render->meshInstances().size());
-            }
-            spdlog::info("Model loaded: {} render components, {} mesh instances",
-                renderComps, meshInsts);
-        }
-
-        // Build the anim state graph:
-        //
-        //   START ──► Idle ──(speed >= 0.5)──► Locomotion (1D blend: Walk@1 .. Run@2)
-        //              ▲                            │
-        //              └───────(speed < 0.5)────────┘
-        //
-        if (!idleTrack || !walkTrack || !runTrack) {
-            spdlog::error("Missing one or more animation tracks — cannot build state graph");
-            return false;
-        }
-
-        // The bitmoji GLB has no embedded animations, but disable any legacy
-        // AnimationComponent just in case so it doesn't fight the state graph.
-        if (auto* legacyAnim = modelEntity->findComponent<AnimationComponent>()) {
-            legacyAnim->setPlaying(false);
-            legacyAnim->setEnabled(false);
         }
 
         AnimStateGraph stateGraph;
-        stateGraph.addFloatParameter("speed", 0.0f);
-
+        stateGraph.addIntegerParameter("speed", 0);
+        stateGraph.addTriggerParameter("jump");
         auto& layer = stateGraph.addLayer("locomotion");
-        layer.states.push_back(AnimStateDesc{"Idle"});
+        for (const char* state : {"Idle", "Walk", "Jump", "Jog"}) {
+            layer.states.push_back(AnimStateDesc{state});
+        }
+        using P = AnimPredicate;
+        layer.transitions = {
+            {.from = "START", .to = "Idle"},
+            {.from = "Idle", .to = "Walk", .time = 0.1f, .conditions = {{"speed", P::GREATER_THAN, 0.0f}}},
+            {.from = "ANY", .to = "Jump", .time = 0.1f, .conditions = {{"jump", P::EQUAL_TO, 1.0f}}},
+            {.from = "Jump", .to = "Idle", .time = 0.2f, .exitTime = 0.8f},
+            {.from = "Jump", .to = "Walk", .time = 0.2f, .exitTime = 0.8f},
+            {.from = "Walk", .to = "Idle", .time = 0.1f, .conditions = {{"speed", P::LESS_THAN_EQUAL_TO, 0.0f}}},
+            {.from = "Walk", .to = "Jog", .time = 0.1f, .conditions = {{"speed", P::GREATER_THAN, 1.0f}}},
+            {.from = "Jog", .to = "Walk", .time = 0.1f, .conditions = {{"speed", P::LESS_THAN, 2.0f}}},
+        };
 
-        AnimBlendTreeDesc locomotionTree;
-        locomotionTree.type = AnimBlendType::BLEND_1D;
-        locomotionTree.parameters = {"speed"};
-        locomotionTree.syncAnimations = true;
-        locomotionTree.children.push_back(AnimBlendTreeDesc{.name = "Walk", .point = Vector2(1.0f, 0.0f)});
-        locomotionTree.children.push_back(AnimBlendTreeDesc{.name = "Run", .point = Vector2(2.0f, 0.0f)});
-        layer.states.push_back(AnimStateDesc{"Locomotion", 1.0f, true, locomotionTree});
+        _anim = static_cast<AnimComponent*>(_character->addComponent<AnimComponent>());
+        _anim->loadStateGraph(stateGraph);
+        _anim->assignAnimation("Idle", idle);
+        _anim->assignAnimation("Walk", walk);
+        _anim->assignAnimation("Jog", jog);
+        _anim->assignAnimation("Jump", jump);
+        root()->addChild(_character);
 
-        layer.transitions.push_back(AnimTransitionDesc{.from = "START", .to = "Idle"});
-        layer.transitions.push_back(AnimTransitionDesc{
-            .from = "Idle", .to = "Locomotion", .time = 0.4f,
-            .conditions = {{"speed", AnimPredicate::GREATER_THAN_EQUAL_TO, 0.5f}}});
-        layer.transitions.push_back(AnimTransitionDesc{
-            .from = "Locomotion", .to = "Idle", .time = 0.4f,
-            .conditions = {{"speed", AnimPredicate::LESS_THAN, 0.5f}}});
-
-        _animComp = static_cast<AnimComponent*>(modelEntity->addComponent<AnimComponent>());
-        _animComp->loadStateGraph(stateGraph);
-        // Assign tracks parsed from the SEPARATE animation GLBs — retargeted onto
-        // the bitmoji rig by node name.
-        _animComp->assignAnimation("Idle", idleTrack);
-        _animComp->assignAnimation("Locomotion.Walk", walkTrack);
-        _animComp->assignAnimation("Locomotion.Run", runTrack);
-
-        spdlog::info("State graph loaded: states [Idle, Locomotion(Walk|Run)] — keys 1/2/3/4 set speed");
-
-        // -----------------------------------------------------------------------
-        // Ground plane (playcanvas-grey texture)
-        // -----------------------------------------------------------------------
+        // The ground: a 15 x 15 plane with a static, flat box collider for the click raycast.
         _groundMaterial = std::make_shared<StandardMaterial>();
-        if (Texture* groundTexture = _groundTexAsset->resourceAs<Texture>()) {
-            _groundMaterial->setDiffuseMap(groundTexture);
-        } else {
-            _groundMaterial->setDiffuse(Color(0.5f, 0.5f, 0.5f, 1.0f));
-            spdlog::warn("Ground texture failed to load — using flat grey");
+        if (Texture* texture = _groundTexture->resourceAs<Texture>()) {
+            _groundMaterial->setDiffuseMap(texture);
         }
-        createPrimitive("plane", _groundMaterial.get(), Vector3(0.0f, 0.0f, 0.0f),
+        Entity* plane = createPrimitive("plane", _groundMaterial.get(), Vector3(0.0f, 0.0f, 0.0f),
             Vector3(15.0f, 1.0f, 15.0f));
+        plane->setName("Plane");
+        auto* collision = static_cast<CollisionComponent*>(plane->addComponent<CollisionComponent>());
+        collision->setType("box");
+        collision->setHalfExtents(Vector3(7.5f, 0.0f, 7.5f));
+        auto* body = static_cast<RigidBodyComponent*>(plane->addComponent<RigidBodyComponent>());
+        body->setType(RigidBodyType::Static);
 
-        // Auto-frame the model
-        const BoundingBox modelBounds = entityBounds(modelEntity);
-        _center = modelBounds.center();
-        const Vector3 halfExt = modelBounds.halfExtents();
-        const float radius = std::max(halfExt.length(), 0.5f);
-        spdlog::info("Model bounds: center=({:.2f}, {:.2f}, {:.2f}), half=({:.2f}, {:.2f}, {:.2f}), radius={:.2f}",
-            _center.getX(), _center.getY(), _center.getZ(),
-            halfExt.getX(), halfExt.getY(), halfExt.getZ(), radius);
+        _rigidBodies = dynamic_cast<RigidBodyComponentSystem*>(engine()->systems()->getById("rigidbody"));
 
-        // -----------------------------------------------------------------------
-        // Lights
-        // -----------------------------------------------------------------------
-        auto* keyLight = createDirectionalLight(Vector3(45.0f, 30.0f, 0.0f),
-            Color(1.0f, 0.97f, 0.92f), 1.5f, true);
-        if (auto* keyLightComp = keyLight->findComponent<LightComponent>()) {
-            keyLightComp->setShadowResolution(2048);
-            // Shadow distance 16, bias 0.2, normal offset bias 0.05.
-            // The one cascade spans the camera frustum out to the shadow distance, so
-            // at 100 m the texel would be 10 cm on a 1.8 m character — a smeared
-            // shadow whose limbs pop in and out as it moves, which reads as flicker.
-            // At 16 m the texel is under 2 cm.
-            keyLightComp->setShadowDistance(16.0f);
-            keyLightComp->setShadowBias(0.2f);
-            keyLightComp->setShadowNormalBias(0.05f);
-            // One cascade. A second would make the character's shadow
-            // SOFTER: two cascades split the 2048 atlas into 1024 quadrants, and with
-            // distribution 0.5 the split lands at 4 m, so the character at 5 m falls
-            // into the far cascade with a 3 cm texel against the single cascade's
-            // 1.7 cm. Cascades pay off only when the far one
-            // has to reach far beyond the subject, and nothing here does.
-        }
-
-        createDirectionalLight(Vector3(-20.0f, -150.0f, 0.0f), Color(0.65f, 0.75f, 1.0f), 0.5f);
-
-        // -----------------------------------------------------------------------
-        // Camera with orbit controls
-        // -----------------------------------------------------------------------
-        _camDistance = std::max(radius * 2.8f, 5.0f);
-        auto* cameraEntity = createCamera(_center + Vector3(0.0f, radius * 0.5f, _camDistance));
-
-        if (auto* cameraComp = cameraEntity->findComponent<CameraComponent>();
-            cameraComp && cameraComp->camera()) {
-            cameraComp->camera()->setClearColor(Color(0.05f, 0.05f, 0.08f, 1.0f));
-            cameraComp->camera()->setFov(55.0f);
-            cameraComp->camera()->setNearClip(std::max(0.01f, radius * 0.005f));
-            cameraComp->camera()->setFarClip(std::max(500.0f, radius * 20.0f));
-        }
-
-        _controls = addOrbitControls(cameraEntity, _center);
-        _controls->setMoveSpeed(radius);
-        _controls->setMoveFastSpeed(radius * 2.0f);
-        _controls->setMoveSlowSpeed(radius * 0.5f);
-        _controls->setOrbitDistance(_camDistance);
-        _controls->storeResetState();
-
-        spdlog::info("Controls: LMB/RMB orbit, Shift/MMB pan, Wheel zoom, F focus, R reset, Esc quit");
-
+        spdlog::info("Click the ground to walk there; Space jumps, R toggles Run (now off).");
         return true;
     }
 
-    bool onEvent(const SDL_Event& event) override
-    {
-        if (event.type != SDL_EVENT_KEY_DOWN) {
-            return false;
-        }
-        if (event.key.key >= SDLK_1 && event.key.key <= SDLK_4 && _animComp) {
-            static constexpr float speeds[] = {0.0f, 1.0f, 2.0f, 1.5f};
-            const float speed = speeds[event.key.key - SDLK_1];
-            _autoDemo = false;  // manual control takes over
-            _animComp->setFloat("speed", speed);
-            spdlog::info("speed = {:.1f} (state: {})", speed,
-                _animComp->baseLayer() ? _animComp->baseLayer()->activeState() : "?");
-            return true;
-        }
-        if (event.key.key == SDLK_F && _controls) {
-            _controls->focus(_center, _camDistance);
-            return true;
-        }
-        return false;
-    }
-
-    // engine->update(dt) advances the animation, which drives the joint entities;
-    // GPU skinning follows the bones each frame.
     void update(const float dt) override
     {
-        // Auto-demo: cycle the speed parameter until the user presses a number key.
-        if (!_autoDemo || !_animComp) {
+        if (!_anim || !_anim->baseLayer()) {
             return;
         }
-        static constexpr float demoSpeeds[] = {0.0f, 2.0f, 1.5f, 1.0f};
-        static constexpr const char* demoLabels[] = {
-            "idle (Survey)", "run", "walk/run 50/50 blend", "walk"};
+        AnimComponentLayer* layer = _anim->baseLayer();
 
-        _demoTime += dt;
-        const int step = static_cast<int>(_demoTime / 4.0f) % 4;
-        if (step != _demoStep) {
-            _demoStep = step;
-            _animComp->setFloat("speed", demoSpeeds[step]);
-            spdlog::info("[auto-demo] speed = {:.1f} → {} (state: {})", demoSpeeds[step],
-                demoLabels[step],
-                _animComp->baseLayer() ? _animComp->baseLayer()->activeState() : "?");
+        if (const auto* keyboard = engine()->keyboard()) {
+            if (keyboard->wasPressed(Key::Space) && layer->activeState() != "Jump") {
+                _anim->setTrigger("jump");
+            }
+            if (keyboard->wasPressed(Key::R)) {
+                _jogToggle = !_jogToggle;
+                spdlog::info("Run {}", _jogToggle ? "on" : "off");
+            }
         }
-    }
 
-    void destroy() override
-    {
-        spdlog::info("*** Animation Example Finished ***");
+        // A left click sets the target to the point of the ground under the pointer.
+        if (const auto* mouse = engine()->mouse(); mouse && mouse->wasPressed(MouseButton::Left) && _rigidBodies) {
+            if (auto* camera = _camera->findComponent<CameraComponent>(); camera && camera->camera()) {
+                const Vector3 nearPoint = camera->screenToWorld(mouse->x(), mouse->y(), camera->camera()->nearClip());
+                const Vector3 farPoint = camera->screenToWorld(mouse->x(), mouse->y(), camera->camera()->farClip());
+                if (const auto result = _rigidBodies->raycastFirst(farPoint, nearPoint)) {
+                    _targetPosition = Vector3(result->point.getX(), 0.0f, result->point.getZ());
+                    _anim->setInteger("speed", _jogToggle ? 2 : 1);
+                }
+            }
+        }
+
+        if (_anim->getInteger("speed") == 0) {
+            return;
+        }
+        // Move toward the target at the state's speed, blended across a transition, facing
+        // the way the character goes.
+        float moveSpeed = speedForState(layer->activeState());
+        if (layer->transitioning()) {
+            const float progress = layer->transitionProgress();
+            moveSpeed = speedForState(layer->previousState()) * (1.0f - progress) + moveSpeed * progress;
+        }
+        const Vector3 distance = _targetPosition - _currentPosition;
+        const Vector3 direction = distance.normalized();
+        const Vector3 movement = direction * (dt * moveSpeed);
+        if (movement.length() < distance.length()) {
+            _currentPosition = _currentPosition + movement;
+            _character->setPosition(_currentPosition);
+            _character->lookAt(_currentPosition - direction);
+        } else {
+            _currentPosition = _targetPosition;
+            _character->setPosition(_currentPosition);
+            _anim->setInteger("speed", 0);
+        }
     }
 
 private:
+    std::unique_ptr<Asset> _groundTexture;
     std::unique_ptr<Asset> _modelAsset;
-    std::unique_ptr<Asset> _idleAnimAsset;
-    std::unique_ptr<Asset> _walkAnimAsset;
-    std::unique_ptr<Asset> _runAnimAsset;
-    std::unique_ptr<Asset> _groundTexAsset;
-    std::unique_ptr<Asset> _envAtlas;
+    std::unique_ptr<Asset> _idleAsset;
+    std::unique_ptr<Asset> _walkAsset;
+    std::unique_ptr<Asset> _jogAsset;
+    std::unique_ptr<Asset> _jumpAsset;
+    std::unique_ptr<Asset> _helipad;
 
     std::shared_ptr<StandardMaterial> _groundMaterial;
-    AnimComponent* _animComp = nullptr;
-    CameraControls* _controls = nullptr;
+    Entity* _camera = nullptr;
+    Entity* _character = nullptr;
+    AnimComponent* _anim = nullptr;
+    RigidBodyComponentSystem* _rigidBodies = nullptr;
 
-    Vector3 _center;
-    float _camDistance = 5.0f;
-
-    bool _autoDemo = true;
-    float _demoTime = 0.0f;
-    int _demoStep = -1;
+    bool _jogToggle = false;
+    Vector3 _targetPosition{2.0f, 0.0f, 2.0f};
+    Vector3 _currentPosition{0.0f, 0.0f, 0.0f};
 };
 
 VISUTWIN_EXAMPLE_MAIN(AnimStateGraphExample)

@@ -625,7 +625,7 @@ namespace visutwin::canvas
         }
     }
 
-    void Renderer::cullShadowmaps(Camera* camera)
+    void Renderer::cullShadowmaps(Camera* camera, const CameraComponent* cameraComponent, const bool designated)
     {
         // Refresh only this camera's entry — buildFrameGraph calls this once per
         // unique camera, and clearing the whole map here would wipe the entries
@@ -652,6 +652,17 @@ namespace visutwin::canvas
             if (!sceneLight) {
                 continue;
             }
+            if (!designated) {
+                if (sceneLight->shadowUpdateMode() != ShadowUpdateType::SHADOWUPDATE_REALTIME) {
+                    continue;
+                }
+                const bool lightsCameraLayer = !cameraComponent ||
+                    std::ranges::any_of(lightComponent->layers(),
+                        [cameraComponent](const int layer) { return cameraComponent->rendersLayer(layer); });
+                if (!lightsCameraLayer) {
+                    continue;
+                }
+            }
 
             // Allocate shadow map if not yet created; the light owns it.
             if (!sceneLight->shadowMap()) {
@@ -676,6 +687,7 @@ namespace visutwin::canvas
             // one-shot consume both gate on needsShadowRendering themselves.
             if (sceneLight->shadowUpdateMode() != ShadowUpdateType::SHADOWUPDATE_NONE) {
                 _shadowRendererDirectional->cull(sceneLight, camera);
+                sceneLight->storeDirectionalFit(camera);
             }
 
             dirShadowLights.push_back(sceneLight);
@@ -1205,12 +1217,13 @@ namespace visutwin::canvas
         // shadowless fill light carrying the key light's shadows. The filter (PCF, PCSS, VSM) is chosen per
         // shader variant, so every slot must share the first slot's shadow type.
         //
-        // `fitCamera` is the camera the cascades were fitted for (see
-        // Renderer::directionalShadowFitCamera).
-        void assignDirectionalShadowSlot(const LightComponent& lightComponent, Camera* fitCamera,
+        // `camera` is the camera drawing; the cascades it samples are its own fit, or the
+        // light's latest one (Light::directionalFitCamera).
+        void assignDirectionalShadowSlot(const LightComponent& lightComponent, Camera* camera,
             GpuLightData& lightData, ShadowParams& shadowParams)
         {
             Light* sceneLight = lightComponent.light();
+            Camera* fitCamera = sceneLight ? sceneLight->directionalFitCamera(camera) : camera;
             const bool vsm = sceneLight && sceneLight->shadowType() == SHADOW_VSM_16F;
             const bool pcss = sceneLight && sceneLight->shadowType() == SHADOW_PCSS_32F;
             const int slot = shadowParams.directionalCount;
@@ -1253,9 +1266,9 @@ namespace visutwin::canvas
             // CSM: copy the full matrix palette and cascade distances.
             dir.numCascades = sceneLight->numCascades();
             dir.cascadeBlend = sceneLight->cascadeBlend();
-            std::memcpy(dir.shadowMatrixPalette, sceneLight->shadowMatrixPalette().data(),
+            std::memcpy(dir.shadowMatrixPalette, sceneLight->shadowMatrixPalette(fitCamera).data(),
                         sizeof(dir.shadowMatrixPalette));
-            std::memcpy(dir.shadowCascadeDistances, sceneLight->shadowCascadeDistances().data(),
+            std::memcpy(dir.shadowCascadeDistances, sceneLight->shadowCascadeDistances(fitCamera).data(),
                         sizeof(dir.shadowCascadeDistances));
 
             // For PCF: a fixed small shader-side depth bias; the real bias work
@@ -1434,7 +1447,7 @@ namespace visutwin::canvas
         };
 
         void gatherForwardLights(const ForwardView& view, const Layer& layer, const Scene* scene,
-            const bool clusteredEnabled, Camera* directionalFitCamera, ForwardLights& out)
+            const bool clusteredEnabled, Camera* camera, ForwardLights& out)
         {
             const bool physicalUnits = scene && scene->physicalUnits();
             CookieSlots cookieSlots;
@@ -1461,7 +1474,7 @@ namespace visutwin::canvas
 
                 if (lightData.castShadows) {
                     if (lightData.type == GpuLightType::Directional) {
-                        assignDirectionalShadowSlot(*lightComponent, directionalFitCamera, lightData, out.shadowParams);
+                        assignDirectionalShadowSlot(*lightComponent, camera, lightData, out.shadowParams);
                     } else if (!clusteredEnabled) {
                         assignLocalShadowSlot(*lightComponent, lightData, out.shadowParams);
                     }
@@ -2174,17 +2187,6 @@ namespace visutwin::canvas
         _clusterConfig.maxLightsPerCell = std::max(1, lightingParams.maxLightsPerCell);
     }
 
-    Camera* Renderer::directionalShadowFitCamera(Camera* camera) const
-    {
-        // Cascades are fit for a single designated camera per frame (see
-        // ForwardRenderer::buildFrameGraph) — use its render data whichever
-        // camera's pass is being encoded, so the matrices match the map.
-        if (!_cameraDirShadowLights.contains(camera) && !_cameraDirShadowLights.empty()) {
-            return _cameraDirShadowLights.begin()->first;
-        }
-        return camera;
-    }
-
     void Renderer::bindLayerClusterLights(const std::vector<ClusterLightData>& lights,
         const std::vector<const void*>& lightSetMembers)
     {
@@ -2306,8 +2308,7 @@ namespace visutwin::canvas
         }
 
         lights.reset();
-        gatherForwardLights(view, *layer, _scene.get(), clusteredEnabled,
-            directionalShadowFitCamera(camera), lights);
+        gatherForwardLights(view, *layer, _scene.get(), clusteredEnabled, camera, lights);
 
         bindLayerEnvironment(*_device, _scene.get(), view);
 

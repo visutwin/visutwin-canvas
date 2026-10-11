@@ -55,6 +55,8 @@ namespace visutwin::canvas
         /// Groups the render actions into blocks and adds one pass per block (a
         /// forward pass, or a camera frame), plus the grab passes between them.
         void addRenderActionPasses(FrameGraph* frameGraph, LayerComposition* layerComposition);
+        /// The directional shadow passes of `camera`'s fitted lights, if it has any.
+        void addDirectionalShadowPasses(FrameGraph* frameGraph, Camera* camera);
         /// Whether the block that `action` belongs to ends with it.
         bool endsRenderActionBlock(const RenderAction& action, const RenderAction* next,
             const RenderTarget* blockTarget) const;

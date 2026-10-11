@@ -75,7 +75,7 @@ for details.
   Roboto fonts.
 
 ### animations/bitmoji/ — complete
-- `idle.glb`, `walk.glb`, `run.glb`, `jump-flip.glb`, `win-dance.glb` — Bitmoji locomotion clips (CC-0)
+- `idle.glb`, `idle-eager.glb`, `walk.glb`, `run.glb`, `jump-flip.glb`, `win-dance.glb` — Bitmoji locomotion clips (CC-0)
 
 ### hdri/ — complete
 - `cannon-2k.hdr` — Cannon outdoor HDRI from Poly Haven (CC-0)

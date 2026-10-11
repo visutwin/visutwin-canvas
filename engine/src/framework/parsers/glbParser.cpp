@@ -1106,10 +1106,9 @@ namespace visutwin::canvas
                 if (outHasTangents) {
                     const draco::AttributeValueIndex tangentValueIndex = tangentAttr->mapped_index(pointIndex);
                     if (tangentValueIndex >= 0) {
+                        // Taken as the file has it: glTF's bitangent, cross(N, T) * w, points
+                        // toward the image's top row, as the engine's does.
                         tangentAttr->ConvertValue<float, 4>(tangentValueIndex, tangent.data());
-                        // glTF's bitangent sign is the opposite of the engine's (the generated
-                        // tangents below take the same sign).
-                        tangent[3] = -tangent[3];
                     }
                 }
 
@@ -2826,11 +2825,9 @@ namespace visutwin::canvas
                     // building a bogus fixed basis. There is no derivative-based TBN
                     // fallback in this port.
                     float tangent[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-                    if (tangents.read(i, tangent, 4)) {
-                        // glTF's bitangent sign is the opposite of the engine's (the generated
-                        // tangents below take the same sign).
-                        tangent[3] = -tangent[3];
-                    }
+                    // Taken as the file has it: glTF's bitangent, cross(N, T) * w, points
+                    // toward the image's top row, as the engine's does.
+                    tangents.read(i, tangent, 4);
                     if (!colors.empty()) {
                         colorReader.read(i, colors.data() + i * 4, colorReader.components());
                     }
@@ -2870,8 +2867,8 @@ namespace visutwin::canvas
             }
             if (!hasTangents && mode == TINYGLTF_MODE_TRIANGLES) {
                 generateTangents(vertices, parsedIndices);
-                // The generator points the bitangent toward increasing v; a glTF tangent
-                // frame takes the opposite sign, as an imported tangent does.
+                // The generator points the bitangent toward increasing v; the engine's
+                // (and glTF's) points toward decreasing v, the image's top row.
                 for (auto& vertex : vertices) {
                     vertex.tw = -vertex.tw;
                 }

@@ -33,12 +33,15 @@
     color += emissive;
 
     // ── Blurred planar reflection ──
-    // DEVIATION: upstream implements planar reflection as a ShaderMaterial
-    // script; here it is a shader feature fed by LightingData. The reflection
-    // camera renders the mirrored scene into binding 15; the optional depth
-    // camera writes a per-pixel distance-from-plane into binding 16, which scales
-    // the blur radius so objects touching the ground reflect sharply and distant
-    // ones smear.
+    // DEVIATION: upstream implements planar reflection as a ShaderMaterial script that
+    // REPLACES the surface's material; here it is a shader feature fed by LightingData,
+    // and it replaces the surface's colour the same way. The reflection camera renders
+    // the mirrored scene into binding 15; the depth camera writes each pixel's distance
+    // from the plane (over the height range) into binding 16, which widens the blur and
+    // fades toward the fade colour, so contact points reflect sharply and raised parts
+    // smear and fade. Reproduced quirk: the reflection map already holds display-encoded
+    // colour and the result is gamma-encoded again without tone mapping, as upstream's
+    // material does, so a white fade colour stays exactly white.
     if (vtFeatureEnabled(VT_FEATURE_PLANAR_REFLECTION_BIT) &&
         lighting.reflectionDepthParams.z > 0.5) {
         // Screen-space UV. vtFragCoord and the sampler UV are both top-left
@@ -59,62 +62,52 @@
         // map is bound comes from the uniform flag, not from the texture.
         bool hasDepthMap = lighting.reflectionDepthParams.w > 0.5;
         float distFromPlane = hasDepthMap
-            ? planarReflectionDepth.Sample(linearClampSampler, reflUV).r : 0.0;
+            ? planarReflectionDepth.SampleLevel(linearClampSampler, reflUV, 0.0).r : 0.0;
 
-        float3 reflColor;
-        if (blurAmount > 0.001) {
-            // 32-tap Poisson disk, offsets distributed in a unit circle.
-            const int NUM_TAPS = 32;
-            const float2 poissonTaps[NUM_TAPS] = float2[NUM_TAPS](
-                float2(-0.220147, 0.976896), float2(-0.735514, 0.693436),
-                float2(-0.200476, 0.310353), float2( 0.180822, 0.454146),
-                float2( 0.292754, 0.937414), float2( 0.564255, 0.207879),
-                float2( 0.178031, 0.024583), float2( 0.613912,-0.205936),
-                float2(-0.385540,-0.070092), float2( 0.962838, 0.378319),
-                float2(-0.886362, 0.032122), float2(-0.466531,-0.741458),
-                float2( 0.006773,-0.574796), float2(-0.739828,-0.410584),
-                float2( 0.590785,-0.697557), float2(-0.081436,-0.963262),
-                float2( 1.000000,-0.100160), float2( 0.622430, 0.680868),
-                float2(-0.545396, 0.538133), float2( 0.330651,-0.468300),
-                float2(-0.168019,-0.623054), float2( 0.427100, 0.698100),
-                float2(-0.827445,-0.304350), float2( 0.765140, 0.556640),
-                float2(-0.403340, 0.198600), float2( 0.114050,-0.891450),
-                float2(-0.956940, 0.258450), float2( 0.310545,-0.142367),
-                float2(-0.143134, 0.619453), float2( 0.870890,-0.227634),
-                float2(-0.627623, 0.019867), float2( 0.487623, 0.012367)
-            );
-
-            float reflTexWidth = float(vtTextureSize(planarReflection, 0).x);
-            float area = hasDepthMap
-                ? distFromPlane * 80.0 * blurAmount / reflTexWidth
-                : blurAmount * 80.0 / reflTexWidth;
-
-            reflColor = float3(0.0);
-            for (int i = 0; i < NUM_TAPS; ++i) {
-                reflColor += planarReflection.Sample(linearClampSampler, reflUV + poissonTaps[i] * area).rgb;
-            }
-            reflColor /= float(NUM_TAPS);
-        } else {
-            reflColor = planarReflection.Sample(linearClampSampler, reflUV).rgb;
+        // 32-tap Poisson disk, offsets distributed in a unit circle, spread and mip
+        // level growing with the distance from the plane.
+        const int NUM_TAPS = 32;
+        const float2 poissonTaps[NUM_TAPS] = float2[NUM_TAPS](
+            float2(-0.220147, 0.976896), float2(-0.735514, 0.693436),
+            float2(-0.200476, 0.310353), float2( 0.180822, 0.454146),
+            float2( 0.292754, 0.937414), float2( 0.564255, 0.207879),
+            float2( 0.178031, 0.024583), float2( 0.613912,-0.205936),
+            float2(-0.385540,-0.070092), float2( 0.962838, 0.378319),
+            float2(-0.886362, 0.032122), float2(-0.466531,-0.741458),
+            float2( 0.006773,-0.574796), float2(-0.739828,-0.410584),
+            float2( 0.590785,-0.697557), float2(-0.081436,-0.963262),
+            float2( 1.000000,-0.100160), float2( 0.622430, 0.680868),
+            float2(-0.545396, 0.538133), float2( 0.330651,-0.468300),
+            float2(-0.168019,-0.623054), float2( 0.427100, 0.698100),
+            float2(-0.827445,-0.304350), float2( 0.765140, 0.556640),
+            float2(-0.403340, 0.198600), float2( 0.114050,-0.891450),
+            float2(-0.956940, 0.258450), float2( 0.310545,-0.142367),
+            float2(-0.143134, 0.619453), float2( 0.870890,-0.227634),
+            float2(-0.627623, 0.019867), float2( 0.487623, 0.012367)
+        );
+        float reflTexWidth = float(vtTextureSize(planarReflection, 0).x);
+        float area = distFromPlane * 80.0 * blurAmount / reflTexWidth;
+        float mipLevel = min(distFromPlane * 2.0 * blurAmount, 4.0);
+        float3 reflColor = float3(0.0);
+        for (int i = 0; i < NUM_TAPS; ++i) {
+            reflColor += planarReflection.SampleLevel(linearClampSampler,
+                reflUV + poissonTaps[i] * area, mipLevel).rgb;
         }
+        reflColor /= float(NUM_TAPS);
 
-        // Intensity fades toward fadeColor.
+        // Intensity fades toward the fade colour.
         reflColor = lerp(fadeColor, reflColor, reflIntensityParam);
 
-        // Fresnel fade: straight down → fadeColor, grazing → full reflection.
-        float NdotVAbs = abs(dot(N, V));
-        float fresnelFade = pow(NdotVAbs, max(angleFade, 0.01));
-
-        // Distance fade, approximated from the camera-to-fragment distance.
-        float viewDist = distance(fragWorldPos, lighting.cameraPosExposure.xyz);
-        float distanceFade = 1.0 - exp(-viewDist * fadeStrength * 0.1);
-
-        // Either fade can pull the result toward fadeColor.
+        // Either fade pulls the result toward the fade colour: the distance from the
+        // plane (exponential), or looking straight down at the plane (Fresnel-like).
+        float distanceFade = 1.0 - exp(-distFromPlane * fadeStrength * 3.0);
+        float NdotVAbs = abs(dot(normalize(fragWorldNormal), V));
+        float fresnelFade = pow(NdotVAbs, angleFade);
         reflColor = lerp(reflColor, fadeColor, max(distanceFade, fresnelFade));
 
-        // Glossier surfaces show more reflection.
-        float reflGloss = 1.0 - roughness;
-        color = lerp(color, reflColor, reflGloss * reflIntensityParam);
+        bool reflLinearTarget = (lighting.flagsAndPad[0] & (1u << 5)) != 0u;
+        outColor = float4(reflLinearTarget ? reflColor : pow(max(reflColor, float3(0.0)), float3(1.0 / 2.2)), 1.0);
+        return outColor;
     }
 
     // Debug surface-quantity output. Replaces the

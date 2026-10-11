@@ -289,4 +289,7 @@ struct ForwardVarying
     // An instanced draw's per-instance base colour (sRGB), which replaces the material's under
     // VT_FEATURE_INSTANCING_COLOR; the material's own base colour everywhere else.
     [[vk::location(8)]] nointerpolation float4 instanceColor : TEXCOORD7;
+    // The model's +Y axis in world space (normal matrix), for the object-space tangent frame
+    // a material without normal, clearcoat-normal or height maps builds its anisotropy on.
+    [[vk::location(9)]] float3 objectUp : TEXCOORD8;
 };
