@@ -26,6 +26,30 @@ public float2 dirToUvEquirect(float3 dir)
     return float2(phi / (2.0 * ENV_PI) + 0.5, 1.0 - (theta / ENV_PI + 0.5));
 }
 
+/// The direction through `uv` on cube face `face` (0..5: +X, -X, +Y, -Y, +Z, -Z), the
+/// standard cube convention the hardware lookup uses, so a face rendered through it holds
+/// f(d) wherever a lookup along d lands.
+public float3 cubeFaceUvToDir(uint face, float2 uv)
+{
+    const float sc = uv.x * 2.0 - 1.0;
+    const float tc = uv.y * 2.0 - 1.0;
+    float3 dir;
+    if (face == 0u) {
+        dir = float3(1.0, -tc, -sc);
+    } else if (face == 1u) {
+        dir = float3(-1.0, -tc, sc);
+    } else if (face == 2u) {
+        dir = float3(sc, 1.0, tc);
+    } else if (face == 3u) {
+        dir = float3(sc, -1.0, -tc);
+    } else if (face == 4u) {
+        dir = float3(sc, -tc, 1.0);
+    } else {
+        dir = float3(-sc, -tc, -1.0);
+    }
+    return normalize(dir);
+}
+
 public float3 uvToDirOctahedral(float2 uv)
 {
     const float2 f = uv * 2.0 - 1.0;

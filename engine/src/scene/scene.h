@@ -21,6 +21,7 @@
 namespace visutwin::canvas
 {
     class Camera;
+    class Material;
     class ComponentRegistry;
 
     /**
@@ -114,6 +115,14 @@ namespace visutwin::canvas
         // Separate from envAtlas which is only used for PBR lighting.
         void setSkybox(Texture* value);
         Texture* skybox() const { return _skyboxCubeMap; }
+
+        /// A material that draws the sky in place of the skybox or the environment: the
+        /// sky mesh is built for it even with neither set, and draws with it as it is (its
+        /// shader, uniforms and render state; Material::setIsSkybox(true) so it follows the
+        /// camera). The view ray reaches its vertex stage as the mesh-space position. The
+        /// environment still lights the scene. Null restores the engine's own sky.
+        void setSkyMaterial(const std::shared_ptr<Material>& material);
+        const std::shared_ptr<Material>& skyMaterial() const { return _skyMaterial; }
 
         // Local reflection probe: a prefiltered cubemap sampled for specular IBL,
         // optionally box-projected (parallax-corrected) against an axis-aligned
@@ -214,6 +223,7 @@ namespace visutwin::canvas
 
         Texture* _envAtlas = nullptr;
         Texture* _skyboxCubeMap = nullptr;
+        std::shared_ptr<Material> _skyMaterial;
 
         Texture* _reflectionProbeCube = nullptr;
         Vector3 _reflectionProbePos{0.0f, 0.0f, 0.0f};

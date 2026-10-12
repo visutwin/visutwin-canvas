@@ -46,6 +46,14 @@ namespace visutwin::canvas
             return;
         }
 
+        // A sky material draws without a texture of its own.
+        if (_scene->skyMaterial()) {
+            resetSkyMesh();
+            _skyMesh = std::make_unique<SkyMesh>(_device, _scene, &_node, nullptr, _type);
+            _skyMesh->setDepthWrite(_depthWrite);
+            return;
+        }
+
         // When atmosphere scattering is enabled, the sky mesh is needed even
         // without a cubemap/envAtlas — the fragment shader computes sky color
         // procedurally via nishitaScatter(). Create a 1×1 dummy texture and

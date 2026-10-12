@@ -113,6 +113,14 @@ namespace visutwin::canvas
         }
     }
 
+    void Scene::setSkyMaterial(const std::shared_ptr<Material>& material)
+    {
+        if (material != _skyMaterial) {
+            _skyMaterial = material;
+            resetSkyMesh();
+        }
+    }
+
     void Scene::setReflectionProbe(Texture* cubemap, const Vector3& position,
         const Vector3& boxMin, const Vector3& boxMax, const bool boxProjection,
         const float intensity)

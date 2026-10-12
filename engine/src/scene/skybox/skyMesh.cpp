@@ -178,7 +178,8 @@ namespace visutwin::canvas
 
     void SkyMesh::setDepthWrite(const bool value)
     {
-        if (!_material) {
+        // A scene's sky material keeps the depth state it was given.
+        if (!_material || _material == _scene->skyMaterial()) {
             return;
         }
         // Only a sky with geometry of its own (dome, box) writes depth; the infinite sky
@@ -186,6 +187,22 @@ namespace visutwin::canvas
         auto depthState = std::make_shared<DepthState>();
         depthState->setDepthWrite(value && _type != SKYTYPE_INFINITE);
         _material->setDepthState(depthState);
+    }
+
+    void SkyMesh::createDefaultMaterial()
+    {
+        auto material = std::make_shared<Material>();
+        material->setName("SkyMaterial");
+        material->setIsSkybox(true);
+        // render inside of sky geometry.
+        material->setCullMode(CullMode::CULLFACE_FRONT);
+        // Skybox must not write to the depth buffer.
+        // Without this, the skybox (rendered at depth ~0.9999) overwrites distant scene geometry
+        // whose depth values exceed 0.9999 due to perspective depth non-linearity.
+        auto skyDepthState = std::make_shared<DepthState>();
+        skyDepthState->setDepthWrite(false);
+        material->setDepthState(skyDepthState);
+        _material = material;
     }
 
     SkyMesh::SkyMesh(const std::shared_ptr<GraphicsDevice>& device, Scene* scene,
@@ -204,18 +221,11 @@ namespace visutwin::canvas
             return;
         }
 
-        auto material = std::make_shared<Material>();
-        material->setName("SkyMaterial");
-        material->setIsSkybox(true);
-        // render inside of sky geometry.
-        material->setCullMode(CullMode::CULLFACE_FRONT);
-        // Skybox must not write to the depth buffer.
-        // Without this, the skybox (rendered at depth ~0.9999) overwrites distant scene geometry
-        // whose depth values exceed 0.9999 due to perspective depth non-linearity.
-        auto skyDepthState = std::make_shared<DepthState>();
-        skyDepthState->setDepthWrite(false);
-        material->setDepthState(skyDepthState);
-        _material = material;
+        if (_scene->skyMaterial()) {
+            _material = _scene->skyMaterial();
+        } else {
+            createDefaultMaterial();
+        }
 
         _meshInstance = std::make_unique<MeshInstance>(_mesh.get(), _material.get(), node);
 

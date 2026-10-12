@@ -45,6 +45,7 @@ namespace visutwin::canvas
         std::shared_ptr<Mesh> createBoxMesh(const std::shared_ptr<GraphicsDevice>& device) const;
         std::shared_ptr<Mesh> createDomeMesh(const std::shared_ptr<GraphicsDevice>& device) const;
         std::shared_ptr<Mesh> createMeshByType(const std::shared_ptr<GraphicsDevice>& device, int type) const;
+        void createDefaultMaterial();
 
         Scene* _scene = nullptr;
         int _type = 0;

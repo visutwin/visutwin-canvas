@@ -37,6 +37,7 @@ the [README](README.md).
 ## Post-processing & tooling
 - **TAA**, **SSAO** (post-compose or per-material lighting mode), **bloom** (configurable chain depth, threshold, optional full-resolution high quality), **depth of field** (multi-pass bokeh: circle of confusion, CoC-premultiplied far downsample, concentric near/far blur, composed by CoC), **edge detection**, and a compose chain with **color grading**, **3D LUT**, chromatic **fringing**, **color enhance**, **vignette**, and tone mapping (Linear, Filmic, ACES, **ACES2**, Neutral, None)
 - **Planar reflections** with distance-based blur and **atmosphere/sky scattering** (Nishita)
+- **Procedural sky** (`ProceduralSky` script): Preetham daylight with a night sky (stars, twilight, moon), drawn per pixel and baked into the environment atlas that lights the scene, re-baked as the sun moves; drives a sun light
 - **Debug shader passes**: replace the forward output with a single surface quantity (albedo, world normal, opacity, specularity, gloss, metalness, AO, emission, lighting, UV0) — one variant, mode switched at runtime with no recompile
 - **GPU timestamp profiler** (per-pass timings on both backends) and a **MiniStats** HUD built on it, drawn by the engine itself (one-draw quad list, MSDF text, history graphs) on both backends
 - **In-engine measurement hooks** in the examples harness: env-driven screenshot capture (by frame or by time, single or burst), a uniform SH probe, and a mirror floor with a pillar for screen-space-reflection checks

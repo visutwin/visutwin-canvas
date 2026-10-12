@@ -147,6 +147,16 @@ float2 pcssDiskSample(float id, float invCount, float initialAngle) {
     return float2(r * cos(theta), r * sin(theta));
 }
 
+// The directional light's disk: the radius raised to 1.33 draws the taps toward the
+// centre. An even spread reaches further up a sloping receiver and shadows a lit surface
+// with itself (sunlit dunes read about 8% darker).
+float2 pcssDirectionalDiskSample(float id, float invCount, float initialAngle) {
+    const float GOLDEN_ANGLE = 2.399963;
+    float r = pow(sqrt((id + 0.5) * invCount), 1.33);
+    float theta = id * GOLDEN_ANGLE + initialAngle;
+    return float2(r * cos(theta), r * sin(theta));
+}
+
 // Directional PCSS.  `orthoRadius` / `depthRange` are the cascade's shadow-camera
 // world half-extent and caster depth span; `receiverDepth` arrives biased.
 float getShadowPCSSDirectional(int slot, float2 uv, float receiverDepth,
@@ -175,7 +185,7 @@ float getShadowPCSSDirectional(int slot, float2 uv, float receiverDepth,
         int numBlockers = 0;
         for (int i = 0; i < blockerSamples; ++i) {
             float2 sampleUv = uv +
-                pcssDiskSample(float(i), invBlockers, initialAngle) * searchWidthUv;
+                pcssDirectionalDiskSample(float(i), invBlockers, initialAngle) * searchWidthUv;
             float occluder = directionalShadowDepth(slot, sampleUv);
             if (occluder < receiverDepthClamped) {
                 blockerSum += occluder;
@@ -202,7 +212,7 @@ float getShadowPCSSDirectional(int slot, float2 uv, float receiverDepth,
     float sum = 0.0;
     for (int i = 0; i < shadowSamples; ++i) {
         float2 sampleUv = uv +
-            pcssDiskSample(float(i), invSamples, initialAngle) * filterRadius;
+            pcssDirectionalDiskSample(float(i), invSamples, initialAngle) * filterRadius;
         sum += step(receiverDepthClamped, directionalShadowDepth(slot, sampleUv));
     }
     return sum * invSamples;

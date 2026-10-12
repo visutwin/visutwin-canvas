@@ -236,35 +236,50 @@ namespace visutwin::canvas
     Texture* EnvLighting::generateAtlas(GraphicsDevice* device, Texture* source,
                                         int size, int numReflectionSamples, int numAmbientSamples)
     {
+        return generateAtlas(device, source, nullptr, size, numReflectionSamples, numAmbientSamples);
+    }
+
+    Texture* EnvLighting::generateAtlas(GraphicsDevice* device, Texture* source, Texture* target,
+                                        int size, int numReflectionSamples, int numAmbientSamples)
+    {
         if (!device || !source) {
             spdlog::error("EnvLighting::generateAtlas: null device or source");
             return nullptr;
         }
 
-        spdlog::info("EnvLighting: generating {}x{} RGBP atlas from {}x{} equirect source",
-                     size, size, source->width(), source->height());
-
-        // Destination atlas — empty RGBP-encoded texture; the GPU bake fills it.
-        TextureOptions atlasOptions;
-        atlasOptions.name = "envAtlas";
-        atlasOptions.width = size;
-        atlasOptions.height = size;
-        atlasOptions.format = PixelFormat::PIXELFORMAT_RGBA8;
-        atlasOptions.mipmaps = false;
-        atlasOptions.minFilter = FilterMode::FILTER_LINEAR;
-        atlasOptions.magFilter = FilterMode::FILTER_LINEAR;
-        auto* texture = new Texture(device, atlasOptions);
-        texture->setEncoding(TextureEncoding::RGBP);
-        texture->upload();
-
-        // HDR cubemap intermediate for GGX/Lambert convolution.
-        const int cubemapSize = 256;
-        std::shared_ptr<Texture> sourceShared(source, [](Texture*){});
-        auto cubemap = equirectToCubemap(device, sourceShared, cubemapSize, false);
-        if (!cubemap) {
-            spdlog::error("EnvLighting: failed to build HDR cubemap");
-            return texture;
+        // Destination atlas — empty RGBP-encoded texture; the GPU bake fills it. An earlier
+        // atlas of the same size is filled again instead.
+        Texture* texture = target;
+        if (!texture || texture->width() != static_cast<uint32_t>(size) ||
+            texture->height() != static_cast<uint32_t>(size)) {
+            spdlog::info("EnvLighting: generating {}x{} RGBP atlas from a {}x{} {} source",
+                         size, size, source->width(), source->height(),
+                         source->isCubemap() ? "cubemap" : "equirect");
+            TextureOptions atlasOptions;
+            atlasOptions.name = "envAtlas";
+            atlasOptions.width = size;
+            atlasOptions.height = size;
+            atlasOptions.format = PixelFormat::PIXELFORMAT_RGBA8;
+            atlasOptions.mipmaps = false;
+            atlasOptions.minFilter = FilterMode::FILTER_LINEAR;
+            atlasOptions.magFilter = FilterMode::FILTER_LINEAR;
+            texture = new Texture(device, atlasOptions);
+            texture->setEncoding(TextureEncoding::RGBP);
+            texture->upload();
         }
+
+        // HDR cubemap for the GGX/Lambert convolution: the source itself when it is one,
+        // else converted from the equirect.
+        std::shared_ptr<Texture> sourceShared(source, [](Texture*){});
+        std::shared_ptr<Texture> cubemap = sourceShared;
+        if (!source->isCubemap()) {
+            cubemap = equirectToCubemap(device, sourceShared, 256, false);
+            if (!cubemap) {
+                spdlog::error("EnvLighting: failed to build HDR cubemap");
+                return texture;
+            }
+        }
+        const int cubemapSize = static_cast<int>(cubemap->width());
 
         // Layout: mipmap section along the top/diagonal, GGX along the left
         // column of the lower half, Lambert at its fixed sub-rect. Must match
@@ -350,8 +365,6 @@ namespace visutwin::canvas
         }
 
         bakeEnvAtlas(device, opts);
-
-        spdlog::info("EnvLighting: atlas generated ({}x{}, RGBP)", size, size);
         return texture;
     }
 

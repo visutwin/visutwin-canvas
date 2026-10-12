@@ -10,18 +10,9 @@
 // keyframe curves; the sun's elevation in turn drives the sky luminance, the bloom
 // intensity, and the torches inside the laboratory, which glow only between sunset and
 // sunrise. Shadows are PCSS over four cascades and re-render every frame, since the sun
-// never stops moving.
-//
-// DEVIATION — the sky model. Upstream attaches its own `ProceduralSky` ESM script, which
-// renders a Preetham analytic daylight sky (a port of the three.js `Sky` shader) into an
-// equirect texture, bakes image-based lighting from it, and adds a night sky with stars,
-// a moon disk and a twilight band. This port drives the engine's built-in Nishita
-// single-scattering atmosphere from the same sun direction instead. The scene, the sun
-// light (direction, colour and intensity curve), the framing, the effects and the
-// time-of-day behaviour match; the sky itself is a different scattering model and has no
-// night phase, so the cycle here skips the night (20:00 wraps back to 05:00) and there is
-// no moon light. Nor is image-based lighting baked from the sky, so the faces in shadow
-// get no sky ambient.
+// never stops moving. The sky is the ProceduralSky script: a Preetham daylight model and a
+// night sky drawn per pixel, baked into the environment atlas that lights the scene, and
+// steering the sun light.
 //
 // @credit Laboratory by Sketchfab, CC BY 4.0
 // @credit FREE - Dry Sand Terrain by josevega, Sketchfab, CC BY 4.0
@@ -33,6 +24,7 @@
 #include <vector>
 
 #include "extras/script/cameraControls.h"
+#include "extras/script/proceduralSky.h"
 #include "../exampleApp.h"
 #include "core/math/curve.h"
 #include "framework/assets/asset.h"
@@ -47,27 +39,10 @@ using namespace visutwin::canvas;
 constexpr float INITIAL_HOUR = 9.0f;
 constexpr float TIME_SPEED = 1.0f;      // hours per second
 constexpr float SKY_EXPOSURE = 1.8f;
+constexpr float SKY_TURBIDITY = 7.0f;
+constexpr float SKY_RAYLEIGH = 1.0f;
 constexpr float TORCH_INTENSITY = 60.0f;
 constexpr float SUN_INTENSITY = 6.0f;    // the sun at full height
-
-// GPU-side atmosphere uniform block. MUST be a byte-exact mirror of
-// UniformBinder::AtmosphereUniforms (6 x float4 = 96 bytes) — a mis-sized or re-ordered
-// field silently corrupts the shader read and produces a black/broken sky.
-struct alignas(16) AtmosphereData
-{
-    // The planet centre is CAMERA-LOCAL: the shader builds its ray origin as
-    // -planetCenter / planetRadius, so a viewer standing on the surface must put the
-    // centre one planet radius below itself. Leaving this at the origin places the camera
-    // at the planet's core, every view ray starts underground, and the sky renders black —
-    // which is exactly what this example did before.
-    float planetCenterAndRadius[4]           = {0.0f, -6371000.0f, 0.0f, 6371000.0f};
-    float atmosphereRadiusAndSunIntensity[4] = {6471000.0f, 22.0f, 0.9998f, 0.0f};
-    float rayleighCoeffAndScaleHeight[4]     = {5.5e-6f, 13.0e-6f, 22.4e-6f, 8500.0f};
-    float mieCoeffAndScaleHeight[4]          = {21.0e-6f, 1200.0f, 0.758f, 0.0f};
-    float sunDirection[4]                    = {0.0f, 1.0f, 0.0f, 0.0f};
-    float cameraAltitudeAndParams[4]         = {0.0f, 32.0f, 8.0f, 0.0f};
-};
-static_assert(sizeof(AtmosphereData) == 96, "AtmosphereData must be 96 bytes (6 x float4)");
 
 // Accumulated world-space bounds of every mesh instance under a node.
 BoundingBox meshBounds(GraphNode* root)
@@ -112,8 +87,6 @@ public:
 protected:
     bool create() override
     {
-        scene()->setSkyType(SKYTYPE_ATMOSPHERE);
-        scene()->setAtmosphereEnabled(true);
         scene()->setExposure(SKY_EXPOSURE);
 
         _laboratoryAsset = std::make_unique<Asset>(
@@ -252,6 +225,21 @@ protected:
         }
 
         // ---------------------------------------------------------------------
+        // Procedural sky — draws the sky, lights the scene from it, steers the sun light
+        // ---------------------------------------------------------------------
+        auto* skyEntity = new Entity();
+        skyEntity->setName("ProceduralSky");
+        skyEntity->setEngine(engine());
+        skyEntity->addComponent<ScriptComponent>();
+        _sky = skyEntity->script()->create<ProceduralSky>();
+        if (_sky) {
+            _sky->setSunLight(_sunEntity);
+            _sky->setTurbidity(SKY_TURBIDITY);
+            _sky->setRayleigh(SKY_RAYLEIGH);
+        }
+        root()->addChild(skyEntity);
+
+        // ---------------------------------------------------------------------
         // Camera — wide angle so more of the sky is visible
         // ---------------------------------------------------------------------
         auto* cameraEntity = createCamera(Vector3(240.0f, 85.0f, 240.0f));
@@ -309,43 +297,14 @@ protected:
             }
         }
 
-        // Sun: elevation from the time curve, azimuth sweeping east -> west across the day.
+        // Sun: elevation from the time curve, azimuth sweeping east -> west across the day;
+        // the sky's luminance follows the elevation.
         const float elevation = _elevationCurve.value(_hour);
-        const float azimuth = (_hour / 24.0f) * 360.0f;
-        const float el = elevation * DEG_TO_RAD;
-        const float az = azimuth * DEG_TO_RAD;
-        const float cosEl = std::cos(el);
-        const Vector3 sunDir =
-            Vector3(cosEl * std::sin(az), std::sin(el), cosEl * std::cos(az)).normalized();
-
-        // A directional light shines along its entity's -Y, so the entity's +Y points at the
-        // sun (lookAt would aim -Z instead).
-        const Vector3 ref = std::abs(sunDir.getY()) > 0.99f ? Vector3(1.0f, 0.0f, 0.0f) : Vector3(0.0f, 1.0f, 0.0f);
-        const Vector3 axisX = sunDir.cross(ref).normalized();
-        const Vector3 axisZ = axisX.cross(sunDir).normalized();
-        Matrix4 basis = Matrix4::identity();
-        basis.setColumn(0, Vector4(axisX.getX(), axisX.getY(), axisX.getZ(), 0.0f));
-        basis.setColumn(1, Vector4(sunDir.getX(), sunDir.getY(), sunDir.getZ(), 0.0f));
-        basis.setColumn(2, Vector4(axisZ.getX(), axisZ.getY(), axisZ.getZ(), 0.0f));
-        _sunEntity->setRotation(Quaternion::fromMatrix4(basis));
-
-        // Warm near the horizon, white towards the zenith, fading out below the horizon.
-        if (auto* sun = _sunEntity->findComponent<LightComponent>()) {
-            const float t = std::clamp(sunDir.getY() / 0.4f, 0.0f, 1.0f);
-            sun->setColor(Color(1.0f, 0.6f + 0.4f * t, 0.35f + 0.63f * t, 1.0f));
-            sun->setIntensity(SUN_INTENSITY * std::clamp(sunDir.getY() / 0.1f, 0.0f, 1.0f));
+        if (_sky) {
+            _sky->setElevation(elevation);
+            _sky->setAzimuth((_hour / 24.0f) * 360.0f);
+            _sky->setLuminance(_luminanceCurve.value(elevation));
         }
-
-        // Sky luminance follows the elevation.
-        const float luminance = _luminanceCurve.value(elevation);
-        AtmosphereData atmosphere;
-        atmosphere.sunDirection[0] = sunDir.getX();
-        atmosphere.sunDirection[1] = sunDir.getY();
-        atmosphere.sunDirection[2] = sunDir.getZ();
-        // DEVIATION: upstream's `luminance` curve is a Preetham control with no Nishita
-        // counterpart — the scattering integral already darkens the sky as the sun sets.
-        (void)luminance;
-        scene()->setAtmosphereUniforms(&atmosphere, sizeof(atmosphere));
 
         // Bloom intensity is driven by the sun elevation.
         if (_cameraComponent) {
@@ -372,6 +331,7 @@ private:
 
     std::vector<LightComponent*> _torchLights;
     Entity* _sunEntity = nullptr;
+    ProceduralSky* _sky = nullptr;
     CameraComponent* _cameraComponent = nullptr;
 
     // Time-of-day curves (keyframes, smoothstepped)

@@ -18,6 +18,7 @@
 #include <string>
 #include <string_view>
 
+#include "extras/script/proceduralSky.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/lightingBlock.h"
 #include "platform/graphics/shader.h"
@@ -115,6 +116,8 @@ int main()
     checkBlock("particle-render", "particleVS", "params", sizeof(GpuParticleRenderParams));
     checkBlock("particle-render", "particleFS", "params", sizeof(GpuParticleRenderParams));
     checkBlock("gsplat-render", "gsplatVS", "params", sizeof(GpuGSplatParams));
+    checkBlock("procedural-sky", "proceduralSkyFragment", "sky", sizeof(ProceduralSkyBlock));
+    checkBlock("procedural-sky-cube", "proceduralSkyCubeFragment", "sky", sizeof(ProceduralSkyBlock));
     SlangBundledProgram forward;
     if (findBundledSlangProgram("forward", forward)) {
         bool all = true;

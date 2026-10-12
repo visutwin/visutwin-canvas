@@ -31,6 +31,16 @@ namespace visutwin::canvas
                                       int numReflectionSamples = 1024,
                                       int numAmbientSamples = 2048);
 
+        /**
+         * generateAtlas into `target` when it is a `size` x `size` atlas (an earlier
+         * result), else into a new texture the caller owns; the result is returned either
+         * way. `source` is an equirect, or a MIPMAPPED linear cubemap used as it is (the
+         * equirect is converted to one first), which is what makes a re-bake every few
+         * frames cheap: nothing is allocated but the sample tables.
+         */
+        static Texture* generateAtlas(GraphicsDevice* device, Texture* source, Texture* target,
+                                      int size, int numReflectionSamples, int numAmbientSamples);
+
         static Texture* generateSkyboxCubemap(GraphicsDevice* device, Texture* source, int size = 0);
 
         /**

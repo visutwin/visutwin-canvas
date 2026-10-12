@@ -53,7 +53,7 @@ render with the material color there.
 ### Directional shadows
 - **Shadow bias convention**: `LightComponent::setShadowBias` takes upstream's **0..1 authoring value** (default 0.05) and remaps it to the internal `Light::shadowBias` as `-0.01 * clamp(v,0,1)` — negative on purpose, because the shadow passes apply `shadowBias * -1000` as the hardware polygon offset and that product must be POSITIVE to push casters AWAY from the light. Passing the raw component value straight through inverts it, so a larger bias produces MORE shadow (a self-casting ground goes fully black at 0.05). Hardware bias is skipped for PCSS (biases in-shader) and for omni lights on both paths (their faces store perspective depth and take a relative bias in-shader), as upstream skips it for its distance-storing omni maps. The directional PCF shader uses a fixed 0.0001 receiver bias, NOT the light's; only local/clustered lights consume the light bias in-shader (negated + upstream's ×20 spot scale, since our shader subtracts it from the receiver depth). A receiver's shadow-space depth is saturated to [0, 1] on both backends (upstream's ortho `getShadowSampleCoord`), so a receiver beyond the caster-fitted far plane — a receiver-only ground — is shadowed by the casters in front of it rather than skipped.
 - **PCF3_32F** (default): hardware-compared depth2d, 4-tap bilinear PCF reconstructing a 3×3 kernel. Vulkan has no comparison sampler bound and does each bilinear comparison by hand (`shadowTap`: four texels gathered and compared, blended by the bilinear fraction), with the same kernels for PCF1/3/5 on every path.
-- **PCSS_32F** (`SHADOW_PCSS_32F`): contact-hardening soft shadows (upstream `shadowSoft.js` PCSSDirectional). Also supported on **spot/omni local lights** (upstream `shadowPCSS.js`): a runtime uniform branch (no extra variant) driven by `LightingData::localShadowPcss0/1` = {searchArea UV (0=off), near, far}; spot = Vogel-disk blocker+filter with per-tap depth linearization, omni = Vogel-sphere direction perturbation on the depth cube; `searchArea = penumbraSize/shadowResolution (*fovRatio for spot)` — local-light `penumbraSize` is in shadow-map PIXELS (~10-40), NOT the directional world-space scale. Example: `pcss-local-example.cpp`. The spot shadow camera applies upstream's `rotateLocal(-90,0,0)` (camera looks -Z, light emits -Y), and `MetalUniformBinder` uploads `localShadowMatrix` untransposed (`Matrix4::getElement` takes **(col,row)**, not (row,col)); without either, spot 2D shadow maps do not work. Vogel-disk blocker search + filter (in-shader sample generation, `fractSinRand` seed), world-space penumbra: `penumbra = shape * penumbraSize * depthRange` with `shape = 1-(1-t)^penumbraFalloff`. Per-cascade ortho radii + caster depth ranges flow via `LightingUniforms::pcssCascadeRadii/pcssCascadeDepthRanges`; `pcssParams` = {filterSamples 16, blockerSamples 16, penumbraSize, penumbraFalloff}. DEVIATION: reuses the standard PCF hardware depth map sampled RAW (non-comparison `shadowRawSampler`) instead of upstream's dedicated R32F color map — the `pcf=true` flag in its `shadowTypeInfo` entry selects the depth attachment. Configure: `setShadowType(SHADOW_PCSS_32F)` + `setPenumbraSize(0.02-0.05 — upstream example scale; ~tan of light angular size)` + `setPenumbraFalloff(>=1)`. `VT_FEATURE_PCSS_SHADOWS` set per frame like VSM. GOTCHA: a huge ground plane left as shadow CASTER inflates the fitted caster depth range → whole-plane acne (PCF) and blown-up penumbras (PCSS) — set `render->setCastShadows(false)` on large receiver-only ground.
+- **PCSS_32F** (`SHADOW_PCSS_32F`): contact-hardening soft shadows (upstream `shadowSoft.js` PCSSDirectional). Also supported on **spot/omni local lights** (upstream `shadowPCSS.js`): a runtime uniform branch (no extra variant) driven by `LightingData::localShadowPcss0/1` = {searchArea UV (0=off), near, far}; spot = Vogel-disk blocker+filter with per-tap depth linearization, omni = Vogel-sphere direction perturbation on the depth cube; `searchArea = penumbraSize/shadowResolution (*fovRatio for spot)` — local-light `penumbraSize` is in shadow-map PIXELS (~10-40), NOT the directional world-space scale. Example: `pcss-local-example.cpp`. The spot shadow camera applies upstream's `rotateLocal(-90,0,0)` (camera looks -Z, light emits -Y), and `MetalUniformBinder` uploads `localShadowMatrix` untransposed (`Matrix4::getElement` takes **(col,row)**, not (row,col)); without either, spot 2D shadow maps do not work. Vogel-disk blocker search + filter (in-shader sample generation, `fractSinRand` seed; the DIRECTIONAL disk raises each tap's radius to 1.33, `pcssDirectionalDiskSample`, while the spot disk keeps the even spread, as upstream's two do — evenly spread directional taps reach further up a sloping receiver and self-shadow it: `procedural-sky`'s sunlit dunes read 8% darker than upstream's), world-space penumbra: `penumbra = shape * penumbraSize * depthRange` with `shape = 1-(1-t)^penumbraFalloff`. Per-cascade ortho radii + caster depth ranges flow via `LightingUniforms::pcssCascadeRadii/pcssCascadeDepthRanges`; `pcssParams` = {filterSamples 16, blockerSamples 16, penumbraSize, penumbraFalloff}. DEVIATION: reuses the standard PCF hardware depth map sampled RAW (non-comparison `shadowRawSampler`) instead of upstream's dedicated R32F color map — the `pcf=true` flag in its `shadowTypeInfo` entry selects the depth attachment. Configure: `setShadowType(SHADOW_PCSS_32F)` + `setPenumbraSize(0.02-0.05 — upstream example scale; ~tan of light angular size)` + `setPenumbraFalloff(>=1)`. `VT_FEATURE_PCSS_SHADOWS` set per frame like VSM. GOTCHA: a huge ground plane left as shadow CASTER inflates the fitted caster depth range → whole-plane acne (PCF) and blown-up penumbras (PCSS) — set `render->setCastShadows(false)` on large receiver-only ground.
 - **VSM_16F**: Exponential VSM with `c = 5.54`, RGBA16F moments storage. Render path writes `(exp(c·z), exp(c·z)², 1, 1)`; sample path uses Chebyshev's inequality with `reduceLightBleeding(0.1)`. Separable Gaussian blur (default 11-tap, configurable via `LightComponent::setVsmBlurSize`) runs after shadow render. Depth tightening uses **caster-AABB projected onto shadow-cam Z** (rotation-invariant for static scenes — eliminates per-frame depth jitter that would otherwise show as variance flicker on thin geometry). Configurable per-light via `LightComponent::setShadowType(SHADOW_VSM_16F)` + `setVsmBias(0.0025f)` + `setVsmBlurSize(11)`. Mirrors upstream `SHADOW_VSM_16F` (`shadowEVSM.js` + `blurVSM.js`).
 
 ### Tangent frames — there is no derivative TBN
@@ -1004,7 +1004,8 @@ and the after pass. Every quad-drawing pass derives from `RenderPassShaderQuad`.
 The environment bake — equirect-to-cube, reproject, convolve, atlas assembly — is
 written once over `QuadRender` in `scene/graphics/envBake.h`, `envReproject.h` and
 `envLighting.h`, with one Slang program per stage (`env-equirect-to-cube`, `env-reproject`,
-`env-convolve`; the shared maps in the `vtenv` module); both
+`env-convolve`; the shared maps in the `vtenv` module, the cube face mapping
+`cubeFaceUvToDir` among them); both
 backends run the same importance-sampled convolution over a sample table passed as
 an input texture. It runs inside `GraphicsDevice::beginOfflineWork` /
 `endOfflineWork`, which is what lets ordinary render passes execute outside the
@@ -1014,6 +1015,10 @@ the per-draw uniform rings are handed out by `frameStart` (see AGENTS.md). The
 effect-pass migration off the device vtable is complete; `copyRenderTarget` and
 `generateMipmaps` stay virtual as generic device operations. `tools/generate-env-atlas`
 produces deterministic PNGs and is the regression check for the whole family.
+`EnvLighting::generateAtlas(device, source, target, ...)` refills an earlier atlas of the
+same size and takes a mipmapped linear CUBEMAP source as it is (an equirect is converted
+first), so a re-bake every few frames allocates nothing but the sample tables
+(`ProceduralSky` does).
 
 ## Live gotchas
 
@@ -1253,6 +1258,39 @@ The cross-cutting traps stay in `AGENTS.md`.
   bake began.** `GpuLightmapper::enableSceneLights` ANDs that recorded state with what
   the phase wants; switching a light on or off by hand between a `bake()` and the
   `update()` that completes it is overwritten by the next phase.
+
+### Procedural sky
+
+`ProceduralSky` (`extras/script/proceduralSky.h`, a port of upstream's `procedural-sky`
+script) is a Preetham daylight model (the three.js `Sky` shader) plus a night sky of a
+gradient, a twilight band, hashed stars and a moon disk, all in the `vtproceduralsky`
+module. Add it to an entity, set the sun (`setAzimuth` / `setElevation`, degrees) and
+the look, and link a directional light (`setSunLight`), which it turns to the sun, tints
+warm-to-white and fades to a dim moonlight below the horizon. It takes over two things
+of the scene while it lives:
+
+- **The visible sky**: the `procedural-sky` program on the scene's sky mesh, through
+  `Scene::setSkyMaterial`. A scene's sky material replaces the engine's sky material on
+  the sky mesh (which is built for it with no skybox or environment set) and draws as it
+  is: its shader, its uniform block (`Material::customUniformData`) and its render state —
+  `SkyMesh::setDepthWrite` leaves it alone. With `setIsSkybox(true)` it gets the
+  camera-following model and the sky view-projection every engine sky gets; the view ray
+  is the mesh-space position. A sky material owes the camera frame's output rule itself:
+  linear HDR while `GraphicsDevice::hdrPass()` (read at draw time, in
+  `customUniformData`), otherwise exposed, tone mapped and gamma-encoded.
+- **The environment atlas**: the DAY model rendered into a small mipmapped half-float cube
+  (`procedural-sky-cube`, `lightingResolution` 64 per face, each channel capped at 64 as
+  upstream's RGBM bake caps it), then `EnvLighting::generateAtlas` from that cube into
+  the same atlas every time (`atlasSize` 256, 256 reflection and 512 ambient samples). It
+  re-bakes only when the sun moved more than `lightingThreshold` (0.5 degrees) or a sky
+  parameter changed: at the example's hour a second, every second frame. On Vulkan each
+  bake is a waited one-shot submit.
+
+Every direction the sky programs see is in SKY space, the world with X negated, which is
+the space the atlas is looked up in; the visible sky negates the view ray's X, so the sun
+on screen and its reflections line up. Example: `procedural-sky`, upstream's scene (the
+laboratory in the dunes, PCSS sun, SSAO, the time-of-day curves); upstream skips most of
+the night too (20:00 wraps to 05:00).
 
 ### Atmosphere (Nishita)
 `Sky::setDepthWrite` (upstream's `Sky.depthWrite`, default false) makes a dome or box sky
