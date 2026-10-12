@@ -203,9 +203,9 @@ private:
         const CullMode cull = shape == LightShape::LIGHTSHAPE_RECT ? CullMode::CULLFACE_NONE
                                                                    : CullMode::CULLFACE_BACK;
 
-        // Emissive material that is the light source colour.
+        // Emissive material that is the light source colour. Its default white diffuse
+        // still takes the environment's ambient (no direct lights), shading it slightly.
         auto brightMaterial = std::make_shared<StandardMaterial>();
-        brightMaterial->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
         brightMaterial->setEmissive(color);
         brightMaterial->setUseLighting(false);
         brightMaterial->setCullMode(cull);

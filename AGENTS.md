@@ -1685,8 +1685,15 @@ present, but the rule below never depends on reading it.
   height map: like upstream it takes an OBJECT-SPACE frame, B = N x objectUp, T = N x B
   (the `objectUp` varying, the normal matrix's +Y). On a UV frame the `anisotropy`
   spheres stretch their reflections 90 degrees off upstream's.
+- **Only `StandardMaterial::twoSidedLighting` flips a back face's normal toward the viewer**
+  (`VT_FEATURE_DOUBLE_SIDED`), as upstream; culling nothing (`CULLFACE_NONE`) alone draws a
+  back face with its own normal, so a plane seen from behind takes its ambient from the
+  side facing away (`light-physical-units`' and `area-light`'s markers, `opacity`). The
+  glTF and Assimp parsers set BOTH for a double-sided material. A material that wants
+  lit back faces says `setTwoSidedLighting(true)`; `tests/shaderCompositionTests.cpp` and
+  `tests/glbMaterialPathsTests.cpp` hold both halves.
 - **A back face's tangent frame takes its bitangent from the UNFLIPPED normal.** A
-  double-sided material flips the normal of a back face toward the viewer, and only the
+  two-sided-lighting material flips the normal of a back face toward the viewer, and only the
   frame's normal column flips with it: `cross(flipped N, T)` mirrors the v slope of every
   normal map, the anisotropy direction and the parallax march on back faces. Assets whose
   vertex normals oppose their winding hit this on the side you see (the

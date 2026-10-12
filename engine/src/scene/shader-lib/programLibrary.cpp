@@ -111,12 +111,10 @@ namespace visutwin::canvas
     void ProgramLibrary::applyStandardMaterialOptions(ShaderVariantOptions& options,
         const StandardMaterial& stdMat) const
     {
-        // StandardMaterial stores twoSidedLighting as a separate flag.
-        // DEVIATION: a material that culls nothing also lights its back faces from the
-        // viewer's side; upstream does so only under twoSidedLighting, which its glTF
-        // parser sets from doubleSided (ours sets the cull mode, which reaches the same
-        // result here).
-        options.doubleSided = stdMat.cullMode() == CullMode::CULLFACE_NONE || stdMat.twoSidedLighting();
+        // A back face is lit from the viewer's side only under twoSidedLighting; culling
+        // nothing alone draws the back face with its own, unflipped normal (a plane seen
+        // from behind takes its ambient from the side facing away).
+        options.doubleSided = stdMat.twoSidedLighting();
 
         // Prefer StandardMaterial-specific textures, fall back to base Material typed properties.
         options.baseColorMap = (stdMat.diffuseMap() || stdMat.baseColorTexture());

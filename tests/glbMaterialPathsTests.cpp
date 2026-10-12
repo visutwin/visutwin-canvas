@@ -185,5 +185,20 @@ int main()
                 name + ": it takes the default, metallic 1 and roughness 1");
         });
 
+    // A doubleSided material culls nothing AND lights its back faces from the viewer's side.
+    std::cout << "\na doubleSided material\n";
+    forEachLoadPath([] {
+            tinygltf::Model model = buildModel();
+            model.materials[0].doubleSided = true;
+            return model;
+        }, device, "glbMaterialPathsTests",
+        [&](const GlbContainerResource* container, const LoadPath path) {
+            const std::string name = path == LoadPath::CreateFromModel ? "createFromModel" : "createFromPrepared";
+            const auto* m = container && !container->meshPayloads().empty()
+                ? dynamic_cast<const StandardMaterial*>(container->meshPayloads()[0].material.get()) : nullptr;
+            check(m && m->cullMode() == CullMode::CULLFACE_NONE && m->twoSidedLighting(),
+                name + ": culls nothing and lights both sides");
+        });
+
     return finish("GLB material paths");
 }

@@ -639,6 +639,7 @@ namespace visutwin::canvas
             int twoSided = 0;
             if (aiGetMaterialInteger(aiMat, AI_MATKEY_TWOSIDED, &twoSided) == AI_SUCCESS && twoSided) {
                 material->setCullMode(CullMode::CULLFACE_NONE);
+                material->setTwoSidedLighting(true);
             }
 
             // Shader variant key

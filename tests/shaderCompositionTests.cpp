@@ -234,5 +234,16 @@ int main()
         msl.setLocalShadowsEnabled(false);
     }
 
+    std::cout << "\na back face is lit from the viewer's side only under twoSidedLighting\n";
+    {
+        StandardMaterial m;
+        m.setCullMode(CullMode::CULLFACE_NONE);
+        check(!ProgramLibraryTestAccess::key(msl, &m).features.test(ShaderFeature::DoubleSided),
+            "culling nothing alone keeps the back face's own normal");
+        m.setTwoSidedLighting(true);
+        check(ProgramLibraryTestAccess::key(msl, &m).features.test(ShaderFeature::DoubleSided),
+            "twoSidedLighting flips it");
+    }
+
     return finish("shader composition");
 }

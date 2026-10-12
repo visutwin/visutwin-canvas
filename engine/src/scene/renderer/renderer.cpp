@@ -1464,6 +1464,17 @@ namespace visutwin::canvas
                 }
 
                 GpuLightData lightData = makeGpuLight(*lightComponent, physicalUnits);
+                // A shaped DIRECTIONAL light's LTC source sits at this camera's far clip,
+                // back along its direction, with its extents scaled by the same distance:
+                // it subtends the angle its entity's size gives, wherever the entity is.
+                // Taken at the entity, a 0.2-unit disk held 5000 units out (area-light's
+                // sky disk) gives a reflection a hundred times too faint.
+                if (lightData.type == GpuLightType::Directional && lightData.shape != 0u && camera) {
+                    const float far = camera->farClip();
+                    lightData.position = view.position - lightData.direction * far;
+                    lightData.areaHalfWidth = lightData.areaHalfWidth * far;
+                    lightData.areaHalfHeight = lightData.areaHalfHeight * far;
+                }
                 // A light of zero intensity lights nothing, but one that casts a shadow
                 // stays: its shadow still reaches a shadow catcher, the documented way to
                 // catch a shadow without lighting the scene. The cluster grid drops it.

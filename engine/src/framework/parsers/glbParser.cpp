@@ -2117,6 +2117,7 @@ namespace visutwin::canvas
             }
         }
         material->setCullMode(srcMaterial.doubleSided ? CullMode::CULLFACE_NONE : CullMode::CULLFACE_BACK);
+        material->setTwoSidedLighting(srcMaterial.doubleSided);
         material->setAlphaCutoff(static_cast<float>(srcMaterial.alphaCutoff));
 
         applySpecularGlossiness(srcMaterial, material.get(), getOrCreateTexture);
