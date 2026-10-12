@@ -41,7 +41,11 @@ namespace visutwin::canvas
     };
 
     PrimitiveGeometry createBoxGeometry();
+    /// The 'sphere' primitive's geometry (radius 0.5, 48 x 48 bands).
     PrimitiveGeometry createSphereGeometry();
+    /// A UV sphere with the given radius and band counts (the primitive's layout: the
+    /// image's top row at the north pole, tangents derived from the UVs).
+    PrimitiveGeometry createSphereGeometry(float radius, int latitudeBands, int longitudeBands);
     PrimitiveGeometry createCylinderGeometry();
     PrimitiveGeometry createConeGeometry();
     PrimitiveGeometry createCapsuleGeometry();

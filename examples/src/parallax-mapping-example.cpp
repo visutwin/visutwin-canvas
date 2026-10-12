@@ -15,10 +15,8 @@
 // lighting flips only the normal and not the tangents, so the marched relief on
 // those faces comes out inside out. Every face front-facing avoids that.
 //
-// DEVIATIONS from upstream: the sphere is a primitive
-// rather than a 128-band generated mesh, so its silhouette is coarser; and upstream
-// exposes the sample count and the parallax mode as controls, where this march
-// adapts its step count to the view angle instead.
+// DEVIATION: upstream's control panel (parallax mode, sample count, height, base, the two
+// lights and the environment) is not reproduced; the values are its initial ones.
 //
 #include <memory>
 #include <string>
@@ -27,6 +25,7 @@
 #include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
 #include "framework/assets/asset.h"
+#include "framework/components/render/primitiveGeometry.h"
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"
 
@@ -92,9 +91,20 @@ protected:
                 wall.rotation.getZ());
         }
 
-        Entity* sphere = createPrimitive("sphere", _sphereMaterial.get(), spherePosition,
-            Vector3(kSphereSize, kSphereSize, kSphereSize));
+        // A 128-band sphere rather than the primitive: a coarser sphere leaves the silhouette
+        // and the shading faceted, and the facet edges shimmer as the parallax offset steps
+        // across them.
+        _sphereMesh = createMeshFromGeometry(device(), createSphereGeometry(0.5f, 128, 128));
+        auto* sphere = new Entity();
         sphere->setName("sphere");
+        sphere->setEngine(engine());
+        if (auto* render = static_cast<RenderComponent*>(sphere->addComponent<RenderComponent>())) {
+            render->addMeshInstance(std::make_unique<MeshInstance>(
+                _sphereMesh.get(), _sphereMaterial.get(), sphere));
+        }
+        sphere->setLocalScale(kSphereSize, kSphereSize, kSphereSize);
+        sphere->setLocalPosition(spherePosition);
+        root()->addChild(sphere);
 
         // A spot light above the sphere. A light shines down its entity's -Y axis,
         // so aiming it is lookAt (which orients -Z) plus a quarter turn.
@@ -178,7 +188,9 @@ private:
         material->setUseMetalness(true);
         material->setMetalness(0.0f);
 
-        // Tuned values: a relief 0.4 deep, pivoting around mid-grey.
+        // Occlusion mapping, 16 samples at most, a relief 0.4 deep pivoting around mid-grey.
+        material->setParallaxMode(ParallaxMode::PARALLAX_OCCLUSION);
+        material->setParallaxSamples(16.0f);
         material->setHeightMapFactor(0.4f);
         material->setHeightMapBase(0.5f);
 
@@ -195,6 +207,7 @@ private:
         return material;
     }
 
+    std::shared_ptr<Mesh> _sphereMesh;
     std::unique_ptr<Asset> _envAtlas;
     std::vector<std::unique_ptr<Asset>> _assets;
     std::vector<std::shared_ptr<StandardMaterial>> _materials;

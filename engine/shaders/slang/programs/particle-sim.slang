@@ -113,17 +113,29 @@ void particleSimKernel(uint3 dispatchId : SV_DispatchThreadID)
     if (respawn) {
         // Spawn position from the emitter shape, velocity from base + spread, per-particle
         // lifetime and rotation from the hashed seed.
+        // ONE random vector, bounds, places the particle AND picks where it falls between
+        // each pair of graphs (below): a spread is correlated with the spawn position, so a
+        // local velocity spread from +v to -v sends every particle back through the centre.
+        // Reproduced on purpose; independent draws give a visibly wider cloud.
         const uint lifeSeed = pcgHash(gid ^ pcgHash(uint(params.angleParams.z))) & 0xFFFFFFu;
-        const float3 r3 = rnd3(lifeSeed) * 2.0 - 1.0;
+        const float3 bounds = rnd3(lifeSeed) - 0.5;
         const float3 r3b = rnd3(lifeSeed + 3u);
 
         float3 localPos;
         if (params.shapeParams.w > 0.5) {
-            // Sphere: rejection-free radial spawn (cube root for uniform density).
-            const float3 dir = normalize(r3 + float3(1e-5, 0.0, 0.0));
-            localPos = dir * (params.shapeParams.x * pow(r3b.x, 1.0 / 3.0));
+            // Sphere: the direction of bounds, at a radius UNIFORM in [0, radius] (denser
+            // toward the centre, not uniform in volume).
+            const float3 dir = normalize(bounds + float3(1e-5, 0.0, 0.0));
+            localPos = dir * (params.shapeParams.x * r3b.x);
         } else {
-            localPos = r3 * params.shapeParams.xyz;
+            // Box: the largest component of bounds lands on its face of the box shell at
+            // that size, the others are scaled by twice that size (not uniform in volume).
+            const float3 a = abs(bounds);
+            const float m = max(a.x, max(a.y, a.z));
+            const float3 shell = float3(a.x == m ? sign(bounds.x) : 2.0 * bounds.x,
+                                        a.y == m ? sign(bounds.y) : 2.0 * bounds.y,
+                                        a.z == m ? sign(bounds.z) : 2.0 * bounds.z) * m;
+            localPos = shell * 2.0 * params.shapeParams.xyz;
         }
         p.posAge.xyz = mul(float4(localPos, 1.0), params.emitterTransform).xyz;
 
@@ -146,7 +158,7 @@ void particleSimKernel(uint3 dispatchId : SV_DispatchThreadID)
 
     const float nlife = clamp(life / max(p.velLifetime.w, 1e-4), 0.0, 1.0);
     if (params.graphParams.x > 0.5) {
-        const float3 r = rnd3(uint(p.motion.w) + 10u);
+        const float3 r = rnd3(uint(p.motion.w));   // the spawn's bounds vector
         const float3 localVelocity = lerp(sampleLut(params.localVelocityLut, nlife).xyz,
                                           sampleLut(params.localVelocityLut2, nlife).xyz, r);
         const float3 worldVelocity = lerp(sampleLut(params.velocityLut, nlife).xyz,
@@ -157,7 +169,7 @@ void particleSimKernel(uint3 dispatchId : SV_DispatchThreadID)
     }
     if (params.graphParams.y > 0.5) {
         p.rotSeedSize.x += lerp(sampleLut(params.localVelocityLut, nlife).w,
-                                sampleLut(params.localVelocityLut2, nlife).w, rnd(uint(p.motion.w) + 13u)) * dt;
+                                sampleLut(params.localVelocityLut2, nlife).w, rnd3(uint(p.motion.w)).y) * dt;
     }
     if (params.graphParams.z > 0.5) {
         // Radial speed, away from the emitter's centre (its origin in local space).

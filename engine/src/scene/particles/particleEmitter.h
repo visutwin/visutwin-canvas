@@ -44,8 +44,8 @@ namespace visutwin::canvas
 
     enum class ParticleEmitterShape : uint32_t
     {
-        EMITTERSHAPE_BOX = 0,    // uniform spawn inside a box (extents)
-        EMITTERSHAPE_SPHERE = 1  // uniform spawn inside a sphere (radius)
+        EMITTERSHAPE_BOX = 0,    // spawn inside a box (extents), concentrated toward its faces' centres
+        EMITTERSHAPE_SPHERE = 1  // spawn inside a sphere (radius), radius uniform, so denser at the centre
     };
 
     /// How a quad faces.

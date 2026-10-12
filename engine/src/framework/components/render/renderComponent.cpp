@@ -259,11 +259,16 @@ namespace visutwin::canvas
 
         PrimitiveGeometry createSphereGeometry()
         {
+            return createSphereGeometry(0.5f, 48, 48);
+        }
+
+        PrimitiveGeometry createSphereGeometry(const float radius, const int latitudeBandsIn,
+            const int longitudeBandsIn)
+        {
             PrimitiveGeometry geometry;
 
-            constexpr float radius = 0.5f;
-            constexpr int latitudeBands = 48;
-            constexpr int longitudeBands = 48;
+            const int latitudeBands = std::max(latitudeBandsIn, 2);
+            const int longitudeBands = std::max(longitudeBandsIn, 3);
 
             for (int lat = 0; lat <= latitudeBands; ++lat) {
                 const float theta = static_cast<float>(lat) * PI_F / static_cast<float>(latitudeBands);

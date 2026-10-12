@@ -345,6 +345,8 @@ namespace visutwin::canvas
             uniforms.heightMapFactor = _heightMapFactor;
             uniforms.heightMapParams[0] = std::clamp(_heightMapBase, 0.0f, 1.0f);
             uniforms.heightMapParams[1] = std::clamp(_heightMapShadow, 0.0f, 1.0f);
+            uniforms.heightMapParams[2] = std::max(_parallaxSamples, 1.0f);
+            uniforms.heightMapParams[3] = _parallaxMode == ParallaxMode::PARALLAX_OCCLUSION ? 1.0f : 0.0f;
         }
 
         // clearcoat.
@@ -468,7 +470,7 @@ namespace visutwin::canvas
         overrideSlot(31, _glossMap);
         overrideSlot(32, _thicknessMap);
         overrideSlot(33, _refractionMap);
-        // Opacity map, alpha channel by default. Metal only.
+        // Opacity map, alpha channel by default (the channel rides in opacityTransform0.w).
         overrideSlot(34, _opacityMap);
         // Vertex displacement map: a VERTEX-stage texture (the binding table's slot,
         // MetalTextureBinder::bindMaterialTextures).

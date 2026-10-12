@@ -301,6 +301,14 @@ namespace visutwin::canvas
          */
         float heightMapShadow() const { return _heightMapShadow; }
         void setHeightMapShadow(const float value) { _heightMapShadow = value; markUniformsDirty(); }
+        /// How the height map offsets the other maps' UV: one tap (OFFSET, the default) or a
+        /// march through the height field (OCCLUSION).
+        ParallaxMode parallaxMode() const { return _parallaxMode; }
+        void setParallaxMode(const ParallaxMode value) { _parallaxMode = value; markUniformsDirty(); }
+        /// The most height-map taps the OCCLUSION march takes along the view ray (default 16);
+        /// fewer are taken where the march crosses less detail.
+        float parallaxSamples() const { return _parallaxSamples; }
+        void setParallaxSamples(const float value) { _parallaxSamples = value; markUniformsDirty(); }
         /// GGX direct specular. Off (the default), every light's specular lobe is a
         /// normalised Blinn-Phong of the gloss, as upstream's default; on, an isotropic
         /// GGX with height-correlated Smith visibility, and anisotropy takes effect.
@@ -565,6 +573,8 @@ namespace visutwin::canvas
         float _heightMapFactor = 1.0f;
         float _heightMapBase = 0.5f;
         float _heightMapShadow = 0.0f;
+        ParallaxMode _parallaxMode = ParallaxMode::PARALLAX_OFFSET;
+        float _parallaxSamples = 16.0f;
 
         float _anisotropy = 0.0f;
         float _anisotropyRotation = 0.0f;

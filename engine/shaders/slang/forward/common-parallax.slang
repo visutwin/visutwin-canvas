@@ -3,56 +3,104 @@
 //
 // Created by Arnis Lektauers on 07.10.2026
 //
-// ── Parallax occlusion mapping ──
+// ── Parallax mapping ──
 //
-// `heightBase` is the height-map value that sits at the level of the geometry
-// texels above it stand proud, texels below sink in. 1 treats
-// the map as pure depth below the surface; the default 0.5 pivots around mid-grey.
-// Implicit-LOD form, for the view march: uniform control flow, mips intact.
-float parallaxDepth(float2 uv, float heightBase) {
-    return heightBase - heightMap.Sample(materialSampler, uv).r;
-}
+// `heightBase` is the height-map value that sits at the level of the geometry: texels
+// above it stand proud, texels below sink in. 1 treats the map as pure depth below the
+// surface; the default 0.5 pivots around mid-grey. The height unit is a TENTH of a uv tile
+// (a factor of 1 is a relief 0.1 uv deep).
 
 // Explicit-LOD form, for the self-shadow march inside the light loop.
 float parallaxSampleDepth(float2 uv, float heightBase) {
     return heightBase - heightMap.SampleLevel(materialSampler, uv, 0.0).r;
 }
 
-float2 parallaxOcclusionMap(float2 uv, float3 viewDirTS, float heightScale, float heightBase) {
-    // Adaptive step count: more steps at grazing angles, where parallax shows most.
-    const int minSteps = 8;
-    const int maxSteps = 32;
-    int numSteps = int(lerp(float(maxSteps), float(minSteps), abs(viewDirTS.z)));
-    float layerDepth = 1.0 / float(numSteps);
+// How far the occlusion march may travel across the texture, as a multiple of the depth of
+// the height field: it bounds how far the lookup slides at a grazing angle, which is what
+// makes relief swim as the camera moves.
+static const float kParallaxMaxSlope = 5.0;
+// Texels of the mip being read that one step aims to cover.
+static const float kParallaxTexelsPerStep = 2.0;
+// The march fades out between these two lengths, in texels of the mip being read.
+static const float kParallaxFadeMin = 1.0;
+static const float kParallaxFadeMax = 3.0;
+// Halvings of the bracketing step that place the hit.
+static const int kParallaxRefineSteps = 5;
 
-    // The height unit is a TENTH of a uv tile: a factor of 1 is a relief
-    // 0.1 uv deep.
-    float scale = heightScale * 0.1;
-    // UV travelled per unit of depth along the view ray, and the per-layer step.
-    float2 uvPerDepth = viewDirTS.xy * scale / (abs(viewDirTS.z) + 1e-5);
-    float2 deltaUV = uvPerDepth / float(numSteps);
+// The UV offset the height map applies to every map of the material. `viewDirT` is the
+// direction to the camera in the tangent frame, whose y points along DECREASING v (the
+// normal-map convention), so its y is negated to give a uv direction. OCCLUSION marches the
+// view ray through the height field (at most `samples` taps, fewer where it crosses less
+// detail, the hit refined by halving and the effect faded out once the march covers about a
+// texel); otherwise one tap with offset limiting (Welsh 2004).
+float2 parallaxUvOffset(float2 uv, float3 viewDirT, float heightFactor, float heightBase,
+    float samples, bool occlusion) {
+    const float parallaxScale = heightFactor * 0.1;
+    const float2 viewDirUv = float2(viewDirT.x, -viewDirT.y);
 
-    // Anything above the base stands proud, so the ray enters at the topmost point
-    // the map reaches, its entry UV offset by the distance travelled since. Shifting
-    // only the depths moves ray and field together, changing nothing.
-    float rise = 1.0 - heightBase;
-    float curLayerDepth = -rise;
-    float2 curUV = uv + uvPerDepth * rise;
-    float curHeight = parallaxDepth(curUV, heightBase);
-
-    for (int i = 0; i < maxSteps; ++i) {
-        if (curLayerDepth >= curHeight) break;
-        curUV -= deltaUV;
-        curHeight = parallaxDepth(curUV, heightBase);
-        curLayerDepth += layerDepth;
+    if (!occlusion) {
+        const float height = (heightMap.Sample(materialSampler, uv).r - heightBase) * parallaxScale;
+        return height * viewDirUv;
     }
 
-    // Interpolate between the last two layers for a smooth result.
-    float2 prevUV = curUV + deltaUV;
-    float afterDepth = curHeight - curLayerDepth;
-    float beforeDepth = parallaxDepth(prevUV, heightBase) - (curLayerDepth - layerDepth);
-    float weight = afterDepth / (afterDepth - beforeDepth + 1e-6);
-    return lerp(curUV, prevUV, weight);
+    // The uv the ray travels descending through the whole depth range, pointing away from
+    // the camera, limited to a multiple of the depth at grazing angles.
+    const float2 march = -parallaxScale * viewDirUv / max(viewDirT.z, 0.0001);
+    const float marchLength = length(march);
+    const float maxMarchLength = parallaxScale * kParallaxMaxSlope;
+    const float2 uvSpan = marchLength > maxMarchLength ? march * (maxMarchLength / marchLength) : march;
+
+    // The geometry plane's depth in the volume; the fragment sits on it, so the ray entered
+    // the top of the volume behind it.
+    const float geomDepth = 1.0 - heightBase;
+    const float2 entryUv = uv - uvSpan * geomDepth;
+
+    // An explicit mip for every tap (the loop is non-uniform control flow); it also says how
+    // much detail the map resolves here, which sets the step count and the fade.
+    const float2 heightMapSize = float2(vtTextureSize(heightMap, 0));
+    const float2 uvTexels = uv * heightMapSize;
+    const float2 texelsDx = ddx(uvTexels);
+    const float2 texelsDy = ddy(uvTexels);
+    const float lod = max(0.0, 0.5 * log2(max(dot(texelsDx, texelsDx), dot(texelsDy, texelsDy))));
+    const float marchTexels = length(uvSpan * heightMapSize) / exp2(lod);
+    const float fade = clamp((marchTexels - kParallaxFadeMin) / (kParallaxFadeMax - kParallaxFadeMin), 0.0, 1.0);
+    if (fade <= 0.0) {
+        return float2(0.0);
+    }
+
+    // Steps follow the detail crossed, capped by `samples`, and are not rounded (a jumping
+    // step size bands with a visible seam).
+    const float steps = clamp(marchTexels / kParallaxTexelsPerStep, 1.0, max(samples, 1.0));
+    const float stepSize = 1.0 / steps;
+
+    // Linear search from the entry point for the first step below the height field.
+    float rayDepth = 0.0;
+    float surfaceDepth = 1.0 - heightMap.SampleLevel(materialSampler, entryUv, lod).r;
+    float prevRayDepth = rayDepth;
+    for (float i = 0.0; i < steps; i += 1.0) {
+        if (rayDepth >= surfaceDepth) {
+            break;
+        }
+        prevRayDepth = rayDepth;
+        rayDepth += stepSize;
+        surfaceDepth = 1.0 - heightMap.SampleLevel(materialSampler, entryUv + uvSpan * rayDepth, lod).r;
+    }
+
+    // Refine inside the last step by halving with fresh taps (an interpolation assumes the
+    // surface is straight across the step and terraces a floor seen from low down).
+    float hitDepth = rayDepth;
+    if (rayDepth >= surfaceDepth) {
+        float interval = (rayDepth - prevRayDepth) * 0.5;
+        hitDepth = rayDepth - interval;
+        for (int r = 0; r < kParallaxRefineSteps; ++r) {
+            interval *= 0.5;
+            const float refineDepth = 1.0 - heightMap.SampleLevel(materialSampler, entryUv + uvSpan * hitDepth, lod).r;
+            hitDepth += hitDepth >= refineDepth ? -interval : interval;
+        }
+    }
+
+    // From the geometry plane to the hit, pulled onto the plane by the fade.
+    return uvSpan * ((clamp(hitDepth, 0.0, 1.0) - geomDepth) * fade);
 }
 
 // Self-shadowing: march from the displaced point toward the light and accumulate how
@@ -68,8 +116,10 @@ float parallaxSelfShadow(float2 uv, float3 lightDirTS, float heightScale,
     const int numSteps = 16;
     float layerDepth = surfaceDepth / float(numSteps);
     // Same tenth-of-a-tile unit as the view march above.
+    // The frame's y points along decreasing v, so the uv direction negates it (as the view
+    // march does).
     float2 deltaUV =
-        lightDirTS.xy * (heightScale * 0.1) / (lightDirTS.z + 1e-5) / float(numSteps);
+        float2(lightDirTS.x, -lightDirTS.y) * (heightScale * 0.1) / (lightDirTS.z + 1e-5) / float(numSteps);
 
     float occlusion = 0.0;
     float2 curUV = uv;

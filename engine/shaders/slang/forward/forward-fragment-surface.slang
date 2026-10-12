@@ -120,9 +120,9 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
             float3 viewDirTS = normalize(
                 float3(dot(tPar, vPar), dot(bPar, vPar), dot(nGeom, vPar)));
             float heightBase = clamp(material.heightMapParams.x, 0.0, 1.0);
-            float2 pomUv = parallaxOcclusionMap(
-                uvBase, viewDirTS, material.heightMapFactor, heightBase);
-            float2 uvDelta = pomUv - uvBase;
+            float2 uvDelta = parallaxUvOffset(uvBase, viewDirTS, material.heightMapFactor, heightBase,
+                material.heightMapParams.z, material.heightMapParams.w > 0.5);
+            float2 pomUv = uvBase + uvDelta;
             uvBase       += uvDelta;
             uvNormal     += uvDelta;
             uvMetalRough += uvDelta;

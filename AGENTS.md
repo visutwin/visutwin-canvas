@@ -1927,7 +1927,9 @@ present, but the rule below never depends on reading it.
   frame's HDR scene (`ParticleEmitter::setOutput`, filled per draw by the renderer like the
   splats' tail). A ramp left undecoded draws every mid-tone of a colour graph BRIGHTER than
   upstream's (a 0.5 grey at about 0.73). The kernel's randomness is an INTEGER hash (PCG of the particle
-  index and a step counter), one source for both backends; `fract(sin(x) * 43758)` is not
+  index and a step counter), one source for both backends, and ONE random vector per life
+  both places a particle and picks its point between each graph and its graph2 (upstream's
+  `rndFactor`): drawn independently, `particles-mesh`' cloud loses its central column; `fract(sin(x) * 43758)` is not
   uniform on the GPU (a spark fountain 10% narrower than upstream) and not the same on
   the two backends. An unset graph is a CurveSet whose curves have NO KEYS — a default
   `CurveSet` still holds one empty curve, and treating that as a zero graph2 halves

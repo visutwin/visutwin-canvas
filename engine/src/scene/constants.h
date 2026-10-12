@@ -160,6 +160,15 @@ namespace visutwin::canvas
     // partial opacity in the opaque pass. Every pattern moves per frame while the camera jitters
     // for TAA, and stands still otherwise. DEVIATION: the shadow
     // passes dither unjittered.
+    // How a height map offsets the UV of a material's other maps (StandardMaterial::
+    // setParallaxMode). OFFSET is one tap with offset limiting; OCCLUSION marches the view
+    // ray through the height field.
+    enum class ParallaxMode
+    {
+        PARALLAX_OFFSET = 0,
+        PARALLAX_OCCLUSION = 1,
+    };
+
     enum class DitherMode
     {
         DITHER_NONE = 0,
