@@ -62,6 +62,11 @@ namespace visutwin::canvas
         setupRenderPasses(_options);
     }
 
+    RenderPassCameraFrame::~RenderPassCameraFrame()
+    {
+        destroyEffectPasses();
+    }
+
     void RenderPassCameraFrame::destroy()
     {
         // Clear device-side raw texture pointers that reference textures owned by this
@@ -99,6 +104,10 @@ namespace visutwin::canvas
         _sceneHalfRenderTarget.reset();
 
         clearBeforePasses();
+        destroyEffectPasses();
+        _sceneColorTarget.reset();
+        _sceneColorTargetWidth = 0;
+        _sceneColorTargetHeight = 0;
 
         _prePass.reset();
         _scenePass.reset();
@@ -127,7 +136,7 @@ namespace visutwin::canvas
         // already written. Single-sampled, the scene pass writes the shared
         // depth texture itself and a prepass renders only where prepassRenders() says.
         if (sanitized.taaEnabled || sanitized.ssaoType != SSAOTYPE_NONE || sanitized.dofEnabled ||
-            sanitized.fogEnabled) {
+            sanitized.fogEnabled || sanitized.effectDepth || sanitized.effectPrepassDepth) {
             sanitized.prepassEnabled = true;
         }
         return sanitized;
@@ -177,6 +186,46 @@ namespace visutwin::canvas
         options.bloomHighQuality = rendering.bloomHighQuality;
         options.sharpness = rendering.sharpness;
         static_cast<ComposeColorSettings&>(options) = rendering;
+
+        // The frame effects: what they require turns on what produces it, and the key
+        // rebuilds the frame when the active set, a requirement or a build key changes. An
+        // effect is identified by its serial, so a new instance under a removed one's id
+        // still gets passes of its own.
+        options.effectsKey.clear();
+        options.effectDepth = false;
+        options.effectPrepassDepth = false;
+        options.effectSceneColorHalf = false;
+        options.effectSceneTarget = false;
+        for (const auto& effect : _cameraComponent->frameEffects()) {
+            if (!effect || !effect->active()) {
+                continue;
+            }
+            options.effectsKey += std::to_string(effect->serial()) + ":";
+            for (const FrameResource resource : effect->requiredResources()) {
+                options.effectsKey += std::to_string(static_cast<int>(resource));
+                switch (resource) {
+                case FrameResource::Depth:
+                    options.effectDepth = true;
+                    break;
+                case FrameResource::PrepassDepth:
+                    options.effectPrepassDepth = true;
+                    break;
+                case FrameResource::SceneColorHalf:
+                    options.effectSceneColorHalf = true;
+                    break;
+                case FrameResource::SceneColorGrab:
+                    options.sceneColorMap = true;
+                    break;
+                case FrameResource::SceneTarget:
+                    options.effectSceneTarget = true;
+                    break;
+                }
+            }
+            if (effect->ownsPasses()) {
+                options.effectsKey += ":" + effect->buildKey();
+            }
+            options.effectsKey += ";";
+        }
     }
 
     bool RenderPassCameraFrame::needsReset(const CameraFrameOptions& options) const
@@ -196,6 +245,7 @@ namespace visutwin::canvas
             options.dofEnabled != current.dofEnabled ||
             options.dofNearBlur != current.dofNearBlur ||
             options.dofHighQuality != current.dofHighQuality ||
+            options.effectsKey != current.effectsKey ||
             !formatsEqual(options.formats, current.formats);
     }
 
@@ -401,7 +451,8 @@ namespace visutwin::canvas
         _hdrFormat = PixelFormat::PIXELFORMAT_RGBA16F;
         _bloomEnabled = options.bloomEnabled && _hdrFormat != PixelFormat::PIXELFORMAT_RGBA8;
         // A high-quality bloom reads the full-resolution scene, so only DOF wants the copy then.
-        _sceneHalfEnabled = (_bloomEnabled && !options.bloomHighQuality) || options.dofEnabled;
+        _sceneHalfEnabled = (_bloomEnabled && !options.bloomHighQuality) || options.dofEnabled ||
+            options.effectSceneColorHalf;
         _renderTargetScale = options.renderTargetScale;
 
         // The scene colour texture is held here: a RenderTarget stores only a raw pointer
@@ -447,7 +498,9 @@ namespace visutwin::canvas
         // The multisampled twins stay in tile memory unless a later pass reloads
         // the target: the transparent pass after a colour grab, or the volumetric
         // fog combine. Both load the scene colour, so the twins must be stored.
-        sceneTargetOptions.transientMultisample = !options.sceneColorMap && !options.fogEnabled;
+        // An effect's passes may draw into the scene between or after the scene passes.
+        sceneTargetOptions.transientMultisample = !options.sceneColorMap && !options.fogEnabled &&
+            options.effectsKey.empty();
         sceneTargetOptions.name = "CameraFrameSceneTarget";
         _sceneRenderTarget = gd->createRenderTarget(sceneTargetOptions);
         if (_sceneRenderTarget && _sceneRenderTarget->samples() > 1) {
@@ -456,6 +509,18 @@ namespace visutwin::canvas
         }
 
         createPrepassRenderTarget();
+
+        if (options.effectSceneTarget && options.samples == 1 && _sceneTexture) {
+            RenderTargetOptions colorOnly;
+            colorOnly.graphicsDevice = gd.get();
+            colorOnly.colorBuffer = _sceneTexture.get();
+            colorOnly.depth = false;
+            colorOnly.samples = 1;
+            colorOnly.name = "CameraFrameSceneColorTarget";
+            _sceneColorTarget = gd->createRenderTarget(colorOnly);
+            _sceneColorTargetWidth = static_cast<int>(_sceneTexture->width());
+            _sceneColorTargetHeight = static_cast<int>(_sceneTexture->height());
+        }
 
         if (_sceneHalfEnabled) {
             // Create half-resolution color texture explicitly (same lifetime fix as _sceneTexture).
@@ -476,6 +541,9 @@ namespace visutwin::canvas
         _sceneOptions->scaleX = _renderTargetScale;
         _sceneOptions->scaleY = _renderTargetScale;
 
+        // Before the scene passes: whether the scene renders in two parts depends on
+        // whether an effect runs between its opaque and transparent layers.
+        setupEffectPasses(options);
         createPasses(options);
 
         clearBeforePasses();
@@ -558,12 +626,89 @@ namespace visutwin::canvas
         // includes what the prepass cannot draw.
         const bool ssaoBeforeScene = _options.ssaoType == SSAOTYPE_LIGHTING;
 
-        return {_publishPass, _prePass,
-            ssaoBeforeScene ? _ssaoPass : nullptr,
-            _scenePass, _colorGrabPass, _depthGrabPass, _scenePassTransparent,
-            ssaoBeforeScene ? nullptr : _ssaoPass,
-            _volumetricFogPass, _volumetricFogCombinePass, _taaPass, _scenePassHalf,
-            _dofPass, _bloomPass, _composePass, _afterPass};
+        // The effects' passes go in at their stages, after the frame's own passes there.
+        const auto& stages = _effectStagePasses;
+        std::vector<std::shared_ptr<RenderPass>> passes{_publishPass, _prePass,
+            ssaoBeforeScene ? _ssaoPass : nullptr};
+        passes.insert(passes.end(), stages.preScene.begin(), stages.preScene.end());
+        passes.insert(passes.end(), {_scenePass, _colorGrabPass, _depthGrabPass});
+        passes.insert(passes.end(), stages.postOpaque.begin(), stages.postOpaque.end());
+        passes.insert(passes.end(), {_scenePassTransparent, ssaoBeforeScene ? nullptr : _ssaoPass,
+            _volumetricFogPass, _volumetricFogCombinePass});
+        passes.insert(passes.end(), stages.postScene.begin(), stages.postScene.end());
+        passes.insert(passes.end(), {_taaPass, _scenePassHalf, _dofPass, _bloomPass});
+        passes.insert(passes.end(), stages.postTemporal.begin(), stages.postTemporal.end());
+        passes.insert(passes.end(), {_composePass, _afterPass});
+        return passes;
+    }
+
+    void RenderPassCameraFrame::setupEffectPasses(const CameraFrameOptions& options)
+    {
+        destroyEffectPasses();
+        if (!_cameraComponent) {
+            return;
+        }
+        for (const auto& effect : _cameraComponent->frameEffects()) {
+            if (!effect || !effect->active()) {
+                continue;
+            }
+            _activeEffects.push_back(effect);
+            if (!effect->ownsPasses()) {
+                continue;
+            }
+
+            CameraFrameEffectResources resources;
+            resources.device = device();
+            resources.camera = _cameraComponent;
+            for (const FrameResource resource : effect->requiredResources()) {
+                switch (resource) {
+                case FrameResource::Depth:
+                case FrameResource::PrepassDepth:
+                    resources.depth = _sceneDepthTexture.get();
+                    break;
+                case FrameResource::SceneColorHalf:
+                    resources.sceneColorHalf = _sceneTextureHalf.get();
+                    break;
+                case FrameResource::SceneColorGrab:
+                    // The grab pass is created with the scene passes, after this, and it
+                    // reallocates its texture with the scene size: asked for at draw time.
+                    resources.sceneColorGrab = [this]() -> Texture* {
+                        return _colorGrabPass ? _colorGrabPass->texture() : nullptr;
+                    };
+                    break;
+                case FrameResource::SceneTarget:
+                    resources.sceneTarget = options.samples == 1 && _sceneColorTarget ? _sceneColorTarget
+                        : _sceneRenderTarget;
+                    break;
+                }
+            }
+
+            CameraFrameEffectPasses passes;
+            effect->createPasses(resources, passes);
+            _passEffects.push_back(effect);
+            const auto append = [](std::vector<std::shared_ptr<RenderPass>>& to,
+                const std::vector<std::shared_ptr<RenderPass>>& from) {
+                for (const auto& pass : from) {
+                    if (pass) {
+                        to.push_back(pass);
+                    }
+                }
+            };
+            append(_effectStagePasses.preScene, passes.preScene);
+            append(_effectStagePasses.postOpaque, passes.postOpaque);
+            append(_effectStagePasses.postScene, passes.postScene);
+            append(_effectStagePasses.postTemporal, passes.postTemporal);
+        }
+    }
+
+    void RenderPassCameraFrame::destroyEffectPasses()
+    {
+        for (const auto& effect : _passEffects) {
+            effect->destroyPasses();
+        }
+        _passEffects.clear();
+        _activeEffects.clear();
+        _effectStagePasses = {};
     }
 
     void RenderPassCameraFrame::createPasses(const CameraFrameOptions& options)
@@ -625,11 +770,13 @@ namespace visutwin::canvas
     //    depth BEFORE the scene pass. The scene pass clears the shared depth texture and
     //    writes it again, so for the consumers that run after it (TAA, DOF, fog,
     //    compose-mode SSAO) a prepass is a second geometry pass whose output is erased
-    //    before anything samples it.
+    //    before anything samples it;
+    //  - and for a frame effect requiring FrameResource::PrepassDepth, which asks for the
+    //    depth before the scene renders.
     bool RenderPassCameraFrame::prepassRenders(const CameraFrameOptions& options)
     {
         return options.prepassEnabled &&
-            (options.samples > 1 || options.ssaoType == SSAOTYPE_LIGHTING);
+            (options.samples > 1 || options.ssaoType == SSAOTYPE_LIGHTING || options.effectPrepassDepth);
     }
 
     void RenderPassCameraFrame::setupScenePrepass(const CameraFrameOptions& options)
@@ -657,8 +804,10 @@ namespace visutwin::canvas
 
         const int lastActionIndex = static_cast<int>(_sourceActions.size()) - 1;
         // Either grab splits the scene pass at the grab layer: what comes after has to
-        // read what the grab captured, colour for refraction, depth for SSR.
-        const bool grabSplit = options.sceneColorMap || options.sceneDepthMap;
+        // read what the grab captured, colour for refraction, depth for SSR. So do effect
+        // passes that run between the opaque and the transparent layers.
+        const bool grabSplit = options.sceneColorMap || options.sceneDepthMap ||
+            !_effectStagePasses.postOpaque.empty();
         const int lastLayerId = grabSplit ? options.lastGrabLayerId : options.lastSceneLayerId;
         const bool lastLayerTransparent = grabSplit ? options.lastGrabLayerIsTransparent : options.lastSceneLayerIsTransparent;
 
@@ -1022,6 +1171,17 @@ namespace visutwin::canvas
             _taaPass->setDepthTexture(_sceneDepthTexture.get());
         }
 
+        // The colour-only alias of the scene target shares the scene texture, which the
+        // resize above (or the scene pass) reallocates; its own size reads the new one, so
+        // compare with the size its attachments were built at.
+        if (_sceneColorTarget && _sceneTexture &&
+            (static_cast<int>(_sceneTexture->width()) != _sceneColorTargetWidth ||
+             static_cast<int>(_sceneTexture->height()) != _sceneColorTargetHeight)) {
+            _sceneColorTarget->refreshAttachments();
+            _sceneColorTargetWidth = static_cast<int>(_sceneTexture->width());
+            _sceneColorTargetHeight = static_cast<int>(_sceneTexture->height());
+        }
+
         if (_composePass) {
             auto* resolvedTexture = _sceneTexture.get();
             if (_taaPass) {
@@ -1045,6 +1205,21 @@ namespace visutwin::canvas
             // this it blurred the raw, jittered frame under TAA.
             if (_dofPass) {
                 _dofPass->setSceneTexture(resolvedTexture);
+            }
+        }
+
+        // The effects get this frame's values once the TAA history is assigned, and before
+        // any of their passes renders (the frame graph updates a pass before its children).
+        if (!_activeEffects.empty()) {
+            CameraFrameEffectContext context;
+            context.sceneTexture = _sceneTextureResolved ? _sceneTextureResolved : _sceneTexture.get();
+            if (_sceneTexture) {
+                context.sceneWidth = static_cast<int>(_sceneTexture->width());
+                context.sceneHeight = static_cast<int>(_sceneTexture->height());
+            }
+            for (const auto& effect : _activeEffects) {
+                effect->update();
+                effect->frameUpdate(context);
             }
         }
     }

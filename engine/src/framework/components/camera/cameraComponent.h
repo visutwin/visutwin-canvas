@@ -6,6 +6,8 @@
 #pragma once
 
 #include <algorithm>
+#include <memory>
+#include <string_view>
 #include <vector>
 
 #include "core/math/matrix4.h"
@@ -18,6 +20,7 @@
 
 namespace visutwin::canvas
 {
+    class CameraFrameEffect;
     class RenderPassCameraFrame;
     class RenderPassTAA;
 
@@ -198,7 +201,7 @@ namespace visutwin::canvas
                 _rendering.samples > 1 || _rendering.renderTargetScale != 1.0f;
             return (_dof.enabled || _taa.enabled || _ssao.enabled || _volumetricFog.enabled ||
                     _rendering.bloomIntensity > 0.0f || _rendering.sharpness > 0.0f ||
-                    _rendering.changesImage() || needsSceneTarget)
+                    _rendering.changesImage() || needsSceneTarget || hasActiveFrameEffect())
                 ? const_cast<CameraComponent*>(this) : nullptr;
         }
 
@@ -253,6 +256,20 @@ namespace visutwin::canvas
         RenderingSettings& rendering() { return _rendering; }
         void setRendering(const RenderingSettings& value) { _rendering = value; }
 
+        /// Registers an effect extending this camera's frame with passes of its own
+        /// (scene/graphics/cameraFrameEffect.h). The camera co-owns it. An effect whose id is
+        /// already registered is refused, with a warning. An active effect makes the camera
+        /// render through a camera frame. Effects are not copied by Entity::clone.
+        bool addFrameEffect(const std::shared_ptr<CameraFrameEffect>& effect);
+        /// Unregisters the effect; its passes are destroyed at the frame's next rebuild.
+        void removeFrameEffect(const std::shared_ptr<CameraFrameEffect>& effect);
+        /// The registered effect with this id, or null.
+        [[nodiscard]] std::shared_ptr<CameraFrameEffect> frameEffect(std::string_view id) const;
+        /// Every registered effect, in registration order.
+        [[nodiscard]] const std::vector<std::shared_ptr<CameraFrameEffect>>& frameEffects() const { return _frameEffects; }
+        /// Whether any registered effect is active.
+        [[nodiscard]] bool hasActiveFrameEffect() const;
+
         // Persistent camera frame for postprocessing (TAA, DOF, etc.)
         std::shared_ptr<RenderPassCameraFrame> cameraFrame() const { return _cameraFrame; }
         void setCameraFrame(const std::shared_ptr<RenderPassCameraFrame>& frame) { _cameraFrame = frame; }
@@ -298,6 +315,7 @@ namespace visutwin::canvas
         std::shared_ptr<RenderTarget> _dofSceneRenderTarget;
         std::shared_ptr<RenderPassTAA> _taaPass;
         std::shared_ptr<RenderPassCameraFrame> _cameraFrame;
+        std::vector<std::shared_ptr<CameraFrameEffect>> _frameEffects;
         void ensureDofRenderTarget();
         bool requiresPostprocessRenderTarget() const { return _dof.enabled || _taa.enabled || _ssao.enabled; }
         void updatePostprocessRenderTargetBinding() const;

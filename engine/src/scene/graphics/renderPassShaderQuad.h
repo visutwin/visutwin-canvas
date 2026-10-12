@@ -72,6 +72,12 @@ namespace visutwin::canvas
         /// prepareShaders() calls.
         void useSlangShader(const std::string& program, const std::string& variant = {});
 
+        /// Takes the shader compiled at run time from the Slang `source`
+        /// (getOrCreateSlangShaderFromSource), cached on the device: an application's own quad
+        /// pass, written once for both backends as an engine quad program is (the vtquad module,
+        /// VT_DECLARE_QUAD_UNIFORMS and the VT_DECLARE_QUAD_*INPUTn macros).
+        void useSlangSource(const std::string& name, const std::string& source, const std::string& variant = {});
+
         /// Takes the device-cached shader of this name as the pass's shader, creating
         /// it on first use from the source in the device's language: the route for a
         /// hand-written MSL + GLSL quad shader.

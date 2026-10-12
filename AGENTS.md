@@ -34,13 +34,13 @@ Vulkan 1.3.
 
 ```
 visutwin-canvas/
-  engine/          # Core 3D engine (353 .h + 249 .cpp + 1 .mm = 603 files)
+  engine/          # Core 3D engine (365 .h + 259 .cpp + 1 .mm = 625 files)
     src/core/      # Math (Vector2/3/4, Matrix4, Quaternion, SIMD multi-backend), shapes, events, tags
     src/platform/  # Graphics abstraction + Metal and Vulkan backends, input
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 87 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 88 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -240,7 +240,10 @@ particles and splats (the twin MSL / GLSL trees they replaced are gone; history 
 (Metal only: its API hands raw Metal buffers to visutwin-viz) and CUSTOM shaders, which are
 still source in the device's own language (`createShader`, `ShaderMaterial` with a
 `ShaderSourceSet`, `RenderPassShaderQuad::useCachedShader`; MSL on Metal, GLSL through shaderc
-on Vulkan), as are visutwin-geo's globe surface and visutwin-viz's volume shaders. What binds:
+on Vulkan), as are visutwin-geo's globe surface and visutwin-viz's volume shaders. A custom
+shader may instead be Slang handed over as a string (`getOrCreateSlangShaderFromSource`,
+`RenderPassShaderQuad::useSlangSource`), compiled at run time against the engine's modules and
+bindings like a program of the tree, so it needs the source tree at run time. What binds:
 
 - **A Slang program is `engine/shaders/slang/programs/<name>.slang`**, its shared code in
   `engine/shaders/slang/modules/` (`import vtquad;` — a module may not be called `quad`, the
@@ -2787,6 +2790,16 @@ present, but the rule below never depends on reading it.
   after the grab while the opaque world and the sky go to the back buffer for
   compose to overwrite. That is a black frame, not a missing reflection. Outside a
   camera frame the standalone grab pass copies the back buffer.
+- **A camera frame effect's passes are built once per REBUILD, and the rebuild key is
+  `CameraFrameOptions::effectsKey`** (every active effect's serial, required resources and
+  `buildKey()`). An effect setting that changes what its passes are built from belongs in
+  `buildKey()`; one a pass reads each frame is applied in `update()`, which runs every
+  frame. A `postOpaque` pass splits the scene pass at the grab layer, so effect passes are
+  created BEFORE the scene passes (`setupEffectPasses`). Single-sampled, the `SceneTarget`
+  an effect gets is a colour-only alias of the scene texture (the depth it samples is the
+  scene target's attachment), which `frameUpdate` rebuilds when the shared texture's size
+  moves (`RenderTarget::refreshAttachments`): a target over a texture another target
+  resized cannot resize itself. Detail in ARCHITECTURE.md, camera frame effects.
 - **The grabbed scene colour is LINEAR HDR under a camera frame and GAMMA-encoded
   otherwise**, so every consumer gates its decode on bit 5 of
   `LightingData::flagsAndPad[0]`, the same bit the sky and the tail check. There are

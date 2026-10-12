@@ -9,12 +9,15 @@
 #include <algorithm>
 #include <cassert>
 
+#include <spdlog/spdlog.h>
+
 #include "framework/entity.h"
 #include "framework/engine.h"
 #include "framework/components/componentSystem.h"
 #include "framework/components/light/lightComponent.h"
 #include "scene/light.h"
 #include "platform/graphics/graphicsDevice.h"
+#include "scene/graphics/cameraFrameEffect.h"
 #include "scene/graphics/renderPassCameraFrame.h"
 #include "scene/graphics/renderPassTAA.h"
 #include "scene/graphNode.h"
@@ -259,6 +262,40 @@ namespace visutwin::canvas
         if (src->renderSceneDepthMap()) {
             requestSceneDepthMap(true);
         }
+    }
+
+    bool CameraComponent::addFrameEffect(const std::shared_ptr<CameraFrameEffect>& effect)
+    {
+        if (!effect) {
+            return false;
+        }
+        if (frameEffect(effect->id())) {
+            spdlog::warn("CameraComponent: a frame effect with id '{}' is already registered", effect->id());
+            return false;
+        }
+        _frameEffects.push_back(effect);
+        return true;
+    }
+
+    void CameraComponent::removeFrameEffect(const std::shared_ptr<CameraFrameEffect>& effect)
+    {
+        std::erase(_frameEffects, effect);
+    }
+
+    std::shared_ptr<CameraFrameEffect> CameraComponent::frameEffect(const std::string_view id) const
+    {
+        for (const auto& effect : _frameEffects) {
+            if (effect->id() == id) {
+                return effect;
+            }
+        }
+        return nullptr;
+    }
+
+    bool CameraComponent::hasActiveFrameEffect() const
+    {
+        return std::any_of(_frameEffects.begin(), _frameEffects.end(),
+            [](const auto& effect) { return effect->active(); });
     }
 
     void CameraComponent::setPriority(const int value)

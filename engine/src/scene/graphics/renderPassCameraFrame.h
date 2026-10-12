@@ -15,6 +15,7 @@
 #include "platform/graphics/renderPass.h"
 #include "scene/composition/renderAction.h"
 #include "scene/constants.h"
+#include "cameraFrameEffect.h"
 #include "renderPassConstants.h"
 
 namespace visutwin::canvas
@@ -73,6 +74,15 @@ namespace visutwin::canvas
         // depth consumer for the prepass rule, and its combine pass reloads the
         // scene target, so that target cannot be transient.
         bool fogEnabled = false;
+
+        // The camera's active frame effects (CameraComponent::addFrameEffect): each one's
+        // identity, required resources and, when it owns passes, build key — a change
+        // rebuilds the frame — and what they require of it.
+        std::string effectsKey;
+        bool effectDepth = false;           // FrameResource::Depth (or PrepassDepth)
+        bool effectPrepassDepth = false;    // FrameResource::PrepassDepth: the prepass renders
+        bool effectSceneColorHalf = false;
+        bool effectSceneTarget = false;
     };
 
     class RenderPassCameraFrame : public RenderPass
@@ -94,6 +104,7 @@ namespace visutwin::canvas
         RenderPassCameraFrame(const std::shared_ptr<GraphicsDevice>& device, LayerComposition* layerComposition, Scene* scene,
             Renderer* renderer, const std::vector<RenderAction*>& sourceActions, CameraComponent* cameraComponent,
             const std::shared_ptr<RenderTarget>& targetRenderTarget);
+        ~RenderPassCameraFrame() override;
 
         void destroy();
         void reset();
@@ -126,8 +137,13 @@ namespace visutwin::canvas
         /// frameUpdate, which runs for every camera while the graph is built.
         void publishSceneInputs() const;
 
+        /// The passes the frame's effects added, per stage, as built at the last rebuild.
+        const CameraFrameEffectPasses& effectPasses() const { return _effectStagePasses; }
+
     private:
         void setupRenderPasses(const CameraFrameOptions& options);
+        void setupEffectPasses(const CameraFrameOptions& options);
+        void destroyEffectPasses();
         void createPasses(const CameraFrameOptions& options);
         void updateCameraUseFlags();
         void setupScenePrepass(const CameraFrameOptions& options);
@@ -200,6 +216,21 @@ namespace visutwin::canvas
         std::shared_ptr<RenderPassDof> _dofPass;
         std::shared_ptr<RenderPassCompose> _composePass;
         std::shared_ptr<RenderPassForward> _afterPass;
+
+        // The frame effects as of the last rebuild: every active one (update / frameUpdate
+        // go to these), those whose passes were created (destroyPasses goes to these, even
+        // after the camera let them go), and their passes per stage.
+        std::vector<std::shared_ptr<CameraFrameEffect>> _activeEffects;
+        std::vector<std::shared_ptr<CameraFrameEffect>> _passEffects;
+        CameraFrameEffectPasses _effectStagePasses;
+        // FrameResource::SceneTarget single-sampled: a colour-only target over the scene
+        // texture, so an effect pass may sample the scene depth while drawing into the
+        // scene. It shares the texture the scene target resizes, so its attachments are
+        // rebuilt when that size moves (the recorded size, since its own width() reads the
+        // shared texture).
+        std::shared_ptr<RenderTarget> _sceneColorTarget;
+        mutable int _sceneColorTargetWidth = 0;
+        mutable int _sceneColorTargetHeight = 0;
 
         mutable Texture* _sceneTextureResolved = nullptr;
         std::vector<std::shared_ptr<RenderAction>> _ownedActions;

@@ -131,4 +131,15 @@ namespace visutwin::canvas
     /// or the bundle lacks it. Null, with an error logged, when neither is possible.
     std::shared_ptr<Shader> getOrCreateSlangShader(GraphicsDevice* device, const std::string& program,
         const std::string& variant = {}, const ShaderFeatureSet& features = {});
+
+    /// The shader compiled at run time from `source`, Slang written as an engine program is
+    /// (`import vtquad;`, `#include "bindings.slang"` and the VT_DECLARE_* macros, `@variant`
+    /// lines, `[shader(...)]` entry points; the first entry of each stage is the shader's), for
+    /// `device`'s backend: an application's own shader, single-source for both backends. Needs
+    /// the engine's shader source tree at run time (shaderSourceRoots()), as a chunk override
+    /// does. Cached on the device under "slang-src:<name>[@<variant>]:<hash of the source>",
+    /// and Vulkan's SPIR-V in its persistent shader cache. Null, with the diagnostics logged,
+    /// when it does not compile.
+    std::shared_ptr<Shader> getOrCreateSlangShaderFromSource(GraphicsDevice* device, const std::string& name,
+        const std::string& source, const std::string& variant = {});
 }

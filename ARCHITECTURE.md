@@ -1266,6 +1266,62 @@ The cross-cutting traps stay in `AGENTS.md`.
   the phase wants; switching a light on or off by hand between a `bake()` and the
   `update()` that completes it is overwritten by the next phase.
 
+### Camera frame effects
+
+`CameraFrameEffect` (`scene/graphics/cameraFrameEffect.h`) is an application's extension
+of a camera frame: registered with `CameraComponent::addFrameEffect` (the camera co-owns
+it; ids are unique per camera; `removeFrameEffect`, `frameEffect(id)`), it adds render
+passes of its own at four stages and asks the frame for the resources they read. An
+active effect makes the camera render through a frame (`onPostprocessing`). Port of
+upstream's API for effects that own passes (its `postOpaque` stage included); the
+composition contributions upstream effects can also make (a shader chunk called at a
+compose slot) are NOT ported, and the built-in effects stay internal passes configured by
+`RenderingSettings` — DEVIATIONS both, plus the registration on the camera rather than on
+a CameraFrame object.
+
+- **Stages** (`CameraFrameEffectPasses`), placed in `RenderPassCameraFrame::collectPasses`
+  after the frame's own passes at that point, in registration order: `preScene` after the
+  prepass (and lighting-mode SSAO), `postOpaque` after the colour and depth grabs and
+  before the transparent scene pass — an effect pass here SPLITS the scene pass at the grab
+  layer as a grab does — `postScene` after the transparent pass and the fog, before TAA,
+  and `postTemporal` after TAA, the half copy, DOF and bloom, right before compose.
+- **Resources** (`FrameResource`, `requiredResources()`): `Depth` (the scene depth texture,
+  device [0, 1] depth: `quadLinearDepth` in `vtquad` linearises it; it makes the frame a
+  depth consumer, so the prepass renders under MSAA), `PrepassDepth` (the same texture,
+  and it renders the prepass single-sampled too, for a `preScene` pass), `SceneColorHalf`
+  (turns the half-resolution copy on), `SceneColorGrab` (turns the colour grab on; handed
+  over as a function, since the grab reallocates its texture on resize) and `SceneTarget`
+  (single-sampled a COLOUR-ONLY target over the scene texture, `_sceneColorTarget`, so a
+  pass drawing into the scene may sample the depth, which is the scene target's own
+  attachment; under MSAA the multisampled scene target itself, whose depth is internal).
+  An effect asking for the target also keeps the multisampled target's twins stored.
+- **Lifetime**: `applyCameraSettings` builds `CameraFrameOptions::effectsKey` from every
+  active effect's serial, required resources and (if it owns passes) `buildKey()`; a change
+  is a `needsReset`, which calls `destroyPasses()` on every effect whose passes were made
+  and `createPasses()` on the active ones (`setupEffectPasses`, before the scene passes are
+  built, since a `postOpaque` pass splits them). The passes persist across frames, like the
+  frame's texture-owning sub-passes; the frame's destructor releases them too. Every frame
+  `frameUpdate` calls each active effect's `update()` and then `frameUpdate(context)` (the
+  scene texture after TAA, its size), before any effect pass renders.
+- **The colour-only alias follows the shared scene texture by hand**: its own `width()`
+  reads the already-resized texture, so `resize` would do nothing, and Vulkan caches the
+  image views at `createFrameBuffers`. `frameUpdate` compares the size the alias was built
+  at and calls `RenderTarget::refreshAttachments()`. A resize at frame 30 matches a run
+  started at that size exactly on both backends, single-sampled and MSAA.
+- **Effect shaders are Slang from a string**: `getOrCreateSlangShaderFromSource(device,
+  name, source, variant)` / `RenderPassShaderQuad::useSlangSource` compile at run time as
+  an engine program would (`import vtquad;`, `#include "bindings.slang"`, the
+  `VT_DECLARE_QUAD_*` macros, `@variant` lines), through the override path: the source is
+  served as `programs/app-<name>.slang`, so it needs the shader source tree at run time.
+  Cached on the device by a hash of the source, and the SPIR-V in Vulkan's disk cache.
+
+`tests/cameraFrameEffectTests.cpp` holds the stage order (in the frame and as executed),
+the resources and the producers they switch on, rebuilds and the passes' lifetime;
+`tests/slangGpuTests.cpp` draws an application program from a string. Example:
+`ink-outline` (upstream `camera-frame/ink-outline`): lines from the second difference of
+inverse depth and from luminance contrast, drawn at `postOpaque` under the bubbles and
+fireflies; Metal and Vulkan agree to 0.07 counts mean.
+
 ### Procedural sky
 
 `ProceduralSky` (`extras/script/proceduralSky.h`, a port of upstream's `procedural-sky`

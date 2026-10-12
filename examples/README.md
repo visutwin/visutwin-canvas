@@ -1,6 +1,6 @@
 # VisuTwin Canvas Examples
 
-87 example applications, each a small self-contained program built on the
+88 example applications, each a small self-contained program built on the
 engine. All but one are ports of [PlayCanvas](https://playcanvas.com/) engine
 examples, so they can be compared side by side with upstream: the file header names
 the upstream example and lists every place the port could not follow it. The
@@ -145,6 +145,7 @@ The second column is the upstream example each one ports, as
 | ambient-occlusion | camera-frame/ambient-occlusion | Screen-space ambient occlusion in the laboratory |
 | volumetric-fog-local-lights | camera-frame/volumetric-fog-local-lights | Height fog lit by shadowed spot and omni lights over a terrain |
 | volumetric-fog-shafts | camera-frame/volumetric-fog-shafts | Light shafts from shadowed spot lights through volumetric fog |
+| ink-outline | camera-frame/ink-outline | A CameraFrameEffect with its own pass: ink lines drawn between the opaque and transparent layers |
 | ambient-occlusion-davinci | — (original scene) | SSAO over the da Vinci workshop with the colour finishing chain |
 | edge-detect | compute/edge-detect | Compute-shader Sobel filter over an offscreen render |
 

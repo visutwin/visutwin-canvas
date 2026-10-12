@@ -277,9 +277,13 @@ namespace visutwin::canvas
                     result.diagnostics);
                 return false;
             }
+            // A program handed over as a string (getOrCreateSlangShaderFromSource) has no file.
+            const std::string programFile = std::string(program) + ".slang";
+            const bool fromString = std::any_of(overrides.begin(), overrides.end(),
+                [&programFile](const auto& entry) { return entry.first == programFile; });
             spdlog::info("Slang program '{}'{}{} compiled from {} for {} in {:.1f} ms", program,
-                variant.empty() ? "" : " variant ", variant, path.string(), metal ? "Metal" : "Vulkan",
-                result.seconds * 1000.0);
+                variant.empty() ? "" : " variant ", variant, fromString ? std::string("its source") : path.string(),
+                metal ? "Metal" : "Vulkan", result.seconds * 1000.0);
             if (metal) {
                 out.metalSource = result.programText();
                 return true;
@@ -441,6 +445,53 @@ namespace visutwin::canvas
             device->setCachedShader(cacheKey, shader);
         } else {
             spdlog::error("Slang program '{}': the device refused the compiled code", program);
+        }
+        return shader;
+    }
+
+    std::shared_ptr<Shader> getOrCreateSlangShaderFromSource(GraphicsDevice* device, const std::string& name,
+        const std::string& source, const std::string& variant)
+    {
+        if (!device || source.empty()) {
+            return nullptr;
+        }
+        const std::string cacheKey = "slang-src:" + name + (variant.empty() ? "" : "@" + variant) + ":" +
+            hex(fnv1a64(source));
+        if (auto cached = device->getCachedShader(cacheKey)) {
+            return cached;
+        }
+
+        // The source stands in for a program file of its own name: served from memory where
+        // the tree would be read, so its includes and imports resolve as an engine program's.
+        // The prefix keeps the name clear of every file of the tree.
+        const std::string program = "app-" + name;
+        SlangProgramBuild build;
+        if (!compileProgramEntries(device, program, variant, {{program + ".slang", source}}, build)) {
+            return nullptr;
+        }
+
+        ShaderDefinition definition;
+        definition.name = cacheKey;
+        ShaderCode code;
+        code.specializeFeatures = true;
+        code.metalSource = build.metalSource;
+        for (const auto& entry : build.entries) {
+            std::string& target = entry.stage == "vertex" ? definition.vshader
+                : entry.stage == "fragment" ? definition.fshader : definition.cshader;
+            if (!target.empty()) {
+                continue;
+            }
+            target = entry.name;
+            auto& spirv = entry.stage == "vertex" ? code.vertexSpirv
+                : entry.stage == "fragment" ? code.fragmentSpirv : code.computeSpirv;
+            spirv = entry.spirv;
+        }
+
+        auto shader = device->createShaderFromCode(definition, code);
+        if (shader) {
+            device->setCachedShader(cacheKey, shader);
+        } else {
+            spdlog::error("Slang shader '{}': the device refused the compiled code", name);
         }
         return shader;
     }

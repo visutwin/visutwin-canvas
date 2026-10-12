@@ -32,3 +32,13 @@ public QuadVarying quadPassThrough(QuadVertexIn input)
     output.uv = input.uv0;
     return output;
 }
+
+/// A standard [0, 1] depth sample (near 0, far 1) as the positive linear view-space distance:
+/// perspective or, with `orthographic`, the linear depth range.
+public float quadLinearDepth(float rawDepth, float cameraNear, float cameraFar, bool orthographic)
+{
+    if (orthographic) {
+        return cameraNear + rawDepth * (cameraFar - cameraNear);
+    }
+    return (cameraNear * cameraFar) / (cameraFar - rawDepth * (cameraFar - cameraNear));
+}

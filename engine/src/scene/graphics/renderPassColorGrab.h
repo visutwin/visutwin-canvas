@@ -31,6 +31,10 @@ namespace visutwin::canvas
 
         void setSource(const std::shared_ptr<RenderTarget>& source) { _source = source; }
 
+        /// The copy this pass last made (null before it first ran): reallocated when the
+        /// source resizes.
+        Texture* texture() const { return _grabTexture.get(); }
+
         void execute() override;
 
     private:

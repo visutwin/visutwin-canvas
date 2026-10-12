@@ -36,6 +36,7 @@ the [README](README.md).
 
 ## Post-processing & tooling
 - **TAA**, **SSAO** (post-compose or per-material lighting mode), **bloom** (configurable chain depth, threshold, optional full-resolution high quality), **depth of field** (multi-pass bokeh: circle of confusion, CoC-premultiplied far downsample, concentric near/far blur, composed by CoC), **edge detection**, and a compose chain with **color grading**, **3D LUT**, chromatic **fringing**, **color enhance**, **vignette**, and tone mapping (Linear, Filmic, ACES, **ACES2**, Neutral, None)
+- **Camera frame effects**: an application adds render passes of its own to a camera's post-processing frame at four stages (before the scene, between its opaque and transparent layers, after the scene, after TAA), with the scene depth, colour copy, half-resolution scene and scene target handed to it; its shaders are Slang compiled at run time from a string, one source for both backends
 - **Planar reflections** with distance-based blur and **atmosphere/sky scattering** (Nishita)
 - **Procedural sky** (`ProceduralSky` script): Preetham daylight with a night sky (stars, twilight, moon), drawn per pixel and baked into the environment atlas that lights the scene, re-baked as the sun moves; drives a sun light
 - **Debug shader passes**: replace the forward output with a single surface quantity (albedo, world normal, opacity, specularity, gloss, metalness, AO, emission, lighting, UV0) — one variant, mode switched at runtime with no recompile

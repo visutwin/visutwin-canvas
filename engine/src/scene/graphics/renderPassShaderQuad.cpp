@@ -36,6 +36,16 @@ namespace visutwin::canvas
         setShader(getOrCreateSlangShader(gd.get(), program, variant));
     }
 
+    void RenderPassShaderQuad::useSlangSource(const std::string& name, const std::string& source,
+        const std::string& variant)
+    {
+        const auto gd = device();
+        if (!gd) {
+            return;
+        }
+        setShader(getOrCreateSlangShaderFromSource(gd.get(), name, source, variant));
+    }
+
     void RenderPassShaderQuad::useCachedShader(const char* cacheKey, const char* vertexEntry,
         const char* fragmentEntry, const char* msl, const char* glsl)
     {

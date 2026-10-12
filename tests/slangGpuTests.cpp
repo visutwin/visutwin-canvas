@@ -18,6 +18,10 @@
 //     colours;
 //   - the quad path's bindings: the uniform block at Metal buffer 3 / Vulkan set 0
 //     binding 0, declared once with register(b3) and [[vk::binding(0, 0)]].
+// And an application's own quad program compiled from a string at run time
+// (getOrCreateSlangShaderFromSource), importing the engine's modules and bindings as an
+// engine program does: it draws, a second request is the cached shader, and source that
+// does not compile gives no shader.
 // It needs a GPU and a window, so it carries the `gpu` label.
 //
 // The metal-cpp *_PRIVATE_IMPLEMENTATION translation unit of this executable: a program
@@ -51,6 +55,7 @@
 #include "platform/graphics/slangCompiler.h"
 #include "platform/graphics/texture.h"
 #include "scene/graphics/quadRender.h"
+#include "scene/shader-lib/slangShaders.h"
 #include "support/check.h"
 
 using namespace visutwin::canvas;
@@ -112,6 +117,20 @@ float4 psMain(VSOut i) : SV_Target0
         auto close = [](const uint8_t a, const uint8_t c) { return (a > c ? a - c : c - a) <= 2; };
         return close(p.r, r) && close(p.g, g) && close(p.b, b);
     }
+
+    constexpr const char* kAppProgram = R"(
+import vtquad;
+#include "bindings.slang"
+
+struct AppParams { float4 color; };
+VT_DECLARE_QUAD_UNIFORMS(AppParams, u)
+
+[shader("vertex")]
+QuadVarying appVertex(QuadVertexIn input) { return quadPassThrough(input); }
+
+[shader("fragment")]
+float4 appFragment(QuadVarying input) : SV_Target0 { return u.color; }
+)";
 
     std::string describe(const Pixel p)
     {
@@ -242,6 +261,42 @@ int main()
                 describe(right));
             check(isColor(topRight, r, g, 0) && isColor(bottomRight, r, g, 0),
                 definition.name + ": the whole right half is covered " + describe(topRight) + " " + describe(bottomRight));
+        }
+
+        // An application's quad program from a string.
+        {
+            auto shader = getOrCreateSlangShaderFromSource(device.get(), "gpu-test", kAppProgram);
+            if (check(shader != nullptr, "an application's Slang source compiles for this device")) {
+                check(getOrCreateSlangShaderFromSource(device.get(), "gpu-test", kAppProgram) == shader,
+                    "the same source again is the cached shader");
+                const float appColor[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+                RenderPass pass(sharedDevice);
+                pass.init(target);
+                pass.setClearColor(&clearColor);
+                device->setBlendState(BlendState::noBlend());
+                device->setDepthState(DepthState::noDepth());
+                device->setCullMode(CullMode::CULLFACE_NONE);
+                device->frameStart();
+                device->startRenderPass(&pass);
+                {
+                    QuadRender quad(shader);
+                    quad.setUniforms(appColor);
+                    quad.render();
+                }
+                device->endRenderPass(&pass);
+                device->frameEnd();
+                std::vector<uint8_t> pixels;
+                if (check(color->read(pixels) && pixels.size() == static_cast<size_t>(kSize) * kSize * 4,
+                        "the application program's target reads back")) {
+                    const Pixel left = at(pixels, kSize / 4, kSize / 2);
+                    const Pixel right = at(pixels, (3 * kSize) / 4, kSize / 2);
+                    check(isColor(left, 0, 0, 255) && isColor(right, 0, 0, 255),
+                        "it covers the target in its uniform's colour " + describe(left) + " " + describe(right));
+                }
+            }
+            check(getOrCreateSlangShaderFromSource(device.get(), "gpu-test-broken",
+                      "import vtquad;\n[shader(\"fragment\")] float4 f() : SV_Target0 { return undefinedName; }\n") == nullptr,
+                "source that does not compile gives no shader");
         }
     }
 

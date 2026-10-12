@@ -204,6 +204,19 @@ namespace visutwin::canvas
         }
     }
 
+    void RenderTarget::refreshAttachments()
+    {
+        if (!_device || _mipLevel > 0) {
+            return;
+        }
+        destroyFrameBuffers();
+        if (_device->renderTarget().get() == this) {
+            _device->setRenderTarget(nullptr);
+        }
+        validateMrt();
+        createFrameBuffers();
+    }
+
     Texture* RenderTarget::getColorBuffer(size_t index) const
     {
         if (index < _colorBuffers.size()) {

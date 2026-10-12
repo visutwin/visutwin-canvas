@@ -64,6 +64,11 @@ namespace visutwin::canvas
 
         void resize(int width, int height);
 
+        /// Rebuilds the GPU-side attachments over the current textures: for a target that
+        /// shares a texture another target resized, whose own size already reads the new one
+        /// so resize() would do nothing.
+        void refreshAttachments();
+
         Texture* colorBuffer() const { return _colorBuffer; }
 
         int samples() const { return _samples; }
