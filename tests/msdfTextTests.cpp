@@ -261,7 +261,70 @@ int main()
         }
     }
 
-    std::cout << "layout (upstream metrics)\n";
+    std::cout << "letter spacing\n";
+    {
+        // A fraction of the font size between every pair of glyphs: 0.25 at size 32 is 8.
+        constexpr float kInf = std::numeric_limits<float>::infinity();
+        const auto width = [&](const char* text, const float letterSpacing, const float size = 32.0f) {
+            return measureText(*msdf, decodeUtf8(text), size, size, kInf, 1.0f, -1, letterSpacing).width;
+        };
+        check(near(width("AB", 0.25f), 17.5f + 8.0f, kTolerance), "one gap between two glyphs (17.5 + 8)");
+        check(near(width("ABAB", 0.25f) - width("ABAB", 0.0f), 3.0f * 8.0f, kTolerance),
+              "three between four: the line is not widened past its last glyph");
+        check(near(width("A", 0.25f), width("A", 0.0f), kTolerance), "a single glyph takes none");
+        check(near(width("ABAB", -0.05f) - width("ABAB", 0.0f), -3.0f * 1.6f, kTolerance), "negative tightens");
+        check(near(width("ABAB", 0.25f, 64.0f), 2.0f * width("ABAB", 0.25f), kTolerance),
+              "and it scales with the font size");
+        check(near(width("AB", 0.25f) - width("AB", 0.0f), 8.0f, kTolerance) &&
+                  near(measureText(*msdf, decodeUtf8("AB"), 32.0f, 32.0f, kInf, 1.4f, -1, 0.25f).width,
+                       1.4f * 17.5f + 8.0f, kTolerance),
+              "it is added on top of spacing, unscaled by it");
+
+        // Placement: each glyph after the first moves by one more gap.
+        const auto xs = [&](const char* text, const float letterSpacing, const float maxWidth) {
+            const auto symbols = decodeUtf8(text);
+            const TextMeasure m = measureText(*msdf, symbols, 32.0f, 32.0f, maxWidth, 1.0f, -1, letterSpacing);
+            std::vector<float> out;
+            for (const auto& g : placeText(*msdf, symbols, m, 200.0f, 100.0f, Vector2(0.0f, 0.0f), 0.0f, 0.5f)) {
+                out.push_back(g.x0);
+            }
+            return out;
+        };
+        const auto plain = xs("ABAB", 0.0f, kInf);
+        const auto spacedXs = xs("ABAB", 0.25f, kInf);
+        bool stepsGrow = plain.size() == 4 && spacedXs.size() == 4;
+        for (size_t i = 0; stepsGrow && i < 4; ++i) {
+            stepsGrow = near(spacedXs[i] - plain[i], 8.0f * static_cast<float>(i), kTolerance);
+        }
+        check(stepsGrow, "placed glyphs step by the same extra gap");
+
+        // Wrapping measures the spaced line ("AB AB" is 35 unspaced, 59 spaced; no space glyph).
+        check(measureText(*msdf, decodeUtf8("AB AB"), 32.0f, 32.0f, 40.0f, 1.0f, -1, 0.0f).lines.size() == 1 &&
+                  measureText(*msdf, decodeUtf8("AB AB"), 32.0f, 32.0f, 40.0f, 1.0f, -1, 0.25f).lines.size() == 2,
+              "it is taken into account when wrapping");
+        const auto wrapped = xs("AB AB", 0.25f, 40.0f);
+        const auto alone = xs("AB", 0.25f, kInf);
+        check(wrapped.size() >= 4 && alone.size() == 2 && near(wrapped[wrapped.size() - 2], alone[0], kTolerance) &&
+                  near(wrapped.back(), alone[1], kTolerance),
+              "a wrapped line starts without a gap in front of its first glyph");
+
+        // Zero-width characters take no gap and do not count as a line's first glyph,
+        // whether the font lacks them or supplies them with no advance.
+        const char* withZw = "A\xE2\x80\x8B" "B";   // U+200B between A and B
+        check(near(width(withZw, 0.25f) - width(withZw, 0.0f), 8.0f, kTolerance),
+              "a zero-width character the font lacks adds no gap of its own");
+        FontGlyph zw = msdf->glyphs[65];
+        zw.id = 0x200B;
+        zw.xadvance = 0.0f;
+        msdf->glyphs[0x200B] = zw;
+        check(near(width(withZw, 0.25f) - width(withZw, 0.0f), 8.0f, kTolerance) &&
+                  near(width("\xE2\x80\x8B" "A", 0.25f), width("A", 0.0f), kTolerance),
+              "nor one it supplies with no advance, and it is not a line's first glyph");
+        msdf->glyphs.erase(0x200B);
+    }
+
+
+    std::cout << "\nlayout (upstream metrics)\n";
     {
         // The MSDF font: A and B advance 10 font units, kerning A->B -2.5 and B->A -1, bounds
         // spanning -5..24, no space glyph. At fontSize 32 a font unit is one element unit.

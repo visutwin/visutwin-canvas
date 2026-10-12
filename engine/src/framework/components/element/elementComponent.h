@@ -233,9 +233,14 @@ namespace visutwin::canvas
         bool wrapLines() const { return _wrapLines; }
         void setWrapLines(const bool value) { _wrapLines = value; textChanged(); }
 
-        /// Multiplies every glyph's advance (1 = the font's own).
+        /// Multiplies every glyph's advance (1 = the font's own), so wide glyphs spread
+        /// further apart than narrow ones.
         float spacing() const { return _spacing; }
         void setSpacing(const float value) { _spacing = value; textChanged(); }
+        /// Extra space between letters as a fraction of the font size (0 = none), the same
+        /// for every pair, like CSS letter-spacing: only between glyphs, on top of spacing.
+        float letterSpacing() const { return _letterSpacing; }
+        void setLetterSpacing(const float value) { _letterSpacing = value; textChanged(); }
         /// The distance between lines; unset, the font size.
         /// Under auto fit the lines step by this scaled by the fitted size over maxFontSize.
         float lineHeight() const { return _lineHeight.value_or(static_cast<float>(_fontSize)); }
@@ -480,6 +485,7 @@ namespace visutwin::canvas
         bool _autoFitHeight = false;
         int _maxLines = -1;
         float _spacing = 1.0f;
+        float _letterSpacing = 0.0f;
         bool _enableMarkup = false;
         bool _justify = false;
         int _rangeStart = 0;

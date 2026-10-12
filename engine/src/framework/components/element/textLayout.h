@@ -19,7 +19,10 @@
 //
 // Glyph metrics scale by fontSize / 32 (the fonts' em) and lines step
 // by `lineHeight`. `spacing` multiplies every glyph's advance, kerning included (1 by
-// default): it spreads the pen, not the glyphs. Symbols are CODE POINTS,
+// default): it spreads the pen, not the glyphs, wide glyphs further than narrow ones.
+// `letterSpacing` adds the same gap, a fraction of the font size, in front of every glyph
+// but the first on a line (a glyph the font lacks or gives no advance takes none and does
+// not count as the first), so it never widens a line past its last glyph. Symbols are CODE POINTS,
 // decoded from UTF-8 (`decodeUtf8`), which is what the fonts' glyph ids are. DEVIATION:
 // upstream splits text into grapheme-like symbols (a surrogate pair, an emoji sequence);
 // a combining sequence here is several symbols. A character the font lacks takes the
@@ -66,6 +69,7 @@ namespace visutwin::canvas
         float fontMinY = 0.0f;   // the font's glyph-bounds extent, scaled
         float fontMaxY = 0.0f;
         float spacing = 1.0f;
+        float letterGap = 0.0f;  // letterSpacing x fontSize
     };
 
     struct PlacedGlyph
@@ -91,7 +95,7 @@ namespace visutwin::canvas
     /// ignored otherwise.
     TextMeasure measureText(const FontResource& font, const std::u32string& symbols, float fontSize, float lineHeight,
                             float maxLineWidth = std::numeric_limits<float>::infinity(), float spacing = 1.0f,
-                            int maxLines = -1);
+                            int maxLines = -1, float letterSpacing = 0.0f);
 
     /// `justify`: a line with gaps is stretched flush to both edges of
     /// the box by widening its word gaps evenly, ignoring `horizontalAlign`.

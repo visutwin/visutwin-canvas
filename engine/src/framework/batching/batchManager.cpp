@@ -356,7 +356,9 @@ namespace visutwin::canvas
         int batchCount = 0;
         int totalOrigMeshInstances = 0;
         for (auto& [key, meshInstances] : groups) {
-            if (meshInstances.size() < 2) continue;  // No point batching a single mesh.
+            // DEVIATION: a lone mesh instance is left as it is; upstream batches it too,
+            // which draws the same thing through a merged copy of it.
+            if (meshInstances.size() < 2) continue;
 
             const auto* group = getGroupById(key.groupId);
             const bool dynamic = group && group->dynamic;
@@ -372,7 +374,7 @@ namespace visutwin::canvas
                 group ? group->maxAabbSize : 0.0f, dynamic, translucent);
 
             for (const auto& indices : lists) {
-                if (indices.size() < 2) continue;  // A batch of one saves nothing.
+                if (indices.size() < 2) continue;  // A batch of one saves nothing (as above).
 
                 std::vector<MeshInstance*> listInstances;
                 listInstances.reserve(indices.size());

@@ -31,6 +31,10 @@
 #include "framework/engine.h"
 #include "framework/entity.h"
 #include "platform/graphics/vertexBuffer.h"
+#include "scene/composition/layerComposition.h"
+#include "scene/constants.h"
+#include "scene/layer.h"
+#include "scene/scene.h"
 #include "scene/materials/standardMaterial.h"
 #include "scene/mesh.h"
 #include "scene/meshInstance.h"
@@ -197,6 +201,76 @@ int main()
             check(minBone == 0.0f && maxBone == static_cast<float>(bones - 1),
                 "every merged vertex names a bone of the batch, starting at bone 0");
         }
+    }
+
+    // A full regenerate replaces every group's batches rather than adding to them, and
+    // follows the entities' enabled state as it is at that moment.
+    std::cout << "\na full regenerate\n";
+    {
+        auto engine2 = makeTestEngine<RenderComponentSystem>(device);
+        BatchManager& b2 = *engine2->batcher();
+        constexpr int kA = 11;
+        constexpr int kB = 12;
+        b2.addGroup(BatchGroup(kA, "a", /*dynamic*/ false));
+        b2.addGroup(BatchGroup(kB, "b", /*dynamic*/ false));
+        auto boxMaterial = std::make_shared<StandardMaterial>();
+        const auto addBox = [&](const int group, const float x) {
+            auto owned = std::make_unique<Entity>();
+            Entity* box = owned.get();
+            box->setEngine(engine2.get());
+            engine2->root()->addChild(std::move(owned));
+            box->setLocalPosition(x, 0.0f, 0.0f);
+            auto* render = static_cast<RenderComponent*>(box->addComponent<RenderComponent>());
+            render->setMaterial(boxMaterial.get());
+            render->setType("box");
+            render->setBatchGroupId(group);
+            return box;
+        };
+        const auto batchesOf = [&](const int group) {
+            std::vector<const Batch*> found;
+            for (const auto& batch : b2.batches()) {
+                if (batch && batch->batchGroupId == group) {
+                    found.push_back(batch.get());
+                }
+            }
+            return found;
+        };
+        Scene* scene2 = engine2->scene().get();
+        const auto worldHolds = [&](const MeshInstance* meshInstance) {
+            const auto layers = scene2->layers();
+            const auto world = layers ? layers->getLayerById(LAYERID_WORLD) : nullptr;
+            if (!world) {
+                return false;
+            }
+            const auto& instances = world->meshInstances();
+            return std::find(instances.begin(), instances.end(), meshInstance) != instances.end();
+        };
+
+        addBox(kA, 0.0f);
+        addBox(kA, 2.0f);
+        Entity* b1 = addBox(kB, 4.0f);
+        Entity* b2box = addBox(kB, 6.0f);
+        b1->setEnabled(false);
+        b2box->setEnabled(false);
+
+        b2.prepare(scene2);
+        const auto first = batchesOf(kA);
+        const MeshInstance* firstBatchMesh = first.size() == 1 ? first[0]->meshInstance.get() : nullptr;
+        check(first.size() == 1 && batchesOf(kB).empty(),
+            "the enabled group gets its batch, the disabled one none");
+        b2.prepare(scene2);
+        const auto second = batchesOf(kA);
+        check(second.size() == 1 && second[0]->meshInstance && worldHolds(second[0]->meshInstance.get()),
+            "a second regenerate leaves ONE batch, its mesh instance on the layer");
+        check(firstBatchMesh == nullptr || second[0]->meshInstance.get() == firstBatchMesh ||
+                  !worldHolds(firstBatchMesh),
+            "and the layer no longer holds the batch it replaced");
+
+        for (Entity* box : {b1, b2box}) {
+            box->setEnabled(true);
+        }
+        b2.prepare(scene2);
+        check(batchesOf(kB).size() == 1, "enabling the other group's entities and regenerating batches it");
     }
 
     return finish("batch lifetime");

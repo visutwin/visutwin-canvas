@@ -814,7 +814,7 @@ namespace visutwin::canvas
         const float step = shouldAutoFit()
             ? lineHeight() * size / std::max(static_cast<float>(_maxFontSize), 0.0001f) : lineHeight();
         return measureText(*_fontResource, _codePoints, size, step, textMaxLineWidth(), _spacing,
-                           _wrapLines ? _maxLines : -1);
+                           _wrapLines ? _maxLines : -1, _letterSpacing);
     }
 
     void ElementComponent::updateTextLayout()
@@ -1027,6 +1027,7 @@ namespace visutwin::canvas
         _verticalAlign = src->_verticalAlign;
         _lineHeight = src->_lineHeight;
         _spacing = src->_spacing;
+        _letterSpacing = src->_letterSpacing;
         _enableMarkup = src->_enableMarkup;
         _justify = src->_justify;
         _mask = src->_mask;

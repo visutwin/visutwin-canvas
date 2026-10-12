@@ -764,7 +764,9 @@ Upstream's `ScreenComponent` and `ElementComponent` layout
   `setPriority` and resolved by the screen system's update; the UI layer's transparent
   sublayer is SORTMODE_MANUAL on it.
 - **Text properties:** `setSpacing` (a multiplier on every advance, kerning included;
-  default 1), `setLineHeight` (default the font size), `setAutoWidth` /
+  default 1), `setLetterSpacing` (an even gap, a fraction of the font size so it follows
+  auto fitting, in front of every glyph but a line's first; zero-width glyphs take none;
+  on top of spacing; default 0, like CSS letter-spacing), `setLineHeight` (default the font size), `setAutoWidth` /
   `setAutoHeight` (default on; ignored on a split axis), `setWrapLines` (wraps only at a
   fixed width), `setEnableMarkup`. `textSymbols()` / `markupTags()` / `textWidth()` /
   `textHeight()` expose the laid-out text. Markup tags: `[color="#rrggbb"]`,
