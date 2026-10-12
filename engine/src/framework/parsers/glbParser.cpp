@@ -2053,23 +2053,6 @@ namespace visutwin::canvas
         material->setRoughnessFactor(1.0f - gloss);
     }
 
-    // The material a primitive with no material gets.
-    static std::shared_ptr<StandardMaterial> createDefaultGltfMaterial()
-    {
-        auto material = std::make_shared<StandardMaterial>();
-        material->setName("glTF-default");
-        material->setTransparent(false);
-        material->setAlphaMode(AlphaMode::OPAQUE);
-        material->setMetallicFactor(0.0f);
-        material->setRoughnessFactor(1.0f);
-        // StandardMaterial scalars always apply, so the default material states them too.
-        material->setUseMetalness(true);
-        material->setMetalness(0.0f);
-        material->setGloss(0.0f);
-        material->setShaderVariantKey(1);
-        return material;
-    }
-
     // One glTF material, for EVERY load path: the synchronous parse(), createFromModel
     // and createFromPrepared (the two asynchronous ones). Never give a path its own
     // copy: copies drift, and nothing notices because no example loads asynchronously.
@@ -2226,6 +2209,16 @@ namespace visutwin::canvas
         }
         material->setShaderVariantKey(variant);
         return material;
+    }
+
+    // The material a primitive with no material gets: an empty glTF material, so the
+    // specification's defaults (white, metallic 1, roughness 1: a rough white metal that
+    // reflects the environment), the same path as every other material.
+    static std::shared_ptr<StandardMaterial> createDefaultGltfMaterial()
+    {
+        tinygltf::Material empty;
+        empty.name = "defaultGlbMaterial";
+        return createGltfMaterial(empty, [](int) { return std::shared_ptr<Texture>(); });
     }
 
     // ── Shared building blocks of the one load pipeline ──────────────────
@@ -3262,23 +3255,23 @@ namespace visutwin::canvas
         std::vector<std::shared_ptr<Material>> gltfMaterials;
         gltfMaterials.reserve(std::max<size_t>(1, model.materials.size()));
         size_t actualTextureCount = 0;
-        if (model.materials.empty()) {
-            gltfMaterials.push_back(createDefaultGltfMaterial());
-        } else {
-            for (const auto& srcMaterial : model.materials) {
-                gltfMaterials.push_back(createGltfMaterial(srcMaterial, getOrCreateTexture, &actualTextureCount));
-            }
+        for (const auto& srcMaterial : model.materials) {
+            gltfMaterials.push_back(createGltfMaterial(srcMaterial, getOrCreateTexture, &actualTextureCount));
         }
+        // Last, the default: what a primitive naming no material (or an invalid one) draws
+        // with, whether or not the file has materials of its own.
+        const size_t defaultMaterialIndex = gltfMaterials.size();
+        gltfMaterials.push_back(createDefaultGltfMaterial());
 
         // A primitive with vertex colours draws with a COPY of its material that
         // compiles the vertex-colour variant: the variant reads the colour attribute,
         // which a mesh without one does not have, so it cannot go on the shared
         // material. One copy per source material, shared by every coloured primitive
-        // using it. An invalid index falls back to the first material.
+        // using it. An invalid index, or none, takes the default material.
         std::vector<std::shared_ptr<Material>> vertexColorMaterials(gltfMaterials.size());
         const auto primitiveMaterial = [&](const int materialIndex, const bool vertexColors) {
-            const size_t index = (materialIndex >= 0 && materialIndex < static_cast<int>(gltfMaterials.size()))
-                ? static_cast<size_t>(materialIndex) : 0;
+            const size_t index = (materialIndex >= 0 && materialIndex < static_cast<int>(defaultMaterialIndex))
+                ? static_cast<size_t>(materialIndex) : defaultMaterialIndex;
             if (!vertexColors) {
                 return gltfMaterials[index];
             }
@@ -3318,7 +3311,7 @@ namespace visutwin::canvas
                     payload.material = primitiveMaterial(pd.materialIndex, pd.vertexColors);
                 }
                 for (const auto& [variant, materialIndex] : pd.variantMaterials) {
-                    if (materialIndex >= 0 && materialIndex < static_cast<int>(gltfMaterials.size())) {
+                    if (materialIndex >= 0 && materialIndex < static_cast<int>(defaultMaterialIndex)) {
                         payload.variantMaterials[variant] = primitiveMaterial(materialIndex, pd.vertexColors);
                     }
                 }

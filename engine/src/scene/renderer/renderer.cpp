@@ -1623,12 +1623,12 @@ namespace visutwin::canvas
                     lcd.castShadows = true;
                     lcd.atlasViewport = atlasLight->atlasViewport();
                     lcd.shadowMatrix = atlasLight->shadowViewProjection();
-                    // An omni face stores perspective depth over the light's range,
-                    // with the same relative bias the cubemap path applies before the
-                    // projection (see the omni block of forward-fragment-lights).
+                    // An omni face stores perspective depth over the light's range; the
+                    // receiver is pulled toward the light by the bias, a fraction of the
+                    // range (getShadowOmniClusteredPCF3).
                     lcd.shadowNear = atlasLight->localShadowNearClip();
                     lcd.shadowFar = std::max(atlasLight->range(), 0.1f);
-                    lcd.shadowRelativeBias = -atlasLight->shadowBias();
+                    lcd.shadowRangeBias = -atlasLight->shadowBias();
                     // NOT the non-clustered path's depth bias. A clustered spot's
                     // perspective depth is crushed against 1.0 (near a thousandth of
                     // the range), so the whole scene spans a few thousandths of depth

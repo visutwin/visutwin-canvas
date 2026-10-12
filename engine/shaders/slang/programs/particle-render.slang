@@ -270,9 +270,10 @@ float4 particleFS(ParticleVaryings input) : SV_Target0
         // The colour map is sRGB-authored.
         texel.rgb = pow(max(texel.rgb, float3(0.0)), float3(2.2));
     } else {
-        // A soft disc when no colour map is assigned.
-        const float a = saturate(1.0 - length(frac(input.uv) * 2.0 - 1.0));
-        texel.a = a * a;
+        // No colour map: a white disc whose alpha falls linearly from 0.5 at the centre to
+        // 0 at the quad's edge (the default texture: a 16-texel radial ramp, bilinearly
+        // filtered, which is this ramp).
+        texel.a = saturate(0.5 - length(frac(input.uv) - 0.5));
     }
     float alpha = texel.a * input.color.a;
     float3 rgb = input.color.rgb * texel.rgb;

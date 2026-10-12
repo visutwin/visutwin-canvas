@@ -309,13 +309,17 @@ float2 getCubemapAtlasCoordinates(float4 rect, float3 dir) {
 
 // Visibility of a fragment at `lightToFrag` from a clustered omni light: the face
 // stores perspective depth over [near, far], compared against the fragment's own
-// dominant-axis distance with the same RELATIVE bias the cubemap path applies
-// before the projection. `depthParams` = (near, far, relative bias, unused).
+// dominant-axis distance pulled toward the light by the bias, a FRACTION OF THE RANGE
+// (the light's shadow bias, so 0.0005 x range at the default): the fragment's distance
+// shrinks by bias x far, and its face depth with it. A fraction of the fragment's own
+// distance instead is many times too small near a long-range light and lets ground seen
+// at a grazing angle in the side faces shadow itself. `depthParams` = (near, far, bias,
+// unused).
 float getShadowOmniClusteredPCF3(float4 rect, float4 depthParams, float3 lightToFrag) {
     float2 uv = getCubemapAtlasCoordinates(rect, lightToFrag);
     float3 absDir = abs(lightToFrag);
     float d = max(absDir.x, max(absDir.y, absDir.z));
-    float dBiased = d * (1.0 - depthParams.z);
+    float dBiased = d * max(1.0 - depthParams.z * depthParams.y / max(length(lightToFrag), 1e-6), 0.0);
     float denom = (depthParams.y - depthParams.x) * dBiased;
     float compareValue = depthParams.y * (dBiased - depthParams.x) / max(denom, 1e-6);
     return pcf3x3Atlas(uv, compareValue);

@@ -91,11 +91,11 @@ namespace visutwin::canvas
         bool castShadows = false;
         Matrix4 shadowMatrix = Matrix4::identity();  // spot: world→atlas-rect shadow VP
         Vector4 atlasViewport = Vector4(0.0f, 0.0f, 1.0f, 1.0f);  // the light's slot
-        // Omni faces store perspective depth over [shadowNear, shadowFar] and take
-        // a RELATIVE bias on the distance, as the cubemap path does.
+        // Omni faces store perspective depth over [shadowNear, shadowFar]; the
+        // receiver's bias is a fraction of the range (shadowFar).
         float shadowNear = 0.01f;
         float shadowFar = 10.0f;
-        float shadowRelativeBias = 0.0f;
+        float shadowRangeBias = 0.0f;
         // A clustered spot shadow applies NO depth bias in the shader (the pass
         // sets hardware polygon offset). What it DOES apply is a normal offset on the receiver.
         float shadowNormalBias = 0.0f;

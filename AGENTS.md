@@ -1278,10 +1278,16 @@ present, but the rule below never depends on reading it.
   holds raw pointers). The per-light test must stay the one the pass would make, on the
   same frustum: `tests/localShadowCasterTests.cpp` holds a spot's list against that
   reference in both lighting modes. The work is counted in `cullTime`.
-- **Omni shadow bias is RELATIVE** — a fraction (0.2%, `omniShadowParams[2]`) of
-  the receiver distance applied BEFORE the perspective projection. Cubemap shadow
-  depth is crushed against 1.0, so a fixed post-projection offset erases omni
-  shadows entirely at ordinary light ranges.
+- **Omni shadow bias is applied to the receiver's DISTANCE, before the perspective
+  projection** — a fixed post-projection offset erases omni shadows entirely at
+  ordinary light ranges, since cubemap shadow depth is crushed against 1.0. The cubemap
+  (non-clustered) path pulls the receiver in by 0.2% of its own distance
+  (`omniShadowParams[2]`); a CLUSTERED omni, and the volumetric fog's local march over the
+  same atlas, by the light's shadow bias as a fraction of the RANGE (`-Light::shadowBias()`
+  x range, 0.0005 x range at the default), upstream's distance-over-range bias. Taken as a
+  fraction of the receiver's distance instead, it was 20-100x too small near a long-range
+  light and ground seen at a grazing angle in a side face shadowed itself in concentric
+  square bands (`render-to-texture`, range 200 at 2 m).
 - **A StandardMaterial MAP setter writes through to the base slot, and its getter falls
   back to the base texture** — `setDiffuseMap`, `setNormalMap`, `setMetalnessMap`,
   `setEmissiveMap` and `setAoMap`. A glTF material binds the BASE slots, so a setter that
@@ -1712,6 +1718,12 @@ present, but the rule below never depends on reading it.
   The body of that loop may touch nothing shared: each image fills its own slot.
   `tests/glbImageDecodeTests.cpp` holds every channel count, the row order and 48 images
   staying in their own slots.
+- **A glTF primitive naming no material draws with the glTF DEFAULT**: an empty glTF
+  material through `createGltfMaterial`, so white, metallic 1, roughness 1 (a rough
+  white metal reflecting the environment), as upstream's `createDefaultMaterial`. It is
+  never the file's first material, which an invalid index used to fall back to
+  (`glb-loader`'s cube took the plane's material; `instancing-glb`'s boxes were a grey
+  dielectric). Point clouds keep their own fallback. `tests/glbMaterialPathsTests.cpp`.
 - **glTF cameras and `KHR_lights_punctual` lights are imported DISABLED**, as upstream's
   `createCamera` / `createLight` build them; an app enables the ones it wants
   (`findComponents<CameraComponent>()`). A camera sits on its node (glTF and this engine

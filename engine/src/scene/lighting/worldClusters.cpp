@@ -257,7 +257,7 @@ namespace visutwin::canvas
                 gpu.shadowMatrix[3] = static_cast<float>(LightTextureAtlas::kShadowEdgePixels);
                 gpu.shadowMatrix[4] = ld.shadowNear;
                 gpu.shadowMatrix[5] = ld.shadowFar;
-                gpu.shadowMatrix[6] = ld.shadowRelativeBias;
+                gpu.shadowMatrix[6] = ld.shadowRangeBias;
                 gpu.shadowMatrix[7] = 0.0f;
             } else if (hasAtlasRect) {
                 // Column-major float4x4 for the GPU (dest[col*4+row] = M(row,col)),

@@ -24,6 +24,7 @@
 #include "framework/parsers/glbContainerResource.h"
 #include "platform/graphics/texture.h"
 #include "scene/materials/material.h"
+#include "scene/materials/standardMaterial.h"
 #include "support/check.h"
 #include "support/gltfModel.h"
 #include "support/stubDevice.h"
@@ -160,6 +161,29 @@ int main()
         material.reset();
         check(device->vram().tex == 0, "releasing the last material frees them");
     }
+
+    // A primitive naming no material draws with the glTF default, the specification's
+    // white, metallic 1, roughness 1, not with the file's first material.
+    std::cout << "\na primitive without a material\n";
+    forEachLoadPath([] {
+            tinygltf::Model model = buildModel();
+            tinygltf::Primitive bare = model.meshes[0].primitives[0];
+            bare.material = -1;
+            model.meshes[0].primitives.push_back(bare);
+            return model;
+        }, device, "glbMaterialPathsTests",
+        [&](const GlbContainerResource* container, const LoadPath path) {
+            const std::string name = path == LoadPath::CreateFromModel ? "createFromModel" : "createFromPrepared";
+            const auto& payloads = container ? container->meshPayloads() : std::vector<GlbMeshPayload>{};
+            check(payloads.size() == 2, name + ": both primitives load");
+            if (payloads.size() != 2) {
+                return;
+            }
+            const auto* bare = dynamic_cast<const StandardMaterial*>(payloads[1].material.get());
+            check(bare && payloads[1].material != payloads[0].material, name + ": it does not take the file's material");
+            check(bare && bare->useMetalness() && bare->metalness() == 1.0f && bare->gloss() == 0.0f,
+                name + ": it takes the default, metallic 1 and roughness 1");
+        });
 
     return finish("GLB material paths");
 }

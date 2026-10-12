@@ -33,7 +33,7 @@ struct FogLocalUniforms
     float4 lightSpot;           // inner cos, outer cos, shadow intensity, cookie intensity
     float4 lightAtten;          // x 1 linear falloff, y cookie channel, z atlas resolution
     float4 lightAtlas;          // an omni's atlas rect (x, y, size, edge pixels)
-    float4 omniDepth;           // an omni's shadow near, far, relative bias
+    float4 omniDepth;           // an omni's shadow near, far, bias (a fraction of the range)
 };
 VT_DECLARE_QUAD_UNIFORMS(FogLocalUniforms, u)
 VT_DECLARE_QUAD_DEPTH_INPUT0(depthTexture)
@@ -93,7 +93,9 @@ float volSampleShadow(float3 pos, float3 lightVec, float spiral)
     }
     const float2 uv = fogCubemapAtlasCoordinates(u.lightAtlas, resolution, lightVec);
     const float3 absDir = abs(lightVec);
-    const float d = max(absDir.x, max(absDir.y, absDir.z)) * (1.0 - u.omniDepth.z);
+    // The forward pass's compare (getShadowOmniClusteredPCF3): the bias is a fraction of the range.
+    const float d = max(absDir.x, max(absDir.y, absDir.z)) *
+        max(1.0 - u.omniDepth.z * u.omniDepth.y / max(length(lightVec), 1e-6), 0.0);
     const float compareValue = u.omniDepth.y * (d - u.omniDepth.x) / max((u.omniDepth.y - u.omniDepth.x) * d, 1e-6);
     return VT_SHADOW_COMPARE(shadowAtlas, uv + tapOffset, compareValue, resolution);
 }
