@@ -22,9 +22,6 @@
 //    exposes the same technique as framework/extras/ReflectionProbe, whose cube is
 //    installed scene-wide via Scene::setReflectionProbe and reflected only by the
 //    materials that opt in (`setUseReflectionProbe`), here the shiny ball alone.
-//  - upstream rebuilds the env atlas every frame. EnvLighting::generateAtlas allocates
-//    a fresh texture per call and runs a 1024/2048-sample convolution, so this builds
-//    it once from the first captured cube instead.
 //  - upstream draws the previews with app.drawTexture, an immediate-mode call this
 //    engine does not have; each preview is a quad pass appended to the frame graph.
 //  - the shape and colour of each primitive comes from a fixed seed so the scene is
@@ -324,17 +321,10 @@ protected:
 
         device()->endOfflineWork();
 
-        // The prefiltered atlas is built once — see the DEVIATIONS note. It is fed the
-        // EQUIRECT reprojection rather than the cube: generateAtlas runs its source
-        // through equirectToCubemap itself, so handing it a cubemap makes it sample a
-        // cube as if it were a 2D panorama and the atlas comes out black.
-        if (!_atlasBuilt) {
-            _atlasBuilt = true;
-            if (auto* atlas = EnvLighting::generateAtlas(device().get(), _textureEqui.get(), 512)) {
-                _textureAtlas.reset(atlas);
-                _atlasPass->setSourceTexture(_textureAtlas.get());
-            }
-        }
+        // Cube -> prefiltered env atlas, every frame, into the one octahedral texture, so
+        // its rects are octahedral too. The captured cube holds gamma-encoded colour, which
+        // the bake decodes.
+        EnvLighting::generateAtlas(device().get(), sourceCube.get(), _textureAtlas.get(), 512, 1024, 2048, true);
     }
 
     void destroy() override
@@ -342,7 +332,6 @@ protected:
         // The panel passes are registered with the renderer and the probe owns cameras
         // and render targets, so both go while the engine is still alive.
         _panelPasses.clear();
-        _atlasPass.reset();
         _probe.reset();
     }
 
@@ -434,7 +423,7 @@ private:
         _textureOcta2 = createProjectionTexture("reproject-octa2", 32,
             TextureProjection::TEXTUREPROJECTION_OCTAHEDRAL);
 
-        // Stands in until the first cube exists and the real atlas replaces it.
+        // The env atlas, rebuilt into this texture every frame.
         _textureAtlas = createProjectionTexture("reproject-atlas", 512,
             TextureProjection::TEXTUREPROJECTION_OCTAHEDRAL);
 
@@ -442,7 +431,7 @@ private:
         addPanel(_textureOcta, 0.7f, 0.7f, 0.4f, 0.4f);
         addPanel(_textureOcta2, -0.7f, -0.7f, 0.4f, 0.4f);
         addPanel(_textureEqui2, 0.6f, -0.7f, 0.6f, 0.3f);
-        _atlasPass = addPanel(_textureAtlas, 0.0f, -0.7f, 0.5f, 0.4f);
+        addPanel(_textureAtlas, 0.0f, -0.7f, 0.5f, 0.4f);
     }
 
     std::unique_ptr<Asset> _helipad;
@@ -459,8 +448,6 @@ private:
     std::shared_ptr<Texture> _textureOcta2;
     std::shared_ptr<Texture> _textureAtlas;
     std::vector<std::shared_ptr<RenderPassDownsample>> _panelPasses;
-    std::shared_ptr<RenderPassDownsample> _atlasPass;
-    bool _atlasBuilt = false;
 
     float _time = 0.0f;
 };

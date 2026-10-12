@@ -104,6 +104,8 @@ namespace visutwin::canvas
         std::vector<Texture*> reprojectRectSources;
         Texture* convolveSource = nullptr;
         std::vector<EnvConvolveBakeRect> convolveRects;
+        /// The layout the convolved rects are written in: equirect or octahedral.
+        TextureProjection convolveTargetProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
         bool encodeRgbp = true;
         bool decodeSrgb = false;
     };

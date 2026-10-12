@@ -10,8 +10,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <numbers>
+#include <tuple>
 #include <unordered_map>
 
 #include <spdlog/spdlog.h>
@@ -240,7 +243,8 @@ namespace visutwin::canvas
     }
 
     Texture* EnvLighting::generateAtlas(GraphicsDevice* device, Texture* source, Texture* target,
-                                        int size, int numReflectionSamples, int numAmbientSamples)
+                                        int size, int numReflectionSamples, int numAmbientSamples,
+                                        const bool decodeSrgb)
     {
         if (!device || !source) {
             spdlog::error("EnvLighting::generateAtlas: null device or source");
@@ -268,12 +272,14 @@ namespace visutwin::canvas
             texture->upload();
         }
 
-        // HDR cubemap for the GGX/Lambert convolution: the source itself when it is one,
-        // else converted from the equirect.
+        // HDR cubemap for the GGX/Lambert convolution: the source itself when it is one
+        // (decoded by the bake), else converted, and decoded once, from the equirect.
         std::shared_ptr<Texture> sourceShared(source, [](Texture*){});
         std::shared_ptr<Texture> cubemap = sourceShared;
+        bool bakeDecodesSrgb = decodeSrgb;
         if (!source->isCubemap()) {
-            cubemap = equirectToCubemap(device, sourceShared, 256, false);
+            bakeDecodesSrgb = false;
+            cubemap = equirectToCubemap(device, sourceShared, 256, decodeSrgb);
             if (!cubemap) {
                 spdlog::error("EnvLighting: failed to build HDR cubemap");
                 return texture;
@@ -302,21 +308,35 @@ namespace visutwin::canvas
         const int lambertRectW = size / 8;
         const int lambertRectH = size / 16;
 
-        // Sample tables must outlive the bakeEnvAtlas call since
-        // EnvConvolveOp references raw float*.
+        // Sample tables must outlive the bakeEnvAtlas call since EnvConvolveOp references
+        // raw float*. They depend on their inputs alone (radical-inverse sequences), so
+        // each is built once and kept: an atlas re-baked every frame would otherwise
+        // rebuild the same thousands of samples every frame.
         const int sourceTotalPixels = cubemapSize * cubemapSize * 6;
-        std::vector<std::vector<float>> ggxSamples(ggxLevels.size());
+        using SampleTable = std::shared_ptr<const std::vector<float>>;
+        const auto cachedTable = [](const int specularPower, const int numSamples, const int totalPixels) {
+            // specularPower 0 is the Lambert table.
+            static std::mutex mutex;
+            static std::map<std::tuple<int, int, int>, SampleTable> tables;
+            const std::lock_guard lock(mutex);
+            auto& table = tables[{specularPower, numSamples, totalPixels}];
+            if (!table) {
+                table = std::make_shared<const std::vector<float>>(specularPower > 0
+                    ? generateGGXSampleTable(numSamples, specularPower, totalPixels)
+                    : generateLambertSampleTable(numSamples, totalPixels));
+            }
+            return table;
+        };
+        std::vector<SampleTable> ggxSamples(ggxLevels.size());
         for (size_t i = 0; i < ggxLevels.size(); ++i) {
-            ggxSamples[i] = generateGGXSampleTable(
-                numReflectionSamples, ggxLevels[i].specularPower, sourceTotalPixels);
+            ggxSamples[i] = cachedTable(ggxLevels[i].specularPower, numReflectionSamples, sourceTotalPixels);
         }
-        const auto lambertSamples = generateLambertSampleTable(
-            numAmbientSamples, sourceTotalPixels);
+        const SampleTable lambertSamples = cachedTable(0, numAmbientSamples, sourceTotalPixels);
 
         EnvAtlasBakeOptions opts;
         opts.target = std::shared_ptr<Texture>(texture, [](Texture*){});
         opts.encodeRgbp = true;
-        opts.decodeSrgb = false;
+        opts.decodeSrgb = bakeDecodesSrgb;
 
         // Sample the atlas mipmap (top half / diagonal) from the mipmapped HDR
         // cubemap intermediate, not the raw equirect. The cubemap has a full
@@ -349,7 +369,7 @@ namespace visutwin::canvas
             EnvConvolveRect r;
             r.rectX = g.x; r.rectY = g.y; r.rectW = g.w; r.rectH = g.h;
             r.seamPixels = 1;
-            r.samples = ggxSamples[i].data();
+            r.samples = ggxSamples[i]->data();
             r.numSamples = numReflectionSamples;
             r.weightByNoL = true;
             opts.convolveRects.push_back(r);
@@ -359,7 +379,7 @@ namespace visutwin::canvas
             r.rectX = lambertRectX; r.rectY = lambertRectY;
             r.rectW = lambertRectW; r.rectH = lambertRectH;
             r.seamPixels = 1;
-            r.samples = lambertSamples.data();
+            r.samples = lambertSamples->data();
             r.numSamples = numAmbientSamples;
             opts.convolveRects.push_back(r);
         }

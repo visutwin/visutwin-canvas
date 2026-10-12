@@ -36,10 +36,12 @@ namespace visutwin::canvas
          * result), else into a new texture the caller owns; the result is returned either
          * way. `source` is an equirect, or a MIPMAPPED linear cubemap used as it is (the
          * equirect is converted to one first), which is what makes a re-bake every few
-         * frames cheap: nothing is allocated but the sample tables.
+         * frames cheap: nothing is allocated but the sample tables. `decodeSrgb` reads a
+         * gamma-encoded source (a captured probe cube) as linear.
          */
         static Texture* generateAtlas(GraphicsDevice* device, Texture* source, Texture* target,
-                                      int size, int numReflectionSamples, int numAmbientSamples);
+                                      int size, int numReflectionSamples, int numAmbientSamples,
+                                      bool decodeSrgb = false);
 
         static Texture* generateSkyboxCubemap(GraphicsDevice* device, Texture* source, int size = 0);
 

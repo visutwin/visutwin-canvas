@@ -119,8 +119,16 @@ namespace visutwin::canvas
             return;
         }
 
+        // The atlas rects are laid out equirect whatever the source is, or octahedral when
+        // the target texture says so.
+        const TextureProjection atlasProjection =
+            options.target->projection() == TextureProjection::TEXTUREPROJECTION_OCTAHEDRAL
+            ? TextureProjection::TEXTUREPROJECTION_OCTAHEDRAL
+            : TextureProjection::TEXTUREPROJECTION_EQUIRECT;
+
         EnvAtlasRequest request;
         request.target = options.target.get();
+        request.convolveTargetProjection = atlasProjection;
         request.encodeRgbp = options.encodeRgbp;
         request.decodeSrgb = options.decodeSrgb;
 
@@ -138,8 +146,7 @@ namespace visutwin::canvas
             request.reprojectSourceProjection = options.reprojectSourceIsCubemap
                 ? TextureProjection::TEXTUREPROJECTION_CUBE
                 : TextureProjection::TEXTUREPROJECTION_EQUIRECT;
-            // The atlas layout is authored in equirect rects whatever the source is.
-            request.reprojectTargetProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT;
+            request.reprojectTargetProjection = atlasProjection;
             for (const auto& r : options.reprojectRects) {
                 request.reprojectRects.push_back(sized(r));
             }

@@ -49,7 +49,9 @@ namespace visutwin::canvas::env_shaders
         uint32_t decodeSrgb = 0u;
         uint32_t numSamples = 0u;
         uint32_t weightByNoL = 0u;
+        uint32_t targetProjection = 2u;   // TextureProjection: equirect, or octahedral
+        uint32_t pad[3] = {};
     };
-    static_assert(sizeof(ConvolveUniforms) == 32);
+    static_assert(sizeof(ConvolveUniforms) == 48);
 
 }

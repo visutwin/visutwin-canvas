@@ -118,7 +118,8 @@ namespace visutwin::canvas
         void drawConvolveRects(QuadRender& quad,
             const std::vector<EnvConvolveBakeRect>& rects,
             const std::vector<std::shared_ptr<Texture>>& tables,
-            const bool encodeRgbp, const bool decodeSrgb)
+            const bool encodeRgbp, const bool decodeSrgb,
+            const TextureProjection targetProjection = TextureProjection::TEXTUREPROJECTION_EQUIRECT)
         {
             for (size_t i = 0; i < rects.size(); ++i) {
                 const auto& entry = rects[i];
@@ -131,6 +132,7 @@ namespace visutwin::canvas
                 uniforms.decodeSrgb = decodeSrgb ? 1u : 0u;
                 uniforms.numSamples = static_cast<uint32_t>(entry.numSamples);
                 uniforms.weightByNoL = entry.weightByNoL ? 1u : 0u;
+                uniforms.targetProjection = static_cast<uint32_t>(targetProjection);
                 quad.setUniforms(uniforms);
                 quad.setTexture(1, tables[i].get());
 
@@ -408,7 +410,7 @@ namespace visutwin::canvas
             QuadRender quad(convolve);
             quad.setTexture(0, request.convolveSource);
             drawConvolveRects(quad, request.convolveRects, tables,
-                request.encodeRgbp, request.decodeSrgb);
+                request.encodeRgbp, request.decodeSrgb, request.convolveTargetProjection);
         }
 
         device->endRenderPass(&pass);

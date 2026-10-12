@@ -4,8 +4,8 @@
 // Created by Arnis Lektauers on 07.10.2026
 //
 // The importance-sampled convolution of an environment (input 0: an equirect, or a cube
-// sampled along L unchanged as the reproject bake samples it) into an equirect rect of the
-// atlas: Lambert for the ambient, GGX for the reflection levels. The sample table
+// sampled along L unchanged as the reproject bake samples it) into a rect of the atlas, laid
+// out equirect or, for an octahedral target, octahedral: Lambert for the ambient, GGX for the reflection levels. The sample table
 // (tangent x, y, z and the source mip per entry) arrives on input 1 as an RGBA32F data
 // texture, read with an unfiltered texel FETCH: Apple GPUs cannot linearly filter a 32-bit
 // float format, and the table is data, not an image. The caller marks an unusable sample
@@ -24,6 +24,10 @@ struct ConvolveUniforms
     uint decodeSrgb;
     uint numSamples;
     uint weightByNoL;
+    uint targetProjection;
+    uint pad0;
+    uint pad1;
+    uint pad2;
 };
 VT_DECLARE_QUAD_UNIFORMS(ConvolveUniforms, u)
 #if defined(SRC_CUBE)
@@ -43,7 +47,7 @@ QuadVarying convolveVertex(QuadVertexIn input)
 float4 convolveFragment(QuadVarying input) : SV_Target0
 {
     const float2 uv = input.uv * u.uvMod.xy + u.uvMod.zw;
-    const float3 N = normalize(uvToDirEquirect(uv));
+    const float3 N = normalize((u.targetProjection == PROJ_OCTAHEDRAL) ? uvToDirOctahedral(uv) : uvToDirEquirect(uv));
     const float3 up = (abs(N.y) > 0.999) ? float3(1.0, 0.0, 0.0) : float3(0.0, 1.0, 0.0);
     const float3 T = normalize(cross(up, N));
     const float3 B = cross(N, T);
