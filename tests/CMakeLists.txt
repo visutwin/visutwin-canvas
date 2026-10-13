@@ -150,6 +150,7 @@ visutwin_add_unit_test(visutwin-glb-point-cloud-tests glb-point-cloud glbPointCl
 visutwin_add_unit_test(visutwin-raycast-fallback-tests raycast-fallback raycastFallbackTests.cpp)
 visutwin_add_unit_test(visutwin-mirrored-body-tests mirrored-body mirroredBodyTests.cpp)
 visutwin_add_unit_test(visutwin-rigid-body-state-tests rigid-body-state rigidBodyStateTests.cpp)
+visutwin_add_unit_test(visutwin-immediate-lines-tests immediate-lines immediateLinesTests.cpp)
 visutwin_add_unit_test(visutwin-entity-clone-tests entity-clone entityCloneTests.cpp)
 visutwin_add_unit_test(visutwin-glb-camera-light-tests glb-camera-light glbCameraLightTests.cpp TINYGLTF)
 visutwin_add_unit_test(visutwin-glb-extensions-tests glb-extensions glbExtensionsTests.cpp TINYGLTF)

@@ -13,14 +13,11 @@
 // offset sphere is drawn as a green wire sphere at the collision's shape position. Helipad sky
 // (mip 2, exposure 2), a shadowed directional light (PCF5, distance 12, 4096 map).
 //
-// DEVIATIONS:
-// - The balls' x and z come from a fixed-seed generator rather than Math.random(), so every
-//   run drops them the same way.
-// - The wire sphere is three circles of one-pixel WideLines (16 segments each), standing in
-//   for upstream's WireRenderer, which this port does not have.
+// DEVIATION: the balls' x and z come from a fixed-seed generator rather than Math.random(), so
+// every run drops them the same way.
 //
-#include <cmath>
 #include <memory>
+#include <optional>
 #include <random>
 #include <vector>
 
@@ -34,10 +31,9 @@
 #include "framework/components/render/renderComponent.h"
 #include "framework/components/rigidbody/rigidBodyComponent.h"
 #include "framework/components/rigidbody/rigidBodyComponentSystem.h"
+#include "framework/extras/wireRenderer.h"
 #include "framework/physics/jolt/joltPhysicsWorld.h"
 #include "scene/constants.h"
-#include "scene/graphics/wideLine.h"
-#include "scene/graphics/wideLineRenderer.h"
 #include "scene/materials/standardMaterial.h"
 
 using namespace visutwin::canvas;
@@ -123,27 +119,11 @@ protected:
         const Vector3 target = model->position();
         camera->lookAt(Vector3(target.getX(), target.getY() + 0.75f, target.getZ()));
 
-        // The offset sphere's wire
-        _wire = std::make_unique<WideLineRenderer>(engine(), device());
-        _wire->setLayers({LAYERID_WORLD});
-        const Vector3 center = _head->shapePosition();
-        const Vector3 axes[3][2] = {
-            {Vector3(1.0f, 0.0f, 0.0f), Vector3(0.0f, 1.0f, 0.0f)},
-            {Vector3(1.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 1.0f)},
-            {Vector3(0.0f, 1.0f, 0.0f), Vector3(0.0f, 0.0f, 1.0f)},
-        };
-        constexpr int kSegments = 16;
-        for (const auto& [u, v] : axes) {
-            std::vector<Vector3> points;
-            for (int i = 0; i <= kSegments; ++i) {
-                const float angle = 2.0f * 3.14159265f * static_cast<float>(i) / kSegments;
-                points.push_back(center + (u * std::cos(angle) + v * std::sin(angle)) * _head->radius());
-            }
-            auto line = std::make_unique<WideLine>();
-            line->setPoints(points, Color(0.0f, 1.0f, 0.0f, 1.0f), 1.0f);
-            _wire->add(line.get());
-            _circles.push_back(std::move(line));
-        }
+        // The renderer for the offset collision shape: green, 16 segments, on the World layer
+        _wire.emplace(scene().get());
+        _wire->setColor(Color(0.0f, 1.0f, 0.0f, 1.0f));
+        _wire->setSegments(16);
+        _wire->setLayer(LAYERID_WORLD);
         return true;
     }
 
@@ -165,14 +145,8 @@ protected:
             }
         }
 
-        const auto [width, height] = device()->size();
-        _wire->setScreenSize(static_cast<float>(width), static_cast<float>(height));
-        _wire->update();
-    }
-
-    void destroy() override
-    {
-        _wire.reset();
+        // The offset collision shape, drawn every frame
+        _wire->sphere(_head->shapePosition(), 0.3f);
     }
 
 private:
@@ -207,8 +181,7 @@ private:
     std::shared_ptr<StandardMaterial> _gray;
     CollisionComponent* _head = nullptr;
     std::vector<RigidBodyComponent*> _balls;
-    std::unique_ptr<WideLineRenderer> _wire;
-    std::vector<std::unique_ptr<WideLine>> _circles;
+    std::optional<WireRenderer> _wire;
     std::mt19937 _rng{20261013};
     float _timer = 0.0f;
     int _remaining = 40;

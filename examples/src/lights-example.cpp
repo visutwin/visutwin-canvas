@@ -42,15 +42,11 @@
 // DEVIATION: at most TWO directional lights per layer are shadowed
 // (ShadowParams::kMaxDirectionalShadows), where upstream shadows every one; a third
 // directional light lights the scene unshadowed, and the renderer warns once.
-// DEVIATION: the light shapes are WideLineRenderer segments one pixel wide on the
-// Immediate layer, standing in for upstream's WireRenderer, which this port does not
-// have. Each segment is clipped to the near plane first: a wide line is expanded in
-// screen space, and the omni ranges enclose the camera.
 //
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <deque>
+#include <optional>
 #include <memory>
 #include <numbers>
 #include <string>
@@ -58,14 +54,13 @@
 
 #include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
+#include "framework/extras/wireRenderer.h"
 #include "framework/assets/asset.h"
 #include "framework/handlers/containerResource.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/texture.h"
 #include "platform/input/keyboard.h"
 #include "scene/constants.h"
-#include "scene/graphics/wideLine.h"
-#include "scene/graphics/wideLineRenderer.h"
 #include "scene/materials/standardMaterial.h"
 
 using namespace visutwin::canvas;
@@ -89,11 +84,6 @@ namespace
         {Color(1.0f, 1.0f, 1.0f), Color(1.0f, 0.6f, 0.3f), Color(0.5f, 0.8f, 1.0f)},   // spot
         {Color(0.0f, 1.0f, 1.0f), Color(1.0f, 0.5f, 0.2f), Color(1.0f, 0.3f, 1.0f)},   // directional
     }};
-
-    // Segments approximating a full circle of a light shape.
-    constexpr int kCircleSteps = 20;
-
-    constexpr float kDegToRad = std::numbers::pi_v<float> / 180.0f;
 }
 
 class LightsExample final: public ExampleApp
@@ -188,8 +178,7 @@ protected:
         // -----------------------------------------------------------------------
         // Light shapes.
         // -----------------------------------------------------------------------
-        _wire = std::make_unique<WideLineRenderer>(engine(), device());
-        _wire->setLayers({LAYERID_IMMEDIATE});
+        _wire.emplace(scene().get());
 
         // Start with one light of each type
         addLight(Spot);
@@ -239,8 +228,7 @@ protected:
         }
     }
 
-    // The shapes are built here, after the camera controls have moved the camera this
-    // frame, so the near-plane clip uses the view that renders.
+    // The shapes are drawn for one frame, so every frame, once the lights have moved.
     void preRender() override
     {
         updateLightShapes();
@@ -248,9 +236,6 @@ protected:
 
     void destroy() override
     {
-        // The line renderer owns an entity under the engine root; release it while the
-        // engine is alive.
-        _wire.reset();
         spdlog::info("*** Lights Example Finished ***");
     }
 
@@ -269,13 +254,6 @@ private:
         float intensity = 0.8f;
         float cookieIntensity = 1.0f;
         float shadowIntensity = 1.0f;
-    };
-
-    struct Segment
-    {
-        Vector3 a;
-        Vector3 b;
-        Color color;
     };
 
     // A light of the given type. Its index picks its colour and, in the update loop,
@@ -460,157 +438,20 @@ private:
         spdlog::info("{} {}: {:.1f}", kindNames[_selected], name, value);
     }
 
-    // -----------------------------------------------------------------------
-    // Light shapes: a range sphere for an omni, the cone for a spot, an arrow
-    // along the direction for a directional light, each in the light's colour.
-    // -----------------------------------------------------------------------
-
-    // An orthonormal pair perpendicular to `dir` (normalized), from the world axis least
-    // aligned with it.
-    static void buildBasis(const Vector3& dir, Vector3& u, Vector3& v)
-    {
-        u = std::abs(dir.getX()) < 0.5f ? Vector3(1.0f, 0.0f, 0.0f) : Vector3(0.0f, 1.0f, 0.0f);
-        v = dir.cross(u).normalized();
-        u = v.cross(dir).normalized();
-    }
-
-    void addArc(const Vector3& center, const Vector3& u, const Vector3& v, const float radius, const Color& color)
-    {
-        constexpr float step = 2.0f * std::numbers::pi_v<float> / static_cast<float>(kCircleSteps);
-        Vector3 previous = center + u * radius;
-        for (int i = 1; i <= kCircleSteps; ++i) {
-            const float angle = step * static_cast<float>(i);
-            const Vector3 next = center + u * (std::cos(angle) * radius) + v * (std::sin(angle) * radius);
-            _segments.push_back({previous, next, color});
-            previous = next;
-        }
-    }
-
-    void addSphere(const Vector3& center, const float radius, const Color& color)
-    {
-        const Vector3 x(1.0f, 0.0f, 0.0f);
-        const Vector3 y(0.0f, 1.0f, 0.0f);
-        const Vector3 z(0.0f, 0.0f, 1.0f);
-        addArc(center, x, y, radius, color);
-        addArc(center, x, z, radius, color);
-        addArc(center, y, z, radius, color);
-    }
-
-    // `angle` is the cone's HALF-angle in degrees, `length` the apex-to-base distance.
-    void addCone(const Vector3& apex, const Vector3& direction, const float angle, const float length,
-        const Color& color)
-    {
-        Vector3 u;
-        Vector3 v;
-        buildBasis(direction, u, v);
-        const float radius = length * std::tan(std::min(angle, 89.9f) * kDegToRad);
-        const Vector3 base = apex + direction * length;
-        addArc(base, u, v, radius, color);
-        _segments.push_back({apex, base + u * radius, color});
-        _segments.push_back({apex, base + v * radius, color});
-        _segments.push_back({apex, base - u * radius, color});
-        _segments.push_back({apex, base - v * radius, color});
-    }
-
-    void addArrow(const Vector3& from, const Vector3& to, const Color& color)
-    {
-        const Vector3 delta = to - from;
-        const float length = delta.length();
-        if (length < 1e-6f) {
-            return;
-        }
-        const Vector3 dir = delta * (1.0f / length);
-        Vector3 u;
-        Vector3 v;
-        buildBasis(dir, u, v);
-        _segments.push_back({from, to, color});
-
-        // The head is a small cone, which still reads as an arrow from a distance.
-        const float headLength = length * 0.2f;
-        const float headRadius = headLength * 0.5f;
-        const Vector3 head = to - dir * headLength;
-        addArc(head, u, v, headRadius, color);
-        _segments.push_back({to, head + u * headRadius, color});
-        _segments.push_back({to, head + v * headRadius, color});
-        _segments.push_back({to, head - u * headRadius, color});
-        _segments.push_back({to, head - v * headRadius, color});
-    }
-
+    // Each enabled light's shape in its own colour: a range sphere for an omni, the cone
+    // for a spot, an arrow along the direction for a directional light.
     void updateLightShapes()
     {
-        if (!_wire) {
+        if (!_showLightShapes || !_wire) {
             return;
         }
-
-        _segments.clear();
-        if (_showLightShapes) {
-            for (const LightKind kind : {Omni, Spot, Directional}) {
-                for (const LightEntry& entry : _lights[kind]) {
-                    if (!entry.entity->enabled()) {
-                        continue;
-                    }
-                    const Vector3 position = entry.entity->position();
-                    // A light shines down the negative Y axis of its entity.
-                    const Vector3 direction =
-                        (Vector3(entry.entity->worldTransform().getColumn(1)) * -1.0f).normalized();
-                    const Color& color = entry.light->color();
-                    switch (kind) {
-                    case Omni:
-                        addSphere(position, entry.light->range(), color);
-                        break;
-                    case Spot:
-                        addCone(position, direction, entry.light->outerConeAngle(), entry.light->range(), color);
-                        break;
-                    case Directional:
-                        addArrow(position, position + direction * 8.0f, color);
-                        break;
-                    }
+        for (const LightKind kind : {Omni, Spot, Directional}) {
+            for (const LightEntry& entry : _lights[kind]) {
+                if (entry.entity->enabled()) {
+                    _wire->light(entry.light, kind == Directional ? 8.0f : 1.0f);
                 }
             }
         }
-
-        const auto [width, height] = device()->size();
-        _wire->setScreenSize(static_cast<float>(width), static_cast<float>(height));
-
-        // A wide line is expanded in screen space, so a point behind the camera would fold
-        // the segment back across the screen. Clip each to just in front of the near plane.
-        const Vector3 cameraPos = _camera->position();
-        const Vector3 forward = (Vector3(_camera->worldTransform().getColumn(2)) * -1.0f).normalized();
-        float nearClip = 0.0f;
-        if (auto* cameraComp = _camera->findComponent<CameraComponent>(); cameraComp && cameraComp->camera()) {
-            nearClip = cameraComp->camera()->nearClip() * 1.01f;
-        }
-
-        size_t count = 0;
-        for (const Segment& segment : _segments) {
-            Vector3 a = segment.a;
-            Vector3 b = segment.b;
-            const float da = (a - cameraPos).dot(forward) - nearClip;
-            const float db = (b - cameraPos).dot(forward) - nearClip;
-            if (da < 0.0f && db < 0.0f) {
-                continue;
-            }
-            if (da < 0.0f) {
-                a = a + (b - a) * (da / (da - db));
-            } else if (db < 0.0f) {
-                b = b + (a - b) * (db / (db - da));
-            }
-
-            if (count >= _wireLines.size()) {
-                _wireLines.emplace_back();
-            }
-            WideLine& line = _wireLines[count];
-            line.setPoints({a, b}, segment.color, 1.0f);
-            if (count >= _wireShown) {
-                _wire->add(&line);
-            }
-            ++count;
-        }
-        for (size_t i = count; i < _wireShown; ++i) {
-            _wire->remove(&_wireLines[i]);
-        }
-        _wireShown = count;
-        _wire->update();
     }
 
     std::unique_ptr<Asset> _statueAsset;
@@ -628,11 +469,7 @@ private:
     std::array<TypeSettings, 3> _settings{};
     LightKind _selected = Omni;
 
-    std::unique_ptr<WideLineRenderer> _wire;
-    // A deque, so the lines the renderer holds pointers to never move as it grows.
-    std::deque<WideLine> _wireLines;
-    size_t _wireShown = 0;
-    std::vector<Segment> _segments;
+    std::optional<WireRenderer> _wire;
     bool _showLightShapes = true;
 
     const Vector3 kStatueCenter{0.173f, 7.523f, 0.018f};

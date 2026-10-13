@@ -198,7 +198,6 @@ namespace visutwin::canvas
 
         void initProgramLibrary();
 
-        void registerSceneImmediate(const std::shared_ptr<Scene>& scene);
 
         void fillFrameStatsBasic(double now, float dt, float ms);
 

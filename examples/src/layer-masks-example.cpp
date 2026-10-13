@@ -22,9 +22,6 @@
 //   [ / ]      blend -/+ 0.1
 //   S          skeleton on / off
 //
-// DEVIATION: the skeleton is drawn with one-pixel WideLines (no depth test), as this port has
-// no immediate line drawing.
-//
 #include <algorithm>
 #include <memory>
 #include <string>
@@ -38,8 +35,6 @@
 #include "framework/components/anim/animComponentSystem.h"
 #include "platform/input/keyboard.h"
 #include "scene/constants.h"
-#include "scene/graphics/wideLine.h"
-#include "scene/graphics/wideLineRenderer.h"
 
 using namespace visutwin::canvas;
 
@@ -129,10 +124,6 @@ protected:
             _animated.insert(track->targets().begin(), track->targets().end());
         }
 
-        _lines = std::make_unique<WideLineRenderer>(engine(), device());
-        _lines->setScreenSize(static_cast<float>(windowWidth()), static_cast<float>(windowHeight()));
-        _lines->setDepthTest(false);
-
         spdlog::info("Keys: 1 / 2 full body, 3 / 4 / 5 upper body, A blend type, M mask, [ ] blend, S skeleton");
         return true;
     }
@@ -174,50 +165,29 @@ protected:
     void preRender() override
     {
         // The skeleton where the animation put the bones this frame
-        size_t used = 0;
         if (_skeleton && _model) {
-            drawBones(_model, _model->name(), used);
+            drawBones(_model, _model->name());
         }
-        for (size_t i = used; i < _boneLines.size(); ++i) {
-            _lines->remove(_boneLines[i].get());
-        }
-        _linesInUse = used;
-        _lines->update();
-    }
-
-
-    void destroy() override
-    {
-        _lines.reset();
     }
 
 private:
     // A line from each animated node to each of its children, coloured by the weight of the
     // layers driving the node: red the base layer's, blue the upper body's. `path` is the node's
     // path from the model's root, as the clips name their targets.
-    void drawBones(GraphNode* node, const std::string& path, size_t& used)
+    void drawBones(GraphNode* node, const std::string& path)
     {
         for (const auto& owned : node->children()) {
             GraphNode* child = owned.get();
             if (!child) {
                 continue;
             }
-            const std::string childPath = path + "/" + child->name();
             if (_animated.contains(path)) {
                 const float baseWeight = _anim->baseLayer()->drives(path) ? _anim->baseLayer()->weight() : 0.0f;
                 const float upperWeight = _upperBody->drives(path) ? _upperBody->weight() : 0.0f;
-                if (used == _boneLines.size()) {
-                    _boneLines.push_back(std::make_unique<WideLine>());
-                }
-                WideLine* line = _boneLines[used].get();
-                line->setPoints({node->position(), child->position()},
-                    Color(baseWeight, 0.0f, upperWeight, 1.0f), 1.0f);
-                if (used >= _linesInUse) {
-                    _lines->add(line);
-                }
-                ++used;
+                scene()->drawLine(node->position(), child->position(), Color(baseWeight, 0.0f, upperWeight, 1.0f),
+                    false);
             }
-            drawBones(child, childPath, used);
+            drawBones(child, path + "/" + child->name());
         }
     }
 
@@ -230,10 +200,7 @@ private:
     Entity* _model = nullptr;
     AnimComponent* _anim = nullptr;
     AnimComponentLayer* _upperBody = nullptr;
-    std::unique_ptr<WideLineRenderer> _lines;
-    std::vector<std::unique_ptr<WideLine>> _boneLines;
     std::unordered_set<std::string> _animated;
-    size_t _linesInUse = 0;
     float _blend = 0.5f;
     bool _skeleton = true;
 };

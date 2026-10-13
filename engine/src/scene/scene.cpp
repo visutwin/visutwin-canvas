@@ -16,6 +16,7 @@ namespace visutwin::canvas
     Scene::Scene(const std::shared_ptr<GraphicsDevice>& graphicsDevice) : _device(graphicsDevice), _lighting()
     {
         _sky = std::make_unique<Sky>(_device, this);
+        _immediate = std::make_unique<Immediate>(_device);
     }
 
     void Scene::setSkyboxMip(int value)

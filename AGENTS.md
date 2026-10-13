@@ -34,13 +34,13 @@ Vulkan 1.3.
 
 ```
 visutwin-canvas/
-  engine/          # Core 3D engine (366 .h + 260 .cpp + 1 .mm = 627 files)
+  engine/          # Core 3D engine (369 .h + 262 .cpp + 1 .mm = 632 files)
     src/core/      # Math (Vector2/3/4, Matrix4, Quaternion, SIMD multi-backend), shapes, events, tags
     src/platform/  # Graphics abstraction + Metal and Vulkan backends, input
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 102 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 105 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -2732,6 +2732,16 @@ present, but the rule below never depends on reading it.
   only when the target size changed (`swapchainExtentStale`), since a deliberately small swapchain
   may be reported suboptimal on every present. ImGui's framebuffer scale follows the drawable.
   `vulkanSmoke` caps and uncaps mid-run under validation.
+- **Immediate lines last ONE frame and are uploaded once, after `prerender`.** `Engine::render`
+  calls `Immediate::prepareFrame` after the `prerender` event and the UI sync, and `clear`
+  after `postrender`: a line drawn from an update, a script or `ExampleApp::preRender` is
+  drawn; one drawn during the render (a `postrender` handler) is thrown away. Each batch
+  uploads into a ring of `maxFramesInFlight` vertex buffers, one slot a frame, so a buffer
+  is rewritten only once the frame that drew it has finished (the frames-in-flight rule);
+  `prepareFrame` must therefore run once a frame and no more. For a debugging overlay, use
+  `WireRenderer` / `Scene::drawLine`, not WideLines: a wide line folds back across the screen
+  where a segment crosses the near plane, and the renderer re-uploads its whole buffer in
+  place. Detail in ARCHITECTURE.md, immediate lines.
 - **Leftover instance bindings follow the next draw.** The backends pick the
   instancing vertex layout by scanning bound slots, so shadow passes must unbind
   slot 5 after an instanced caster.

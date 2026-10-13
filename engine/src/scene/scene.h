@@ -77,7 +77,22 @@ namespace visutwin::canvas
         ComponentRegistry* componentRegistry() const { return _componentRegistry; }
         void setComponentRegistry(ComponentRegistry* registry);
 
-        Immediate* immediate() const { return _immediate; }
+        /// One-frame debug lines (WireRenderer draws through it); see Immediate.
+        Immediate* immediate() const { return _immediate.get(); }
+
+        /// A line drawn for this frame only, on `layerId` (the Immediate layer by default).
+        /// Colours are gamma encoded.
+        void drawLine(const Vector3& start, const Vector3& end, const Color& color = Color(1.0f, 1.0f, 1.0f, 1.0f),
+            const bool depthTest = true, const int layerId = LAYERID_IMMEDIATE)
+        {
+            _immediate->drawLine(start, end, color, depthTest, layerId);
+        }
+        /// Separate segments from pairs of points, a colour per point, for this frame only.
+        void drawLines(const std::vector<Vector3>& positions, const std::vector<Color>& colors,
+            const bool depthTest = true, const int layerId = LAYERID_IMMEDIATE)
+        {
+            _immediate->drawLines(positions, colors, depthTest, layerId);
+        }
 
         void setSkyboxIntensity(float value);
         float skyboxIntensity() const { return _skyboxIntensity; }
@@ -213,7 +228,7 @@ namespace visutwin::canvas
 
         std::unique_ptr<Sky> _sky;
 
-        Immediate* _immediate = nullptr;
+        std::unique_ptr<Immediate> _immediate;
 
         float _skyboxIntensity = 1.0f;
         Quaternion _skyboxRotation = Quaternion(0.0f, 0.0f, 0.0f, 1.0f);

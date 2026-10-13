@@ -105,6 +105,8 @@ namespace visutwin::canvas::test
         bool nullIndexBuffers = false;
         bool recordDraws = false;
         bool renderTargets = false;
+        /// What maxFramesInFlight() answers.
+        int framesInFlight = 1;
     };
 
     class StubGraphicsDevice : public GraphicsDevice
@@ -113,6 +115,8 @@ namespace visutwin::canvas::test
         using Options = StubDeviceOptions;
 
         explicit StubGraphicsDevice(const Options& options = {}) : _options(options), _size(options.size) {}
+
+        int maxFramesInFlight() const override { return _options.framesInFlight; }
 
         void draw(const Primitive& primitive, const std::shared_ptr<IndexBuffer>&, const int numInstances, int,
             bool, bool) override

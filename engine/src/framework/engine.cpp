@@ -244,7 +244,6 @@ namespace visutwin::canvas
         _stats = std::make_shared<ApplicationStats>(_graphicsDevice);
         _scene = std::make_shared<Scene>(_graphicsDevice);
         _scene->setComponentRegistry(_components.get());
-        registerSceneImmediate(_scene);
 
         _loader = std::make_shared<ResourceLoader>(shared_from_this());
         // One query, reused by every KTX2/Basis path. Logged because it is hardware
@@ -413,6 +412,11 @@ namespace visutwin::canvas
             _elementInput->syncElements();
         }
 
+        // This frame's immediate lines, drawn by whatever ran up to here.
+        if (Immediate* immediate = _scene ? _scene->immediate() : nullptr) {
+            immediate->prepareFrame(_scene->layers().get());
+        }
+
         _graphicsDevice->frameStart();
         _frameStartCalled = true;
         renderComposition();
@@ -433,6 +437,11 @@ namespace visutwin::canvas
         }
 
         fire("postrender");
+
+        // Immediate lines last one frame.
+        if (Immediate* immediate = _scene ? _scene->immediate() : nullptr) {
+            immediate->clear();
+        }
 
         if (_graphicsDevice->insideRenderPass()) {
             spdlog::error("Frame parity violation: render() reached frameEnd while still inside a render pass");
@@ -490,14 +499,6 @@ namespace visutwin::canvas
         FrameGraph frameGraph;
         _renderer->buildFrameGraph(&frameGraph, layerComposition.get());
         frameGraph.render(_graphicsDevice.get());
-    }
-
-    void Engine::registerSceneImmediate(const std::shared_ptr<Scene>& scene) {
-        if (_scene && _scene->immediate()) {
-            on("postrender", [scene]() {
-                scene->immediate()->onPostRender();
-            });
-        }
     }
 
     std::pair<int, int> Engine::canvasSize() const

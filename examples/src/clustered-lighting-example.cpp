@@ -12,17 +12,23 @@
 // are bucketed into a 3D world-space grid (WorldClusters) so all 46 are evaluated
 // in a single forward pass.
 //
+// Key standing in for upstream's control panel:
+//   L  light shapes on / off (off to begin with): each light's extent drawn in its own colour
+//
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <random>
 #include <vector>
 
 #include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
 #include "framework/assets/asset.h"
+#include "framework/extras/wireRenderer.h"
+#include "platform/input/keyboard.h"
 #include "platform/graphics/vertexFormat.h"
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"
@@ -141,6 +147,7 @@ protected:
         // Enable clustered lighting: the unshadowed local lights are bucketed into a 3D
         // world-space grid so many of them can be evaluated cheaply in one pass.
         scene()->setClusteredLightingEnabled(true);
+        _wire.emplace(scene().get());
         // The cluster grid defaults already suit this scene
         // (ClusterConfig: 12x16x12 cells, 48 lights per cell).
         scene()->setToneMapping(TONEMAP_ACES);
@@ -322,6 +329,22 @@ protected:
 
         // Rotate the directional light.
         _dirLight->setLocalEulerAngles(25.0f, -30.0f * time, 0.0f);
+
+        // The shape and extent of every light, each drawn in the light's own colour
+        if (const auto* keyboard = engine()->keyboard(); keyboard && keyboard->wasPressed(Key::L)) {
+            _showLightShapes = !_showLightShapes;
+            spdlog::info("light shapes: {}", _showLightShapes ? "on" : "off");
+        }
+        if (_showLightShapes) {
+            for (Entity* light : _pointLights) {
+                _wire->light(light->findComponent<LightComponent>());
+            }
+            for (Entity* light : _spotLights) {
+                _wire->light(light->findComponent<LightComponent>());
+            }
+            // A directional light has no extent, so the arrow length is given.
+            _wire->light(_dirLight->findComponent<LightComponent>(), 50.0f);
+        }
     }
 
     void destroy() override
@@ -339,6 +362,8 @@ private:
     std::vector<Entity*> _pointLights;
     std::vector<Entity*> _spotLights;
     Entity* _dirLight = nullptr;
+    std::optional<WireRenderer> _wire;
+    bool _showLightShapes = false;
 
     float _time = 0.0f;
 };

@@ -5,38 +5,87 @@
 //
 #pragma once
 
+#include <cstddef>
+#include <memory>
 #include <vector>
 
+#include "lineWriter.h"
 #include "core/math/color.h"
 #include "core/math/vector3.h"
-#include "core/objectPool.h"
+#include "scene/constants.h"
 
 namespace visutwin::canvas
 {
+    class GraphicsDevice;
+    class GraphNode;
+    class ImmediateBatch;
+    class LayerComposition;
+    class Material;
+
     /**
-     * Immediate rendering helper class for debug drawing and immediate mode rendering
+     * Lines drawn for ONE frame, for debugging and visualisation (the scene's `drawLine`
+     * family and WireRenderer). Lines go into a batch per (layer, depth test), are uploaded
+     * when the frame starts (`prepareFrame`, called by the engine after the `prerender` event)
+     * and discarded once it has been rendered (`clear`, after `postrender`), so they must be
+     * issued again every frame they should be seen. Colours are gamma encoded, as material
+     * colours are; a line is alpha-blended in its layer's transparent sublayer and drawn by
+     * every camera that renders the layer.
      */
     class Immediate
     {
     public:
-        struct OverlayCommand
-        {
-            Vector3 start = Vector3(0.0f);
-            Vector3 end = Vector3(0.0f);
-            Color color = Color(1.0f, 1.0f, 1.0f, 1.0f);
-            float thickness = 1.0f;
-        };
+        explicit Immediate(std::shared_ptr<GraphicsDevice> device);
+        ~Immediate();
 
-        // A pooled overlay line API for debug instrumentation.
-        OverlayCommand* addOverlayLine(const Vector3& start, const Vector3& end, const Color& color, float thickness = 1.0f);
+        Immediate(const Immediate&) = delete;
+        Immediate& operator=(const Immediate&) = delete;
 
-        const std::vector<OverlayCommand*>& overlays() const { return _overlayCommands; }
+        /**
+         * Room for `vertexCount` vertices (two per segment) in the batch for `layerId` and
+         * `depthTest`, as a cursor that writes `color` until told otherwise. The cursor is the
+         * Immediate's one LineWriter: fill it before the next allocation.
+         */
+        LineWriter& allocateLines(size_t vertexCount, const Color& color, bool depthTest = true,
+            int layerId = LAYERID_IMMEDIATE);
 
-        // Called after the frame was rendered, clears data
-        void onPostRender();
+        void drawLine(const Vector3& start, const Vector3& end, const Color& color = Color(1.0f, 1.0f, 1.0f, 1.0f),
+            bool depthTest = true, int layerId = LAYERID_IMMEDIATE);
+        /// Separate segments from pairs of points, with a colour per point.
+        void drawLines(const std::vector<Vector3>& positions, const std::vector<Color>& colors,
+            bool depthTest = true, int layerId = LAYERID_IMMEDIATE);
+        /// Separate segments from pairs of points, all in one colour.
+        void drawLines(const std::vector<Vector3>& positions, const Color& color,
+            bool depthTest = true, int layerId = LAYERID_IMMEDIATE);
+        /// Separate segments from packed xyz floats (`floatCount` a multiple of six), with
+        /// packed rgba per vertex (`colors`, may be null to use `color`).
+        void drawLineArrays(const float* positions, size_t floatCount, const float* colors, const Color& color,
+            bool depthTest = true, int layerId = LAYERID_IMMEDIATE);
+
+        /// Uploads every batch drawn into this frame and registers it with its layer.
+        void prepareFrame(const LayerComposition* layers);
+        /// Ends the frame: every line is gone.
+        void clear();
+
+        /// The batch for a layer and depth-test mode, made on first use.
+        ImmediateBatch& batch(int layerId, bool depthTest);
+        [[nodiscard]] size_t batchCount() const { return _batches.size(); }
 
     private:
-        ObjectPool<OverlayCommand> _overlayPool = ObjectPool<OverlayCommand>(64);
-        std::vector<OverlayCommand*> _overlayCommands;
+        std::shared_ptr<Material> material(bool depthTest);
+
+        std::shared_ptr<GraphicsDevice> _device;
+        std::unique_ptr<GraphNode> _node;
+        std::shared_ptr<Material> _materialDepth;
+        std::shared_ptr<Material> _materialNoDepth;
+
+        struct Entry
+        {
+            int layerId = 0;
+            bool depthTest = true;
+            std::unique_ptr<ImmediateBatch> batch;
+        };
+        std::vector<Entry> _batches;
+        LineWriter _writer;
+        size_t _frame = 0;
     };
 }

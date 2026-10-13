@@ -352,6 +352,35 @@ Example: `parallax-mapping-example.cpp`, a port of upstream
 `materials/parallax-mapping` — a closed brick room and a brick sphere under a spot
 and an omni light.
 
+### Immediate lines and WireRenderer
+`scene/immediate/` and `framework/extras/wireRenderer.h`: lines drawn for ONE frame, for
+debugging and visualisation. `Scene::drawLine` / `drawLines` and `Immediate::drawLineArrays`
+write segments; `WireRenderer` (one per set of settings: colour, layer, depth test, circle
+segments, an optional transform) builds shapes from them: box, oriented box, sphere, circle,
+cylinder, capsule, cone, plane, point, arrow, axes (always red, green, blue), a camera's or a
+matrix's frustum, a light's extent in its own colour, lines, polylines, loops and packed
+arrays. Every vertex is 28 bytes, position then colour (the point layout: attribute 0 and 5 on
+both backends), drawn as `PRIMITIVE_LINES` by the `immediate-line` program.
+
+- **One batch per (layer, depth test)**, `ImmediateBatch`: CPU storage (a geometric
+  capacity that shrinks back after 100 frames using under half of it), a mesh instance it
+  keeps registered with its layer (never culled, no shadows, visible only while it has lines)
+  and a ring of `maxFramesInFlight` vertex buffers. `Engine::render` uploads every batch into
+  the frame's ring slot (`Immediate::prepareFrame`) after the `prerender` event and the UI sync,
+  and empties them after `postrender` (`clear`): a line drawn later than the first is lost.
+  Shapes allocate exactly the vertices they write through the Immediate's one `LineWriter`
+  (`allocateLines`, upstream's counts, held by `tests/immediateLinesTests.cpp`).
+- **Colours are gamma encoded**; the line material decodes them on a linear HDR target (a
+  camera frame's scene) and writes them as they are on a gamma target, deciding per DRAW from
+  `GraphicsDevice::hdrPass()` through `customUniformData` (never reused on Vulkan, keyed on the
+  HDR state on Metal). The material is alpha-blended, so lines draw in the layer's transparent
+  sublayer, with the depth test and write on or neither.
+- The default layer is Immediate (`LAYERID_IMMEDIATE`), which every default camera renders;
+  `WireRenderer::setLayer` puts lines in another (`offset-collision` draws on World).
+  `wire-shapes`, `lines` and `frustum-culling` port upstream's debug examples; `lights`,
+  `lights-non-clustered`, `clustered-lighting` (L), `offset-collision` and `layer-masks` draw
+  their overlays through it.
+
 ### Wide Lines
 `scene/graphics/wideLine.h` + `wideLineRenderer.h` (upstream
 `extras/renderers/wide-line*.js`): connected polylines with a colour and a width
