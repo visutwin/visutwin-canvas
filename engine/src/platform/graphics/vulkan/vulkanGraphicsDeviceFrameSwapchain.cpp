@@ -800,7 +800,9 @@ namespace visutwin::canvas
             // Present is the usual place a resize surfaces — rebuild now so the
             // next acquire starts from a valid swapchain.
             (void)recreateSwapchain();
-        } else if (presentResult != VK_SUCCESS) {
+        } else if (presentResult != VK_SUCCESS && presentResult != VK_SUBOPTIMAL_KHR) {
+            // SUBOPTIMAL presented the image: on a high-density display with the pixel ratio
+            // capped it comes back on every frame, and a warning per frame buried every log.
             spdlog::warn("VulkanGraphicsDevice: vkQueuePresentKHR failed ({})",
                 static_cast<int>(presentResult));
         }

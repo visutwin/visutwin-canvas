@@ -186,6 +186,7 @@ visutwin_add_unit_test(visutwin-text-fit-tests text-fit textFitTests.cpp DEFINIT
 visutwin_add_unit_test(visutwin-i18n-tests i18n i18nTests.cpp DEFINITIONS VISUTWIN_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets")
 visutwin_add_unit_test(visutwin-gizmo-tests gizmo gizmoTests.cpp)
 visutwin_add_unit_test(visutwin-event-handler-off-tests event-handler-off eventHandlerOffTests.cpp)
+visutwin_add_unit_test(visutwin-event-handler-dispatch-tests event-handler-dispatch eventHandlerDispatchTests.cpp)
 visutwin_add_unit_test(visutwin-engine-update-tests engine-update engineUpdateTests.cpp)
 visutwin_add_unit_test(visutwin-texture-outlives-device-tests texture-outlives-device textureOutlivesDeviceTests.cpp)
 visutwin_add_unit_test(visutwin-resources-outlive-device-tests resources-outlive-device resourcesOutliveDeviceTests.cpp)

@@ -322,55 +322,46 @@ namespace visutwin::canvas
         eventArgs.reserve(sizeof...(Args));
         (eventArgs.emplace_back(std::forward<Args>(args)), ...);
 
+        // Unwinds the dispatch whether the loop ends or a callback throws: a depth left raised
+        // would stop handle compaction for good, and an active entry left behind would make
+        // every later fire of the name iterate a stale list.
+        struct DispatchScope
+        {
+            EventHandler& handler;
+            const std::string& name;
+            bool ownsActiveEntry;
+            ~DispatchScope()
+            {
+                --handler._dispatchDepth;
+                if (ownsActiveEntry) {
+                    handler._callbackActive.erase(name);
+                }
+                handler.compactRemovedHandles();   // no-op unless this was the outermost fire()
+            }
+        };
         ++_dispatchDepth;
+        const DispatchScope scope{*this, name, ownsActiveEntry};
+
         for (size_t i = 0; i < activeCallbacks.size(); i++) {
             EventHandle* evt = activeCallbacks[i];
-            if (!evt || !evt->_callback || evt->_removed)
-            {
+            // DEVIATION: a handle removed during this dispatch is skipped, where upstream still
+            // calls a listener removed after the dispatch began. Its owner may already be gone
+            // (a destructor unsubscribing), and calling it would reach freed memory.
+            if (!evt || !evt->_callback || evt->_removed) {
+                continue;
+            }
+
+            if (evt->_once) {
+                // Consumed BEFORE it is called: the callback may fire this event again, which
+                // must not call it a second time, or throw, which must not leave it subscribed.
+                const HandleEventCallback callback = evt->_callback;
+                offByHandle(evt);
+                callback(eventArgs);
                 continue;
             }
 
             evt->callback(eventArgs);
-
-            if (evt->_once) {
-                // check that callback still exists because user may have unsubscribed in the event handler
-                auto existingCallbackIt = _callbacks.find(name);
-                if (existingCallbackIt == _callbacks.end())
-                {
-                    continue;
-                }
-
-                std::vector<EventHandle*>& existingCallback = existingCallbackIt->second;
-                auto it = std::find(existingCallback.begin(), existingCallback.end(), evt);
-                int ind = (it != existingCallback.end()) ? std::distance(existingCallback.begin(), it) : -1;
-
-                if (ind != -1) {
-                    if (_callbackActive[name] == existingCallback) {
-                        _callbackActive[name] = std::vector<EventHandle*>(existingCallback);
-                    }
-
-                    auto callbacksIt2 = _callbacks.find(name);
-                    if (callbacksIt2 == _callbacks.end()) continue;
-
-                    std::vector<EventHandle*>& callbacks2 = callbacksIt2->second;
-                    callbacks2[ind]->setRemoved(true);
-                    callbacks2[ind]->_handler = nullptr;
-                    callbacks2[ind]->_callback = HandleEventCallback();
-                    callbacks2.erase(callbacks2.begin() + ind);
-
-                    if (callbacks2.empty()) {
-                        _callbacks.erase(name);
-                    }
-                }
-            }
         }
-
-        --_dispatchDepth;
-
-        if (ownsActiveEntry) {
-            _callbackActive.erase(name);
-        }
-        compactRemovedHandles(); // no-op unless this was the outermost fire()
 
         return this;
     }

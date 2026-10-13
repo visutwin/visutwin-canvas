@@ -25,7 +25,7 @@ struct TaaUniforms
 {
     float4x4 viewProjectionPrevious;
     float4x4 viewProjectionInverse;
-    float4 jitters;        // xy = current-frame NDC jitter
+    float4 jitters;        // xy = current-frame NDC jitter, zw = previous frame's
     float4 texSizeFlags;   // xy = texture size, z = highQuality, w = historyValid
     float4 cameraParams;
 };
@@ -43,8 +43,9 @@ float2 reproject(float2 uv, float depth)
     float4 worldPosition = mul(ndc, u.viewProjectionInverse);
     worldPosition /= worldPosition.w;
 
+    // The previous frame's jitter is removed too: the history holds the image without it.
     const float4 screenPrevious = mul(worldPosition, u.viewProjectionPrevious);
-    const float2 prevNdc = screenPrevious.xy / screenPrevious.w;
+    const float2 prevNdc = screenPrevious.xy / screenPrevious.w + u.jitters.zw;
     return float2(prevNdc.x * 0.5 + 0.5, 0.5 - prevNdc.y * 0.5);
 }
 

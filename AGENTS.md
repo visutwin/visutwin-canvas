@@ -1433,7 +1433,11 @@ present, but the rule below never depends on reading it.
   negative x to a huge `NS::UInteger` or leaves the attachment, which Metal forbids
   (upstream #9516 fixed the same on WebGPU).
 - **TAA clamps and mixes in PREMULTIPLIED space and writes the CURRENT alpha**
-  (upstream `taaResolve.js`), not the history alpha.
+  (upstream `taaResolve.js`), not the history alpha. The reprojection removes BOTH jitters
+  (the current one before unprojecting, the previous one after projecting into the last
+  frame: the history holds the image without it), and the history is at least RGBA16F
+  whatever the scene format: at a 5% weight, a lower precision rounds the steps away and
+  the history stops converging (`taa` 3.89 -> 2.39 against upstream).
 - **Do not draw to the back buffer after `Engine::render()`** — `frameEnd`
   presents the drawable and a stale `_frameDrawable` reuse is a pointer-auth
   SIGSEGV. Use `Renderer::addAppendPass` to append app passes to the frame graph.
@@ -2074,6 +2078,10 @@ present, but the rule below never depends on reading it.
 - **`EventHandler::off(name, callback)` matches by function IDENTITY**: a function pointer,
   or the same captureless lambda object. A capturing lambda or a `std::function` cannot be
   compared and is a compile error there — keep the handle `on()` returned, or use a scope.
+  A `once` handler is removed BEFORE it is called, so one that fires its own event, or
+  throws, runs once; a throwing handler unwinds the dispatch (`DispatchScope`). A handler
+  removed during a fire is SKIPPED by every fire still iterating (DEVIATION: upstream still
+  calls it; here its owner may already be destroyed). `tests/eventHandlerDispatchTests.cpp`.
 - **`Entity::destroy()` is the teardown path, and it does NOT free the node.**
   Descendants first, disable in order, `destroy` event, then each component
   released THROUGH the system that owns it (so `beforeremove` / `remove` fire for

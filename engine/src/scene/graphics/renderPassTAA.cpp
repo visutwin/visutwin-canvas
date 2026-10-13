@@ -29,7 +29,16 @@ namespace visutwin::canvas
 
     void RenderPassTAA::setup()
     {
-        const PixelFormat historyFormat = _sourceTexture ? _sourceTexture->format() : PixelFormat::PIXELFORMAT_RGBA8;
+        // The history accumulates each frame with a small weight, so it needs at least half
+        // float precision: in a lower one the small steps towards the converged value round
+        // away and the history stops converging.
+        const auto gd = device();
+        PixelFormat historyFormat = _sourceTexture ? _sourceTexture->format() : PixelFormat::PIXELFORMAT_RGBA8;
+        if (gd && gd->textureHalfFloatRenderable()) {
+            historyFormat = PixelFormat::PIXELFORMAT_RGBA16F;
+        } else if (gd && gd->textureFloatRenderable()) {
+            historyFormat = PixelFormat::PIXELFORMAT_RGBA32F;
+        }
         // Start at the source size, not 4x4: resizeSource corrects the history on the
         // first frameUpdate either way, but until then the resolved texture is what
         // downstream passes size themselves from, and a placeholder propagates — the

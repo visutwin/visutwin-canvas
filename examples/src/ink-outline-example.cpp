@@ -19,15 +19,12 @@
 //   O      outline on / off
 //   M      MSAA (4 samples) on / off
 //   T      TAA on / off
-//   [ / ]  line width -/+ 0.5 (1..6)
+//   [ / ]  line width -/+ 1 pixel (1..4)
 //
 // DEVIATIONS:
 // - upstream's orbitCamera script is the examples' CameraControls in orbit mode around the
 //   house's bounds centre, starting at the authored position; there is no inertia.
-// - the effect requires FrameResource::Depth where upstream requires the PREPASS depth: here
-//   the scene depth already holds the opaque layers at the postOpaque stage, so no prepass
-//   renders for it (single-sampled; under MSAA the prepass is the depth either way). The depth
-//   is device depth, linearised in the shader with the camera's clip planes.
+// - the depth is device depth, linearised in the shader with the camera's clip planes.
 // - the bubbles' iridescence has no minimum thickness (only a thickness map would read it), and
 //   there is no opacityFadesSpecular: their specular is not faded with the opacity either way.
 // - upstream's box emitter adds its default initialVelocity of 1 along the emitter's -Z; this
@@ -94,7 +91,13 @@ float contrast(float a, float b)
     return abs(a - b) / (a + b + 0.05);
 }
 
-// The ink at a position, comparing the samples a and b away on both diagonals.
+// The centre of the texel a position is in.
+float2 snapToTexel(float2 uv)
+{
+    return (floor(uv / u.texelSize.xy) + 0.5) * u.texelSize.xy;
+}
+
+// The ink at a texel centre, comparing the samples a and b away on both diagonals.
 float inkAt(float2 uv, float2 a, float2 b)
 {
     // The inverse of the depth changes linearly across a flat surface, so its second difference
@@ -127,11 +130,13 @@ float4 inkOutlineFragment(QuadVarying input) : SV_Target0
 
     // The ink averaged over four positions spread across the pixel in a rotated grid, scaled
     // with the width of the lines, so the lines fade out over a pixel or more at their edges
-    // instead of stepping between the pixels.
-    const float ink = (inkAt(uv + a * float2(-0.375, -0.125), a, b) +
-                       inkAt(uv + a * float2(0.125, -0.375), a, b) +
-                       inkAt(uv + a * float2(0.375, 0.125), a, b) +
-                       inkAt(uv + a * float2(-0.125, 0.375), a, b)) * 0.25 * u.params.w;
+    // instead of stepping between the pixels. The depth is read from the nearest texel, so the
+    // samples compared are a whole number of texels away from a texel centre: on a flat surface
+    // they are the same distance away on both sides, and their second difference stays zero.
+    const float ink = (inkAt(snapToTexel(uv + a * float2(-0.375, -0.125)), a, b) +
+                       inkAt(snapToTexel(uv + a * float2(0.125, -0.375)), a, b) +
+                       inkAt(snapToTexel(uv + a * float2(0.375, 0.125)), a, b) +
+                       inkAt(snapToTexel(uv + a * float2(-0.125, 0.375)), a, b)) * 0.25 * u.params.w;
     if (ink <= 0.0) {
         discard;
     }
@@ -161,7 +166,7 @@ float4 inkOutlineFragment(QuadVarying input) : SV_Target0
         {
         }
 
-        // the width of the lines, in pixels
+        // the width of the lines, in whole pixels
         float width = 1.0f;
         // how sensitive the lines are to changes of the depth, and of the brightness
         float depthThreshold = 0.0f;
@@ -190,7 +195,7 @@ float4 inkOutlineFragment(QuadVarying input) : SV_Target0
             }
 
             InkOutlineUniforms uniforms{};
-            uniforms.params[0] = width;
+            uniforms.params[0] = std::max(std::round(width), 1.0f);
             uniforms.params[1] = depthThreshold;
             uniforms.params[2] = colorThreshold;
             uniforms.params[3] = intensity;
@@ -219,7 +224,7 @@ float4 inkOutlineFragment(QuadVarying input) : SV_Target0
     // The resources it requires are what the camera frame provides to it:
     // - the copy of the opaque scene colour, which the frame takes because the effect requires it,
     // - a render target onto the scene colour, which the pass draws the lines into,
-    // - the scene depth, which holds the opaque layers by the time the pass runs.
+    // - the scene depth, which at this point holds the depth of the opaque geometry.
     // The pass is added to the postOpaque stage: after the opaque geometry, before the transparent
     // geometry, which renders over the lines.
     class InkOutlineEffect final : public CameraFrameEffect
@@ -231,7 +236,7 @@ float4 inkOutlineFragment(QuadVarying input) : SV_Target0
         {
         }
 
-        // The width of the lines, in pixels
+        // The width of the lines, in whole pixels
         float width = 3.0f;
         // How sensitive the lines are to changes of the depth - lower values draw more lines
         float depthThreshold = 0.002f;
@@ -451,10 +456,10 @@ protected:
             break;
         }
         case SDLK_LEFTBRACKET:
-            _inkOutline->width = std::max(1.0f, _inkOutline->width - 0.5f);
+            _inkOutline->width = std::max(1.0f, _inkOutline->width - 1.0f);
             break;
         case SDLK_RIGHTBRACKET:
-            _inkOutline->width = std::min(6.0f, _inkOutline->width + 0.5f);
+            _inkOutline->width = std::min(4.0f, _inkOutline->width + 1.0f);
             break;
         default:
             return false;
