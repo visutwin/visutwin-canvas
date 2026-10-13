@@ -3370,11 +3370,16 @@ What stays HERE is only what bites during UNRELATED work.
   hides it; a ribbed coat normal map shows it). Reference: `clearcoat` on Vulkan reads
   a mean absolute difference of 0.002 counts against Metal on the whole 900x700 frame,
   with 12 pixels above 8 counts — isolated specular glints.
-- **Parity gaps porting met, deferred:** (1) there is no per-texture sRGB flag: every colour
-  texture is decoded from gamma, where upstream treats a texture NOT flagged sRGB (its texture
-  assets by default) as linear — `texture-copy`'s images read darker than upstream's, exactly
-  by one decode; any port whose upstream loads colour textures without `srgb: true` differs the
-  same way. (2) The environment atlas is scene-global: no per-material `envAtlas` or box
+- **Parity gaps porting met, deferred:** (1) a UI image or sprite whose texture is NOT
+  flagged sRGB is drawn undecoded upstream (its elements share a material compiled for an sRGB
+  default texture and swap the real one in per draw, so neither the hardware nor the shader
+  decodes it); here every colour texture is decoded with `pow(x, 2.2)`, which is what upstream's
+  MATERIALS do with an unflagged 8-bit map, and what its sRGB-flagged textures come out as
+  (the UI sweeps match as they are, image-fit 0.30, and would read ~4.4 under the exact sRGB
+  curve). Audited 2026-10-13: of the ported examples only `texture-copy` shows an unflagged
+  texture in an image element (its thumbnails read lighter upstream, by exactly one decode);
+  every UI atlas is flagged (`uiAtlasData.srgb`), and no port uses an unflagged colour map in a
+  material. A float texture as a colour map is linear upstream; nothing here exercises it. (2) The environment atlas is scene-global: no per-material `envAtlas` or box
   projection (`graphics/reflection-box`). (3) No per-`MeshInstance` parameter overrides
   (`test/material-instance-overrides`). (4) No `CanvasFont` (`text-emojis`, `element-colors`,
   `element-states`). (5) `.basis` files do not load (libktx reads KTX2 only; `texture-basis`

@@ -25,9 +25,9 @@
 // - A texture is filled through setLevelData and upload() where upstream locks and unlocks
 //   it; the loaded texture's expected bytes are read back from it, as upstream does.
 // - The images show their textures decoded from gamma, as every colour texture is here.
-//   Upstream treats a texture not flagged sRGB (these, and its texture assets by default) as
-//   linear, so its images are gamma-encoded once more and read lighter (the loaded texture's
-//   orange is (237, 161, 118) there, (218, 93, 47) here, its texel exactly).
+//   Upstream draws an image element's texture that is not flagged sRGB (these are not)
+//   undecoded, so its thumbnails are gamma-encoded once more and read lighter (the loaded
+//   texture's orange is (237, 161, 118) there, (218, 93, 47) here, its texel exactly).
 //
 #include <array>
 #include <cstdint>
