@@ -11,6 +11,7 @@
 
 #include "core/math/matrix4.h"
 #include "scene/graphics/wideLine.h"
+#include "scene/graphics/wideLineSegmentBuffer.h"
 
 namespace visutwin::canvas
 {
@@ -78,8 +79,8 @@ namespace visutwin::canvas
         Entity* _entity = nullptr;
         std::shared_ptr<Mesh> _mesh;
         std::shared_ptr<ShaderMaterial> _material;
-        std::shared_ptr<VertexBuffer> _segmentBuffer;
-        int _segmentCapacity = 0;
+        // One segment buffer per frame in flight (wideLineSegmentBuffer.h).
+        wideline::SegmentBufferRing _segmentBuffers;
 
         struct LineParams { float screenSize[4] = {1.0f, 1.0f, 1.0f, 1.0f}; };
         LineParams _params;

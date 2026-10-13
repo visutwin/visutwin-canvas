@@ -17,7 +17,12 @@
 //     defect ran into; if it ever stops refusing, this test says so);
 //   - grow, shrink, zero and grow-past-capacity all upload successfully, put the
 //     live records at the front, and reallocate only when the buffer is too small;
-//   - the capacity never shrinks and grows geometrically.
+//   - the capacity never shrinks and grows geometrically;
+//   - the renderer's ring: one buffer per frame in flight, a new frame writes the next one, a
+//     second write in the same frame rewrites the frame's own buffer, and the ring comes back
+//     round only after every other frame in flight has had its own. On Metal an upload is a
+//     copy into memory the GPU reads directly, so rewriting the buffer a frame in flight draws
+//     tears its lines; no render shows it reliably, hence the test.
 
 #include <algorithm>
 #include <cstdint>
@@ -54,7 +59,10 @@ namespace
     class StubDevice final : public StubGraphicsDevice
     {
     public:
-        StubDevice() : StubGraphicsDevice(Options{.cpuBuffers = true, .nullIndexBuffers = true}) {}
+        explicit StubDevice(const int framesInFlight = 1)
+            : StubGraphicsDevice(Options{.cpuBuffers = true, .nullIndexBuffers = true, .framesInFlight = framesInFlight})
+        {
+        }
 
         std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>& format,
             const int numVertices, const VertexBufferOptions& options) override
@@ -178,6 +186,47 @@ namespace
         }
         check(reallocations <= 11, "growing one segment at a time reallocates logarithmically");
     }
+    void checkRing()
+    {
+        StubDevice device(3);
+        wideline::SegmentBufferRing ring;
+
+        // Frames 1-4, one rebuild each.
+        std::vector<const VertexBuffer*> buffers;
+        for (int frame = 1; frame <= 4; ++frame) {
+            const auto records = makeRecords(3, static_cast<uint8_t>(frame * 10));
+            const auto buffer = ring.upload(device, records.data(), 3, kRecordSize, frame);
+            check(buffer && holds(*buffer, 3, records, 3), "each frame's upload holds its records");
+            buffers.push_back(buffer.get());
+        }
+        check(ring.slots.size() == 3, "one buffer per frame in flight");
+        check(buffers[0] != buffers[1] && buffers[1] != buffers[2] && buffers[0] != buffers[2],
+            "consecutive frames write different buffers");
+        check(buffers[3] == buffers[0], "the ring comes back round after one buffer per frame in flight");
+
+        // A second rebuild in the same frame rewrites that frame's buffer, which no frame has
+        // drawn yet, rather than taking the next one.
+        const auto again = makeRecords(2, 200);
+        const auto sameFrame = ring.upload(device, again.data(), 2, kRecordSize, 4);
+        check(sameFrame.get() == buffers[3] && holds(*sameFrame, 3, again, 2),
+            "a second write in the same frame rewrites the frame's buffer");
+        const auto next = ring.upload(device, again.data(), 2, kRecordSize, 5);
+        check(next.get() == buffers[1], "and the next frame moves on");
+
+        // Each buffer grows on its own: a larger set reallocates only the buffer it lands in.
+        const int createdBefore = device.created;
+        const auto large = makeRecords(8, 1);
+        const auto grown = ring.upload(device, large.data(), 8, kRecordSize, 6);
+        check(grown && holds(*grown, 8, large, 8) && device.created == createdBefore + 1,
+            "a larger set reallocates only the buffer of its frame");
+        check(ring.upload(device, nullptr, 0, kRecordSize, 7) == nullptr, "an empty set uploads nothing");
+
+        StubDevice single(1);
+        wideline::SegmentBufferRing one;
+        const auto a = one.upload(single, large.data(), 8, kRecordSize, 1);
+        const auto b = one.upload(single, large.data(), 8, kRecordSize, 2);
+        check(a && a == b && one.slots.size() == 1, "with one frame in flight there is one buffer");
+    }
 }
 
 int main()
@@ -186,6 +235,7 @@ int main()
     checkShortPayloadIsRefused();
     checkGrowShrinkZero();
     checkCapacityRule();
+    checkRing();
 
     return finish("wide-line segment buffer");
 }

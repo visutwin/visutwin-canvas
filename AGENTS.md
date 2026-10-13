@@ -2226,6 +2226,12 @@ present, but the rule below never depends on reading it.
   pass whose grid was the first ever written with NO buffer at all (a whole mesh of
   a lightmap bake missed its omni light on Metal alone), and lit every layer of a
   frame with the last grid written.
+  The WIDE-LINE segment buffer and the IMMEDIATE line batches are rings too:
+  `wideline::SegmentBufferRing` (a renderer's rebuild writes the slot of the frame named by
+  `renderVersion()`, a second rebuild in the same frame rewrites that slot, the next frame
+  moves on; `tests/wideLineSegmentBufferTests.cpp`) and `ImmediateBatch` (one upload a
+  frame, `Immediate::prepareFrame`). A WideLineRenderer once rewrote its single buffer in
+  place on every change, tearing lines that move every frame for a frame on Metal.
 - **Mesh instances are culled ONCE per (camera, layer) per frame, into a cache both
   sublayers read.** `ForwardRenderer::buildFrameGraph` registers the pairs it will
   render (`Renderer::requestMeshInstanceCull`) and culls them in one batch
@@ -2740,8 +2746,8 @@ present, but the rule below never depends on reading it.
   is rewritten only once the frame that drew it has finished (the frames-in-flight rule);
   `prepareFrame` must therefore run once a frame and no more. For a debugging overlay, use
   `WireRenderer` / `Scene::drawLine`, not WideLines: a wide line folds back across the screen
-  where a segment crosses the near plane, and the renderer re-uploads its whole buffer in
-  place. Detail in ARCHITECTURE.md, immediate lines.
+  where a segment crosses the near plane, and a WideLineRenderer re-uploads every segment it
+  holds whenever one line changes. Detail in ARCHITECTURE.md, immediate lines.
 - **Leftover instance bindings follow the next draw.** The backends pick the
   instancing vertex layout by scanning bound slots, so shadow passes must unbind
   slot 5 after an instanced caster.

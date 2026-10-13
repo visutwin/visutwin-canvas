@@ -18,7 +18,6 @@
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "platform/graphics/vertexFormat.h"
-#include "scene/graphics/wideLineSegmentBuffer.h"
 #include "scene/graphics/wideLineShaders.h"
 #include "scene/materials/shaderMaterial.h"
 #include "scene/shader-lib/slangShaders.h"
@@ -257,14 +256,16 @@ namespace visutwin::canvas
             return;
         }
 
-        // The storage buffer is recreated only when it has to grow, so a line whose
-        // points move every frame does not reallocate. A smaller set is written into
-        // the front of the existing buffer and the draw count below says how much of
-        // it is live; see wideLineSegmentBuffer.h for why the payload is full-size.
+        // Each frame's records go into that frame's buffer of the ring, never one a frame in
+        // flight still draws from. A buffer is recreated only when it has to grow, so a line
+        // whose points move every frame does not reallocate; a smaller set is written into
+        // the front and the draw count below says how much of it is live (see
+        // wideLineSegmentBuffer.h for why the payload is full-size).
         const int count = static_cast<int>(records.size());
-        if (!wideline::uploadSegmentRecords(*_device, _segmentBuffer, _segmentCapacity,
-                reinterpret_cast<const uint8_t*>(records.data()), count,
-                static_cast<int>(sizeof(SegmentRecord)))) {
+        const std::shared_ptr<VertexBuffer> segmentBuffer = _segmentBuffers.upload(*_device,
+            reinterpret_cast<const uint8_t*>(records.data()), count, static_cast<int>(sizeof(SegmentRecord)),
+            _device->renderVersion());
+        if (!segmentBuffer) {
             spdlog::error("WideLineRenderer: failed to upload {} segments", count);
             if (render != nullptr) {
                 render->clearMeshInstances();
@@ -285,7 +286,7 @@ namespace visutwin::canvas
 
         render->clearMeshInstances();
         auto instance = std::make_unique<MeshInstance>(_mesh, _material, _entity);
-        instance->setStorageDraw(_segmentBuffer, count, &_params, sizeof(_params));
+        instance->setStorageDraw(segmentBuffer, count, &_params, sizeof(_params));
         // Lines are given in world space and reach wherever their points do.
         instance->setCull(false);
         instance->setCastShadow(false);

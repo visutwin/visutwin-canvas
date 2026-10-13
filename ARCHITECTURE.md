@@ -1256,8 +1256,11 @@ The cross-cutting traps stay in `AGENTS.md`.
   FRONT with a full-size payload and the draw's instance count says how much is
   live, because `VertexBuffer::setData` refuses any payload that is not the
   buffer's exact size — uploading only the live records would freeze every line
-  from the first frame with fewer segments. `wideLineSegmentBuffer.h` owns
-  this and `tests/wideLineSegmentBufferTests.cpp` holds it.
+  from the first frame with fewer segments. There is one such buffer per frame in
+  flight (`wideline::SegmentBufferRing`): a rebuild writes the buffer of the current
+  frame (`renderVersion()`), never one a frame in flight still draws, since a Metal
+  upload is a copy into memory the GPU reads directly. `wideLineSegmentBuffer.h` owns
+  both and `tests/wideLineSegmentBufferTests.cpp` holds them.
 - **GPU instance culling requires the 80-byte stride.** Its kernel compacts fixed
   80-byte records. The instanced shader variant follows THE DRAW, not the
   material: the renderer derives it from the mesh instance's buffer format.

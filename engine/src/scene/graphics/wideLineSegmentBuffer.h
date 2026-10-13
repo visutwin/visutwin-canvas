@@ -71,4 +71,58 @@ namespace visutwin::canvas::wideline
 
         return buffer->setData(bytes);
     }
+
+    /**
+     * The segment buffers of one renderer, one per frame in flight. On Metal an upload is a
+     * copy into memory the GPU reads directly, and up to `maxFramesInFlight()` earlier frames
+     * may still be drawing the lines they were given, so a renderer whose lines change every
+     * frame must not rewrite the buffer a frame in flight draws from.
+     *
+     * `upload` writes into the slot of the current frame, named by `frameKey`
+     * (`GraphicsDevice::renderVersion()`): a new key moves to the next slot, the same key
+     * rewrites the slot already written for it, which no frame has drawn yet. The key moves at
+     * every frame start, so writes on either side of a render go to different slots, and a slot
+     * comes back round only after `maxFramesInFlight()` frames, by which time the frame gate has
+     * retired the frame that drew it. Each slot grows on its own (uploadSegmentRecords).
+     */
+    struct SegmentBufferRing
+    {
+        struct Slot
+        {
+            std::shared_ptr<VertexBuffer> buffer;
+            int capacity = 0;
+        };
+
+        std::vector<Slot> slots;
+        size_t current = 0;
+        bool written = false;
+        int lastKey = 0;
+
+        /// Uploads `count` records into the frame's slot; returns its buffer, or null when the
+        /// device refused it. A count of zero uploads nothing and returns null.
+        std::shared_ptr<VertexBuffer> upload(GraphicsDevice& device, const uint8_t* records, const int count,
+            const int recordSize, const int frameKey)
+        {
+            if (count <= 0) {
+                return nullptr;
+            }
+            const size_t size = static_cast<size_t>(std::max(device.maxFramesInFlight(), 1));
+            if (slots.size() != size) {
+                slots.resize(size);
+                current = 0;
+                written = false;
+            }
+            if (written && frameKey != lastKey) {
+                current = (current + 1) % slots.size();
+            }
+            written = true;
+            lastKey = frameKey;
+
+            Slot& slot = slots[current];
+            if (!uploadSegmentRecords(device, slot.buffer, slot.capacity, records, count, recordSize)) {
+                return nullptr;
+            }
+            return slot.buffer;
+        }
+    };
 }
