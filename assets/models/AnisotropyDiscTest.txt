@@ -1,0 +1,10 @@
+Model Information:
+* title:	AnisotropyDiscTest
+* source:	https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/AnisotropyDiscTest
+* author:	Eric Chadwick
+
+Model License:
+* license type:	CC0 (http://creativecommons.org/publicdomain/zero/1.0/)
+* requirements:	None; attribution appreciated.
+
+Used by the `anisotropy-disc` example.

@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include "platform/graphics/texture.h"
 #include "scene/materials/standardMaterial.h"
 #include "scene/shader-lib/programLibrary.h"
 #include "support/check.h"
@@ -222,7 +223,16 @@ int main()
         const auto ggx = ProgramLibraryTestAccess::key(msl, &a);
         check(ggx.features.test(ShaderFeature::GgxSpecular) && ggx.features.test(ShaderFeature::Anisotropy),
             "setEnableGGXSpecular(true) compiles VT_FEATURE_GGX_SPECULAR, and anisotropy with it");
+        // The anisotropy map is a variant of its own, and only of an anisotropic one.
+        Texture anisotropyMap(device.get());
+        a.setAnisotropyMap(&anisotropyMap);
+        const auto mapped = ProgramLibraryTestAccess::key(msl, &a);
+        check(mapped.features.test(ShaderFeature::AnisotropyMap) && !(mapped == ggx),
+            "an anisotropy map compiles VT_FEATURE_ANISOTROPY_MAP");
         a.setAnisotropy(0.0f);
+        check(!ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::AnisotropyMap),
+            "but not on a material without anisotropy");
+        a.setAnisotropyMap(nullptr);
         a.setEnableGGXSpecular(false);
         check(ProgramLibraryTestAccess::key(msl, &a) == base, "and turning both off returns to the old key");
         generic.setShaderVariantKey(1ull << 36);

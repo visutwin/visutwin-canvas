@@ -63,6 +63,8 @@ namespace visutwin::canvas
             /// vertexBytes use the 72-byte layout with COLOR_0 after the packed vertex,
             /// and the primitive draws with the vertex-colour variant of its material.
             bool vertexColors = false;
+            /// The file gave the primitive its TANGENT attribute (none generated).
+            bool authoredTangents = false;
             int mode        = 4;               ///< glTF primitive mode.
             Vector3 boundsMin;
             Vector3 boundsMax;

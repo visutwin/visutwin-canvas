@@ -1,0 +1,11 @@
+Model Information:
+* title:	DispersionTest
+* source:	https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/DispersionTest
+* author:	Ed Mackey, for Analytical Graphics, Inc. Cloth backdrop by Adobe Inc.
+
+Model License:
+* license type:	CC-BY-4.0 (https://creativecommons.org/licenses/by/4.0/); the cloth backdrop CC0
+* requirements:	Author must be credited. Commercial use is allowed.
+* attribution:	© 2023, Analytical Graphics, Inc.
+
+Used by the `dispersion` example.

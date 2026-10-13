@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "core/math/quaternion.h"
 #include "core/math/vector3.h"
 #include "core/shape/boundingSphere.h"
 #include "framework/components/component.h"
@@ -19,6 +20,8 @@ namespace visutwin::canvas
 {
     class Mesh;
     class RenderComponent;
+    class RigidBodyComponent;
+    struct PhysicsShapeDesc;
 
     class CollisionComponent : public Component
     {
@@ -31,6 +34,8 @@ namespace visutwin::canvas
         /// Takes the sibling rigid body out of the simulation: a body is simulated only
         /// while its collision component is active.
         void onDisable() override;
+        /// A child shape of a compound joins (or, from onDisable, leaves) its compound's body.
+        void onEnable() override;
 
 
         const std::string& type() const { return _type; }
@@ -44,6 +49,35 @@ namespace visutwin::canvas
 
         float height() const { return _height; }
         void setHeight(const float value) { _height = std::max(value, 0.001f); }
+
+        /// Where the shape sits relative to the entity, in the entity's rotated (unscaled)
+        /// space: a head collider on a character whose origin is at its feet. Read when the
+        /// body is built.
+        const Vector3& linearOffset() const { return _linearOffset; }
+        void setLinearOffset(const Vector3& value) { _linearOffset = value; }
+        const Quaternion& angularOffset() const { return _angularOffset; }
+        void setAngularOffset(const Quaternion& value) { _angularOffset = value; }
+
+        /// The shape's world position and rotation: the entity's with the offsets applied.
+        Vector3 shapePosition() const;
+        Quaternion shapeRotation() const;
+
+        /// Type 'compound': no shape of its own; the body is made of the collision shapes of
+        /// the entity's descendants, each where its entity sits relative to this one (plus its
+        /// offsets). A descendant with a rigid body of its own, or a compound of its own, and
+        /// everything beneath it, is not part of it.
+        bool isCompound() const { return _type == "compound"; }
+
+        /// This shape as the physics world takes it: the type, its sizes, the mesh geometry
+        /// and the offsets. A compound fills `children` with its descendants' shapes. Returns
+        /// false when the shape has nothing usable (a mesh without geometry, a compound
+        /// without a child shape).
+        bool describeShape(PhysicsShapeDesc& out, std::vector<PhysicsShapeDesc>* children, bool dynamic) const;
+
+        /// The rigid body of the compound this shape is a child of: the nearest ancestor whose
+        /// collision is a compound and which has a rigid body; null when there is none, or
+        /// when this entity has a rigid body of its own.
+        RigidBodyComponent* compoundBody() const;
 
         BoundingSphere worldBounds() const;
 
@@ -73,5 +107,7 @@ namespace visutwin::canvas
         float _height = 2.0f;
         std::vector<std::shared_ptr<Mesh>> _render;
         bool _convexHull = false;
+        Vector3 _linearOffset = Vector3(0.0f, 0.0f, 0.0f);
+        Quaternion _angularOffset = Quaternion();
     };
 }

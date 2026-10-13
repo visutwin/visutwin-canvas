@@ -10,6 +10,10 @@
 // The scenes here are two layers driving one node "Bone" (rest position (1, 2, 3))
 // with constant translation tracks, A = (10, 0, 0) on the base layer and
 // B = (0, 4, 0) on the second, so every expected value is closed-form.
+//
+// A layer added at run time (AnimComponent::addLayer) starts in no state and contributes
+// nothing until a state is transitioned to; a subtree mask drives a node path and every
+// path beneath it, and nothing that merely shares its prefix.
 
 #include <cmath>
 #include <iostream>
@@ -242,6 +246,42 @@ int main()
         check(!rig.anim->baseLayer()->transitioning() && rig.anim->baseLayer()->activeState() == "Attack" &&
                   nearStrict(rig.bone->localPosition(), 10.0f, 0.0f, 0.0f, kTolerance),
             "after it, the new state alone: " + str(rig.bone->localPosition()));
+    }
+
+    // A layer added at run time: nothing until a state is picked, then its weight's share.
+    {
+        Rig rig = build(0.0f, AnimLayerBlendType::OVERWRITE, false, {}, false);
+        AnimComponentLayer* added = rig.anim->addLayer("Added", 0.5f);
+        check(added != nullptr && rig.anim->findAnimationLayer("Added") == added && added->activeState() != "Pose",
+            "addLayer adds a layer that starts in no state");
+        check(rig.anim->addLayer("Added", 1.0f) == added, "adding a layer of the same name returns the existing one");
+        added->assignAnimation("Pose", constantTranslation(Vector3(0.0f, 4.0f, 0.0f)));
+        rig.anim->update(0.1f);
+        check(nearStrict(rig.bone->localPosition(), 10.0f, 0.0f, 0.0f, kTolerance),
+            "a layer in no state contributes nothing: " + str(rig.bone->localPosition()));
+        added->transition("Pose");
+        rig.anim->update(0.1f);
+        check(nearStrict(rig.bone->localPosition(), 5.0f, 2.0f, 0.0f, kTolerance),
+            "transitioned to a state, it blends by its weight: " + str(rig.bone->localPosition()));
+    }
+
+    // A subtree mask drives the path and everything under it, and nothing else.
+    {
+        Rig rig = build(0.0f, AnimLayerBlendType::OVERWRITE, false, {}, false);
+        AnimComponentLayer* masked = rig.anim->addLayer("Masked", 1.0f, {}, AnimLayerBlendType::OVERWRITE, {"Bone"});
+        check(masked->drives("Bone") && masked->drives("Bone/Tip") && masked->drives("Bone/Tip/End"),
+            "a subtree mask drives its root and every path beneath it");
+        check(!masked->drives("Other") && !masked->drives("BoneX") && !masked->drives("Bon"),
+            "and not a path that only shares its prefix");
+        masked->assignAnimation("Pose", constantTranslation(Vector3(0.0f, 4.0f, 0.0f)));
+        masked->transition("Pose");
+        rig.anim->update(0.1f);
+        check(nearStrict(rig.bone->localPosition(), 0.0f, 4.0f, 0.0f, kTolerance),
+            "the masked layer drives the bone in its subtree: " + str(rig.bone->localPosition()));
+        masked->setMaskSubtrees({"Other"});
+        rig.anim->update(0.1f);
+        check(nearStrict(rig.bone->localPosition(), 10.0f, 0.0f, 0.0f, kTolerance),
+            "masked to another subtree it leaves the bone to the base layer: " + str(rig.bone->localPosition()));
     }
 
     return finish("anim-layer-blend");

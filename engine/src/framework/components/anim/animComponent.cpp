@@ -41,6 +41,9 @@ namespace visutwin::canvas
             _layers.push_back(std::make_unique<AnimComponentLayer>(
                 layerDesc.name, _layers.size(), this, layerDesc.states, layerDesc.transitions,
                 layerDesc.weight, layerDesc.blendType, layerDesc.mask, _activate));
+            if (!layerDesc.maskSubtrees.empty()) {
+                _layers.back()->setMaskSubtrees(layerDesc.maskSubtrees);
+            }
         }
         if (_layers.empty()) {
             spdlog::warn("AnimComponent::loadStateGraph: state graph has no layers");
@@ -85,6 +88,7 @@ namespace visutwin::canvas
             layer.setWeight(srcLayer.weight());
             layer.setBlendType(srcLayer.blendType());
             layer.setMask(srcLayer.mask());
+            layer.setMaskSubtrees(srcLayer.maskSubtrees());
             const AnimController* controller = srcLayer.controller();
             for (const auto& stateName : controller->states()) {
                 const AnimState* state = controller->state(stateName);
@@ -131,6 +135,30 @@ namespace visutwin::canvas
             return;
         }
         layer->assignAnimation(path, track, speed, loop);
+    }
+
+    AnimComponentLayer* AnimComponent::addLayer(const std::string& name, const float weight,
+        std::unordered_set<std::string> mask, const AnimLayerBlendType blendType, std::vector<std::string> maskSubtrees)
+    {
+        if (AnimComponentLayer* existing = findAnimationLayer(name)) {
+            return existing;
+        }
+        // Kept in the state graph too, so a clone rebuilds it. A layer starts in START with no
+        // transition: it drives nothing until a state is transitioned to.
+        if (!_stateGraph) {
+            _stateGraph = AnimStateGraph{};
+            _binder = std::make_unique<DefaultAnimBinder>(entity());
+        }
+        auto& desc = _stateGraph->addLayer(name, weight, blendType);
+        desc.mask = mask;
+        desc.maskSubtrees = maskSubtrees;
+        _layers.push_back(std::make_unique<AnimComponentLayer>(name, _layers.size(), this,
+            std::vector<AnimStateDesc>{}, std::vector<AnimTransitionDesc>{}, weight, blendType, std::move(mask),
+            _activate));
+        if (!maskSubtrees.empty()) {
+            _layers.back()->setMaskSubtrees(std::move(maskSubtrees));
+        }
+        return _layers.back().get();
     }
 
     AnimParameter* AnimComponent::findParameter(const std::string& name)
@@ -279,7 +307,7 @@ namespace visutwin::canvas
     bool AnimComponent::layerDrives(TargetValue& target, const size_t layer)
     {
         const AnimComponentLayer& animLayer = *_layers[layer];
-        if (animLayer.mask().empty()) {
+        if (animLayer.unmasked()) {
             return true;
         }
         if (target.maskVersions.size() <= layer) {

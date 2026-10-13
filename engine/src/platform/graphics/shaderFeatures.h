@@ -40,6 +40,7 @@
     X(Parallax,                  "VT_FEATURE_PARALLAX") \
     X(Clearcoat,                 "VT_FEATURE_CLEARCOAT") \
     X(Anisotropy,                "VT_FEATURE_ANISOTROPY") \
+    X(AnisotropyMap,             "VT_FEATURE_ANISOTROPY_MAP") \
     X(Sheen,                     "VT_FEATURE_SHEEN") \
     X(Iridescence,               "VT_FEATURE_IRIDESCENCE") \
     X(Transmission,              "VT_FEATURE_TRANSMISSION") \

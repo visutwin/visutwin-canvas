@@ -18,21 +18,6 @@ namespace visutwin::canvas
 {
     namespace
     {
-        PhysicsShapeType shapeFor(const CollisionComponent* collision)
-        {
-            if (collision == nullptr) {
-                return PhysicsShapeType::Box;
-            }
-            const std::string& type = collision->type();
-            if (type == "sphere") { return PhysicsShapeType::Sphere; }
-            if (type == "capsule") { return PhysicsShapeType::Capsule; }
-            if (type == "cylinder") { return PhysicsShapeType::Cylinder; }
-            if (type == "plane") { return PhysicsShapeType::Plane; }
-            if (type == "cone") { return PhysicsShapeType::Cone; }
-            if (type == "mesh") { return PhysicsShapeType::Mesh; }
-            return PhysicsShapeType::Box;
-        }
-
         PhysicsMotionType motionFor(const RigidBodyType type)
         {
             switch (type) {
@@ -368,23 +353,11 @@ namespace visutwin::canvas
         if (_body == nullptr) {
             const CollisionComponent* shape = collision();
             PhysicsBodyDesc desc;
-            desc.shape = shapeFor(shape);
             desc.motion = motionFor(_type);
-            if (shape != nullptr) {
-                desc.halfExtents = shape->halfExtents();
-                desc.radius = shape->radius();
-                desc.height = shape->height();
-                if (desc.shape == PhysicsShapeType::Mesh) {
-                    shape->collectMeshGeometry(desc.points, desc.indices);
-                    // Jolt simulates a triangle mesh only on a static or kinematic body.
-                    if (shape->convexHull() || desc.motion == PhysicsMotionType::Dynamic) {
-                        desc.shape = PhysicsShapeType::ConvexHull;
-                    }
-                    if (desc.points.size() < 4 || (desc.shape == PhysicsShapeType::Mesh && desc.indices.empty())) {
-                        spdlog::warn("RigidBodyComponent: mesh collision on '{}' has no usable geometry",
-                            owner->name());
-                    }
-                }
+            if (shape != nullptr &&
+                !shape->describeShape(desc, &desc.children, desc.motion == PhysicsMotionType::Dynamic)) {
+                spdlog::warn("RigidBodyComponent: the {} collision on '{}' has no usable geometry",
+                    shape->type(), owner->name());
             }
             desc.position = owner->position();
             desc.rotation = owner->rotation();

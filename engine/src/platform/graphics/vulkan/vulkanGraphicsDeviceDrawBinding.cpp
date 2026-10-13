@@ -906,9 +906,13 @@ namespace visutwin::canvas
         // The mesh instance's own lightmap goes over the material's.
         applyInstanceLightMap(texSlots, instanceLightMap());
         for (const auto& ts : texSlots) {
-            // The displacement map arrives on the >=100 sentinel slot
-            // that routes it to the vertex stage (mirrors Metal).
-            const int slot = (ts.slot >= 100) ? 25 : ts.slot;
+            // A material names a texture by its Metal slot; the binding table maps it to the
+            // set-1 binding (the two differ for the anisotropy and displacement maps).
+            const int binding = vulkanMaterialBindingForMetalSlot(ts.slot);
+            if (binding < 0) {
+                continue;
+            }
+            const auto slot = static_cast<uint32_t>(binding);
             const auto slotIt = std::find(
                 materialSlots.begin(), materialSlots.end(), slot);
             if (slotIt == materialSlots.end() || ts.texture == nullptr) {
@@ -922,7 +926,7 @@ namespace visutwin::canvas
                 imageInfos[descriptorIndex].imageView = vkTex->imageView();
                 // Separate images must leave the sampler half null; they
                 // read through the shared sampler at binding 24.
-                if (!vulkanMaterialBindingIsSeparateImage(static_cast<uint32_t>(slot)) &&
+                if (!vulkanMaterialBindingIsSeparateImage(slot) &&
                     vkTex->sampler() != VK_NULL_HANDLE) {
                     imageInfos[descriptorIndex].sampler = vkTex->sampler();
                 }

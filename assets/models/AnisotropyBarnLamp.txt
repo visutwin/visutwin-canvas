@@ -1,0 +1,11 @@
+Model Information:
+* title:	AnisotropyBarnLamp
+* source:	https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/AnisotropyBarnLamp
+* author:	Eric Chadwick, for Wayfair
+
+Model License:
+* license type:	CC-BY-4.0 (https://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+* attribution:	© 2023, Wayfair
+
+Used by the `anisotropy-lamp` example.

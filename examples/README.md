@@ -1,6 +1,6 @@
 # VisuTwin Canvas Examples
 
-91 example applications, each a small self-contained program built on the
+102 example applications, each a small self-contained program built on the
 engine. All but one are ports of [PlayCanvas](https://playcanvas.com/) engine
 examples, so they can be compared side by side with upstream: the file header names
 the upstream example and lists every place the port could not follow it. The
@@ -98,6 +98,12 @@ The second column is the upstream example each one ports, as
 |---------|----------|-------------|
 | clearcoat | materials/clear-coat | Clearcoat dual-specular layer on the Khronos test asset |
 | anisotropy | materials/material-anisotropic | Anisotropy × gloss grid of metallic spheres |
+| anisotropy-strength | materials/anisotropy-strength | Khronos AnisotropyStrengthTest: strength from 0 to 1 |
+| anisotropy-rotation | materials/anisotropy-rotation | Khronos AnisotropyRotationTest: the anisotropy direction turned |
+| anisotropy-disc | materials/anisotropy-disc | Khronos AnisotropyDiscTest: a direction map spun round a disc |
+| anisotropy-lamp | materials/anisotropy-lamp | Khronos AnisotropyBarnLamp with its anisotropy maps |
+| dispersion | materials/dispersion | Khronos DispersionTest: dispersion against IOR over a checker |
+| transmission-roughness | materials/transmission-roughness | Khronos TransmissionRoughnessTest under the grabbed scene colour |
 | refraction | materials/material-refraction | Env-atlas and dynamic grab-pass refraction |
 | parallax-mapping | materials/parallax-mapping | Parallax occlusion mapping in a brick room |
 | custom-shader | shaders/shader-toon | ShaderMaterial toon shader (MSL + GLSL) over the statue |
@@ -132,6 +138,7 @@ The second column is the upstream example each one ports, as
 | Example | Upstream | Description |
 |---------|----------|-------------|
 | reflection-probe-dynamic | graphics/reflection-cubemap | Live cubemap capture and its reprojections |
+| reflection-planar | graphics/reflection-planar | A mirror ground sampling a reflection camera's texture by screen position |
 | reflection-planar-blurred | graphics/reflection-planar-blurred | Planar reflections blurred with height |
 | procedural-sky | graphics/procedural-sky | Laboratory in dunes under a time-of-day sun |
 
@@ -157,7 +164,9 @@ The second column is the upstream example each one ports, as
 | Example | Upstream | Description |
 |---------|----------|-------------|
 | anim-stategraph | animation/locomotion | Anim state graph with a 1D locomotion blend tree |
+| blend-trees-1d | animation/blend-trees-1d | 1D animation blend tree between idle and a dance |
 | blend-trees-2d | animation/blend-trees-2d-cartesian | 2D-cartesian animation blend tree |
+| layer-masks | animation/layer-masks | An additive upper-body layer masked to a subtree, the skeleton coloured by layer |
 | mesh-morph | graphics/mesh-morph | Procedural morph targets driven by sine weights |
 | instancing-basic | graphics/instancing-basic | 1000 hardware-instanced cylinders |
 | instancing-glb | graphics/instancing-glb | A glTF using EXT_mesh_gpu_instancing |
@@ -192,6 +201,8 @@ The second column is the upstream example each one ports, as
 | falling-shapes | physics/falling-shapes | Shapes dropped onto a floor through the Jolt world |
 | physics-joints | physics/joints | Hinge, ball, slider, 6-DOF and breakable fixed joints |
 | raycast | physics/raycast | raycastFirst and raycastAll through two rows of shapes |
+| offset-collision | physics/offset-collision | Balls bouncing off a head collider offset from the character's feet |
+| compound-collision | physics/compound-collision | Chairs falling as compound bodies of a seat, a back and four legs |
 
 ### Interaction & UI
 

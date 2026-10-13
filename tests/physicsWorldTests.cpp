@@ -9,7 +9,8 @@
 // fails: a dynamic body falls, it STOPS on a static one rather than passing
 // through, restitution makes it bounce, a kinematic body does not move itself,
 // and a raycast reports the nearest body with a sensible normal. A box of zero height
-// (a footprint-only ground collider) is created and hit.
+// (a footprint-only ground collider) is created and hit. A shape offset from its body sits
+// where the offset puts it, and a compound body is made of its children, each at its place.
 //
 #include <cmath>
 #include <cstdio>
@@ -440,6 +441,68 @@ int main()
         stepSeconds(*world, 0.5f);      // would walk a dangling constraint
         check(a->position().getY() < 5.0f, "the surviving body falls freely afterwards");
         world->destroyBody(a);
+    }
+
+    // An offset shape: a sphere 1.25 above its body's origin, on a body turned a quarter turn
+    // about Z, so the offset is in the BODY's space and the sphere sits 1.25 along -X.
+    {
+        PhysicsBodyDesc desc;
+        desc.shape = PhysicsShapeType::Sphere;
+        desc.radius = 0.3f;
+        desc.offsetPosition = Vector3(0.0f, 1.25f, 0.0f);
+        desc.position = Vector3(10.0f, 0.0f, 0.0f);
+        desc.rotation = Quaternion::fromEulerAngles(0.0f, 0.0f, 90.0f);
+        PhysicsBody* head = world->createBody(desc);
+        if (check(head != nullptr, "a body with an offset shape is created")) {
+            check(near(head->position(), Vector3(10.0f, 0.0f, 0.0f), 1e-4f),
+                "the body's position is its origin, not the shape's");
+            const auto hit = world->raycastFirst(Vector3(8.75f, 5.0f, 0.0f), Vector3(8.75f, -5.0f, 0.0f));
+            check(hit.has_value() && std::abs(hit->point.getY() - 0.3f) < 0.02f,
+                "the shape is hit where the offset, turned with the body, puts it");
+            check(!world->raycastFirst(Vector3(10.0f, 5.0f, 0.0f), Vector3(10.0f, -5.0f, 0.0f)).has_value(),
+                "and nothing is at the body's origin");
+            world->destroyBody(head);
+        }
+    }
+
+    // A compound: a seat slab and a leg below one corner, as one dynamic body dropped on the
+    // ground. Both children are hit where they were placed, and the body comes to rest
+    // standing on the leg's foot.
+    {
+        PhysicsBody* ground = addGround(*world);
+        PhysicsBodyDesc desc;
+        desc.shape = PhysicsShapeType::Compound;
+        desc.motion = PhysicsMotionType::Dynamic;
+        desc.position = Vector3(20.0f, 2.0f, 0.0f);
+        desc.mass = 10.0f;
+        PhysicsShapeDesc seat;
+        seat.shape = PhysicsShapeType::Box;
+        seat.halfExtents = Vector3(0.5f, 0.05f, 0.5f);
+        PhysicsShapeDesc leg;
+        leg.shape = PhysicsShapeType::Cylinder;
+        leg.radius = 0.05f;
+        leg.height = 1.0f;
+        leg.offsetPosition = Vector3(0.4f, -0.5f, 0.4f);
+        desc.children = {seat, leg};
+        PhysicsBody* chair = world->createBody(desc);
+        if (check(chair != nullptr, "a compound body is created")) {
+            const auto seatHit = world->raycastFirst(Vector3(19.6f, 5.0f, -0.4f), Vector3(19.6f, -5.0f, -0.4f));
+            check(seatHit.has_value() && std::abs(seatHit->point.getY() - 2.05f) < 0.02f,
+                "the seat is hit on top, at the body's origin");
+            const auto legHit = world->raycastFirst(Vector3(25.0f, 1.5f, 0.4f), Vector3(15.0f, 1.5f, 0.4f));
+            check(legHit.has_value() && std::abs(legHit->point.getX() - 20.45f) < 0.02f,
+                "the leg is hit from the side, where its offset puts it");
+            check(!world->raycastFirst(Vector3(19.6f, 1.5f, -0.4f + 10.0f), Vector3(19.6f, 1.5f, -10.4f)).has_value(),
+                "and nothing hangs below the seat where no leg is");
+            stepSeconds(*world, 3.0f);
+            check(chair->position().getY() < 1.5f, "the compound falls until its leg meets the ground");
+            check(chair->position().getY() > 0.0f, "and rests on it rather than sinking through");
+            world->destroyBody(chair);
+        }
+        PhysicsBodyDesc empty;
+        empty.shape = PhysicsShapeType::Compound;
+        check(world->createBody(empty) == nullptr, "a compound with no child shape is refused");
+        world->destroyBody(ground);
     }
 
     // Worlds are created and destroyed repeatedly by anything that reloads a

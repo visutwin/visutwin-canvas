@@ -46,6 +46,9 @@ namespace visutwin::canvas
         _heightMapShadow = 0.0f;
         _anisotropy = 0.0f;
         _anisotropyRotation = 0.0f;
+        _anisotropyMap = nullptr;
+        _anisotropyMapUv = 0;
+        _meshTangents = false;
         _enableGGXSpecular = false;
         _useMetalnessSpecularColor = false;
         _specularityFactor = 1.0f;
@@ -291,6 +294,9 @@ namespace visutwin::canvas
         }
         uniforms.anisotropyParams[0] = c;
         uniforms.anisotropyParams[1] = s;
+        // z: the anisotropy map's UV set; w: 1 when the meshes carry tangents of their own.
+        uniforms.anisotropyParams[2] = _anisotropyMapUv == 1 ? 1.0f : 0.0f;
+        uniforms.anisotropyParams[3] = _meshTangents ? 1.0f : 0.0f;
     }
 
     void StandardMaterial::packMetalnessSpecular(MaterialUniforms& uniforms) const
@@ -472,6 +478,7 @@ namespace visutwin::canvas
         overrideSlot(33, _refractionMap);
         // Opacity map, alpha channel by default (the channel rides in opacityTransform0.w).
         overrideSlot(34, _opacityMap);
+        overrideSlot(42, _anisotropyMap);
         // Vertex displacement map: a VERTEX-stage texture (the binding table's slot,
         // MetalTextureBinder::bindMaterialTextures).
         overrideSlot(kDisplacementMapMetalSlot, _displacementMap);

@@ -324,6 +324,21 @@ namespace visutwin::canvas
         /// deprecated form) adds 90 on top.
         float anisotropyRotation() const { return _anisotropyRotation; }
         void setAnisotropyRotation(const float degrees) { _anisotropyRotation = degrees; markUniformsDirty(); }
+        /// The anisotropy map (KHR_materials_anisotropy's anisotropyTexture): rg the direction in
+        /// tangent space (remapped from [0, 1] to [-1, 1]), turned by the rotation; b scales the
+        /// strength. Read on UV set `anisotropyMapUv` (0 or 1), with no transform of its own
+        /// (DEVIATION: upstream gives it tiling, offset and rotation). The anisotropy is then
+        /// laid on the tangent frame, which the map is authored in.
+        Texture* anisotropyMap() const { return _anisotropyMap; }
+        void setAnisotropyMap(Texture* texture) { _anisotropyMap = texture; markUniformsDirty(); }
+        int anisotropyMapUv() const { return _anisotropyMapUv; }
+        void setAnisotropyMapUv(const int uv) { _anisotropyMapUv = uv; markUniformsDirty(); }
+        /// The meshes this material draws carry tangents of their own (a glTF primitive's
+        /// TANGENT attribute; the glTF import sets it). A GGX material then lays its
+        /// anisotropy on them rather than on the object-space frame it takes on a mesh
+        /// whose tangents were generated, as a mesh whose vertex format has tangents does.
+        bool meshTangents() const { return _meshTangents; }
+        void setMeshTangents(const bool value) { _meshTangents = value; markUniformsDirty(); }
         // --- Transmission / Refraction ---
         float transmissionFactor() const { return _transmissionFactor; }
         void setTransmissionFactor(const float value) { _transmissionFactor = value; markUniformsDirty(); }
@@ -577,6 +592,9 @@ namespace visutwin::canvas
         float _parallaxSamples = 16.0f;
 
         float _anisotropy = 0.0f;
+        Texture* _anisotropyMap = nullptr;
+        int _anisotropyMapUv = 0;
+        bool _meshTangents = false;
         float _anisotropyRotation = 0.0f;
         bool _enableGGXSpecular = false;
         bool _useMetalnessSpecularColor = false;

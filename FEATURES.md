@@ -8,7 +8,7 @@ the [README](README.md).
 - **Forward PBR renderer** (metalness and specular workflows; normalised Blinn-Phong light specular by default, GGX on request) with multi-light support (directional, point, spot, rectangular/disk/spherical **area lights** via LTC) and a frame-graph pass scheduler
 - **StandardMaterial** with clearcoat, anisotropy, sheen, iridescence, transmission, **parallax occlusion mapping** (height base + self-shadowing), **spec-gloss** (KHR_materials_pbrSpecularGlossiness), **Oren-Nayar** diffuse, **detail normals** (reoriented blend), and vertex-stage **displacement mapping**; an **opacity map** with its own channel and UV transform, and an **ambient tint**
 - **Wide lines**: connected polylines with per-point colour and width, caps, joins and dash patterns, batched into one instanced draw
-- **Rigid-body physics** behind an application-supplied `PhysicsWorld` seam, with a Jolt backend: box/sphere/capsule/cylinder shapes, static/dynamic/kinematic bodies, forces, impulses, raycasts, and **joints** (fixed, ball, hinge, slider, 6dof) with limits, motors and break impulses
+- **Rigid-body physics** behind an application-supplied `PhysicsWorld` seam, with a Jolt backend: box/sphere/capsule/cylinder shapes, shapes **offset** from their body and **compound** bodies built from child entities' shapes, static/dynamic/kinematic bodies, forces, impulses, raycasts, and **joints** (fixed, ball, hinge, slider, 6dof) with limits, motors and break impulses
 - **Image-based lighting**: environment atlas (GGX/Lambert prefiltered), HDR cubemap skybox, **ambient SH light probes**, and **box-projected cubemap reflection probes** (parallax-corrected local reflections)
 - **Dynamic grab-pass refraction** with chromatic **dispersion** and KHR_materials_volume Beer-law attenuation
 - **Screen-space reflections**: a per-fragment world-space march against the scene depth and colour grabs, reaching 0.4 of the camera range, with bisection-refined hits, a roughness cone that reads the colour grab's mips, and env/probe fallback; works under the standalone and the camera-frame (post-processing) paths
@@ -27,7 +27,7 @@ the [README](README.md).
 
 ## Animation & geometry
 - **GPU skinning** (4-bone weighted blend) and **morph targets**, with skinned-mesh bone-AABB frustum culling
-- **Animation state graph** (state machine, 1D/2D/directional/direct blend trees, typed parameters, crossfades) with **layers composed per node by weight** — overwrite or additive blend type, per-layer node masks, optional weight normalisation — alongside the legacy animation component; glTF animation binds by node PATH, so unnamed and duplicate-named nodes animate
+- **Animation state graph** (state machine, 1D/2D/directional/direct blend trees, typed parameters, crossfades) with **layers composed per node by weight** — overwrite or additive blend type, per-layer node and subtree masks, layers added at run time, optional weight normalisation — alongside the legacy animation component; glTF animation binds by node PATH, so unnamed and duplicate-named nodes animate
 - **Morph-weight animation** from glTF `weights` channels
 
 ## Gaussian splatting & particles
@@ -47,7 +47,7 @@ the [README](README.md).
 
 ## Foundation
 - **Scene graph** with an entity-component system (18 component types), entity cloning that remaps references inside the cloned subtree, and a fixed-timestep `fixedUpdate` phase with a time scale and layer composition with render-action scheduling
-- **GLB/glTF loading** with Draco decompression, mesh quantization, Basis/WebP/AVIF textures, cameras and `KHR_lights_punctual`, `KHR_materials_variants`, `EXT_mesh_gpu_instancing` and `KHR_gaussian_splatting` (sheen, specular, iridescence and anisotropy as factors only), plus OBJ/STL/Assimp parsers
+- **GLB/glTF loading** with Draco decompression, mesh quantization, Basis/WebP/AVIF textures, cameras and `KHR_lights_punctual`, `KHR_materials_variants`, `EXT_mesh_gpu_instancing` and `KHR_gaussian_splatting` (sheen, specular and iridescence as factors only; anisotropy with its direction texture), plus OBJ/STL/Assimp parsers
 - **Screen-space and world-space UI** with anchored elements, image and MSDF text elements, buttons with tint and sprite states, nested stencil masks (rectangles and sprite shapes), layout groups, scrollbars and sliders, draggable elements, scroll views with momentum and bounce, and mouse and touch input events (hover, press, click, bubbling, hit padding)
 - **Input devices**: keyboard, mouse, touch and gamepads, fed from the application's event loop, with press and release edges that survive a press and release inside one frame
 - **Picking** through an id buffer, with the world-space point under the cursor read back from depth

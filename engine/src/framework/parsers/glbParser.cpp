@@ -1852,10 +1852,9 @@ namespace visutwin::canvas
         return fallback;
     }
 
-    // DEVIATION: the sheen, specular, iridescence and anisotropy extensions all allow
-    // TEXTURES, and this engine's material has none of those maps (the fragment stage
-    // is at MoltenVK's sampler limit, and no shader reads a sheen or iridescence
-    // map). The factors are applied; a texture is ignored with
+    // DEVIATION: the sheen, specular and iridescence extensions allow TEXTURES, and this
+    // engine's material has none of those maps (no shader reads a sheen, specular or
+    // iridescence map; the anisotropy texture IS read, applyAnisotropyExtension). The factors are applied; a texture is ignored with
     // one warning per extension and process, so the file still loads.
     static void warnIgnoredExtensionTextures(const tinygltf::Value& ext, const char* extension,
         std::initializer_list<const char*> textureKeys)
@@ -1937,10 +1936,12 @@ namespace visutwin::canvas
     }
 
     /**
-     * KHR_materials_anisotropy: the strength and the rotation (radians in the file,
-     * degrees on the material, from the tangent toward the bitangent).
+     * KHR_materials_anisotropy: the strength, the rotation (radians in the file, degrees on
+     * the material, from the tangent toward the bitangent) and the anisotropy texture
+     * (direction in rg, strength in b) on its texture coordinate set.
      */
-    static void applyAnisotropyExtension(const tinygltf::Material& srcMaterial, StandardMaterial* material)
+    static void applyAnisotropyExtension(const tinygltf::Material& srcMaterial, StandardMaterial* material,
+        const std::function<std::shared_ptr<Texture>(int)>& getOrCreateTexture)
     {
         const auto* ext = materialExtension(srcMaterial, "KHR_materials_anisotropy");
         if (!ext) {
@@ -1951,7 +1952,15 @@ namespace visutwin::canvas
         material->setAnisotropy(extensionNumber(*ext, "anisotropyStrength", 0.0f));
         material->setAnisotropyRotation(static_cast<float>(
             extensionNumber(*ext, "anisotropyRotation", 0.0f) * 180.0 / std::numbers::pi));
-        warnIgnoredExtensionTextures(*ext, "KHR_materials_anisotropy", {"anisotropyTexture"});
+        if (ext->Has("anisotropyTexture")) {
+            const auto info = ext->Get("anisotropyTexture");
+            const int index = info.IsObject() && info.Has("index") ? info.Get("index").GetNumberAsInt() : -1;
+            if (const auto texture = index >= 0 ? getOrCreateTexture(index) : nullptr) {
+                material->setAnisotropyMap(texture.get());
+                const int texCoord = info.Has("texCoord") ? info.Get("texCoord").GetNumberAsInt() : 0;
+                material->setAnisotropyMapUv(texCoord == 1 ? 1 : 0);
+            }
+        }
     }
 
     /**
@@ -2126,7 +2135,7 @@ namespace visutwin::canvas
         applySheen(srcMaterial, material.get());
         applySpecularExtension(srcMaterial, material.get());
         applyIridescence(srcMaterial, material.get());
-        applyAnisotropyExtension(srcMaterial, material.get());
+        applyAnisotropyExtension(srcMaterial, material.get(), getOrCreateTexture);
         applyEmissiveStrength(srcMaterial, material.get());
         applyTextureTransforms(srcMaterial, material.get());
 
@@ -2859,6 +2868,7 @@ namespace visutwin::canvas
                 }
                 remapPerVertex(colors, unweldSource, sourceVertexCount, 4);
             }
+            pd.authoredTangents = hasTangents;
             if (!hasTangents && mode == TINYGLTF_MODE_TRIANGLES) {
                 generateTangents(vertices, parsedIndices);
                 // The generator points the bitangent toward increasing v; the engine's
@@ -3310,6 +3320,13 @@ namespace visutwin::canvas
                     payload.castShadow = false;
                 } else {
                     payload.material = primitiveMaterial(pd.materialIndex, pd.vertexColors);
+                    // A material drawing a mesh with the file's own tangents lays its
+                    // anisotropy on them, as on a mesh whose vertex format has tangents.
+                    if (pd.authoredTangents) {
+                        if (auto* standard = dynamic_cast<StandardMaterial*>(payload.material.get())) {
+                            standard->setMeshTangents(true);
+                        }
+                    }
                 }
                 for (const auto& [variant, materialIndex] : pd.variantMaterials) {
                     if (materialIndex >= 0 && materialIndex < static_cast<int>(defaultMaterialIndex)) {

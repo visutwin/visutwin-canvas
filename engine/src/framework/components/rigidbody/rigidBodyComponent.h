@@ -130,6 +130,10 @@ namespace visutwin::canvas
         /// or its collision component is disabled.
         void removeFromSimulation();
 
+        /// Rebuilds the body from the current settings and shape at the next sync, keeping a
+        /// dynamic body's velocities: a compound's child shape joined or left it.
+        void rebuildBody() { if (_body != nullptr) { markBodyStale(); } }
+
     private:
         // Writes a dynamic body's pose to an entity with a negative local scale or a
         // mirrored world transform.

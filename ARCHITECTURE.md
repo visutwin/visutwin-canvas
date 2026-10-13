@@ -139,7 +139,8 @@ Upstream `framework/anim/controller` + `components/anim` port at `engine/src/fra
 - **Blend trees**: 1D, 2D cartesian, 2D directional, direct — all four upstream variants in one file (`animBlendTree.h/.cpp`), built from typed `AnimBlendTreeDesc` (DEVIATION: no JSON graph format; `AnimStateGraph` is a builder-style C++ data model).
 - **AnimComponent** (`anim` system id, registered like other systems via `registerComponentSystem<AnimComponentSystem>()`): layers (each own AnimController+AnimEvaluator), parameters (float/int/bool/trigger — single float storage), `assignAnimation("State.Leaf", track)` paths. Layers are composed per node by weight and blend type (OVERWRITE lerps toward the layer, ADDITIVE adds its offset from the rest pose), with per-layer node masks and optional `normalizeWeights`, as upstream's AnimTargetValue: each layer's evaluator hands its pose to the component through `AnimEvaluator::setPoseSink` and the component writes each node once. Animation events on a track fire on the component as the clip's cursor passes them; the legacy `AnimationComponent` fires none.
 - **AnimEvaluator** composites N clips sequentially (first contributor sets, later clips lerp by their blendWeight — mirrors upstream anim-evaluator.js); legacy AnimationComponent crossfade unchanged.
-- Examples: `anim-stategraph-example.cpp` (upstream's locomotion: Idle / Walk / Jog by an integer "speed", a "jump" trigger from ANY state with an exit-time return; click the ground to walk there, the movement speed blended through `AnimComponentLayer::transitionProgress` / `previousState`) and `blend-trees-2d-example.cpp` (a 2D cartesian blend tree over four clips).
+- **Run-time layers and subtree masks.** `AnimComponent::addLayer(name, weight, mask, blendType, maskSubtrees)` adds a layer in START with no transitions (upstream's `addLayer`): it contributes nothing until `transition(state)`. `maskSubtrees` is upstream's `{children: true}` mask entry, a node path that drives itself and every path beneath it (`AnimComponentLayer::drives`); `AnimLayerDesc::maskSubtrees` carries it in a state graph.
+- Examples: `anim-stategraph-example.cpp` (upstream's locomotion: Idle / Walk / Jog by an integer "speed", a "jump" trigger from ANY state with an exit-time return; click the ground to walk there, the movement speed blended through `AnimComponentLayer::transitionProgress` / `previousState`) `blend-trees-1d-example.cpp` and `blend-trees-2d-example.cpp` (1D and 2D cartesian blend trees), and `layer-masks-example.cpp` (an additive upper-body layer masked to a subtree over a full-body base layer, the skeleton drawn coloured by each layer's weight).
 
 - **Without a state graph, `assignAnimation("Name", track)` makes upstream's default one**: a
   `Base` layer that plays that state from the start; further names become states of it. A
@@ -428,6 +429,18 @@ Four `VT_FEATURE_*` material shader features, plus clearcoat:
 - **Displacement** (`VT_FEATURE_DISPLACEMENT`): `setDisplacementMap` + `setDisplacementScale`/`setDisplacementBias` — vertex-stage height sampling (`level(0)`) displaces along the normal before skinning/morph composition. The map routes through a slot>=100 sentinel in `Material::getTextureSlots` to VERTEX texture slot 0 (`MetalTextureBinder`). DEVIATION: standard vertex path only (not instanced/dynamic-batch/skinned).
 - **Clearcoat** (`VT_FEATURE_CLEARCOAT`, KHR_materials_clearcoat; the parser sets `clearCoat` to a quarter of `clearcoatFactor`, as upstream): `setClearCoat` / `setClearCoatGloss` / `setClearCoatBumpiness` plus the intensity (G), gloss (G) and normal maps on slots 7/13/14, flag bits 14/15/16, read at the base-colour and normal-map UVs. Upstream's composition on BOTH backends: the coat's per-light lobe (the base's, Blinn-Phong unless the material enables GGX, at the coat normal and gloss, F0 0.04) and its env-atlas reflection at the coat gloss accumulate separately and the tail composes `lit * (1 - Fc * cc) + (ccDirect + ccReflection) * cc`, so the coat takes energy from the base. Vulkan reads the three maps as separate images through the shared material sampler at set-1 binding 24. Parity is measured on `clearcoat` (the Khronos ClearCoatTest.glb): mean absolute difference 0.002 counts, 12 pixels of 630,000 above 8 counts. GOTCHA: that shared sampler has to carry the device anisotropy like the per-texture samplers do — without it the ribbed coat normal map alone moves ~1,900 pixels.
 Example: `material-stubs-example.cpp` (four spheres A/B-cycling all four features with procedural textures).
+
+### Anisotropy map
+`StandardMaterial::setAnisotropyMap` (KHR_materials_anisotropy's `anisotropyTexture`, with
+`setAnisotropyMapUv`): a separate image at Metal fragment slot 42 / Vulkan set-1 binding 35,
+compiled as `VT_FEATURE_ANISOTROPY_MAP` only on an anisotropic (GGX) variant. Its rg is a
+tangent-space direction in [-1, 1], turned by the material's rotation and normalised; b scales
+the strength, clamped to [0, 1] after. The map's direction is laid on the TANGENT frame, as is
+the material's own on a mesh whose tangents came with it (`setMeshTangents`, set by the glTF
+parser from `TANGENT`); otherwise anisotropy keeps the object-space frame (AGENTS.md, primitive
+tangents). Packed into `anisotropyParams`: xy the rotation's (cos, sin), z the map's UV set, w
+the mesh-tangents flag. `anisotropy-strength`, `-rotation`, `-disc` and `-lamp` port upstream's
+four Khronos showcases.
 
 ### Scalar Material Maps (gloss / thickness / refraction)
 `StandardMaterial::setGlossMap` + `setThicknessMap` + `setRefractionMap`, each with a
@@ -927,7 +940,7 @@ Upstream's `ScreenComponent` and `ElementComponent` layout
   defaulting to 4096 so a backend that answers nothing behaves as the literals these
   replaced. Filtering: `maxAnisotropy()`, 16 on Metal and `min(16, device limit)` on
   Vulkan, read by Metal's sampler cache and by every Vulkan per-texture
-  sampler (both built from `textureSamplerState`) so the two backends filter oblique surfaces identically. Formats:
+  sampler (both built from `textureSamplerState`) so the two backends filter oblique surfaces identically. DEVIATION: every texture takes that ratio, where upstream's default per texture is 1, so an oblique texture reads sharper than upstream's (`dispersion`'s checker floor: thin grid lines where upstream's are wide and soft). Formats:
   `textureHalfFloatRenderable()` / `textureFloatRenderable()` — whether a float
   colour format can be an ATTACHMENT, which is what `SHADOW_VSM_16F` needs and falls
   back to PCF3 without; both default to FALSE, so an unanswered capability loses a

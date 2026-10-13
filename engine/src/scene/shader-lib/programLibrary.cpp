@@ -130,6 +130,7 @@ namespace visutwin::canvas
         // anisotropy is a GGX lobe, so it needs the opt-in too.
         options.ggxSpecular = stdMat.enableGGXSpecular();
         options.anisotropy = options.ggxSpecular && stdMat.anisotropy() != 0.0f;
+        options.anisotropyMap = options.anisotropy && stdMat.anisotropyMap() != nullptr;
         options.sheen = stdMat.sheenRoughness() > 0.0f || stdMat.sheenColor() != Color(0.0f, 0.0f, 0.0f, 1.0f);
         options.iridescence = stdMat.iridescenceIntensity() > 0.0f;
         options.transmission = stdMat.transmissionFactor() > 0.0f;
@@ -334,6 +335,7 @@ namespace visutwin::canvas
         set(ShaderFeature::Parallax, options.parallax);
         set(ShaderFeature::Clearcoat, options.clearcoat);
         set(ShaderFeature::Anisotropy, options.anisotropy);
+        set(ShaderFeature::AnisotropyMap, options.anisotropyMap);
         set(ShaderFeature::Sheen, options.sheen);
         set(ShaderFeature::Iridescence, options.iridescence);
         set(ShaderFeature::Transmission, options.transmission);

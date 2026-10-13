@@ -14,6 +14,9 @@
 //    unchanged value reaches nothing at all. A body that cannot take a new mass in place
 //    is rebuilt with its velocities carried over.
 //  - teleport() before the body exists stops it: nothing held is applied.
+//  - A collision's offsets reach the body description, and a compound collision is made of
+//    its descendants' collision shapes, each placed relative to the compound entity; a child
+//    shape disabled or enabled rebuilds the compound's body.
 //  - Only an active body is in the world. Disabling the component, its entity, a parent
 //    or the sibling collision component destroys the body at once; enabled again, it is
 //    recreated at the entity's CURRENT transform, at rest.
@@ -24,6 +27,7 @@
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "framework/components/collision/collisionComponent.h"
@@ -153,6 +157,23 @@ namespace
     }
 
     bool same(const Vector3& a, const Vector3& b) { return near(a, b, 1e-5f); }
+
+    CollisionComponent* addCollision(Entity* owner, const std::string& type)
+    {
+        auto* collision = static_cast<CollisionComponent*>(owner->addComponentInstance(
+            std::make_unique<CollisionComponent>(nullptr, owner), componentTypeID<CollisionComponent>()));
+        collision->setType(type);
+        return collision;
+    }
+
+    Entity* addChildEntity(Entity& parent, const Vector3& position)
+    {
+        auto owned = std::make_unique<Entity>();
+        Entity* entity = owned.get();
+        parent.addChild(std::move(owned));
+        entity->setLocalPosition(position);
+        return entity;
+    }
 }
 
 int main()
@@ -343,6 +364,77 @@ int main()
         check(world.created == createdBefore + 1 && world.destroyed == destroyedBefore + 1 &&
                   bodyOf(component) && same(bodyOf(component)->linear, Vector3(0.0f, 3.0f, 0.0f)),
             "a velocity set while disabled is given to the recreated body");
+    }
+
+    std::cout << "\noffsets and compounds\n";
+    {
+        RecordingWorld world;
+        Entity root;
+        root.setEnabledInHierarchy(true);
+
+        // A sphere 1.25 above the feet of a body turned a quarter turn about Y.
+        RigidBodyComponent* head = addDynamicBody(root);
+        CollisionComponent* sphere = addCollision(head->entity(), "sphere");
+        sphere->setRadius(0.3f);
+        sphere->setLinearOffset(Vector3(0.0f, 1.25f, 0.5f));
+        head->entity()->setPosition(Vector3(2.0f, 0.0f, 0.0f));
+        head->entity()->setLocalEulerAngles(0.0f, 90.0f, 0.0f);
+        check(same(sphere->shapePosition(), Vector3(2.5f, 1.25f, 0.0f)),
+            "the shape position is the entity's plus the offset turned with it");
+        head->syncFromSimulation(world);
+        if (RecordingBody* body = bodyOf(head); check(body != nullptr, "an offset shape makes a body")) {
+            check(body->desc.shape == PhysicsShapeType::Sphere && same(body->desc.offsetPosition, Vector3(0.0f, 1.25f, 0.5f)) &&
+                      same(body->desc.position, Vector3(2.0f, 0.0f, 0.0f)),
+                "the body sits at the entity and carries the offset in its own space");
+        }
+
+        // A compound turned a quarter turn about Y: a seat at its origin, a leg one level down
+        // under a corner (beneath an entity with no collision), a part with a body of its own,
+        // which is not the compound's, and a disabled part.
+        RigidBodyComponent* chair = addDynamicBody(root);
+        Entity* chairEntity = chair->entity();
+        addCollision(chairEntity, "compound");
+        chairEntity->setPosition(Vector3(0.0f, 3.0f, 0.0f));
+        chairEntity->setLocalEulerAngles(0.0f, 90.0f, 0.0f);
+        addCollision(addChildEntity(*chairEntity, Vector3(0.0f, 0.0f, 0.0f)), "box")
+            ->setHalfExtents(Vector3(0.25f, 0.025f, 0.25f));
+        Entity* group = addChildEntity(*chairEntity, Vector3(0.2f, 0.0f, 0.0f));
+        Entity* legEntity = addChildEntity(*group, Vector3(0.0f, -0.25f, 0.2f));
+        CollisionComponent* leg = addCollision(legEntity, "cylinder");
+        leg->setHeight(0.5f);
+        Entity* own = addChildEntity(*chairEntity, Vector3(0.0f, 1.0f, 0.0f));
+        addCollision(own, "sphere");
+        own->addComponentInstance(std::make_unique<RigidBodyComponent>(nullptr, own),
+            componentTypeID<RigidBodyComponent>());
+        Entity* off = addChildEntity(*chairEntity, Vector3(0.0f, 2.0f, 0.0f));
+        addCollision(off, "sphere");
+        off->setEnabled(false);
+
+        chair->syncFromSimulation(world);
+        RecordingBody* body = bodyOf(chair);
+        if (check(body != nullptr && body->desc.shape == PhysicsShapeType::Compound, "a compound makes one body")) {
+            const auto& children = body->desc.children;
+            if (check(children.size() == 2, "of the seat and the leg: not a part with its own body, nor a disabled one")) {
+                check(children[0].shape == PhysicsShapeType::Box && same(children[0].offsetPosition, Vector3(0.0f, 0.0f, 0.0f)),
+                    "the seat sits at the compound's origin");
+                check(children[1].shape == PhysicsShapeType::Cylinder &&
+                          same(children[1].offsetPosition, Vector3(0.2f, -0.25f, 0.2f)),
+                    "the leg sits where its entity is relative to the compound, in the compound's own space");
+                check(near(std::abs(children[1].offsetRotation.getW()), 1.0f, 1e-5f),
+                    "and keeps no rotation of the compound's");
+            }
+            check(leg->compoundBody() == chair, "the leg knows the compound body it belongs to");
+
+            const int createdBefore = world.created;
+            legEntity->setEnabled(false);
+            chair->syncFromSimulation(world);
+            check(world.created == createdBefore + 1 && bodyOf(chair) && bodyOf(chair)->desc.children.size() == 1,
+                "disabling a part rebuilds the compound without it");
+            legEntity->setEnabled(true);
+            chair->syncFromSimulation(world);
+            check(world.created == createdBefore + 2 && bodyOf(chair) && bodyOf(chair)->desc.children.size() == 2,
+                "and enabling it again puts it back");
+        }
     }
 
     return finish("rigid-body state");

@@ -1,0 +1,11 @@
+Model Information:
+* title:	TransmissionRoughnessTest
+* source:	https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/TransmissionRoughnessTest
+* author:	Ed Mackey, for Analytical Graphics, Inc.
+
+Model License:
+* license type:	CC-BY-4.0 (https://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+* attribution:	© 2021, Analytical Graphics, Inc.
+
+Used by the `transmission-roughness` example.

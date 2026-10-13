@@ -36,7 +36,8 @@ namespace visutwin::canvas
         Plane,
         Cone,        ///< radius and height, apex up +Y
         Mesh,        ///< `points` + `indices` as triangles; static or kinematic bodies only
-        ConvexHull   ///< the convex hull of `points`
+        ConvexHull,  ///< the convex hull of `points`
+        Compound     ///< the body's `children`, each at its own place in the body
     };
 
     enum class PhysicsMotionType
@@ -46,24 +47,37 @@ namespace visutwin::canvas
         Kinematic   ///< moved by the application, pushes dynamic bodies
     };
 
-    /// Everything the backend needs to create one body. Shape fields are read
-    /// according to `shape`: Box uses halfExtents, Sphere uses radius, Capsule and
-    /// Cylinder use radius and height (height is the FULL height, cylinder part
-    /// included for a capsule, matching CollisionComponent).
-    struct PhysicsBodyDesc
+    /// One collision shape. The fields are read according to `shape`: Box uses
+    /// halfExtents, Sphere uses radius, Capsule and Cylinder use radius and height (height is
+    /// the FULL height, cylinder part included for a capsule, matching CollisionComponent).
+    struct PhysicsShapeDesc
     {
         PhysicsShapeType shape = PhysicsShapeType::Box;
-        PhysicsMotionType motion = PhysicsMotionType::Static;
 
         Vector3 halfExtents = Vector3(0.5f, 0.5f, 0.5f);
         float radius = 0.5f;
         float height = 1.0f;
 
-        /// Mesh and ConvexHull: the geometry in the body's own space, the entity's world
-        /// scale already applied. Mesh reads
-        /// `indices` as triangles.
+        /// Mesh and ConvexHull: the geometry in the shape's own space, the entity's world
+        /// scale already applied. Mesh reads `indices` as triangles.
         std::vector<Vector3> points;
         std::vector<uint32_t> indices;
+
+        /// Where the shape sits in the body's space: the body's position is the entity's,
+        /// and an offset shape (a head collider on a character whose origin is at its feet)
+        /// is moved off it. Zero and identity put the shape at the body's origin.
+        Vector3 offsetPosition = Vector3(0.0f, 0.0f, 0.0f);
+        Quaternion offsetRotation = Quaternion();
+    };
+
+    /// Everything the backend needs to create one body: its shape (the base), and for a
+    /// Compound shape the child shapes, each placed by its own offset.
+    struct PhysicsBodyDesc : PhysicsShapeDesc
+    {
+        PhysicsMotionType motion = PhysicsMotionType::Static;
+
+        /// Compound only; a child may not itself be a Compound or a Mesh on a dynamic body.
+        std::vector<PhysicsShapeDesc> children;
 
         Vector3 position = Vector3(0.0f, 0.0f, 0.0f);
         Quaternion rotation = Quaternion();

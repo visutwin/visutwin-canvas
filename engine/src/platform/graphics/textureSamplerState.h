@@ -77,8 +77,9 @@ namespace visutwin::canvas
     }
 
     /// The sampler state for a texture with these settings on a device whose samplers
-    /// accept `deviceMaxAnisotropy`. Every texture gets the device's full anisotropy
-    /// ratio: oblique ground textures otherwise smear into radial lines.
+    /// accept `deviceMaxAnisotropy`. DEVIATION: every texture gets the device's full
+    /// anisotropy ratio, where upstream defaults a texture to 1: oblique ground textures
+    /// otherwise smear into radial lines.
     [[nodiscard]] inline TextureSamplerState textureSamplerState(const AddressMode addressU,
         const AddressMode addressV, const FilterMode minFilter, const FilterMode magFilter,
         const float deviceMaxAnisotropy)

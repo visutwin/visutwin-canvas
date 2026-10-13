@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 91 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 102 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -496,8 +496,9 @@ reflected bindings fall outside the table. The rules the rows encode:
   `textureSamplerState`, the same mapping Vulkan's per-texture samplers use) — exactly the
   maps Vulkan binds as combined samplers. A new map Vulkan binds as a combined sampler needs
   `ownSampler` and a Metal sampler slot within the budget comment in `metalTextureBinder.h`;
-  a separate-image map keeps `defaultSampler` on both. Slots 0-40 are taken today
-  (31-33 the gloss, thickness and refraction maps, 34 the opacity map; 35 is the second
+  a separate-image map keeps `defaultSampler` on both. Slots 0-40 and 42 are taken today
+  (31-33 the gloss, thickness and refraction maps, 34 the opacity map, 42 the anisotropy map,
+  which skips 41 for the displacement map's vertex slot below; 35 is the second
   directional shadow map, 36 the clustered cookie atlas, 37-38 the VSM spot moments and 39-40
   the two directional maps AGAIN as VSM moments, scene slots, not material ones: the Slang
   forward program reads a directional slot as a `depth2d` at 6 / 35 or as moments at 39 / 40,
@@ -515,6 +516,12 @@ reflected bindings fall outside the table. The rules the rows encode:
   map, the detail normal, the displacement map, the three clearcoat maps (7/13/14) and the
   gloss/thickness/refraction/opacity maps (31-34) already get; the light cookies do the same
   on set 3.
+- **A material names a texture by its METAL slot** (`TextureSlot::slot`, what
+  `getTextureSlots` returns), and the Vulkan binder maps it to its set-1 binding through
+  `vulkanMaterialBindingForMetalSlot`, derived from the rows. The two numbers agree for most
+  rows, which is how a binder that matched the slot against its binding list directly worked
+  until the anisotropy map (Metal 42, Vulkan 35) arrived and drew on Vulkan as no map at all,
+  with nothing logged; the displacement map (vertex 41, Vulkan 25) had a hard-coded case.
 - APPEND a material row, never insert it in numeric order: a quad pass's texture slot i is
   the i-th material row, so an insertion moves every quad input after it. The layout, the
   descriptor writes and the draw binding all read `kMaterialTextureBindings`; do not copy
@@ -654,6 +661,25 @@ systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
 - `CollisionComponent::height` is the FULL height for a capsule, caps included, and
   defaults to 2; the backend converts to Jolt's cylindrical half-height. A joint defaults
   to FIXED, and a ball joint's swing and twist limits of 0 mean UNLIMITED here.
+- **A collision shape may sit OFF its body, and a compound is made of its descendants.**
+  `CollisionComponent::setLinearOffset` / `setAngularOffset` place the shape in the entity's
+  rotated, unscaled space (upstream's offsets; `shapePosition()` / `shapeRotation()` answer
+  where it is); the BODY stays at the entity, which is what is written back, and the backend
+  wraps the shape (`PhysicsShapeDesc::offsetPosition` / `offsetRotation`, Jolt's
+  `RotatedTranslatedShape`). Type `compound` has no shape of its own: `describeShape` gathers
+  the collision shapes of the entity's descendants, each placed where its entity sits
+  relative to the compound (plus its own offsets), stopping at a descendant with a rigid body
+  or a compound of its own (`PhysicsBodyDesc::children`, a `StaticCompoundShape`). The places
+  are composed from LOCAL transforms down from the compound, not differenced from world
+  ones: those carry rounding that differs between a Debug and a Release build, and a pile of
+  compounds is chaotic enough to land differently on the two (`compound-collision`'s Metal
+  Debug and Vulkan Release frames differed by 32k pixels; now 5). The body
+  description is the collision component's to build (`describeShape`), not the rigid body's.
+  A part enabled or disabled rebuilds the compound's body (`RigidBodyComponent::rebuildBody`,
+  velocities kept); a part MOVED, or a shape setting changed, after the body exists is not
+  seen until something rebuilds it. `tests/rigidBodyStateTests.cpp` holds the gathering and
+  `tests/physicsWorldTests.cpp` the shapes in Jolt; `offset-collision` and
+  `compound-collision` show both.
 - **A joint lives on its OWN entity, and that entity's transform is the joint
   FRAME** — its local **X axis is the primary axis** (hinge rotation, slider
   travel, ball twist). Position and orient the entity, parent it, THEN add the
@@ -1587,14 +1613,20 @@ present, but the rule below never depends on reading it.
   `AnimComponent`, which blends the layers in order — OVERWRITE lerps toward the
   layer by its weight, ADDITIVE adds the layer's offset from the node's REST value
   (captured the first time a layer drives that property) scaled by it, a mask
-  restricts a layer to listed node paths, and `setNormalizeWeights` divides by the
+  restricts a layer to listed node paths (`mask`) and whole subtrees (`maskSubtrees`,
+  upstream's `{children: true}`: the path and everything beneath it, matched on whole path
+  segments), and `setNormalizeWeights` divides by the
   total and drops the layers beneath the topmost OVERWRITE one, all as upstream's
   `AnimTargetValue`; a layer that wrote the nodes itself would make a 0.25 layer a
   full overwrite whenever it ran last. Two consequences
   for new code: an evaluator used OUTSIDE a component (no sink) still writes nodes
   directly, and a zero-weight layer keeps advancing its clocks (upstream does), it
-  just contributes nothing. `tests/animLayerBlendTests.cpp` holds the closed-form
-  cases.
+  just contributes nothing. A layer added at run time (`AnimComponent::addLayer`) starts
+  in START with no transition and contributes nothing until a state is transitioned to,
+  as upstream's; a port whose upstream sets that state from its controls' initial values
+  must transition itself (`layer-masks`: upstream's panel starts the upper body in Eager,
+  and without it the arms hang halfway to the T-pose rest). `tests/animLayerBlendTests.cpp`
+  holds the closed-form cases.
 - **Animation evaluation hashes no string per frame.** `AnimTrack::addCurve` gives each
   curve a `targetIndex` (one per distinct `nodeName`, first-seen order, `targets()`) and
   a `property` enum, replacing whatever the caller wrote in those two fields; a track
@@ -1688,10 +1720,16 @@ present, but the rule below never depends on reading it.
   shipped with tangents: `taa`'s house shaded its baked bevels as rounded tubes. Only
   GENERATED tangents (`generateTangents`, bitangent toward +v) are negated;
   `tests/glbVertexAttributeTests.cpp` holds both.
-  Anisotropy does NOT use this frame on a material without a normal, clearcoat-normal or
-  height map: like upstream it takes an OBJECT-SPACE frame, B = N x objectUp, T = N x B
-  (the `objectUp` varying, the normal matrix's +Y). On a UV frame the `anisotropy`
-  spheres stretch their reflections 90 degrees off upstream's.
+  Anisotropy does NOT use this frame on a material without a normal, clearcoat-normal,
+  height or anisotropy map: like upstream it takes an OBJECT-SPACE frame, B = N x objectUp,
+  T = N x B (the `objectUp` varying, the normal matrix's +Y). On a UV frame the `anisotropy`
+  spheres stretch their reflections 90 degrees off upstream's. The exception is a mesh with
+  tangents of its OWN, which upstream lays anisotropy on whenever the vertex format has them:
+  a glTF primitive with `TANGENT` marks its StandardMaterial `setMeshTangents(true)`
+  (`anisotropyParams.w`), and that material takes the tangent frame. The flag is on the
+  MATERIAL, so a material shared by a primitive with tangents and one without takes the frame
+  on both (and a variant material swapped in does not get it); `anisotropy-strength` and
+  `-rotation` turn 90 degrees without it.
 - **Only `StandardMaterial::twoSidedLighting` flips a back face's normal toward the viewer**
   (`VT_FEATURE_DOUBLE_SIDED`), as upstream; culling nothing (`CULLFACE_NONE`) alone draws a
   back face with its own normal, so a plane seen from behind takes its ambient from the
@@ -1754,12 +1792,14 @@ present, but the rule below never depends on reading it.
   LUMINANCE on the scene yet: that example applies its numbers by hand. Anything that reads a light's strength for rendering goes
   through `LightComponent::renderIntensity(physicalUnits)`, not `intensity()`.
   `tests/glbCameraLightTests.cpp` checks both load paths.
-- **The four remaining glTF extensions are FACTORS-ONLY where they touch materials.**
-  `KHR_materials_sheen`, `_specular`, `_iridescence` and `_anisotropy` apply their
-  factors (`applySheen` and siblings in `glbParser.cpp`, beside `applyClearcoat`) and
-  IGNORE their textures with one warning per extension — there are no sheen,
-  iridescence, specular or anisotropy maps (the Vulkan fragment stage is at MoltenVK's
-  sampler limit). DEVIATION: an absent `sheenColorFactor` is the spec's black, where
+- **Three glTF extensions are FACTORS-ONLY where they touch materials.**
+  `KHR_materials_sheen`, `_specular` and `_iridescence` apply their factors (`applySheen`
+  and siblings in `glbParser.cpp`, beside `applyClearcoat`) and IGNORE their textures with
+  one warning per extension — there are no sheen, iridescence or specular maps.
+  `KHR_materials_anisotropy` reads its texture too (`StandardMaterial::setAnisotropyMap`,
+  a SEPARATE image at Metal slot 42 / Vulkan set-1 binding 35, `VT_FEATURE_ANISOTROPY_MAP`
+  only on an anisotropic variant, on the UV set the file names): rg is a tangent-space
+  direction in [-1, 1] turned by the material's rotation, b scales the strength. DEVIATION: an absent `sheenColorFactor` is the spec's black, where
   upstream substitutes white. `EXT_mesh_gpu_instancing` builds one 64-byte TRS matrix
   per instance in the node's space and shares the buffer across instantiations.
   `KHR_materials_variants` is upstream's container API (`getMaterialVariants`,
@@ -3279,7 +3319,7 @@ What stays HERE is only what bites during UNRELATED work.
   a mean absolute difference of 0.002 counts against Metal on the whole 900x700 frame,
   with 12 pixels above 8 counts — isolated specular glints.
 - **Queued — none a correctness bug:** the
-  binding footprint exceeds WebGPU's defaults (Metal 36 texture slots, Vulkan 7 sets). The
+  binding footprint exceeds WebGPU's defaults (Metal 43 texture slots, Vulkan 7 sets). The
   parsers derive tangents through one `generateTangents` / `tangentFromNormal`
   (`packedVertex.h`), whose sign rule is opposite to `calculateTangents`; glTF animation
   tracks keep file order (`AnimTrackList`). Measured

@@ -319,13 +319,27 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
     // vertex tangent toward the vertex BITANGENT; the CPU folds the deprecated
     // negative strength in as rotation + 90 and uploads the magnitude. B is
     // cross(geometric normal, T), built from the TBN's own normal rather than the
-    // normal-mapped one.
+    // normal-mapped one. An anisotropy map turns its own tangent-space direction (rg in
+    // [-1, 1]) by that rotation and scales the strength by its blue channel.
     float anisoIntensity = 0.0;
     float2 anisoAlpha = float2(1.0);
     float3 anisoT = float3(1.0, 0.0, 0.0);
     float3 anisoB = float3(0.0, 0.0, 1.0);
     if (vtFeatureEnabled(VT_FEATURE_ANISOTROPY_BIT)) {
-        anisoIntensity = clamp(material.anisotropy, 0.0, 1.0);
+        float2 anisoDirection = material.anisotropyParams.xy;
+        anisoIntensity = material.anisotropy;
+        if (vtFeatureEnabled(VT_FEATURE_ANISOTROPY_MAP_BIT)) {
+            const float2 uvAniso = material.anisotropyParams.z > 0.5 ? fragUV1 : fragUV0;
+            const float3 anisoSample = anisotropyMap.Sample(materialSampler, uvAniso).rgb;
+            anisoIntensity *= anisoSample.b;
+            const float2 fromMap = anisoSample.rg * 2.0 - 1.0;
+            if (dot(fromMap, fromMap) > 1e-8) {
+                // The map's direction is not unit length; the frame below wants one.
+                anisoDirection = normalize(float2(anisoDirection.x * fromMap.x - anisoDirection.y * fromMap.y,
+                    anisoDirection.y * fromMap.x + anisoDirection.x * fromMap.y));
+            }
+        }
+        anisoIntensity = clamp(anisoIntensity, 0.0, 1.0);
         anisoAlpha = getAnisotropicAlpha(1.0 - roughness, anisoIntensity);
         float3 NgUnflipped = normalize(fragWorldNormal);
         float3 Ng = NgUnflipped;
@@ -338,8 +352,11 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
         // T = N x B (T down the meridian of a sphere), where one with such a map uses the
         // tangent frame. Taking the UV tangent here instead turns the anisotropy of every
         // map-less material by 90 degrees (the anisotropy example's spheres).
+        // The tangent frame is also taken on a mesh with tangents of its own
+        // (anisotropyParams.w), as upstream takes it whenever the vertex format has them.
         const bool tangentFrame = vtFeatureEnabled(VT_FEATURE_NORMAL_MAP_BIT) ||
-            vtFeatureEnabled(VT_FEATURE_PARALLAX_BIT) || (material.flags & (1u << 16)) != 0u;
+            vtFeatureEnabled(VT_FEATURE_PARALLAX_BIT) || (material.flags & (1u << 16)) != 0u ||
+            vtFeatureEnabled(VT_FEATURE_ANISOTROPY_MAP_BIT) || material.anisotropyParams.w > 0.5;
         if (!tangentFrame) {
             float3 up = normalize(input.objectUp);
             float3 Bo = cross(Ng, up);
@@ -351,11 +368,11 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
             }
             Bo = normalize(Bo);
             const float3 To = normalize(cross(Ng, Bo));
-            anisoT = material.anisotropyParams.x * To + material.anisotropyParams.y * Bo;
+            anisoT = anisoDirection.x * To + anisoDirection.y * Bo;
         } else if (dot(Tv, Tv) >= 1e-6) {
             Tv = normalize(Tv);
             float3 Bv = normalize(cross(NgUnflipped, Tv)) * fragWorldTangent.w;
-            anisoT = material.anisotropyParams.x * Tv + material.anisotropyParams.y * Bv;
+            anisoT = anisoDirection.x * Tv + anisoDirection.y * Bv;
         } else {
             // No tangent stream and no derivative-based fallback, so take any
             // tangent.

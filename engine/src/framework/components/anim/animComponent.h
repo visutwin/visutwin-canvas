@@ -46,6 +46,16 @@ namespace visutwin::canvas
             return _layers.empty() ? nullptr : _layers.front().get();
         }
         AnimComponentLayer* findAnimationLayer(const std::string& name) const;
+        /**
+         * Adds a layer (or returns the one of that name): it starts in START with no
+         * transition, so it drives nothing until a state is assigned an animation and
+         * transitioned to. The mask lists the node paths it may drive, alone (`mask`) or with
+         * everything beneath them (`maskSubtrees`); both empty, it drives every node.
+         */
+        AnimComponentLayer* addLayer(const std::string& name, float weight = 1.0f,
+                                     std::unordered_set<std::string> mask = {},
+                                     AnimLayerBlendType blendType = AnimLayerBlendType::OVERWRITE,
+                                     std::vector<std::string> maskSubtrees = {});
         const std::vector<std::unique_ptr<AnimComponentLayer>>& layers() const { return _layers; }
 
         /**

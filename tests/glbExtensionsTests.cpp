@@ -10,7 +10,9 @@
 //    StandardMaterial, and the two uniforms they feed pack as the shaders expect:
 //    the metalness workflow's non-metal F0 and the
 //    anisotropy direction (cos, sin). The defaults must pack to EXACTLY 0.04 and
-//    (1, 0), the constants they stand in for, or every frame without them moves.
+//    (1, 0), the constants they stand in for, or every frame without them moves. The
+//    anisotropy texture is read, on the UV set it names, and a primitive with the file's
+//    own tangents marks its material to lay the anisotropy on them.
 //  - EXT_mesh_gpu_instancing: one TRS matrix per instance, in the NODE's space, so
 //    the instanced bounds follow the node.
 //  - KHR_materials_variants: names, apply, unmapped primitives untouched, reset.
@@ -76,7 +78,20 @@ namespace
             {"iridescenceThicknessMaximum", number(500.0)}});
         base.extensions["KHR_materials_anisotropy"] = object({
             {"anisotropyStrength", number(0.6)},
-            {"anisotropyRotation", number(kPi / 6.0)}});
+            {"anisotropyRotation", number(kPi / 6.0)},
+            {"anisotropyTexture", object({{"index", Value(0)}, {"texCoord", Value(1)}})}});
+        tinygltf::Image image;
+        image.name = "anisotropy";
+        image.width = 2;
+        image.height = 2;
+        image.component = 4;
+        image.bits = 8;
+        image.pixel_type = TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE;
+        image.image.assign(2 * 2 * 4, static_cast<unsigned char>(200));
+        model.images.push_back(image);
+        tinygltf::Texture texture;
+        texture.source = 0;
+        model.textures.push_back(texture);
         tinygltf::Material red;
         red.name = "VariantRed";
         tinygltf::Material plain;
@@ -92,6 +107,10 @@ namespace
         triangle.material = 0;
         triangle.attributes["POSITION"] = addAccessor(model, buffer.data,
             {0.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,  0.0f, 1.0f, 0.0f}, 3, TINYGLTF_TYPE_VEC3);
+        triangle.attributes["NORMAL"] = addAccessor(model, buffer.data,
+            {0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f}, 3, TINYGLTF_TYPE_VEC3);
+        triangle.attributes["TANGENT"] = addAccessor(model, buffer.data,
+            {1.0f, 0.0f, 0.0f, 1.0f,  1.0f, 0.0f, 0.0f, 1.0f,  1.0f, 0.0f, 0.0f, 1.0f}, 3, TINYGLTF_TYPE_VEC4);
         triangle.extensions["KHR_materials_variants"] = object({
             {"mappings", array({object({{"material", Value(1)}, {"variants", array({Value(0)})}})})}});
         tinygltf::Mesh triangleMesh;
@@ -194,6 +213,11 @@ namespace
             check(nearStrict(u.anisotropyParams[0], std::cos(kPi / 6.0f), kTolerance) &&
                   nearStrict(u.anisotropyParams[1], std::sin(kPi / 6.0f), kTolerance),
                 "the anisotropy direction packs (cos, sin) of the rotation");
+            check(material->anisotropyMap() != nullptr && material->anisotropyMapUv() == 1 &&
+                      u.anisotropyParams[2] == 1.0f,
+                "the anisotropy texture is bound, read on the UV set it names");
+            check(material->meshTangents() && u.anisotropyParams[3] == 1.0f,
+                "a primitive with the file's own tangents lays the anisotropy on them");
         }
 
         // ── EXT_mesh_gpu_instancing ──
@@ -267,7 +291,9 @@ int main()
         const auto& u = defaults.packedUniforms();
         check(u.metalnessSpecular[0] == 0.04f && u.metalnessSpecular[3] == 1.0f,
             "a default material's non-metal F0 is EXACTLY 0.04, the constant it replaced");
-        check(u.anisotropyParams[0] == 1.0f && u.anisotropyParams[1] == 0.0f, "and its anisotropy direction (1, 0)");
+        check(u.anisotropyParams[0] == 1.0f && u.anisotropyParams[1] == 0.0f && u.anisotropyParams[2] == 0.0f &&
+                  u.anisotropyParams[3] == 0.0f,
+            "and its anisotropy direction (1, 0), with no map UV set or mesh tangents");
         StandardMaterial legacy;
         legacy.setAnisotropy(-0.5f);
         check(legacy.packedUniforms().anisotropy == 0.5f && legacy.packedUniforms().anisotropyParams[0] == 0.0f &&

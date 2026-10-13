@@ -1,0 +1,10 @@
+Model Information:
+* title:	AnisotropyStrengthTest
+* source:	https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/AnisotropyStrengthTest
+* author:	Emmett Lalish and Ed Mackey
+
+Model License:
+* license type:	CC0 (http://creativecommons.org/publicdomain/zero/1.0/)
+* requirements:	None; attribution appreciated.
+
+Used by the `anisotropy-strength` example.

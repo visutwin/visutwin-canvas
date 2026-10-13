@@ -199,6 +199,7 @@ namespace visutwin::canvas
             bool parallax = false;
             bool clearcoat = false;
             bool anisotropy = false;
+            bool anisotropyMap = false;
             bool sheen = false;
             bool iridescence = false;
             bool transmission = false;

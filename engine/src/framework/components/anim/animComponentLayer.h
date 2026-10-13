@@ -48,7 +48,25 @@ namespace visutwin::canvas
         /** Node paths this layer may drive (curve nodeName); empty = every node. */
         const std::unordered_set<std::string>& mask() const { return _mask; }
         void setMask(std::unordered_set<std::string> value) { _mask = std::move(value); ++_maskVersion; }
-        bool drives(const std::string& nodePath) const { return _mask.empty() || _mask.contains(nodePath); }
+        /** Node paths the layer drives with their whole subtree (upstream's `{children: true}`),
+         *  beside the exact paths of mask(). */
+        const std::vector<std::string>& maskSubtrees() const { return _maskSubtrees; }
+        void setMaskSubtrees(std::vector<std::string> value) { _maskSubtrees = std::move(value); ++_maskVersion; }
+        /** True when the layer has no mask: it drives every node. */
+        bool unmasked() const { return _mask.empty() && _maskSubtrees.empty(); }
+        bool drives(const std::string& nodePath) const
+        {
+            if (unmasked() || _mask.contains(nodePath)) {
+                return true;
+            }
+            for (const auto& root : _maskSubtrees) {
+                if (nodePath.size() >= root.size() && nodePath.compare(0, root.size(), root) == 0 &&
+                    (nodePath.size() == root.size() || nodePath[root.size()] == '/')) {
+                    return true;
+                }
+            }
+            return false;
+        }
         /// Bumped by setMask, so a caller caching drives() per node knows when to ask again.
         uint64_t maskVersion() const { return _maskVersion; }
         AnimEvaluator* evaluator() const { return _evaluator.get(); }
@@ -107,6 +125,7 @@ namespace visutwin::canvas
         float _weight;
         AnimLayerBlendType _blendType = AnimLayerBlendType::OVERWRITE;
         std::unordered_set<std::string> _mask;
+        std::vector<std::string> _maskSubtrees;
         uint64_t _maskVersion = 1;
         std::unique_ptr<AnimEvaluator> _evaluator;
         std::unique_ptr<AnimController> _controller;

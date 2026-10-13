@@ -13,6 +13,7 @@
 #include "framework/components/render/renderComponent.h"
 #include "framework/components/rigidbody/rigidBodyComponent.h"
 #include "framework/entity.h"
+#include "framework/physics/physicsWorld.h"
 #include "platform/graphics/indexBuffer.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "platform/graphics/vertexFormat.h"
@@ -39,6 +40,131 @@ namespace visutwin::canvas
                 body->removeFromSimulation();
             }
         }
+        if (RigidBodyComponent* compound = compoundBody()) {
+            compound->rebuildBody();
+        }
+    }
+
+    void CollisionComponent::onEnable()
+    {
+        if (RigidBodyComponent* compound = compoundBody()) {
+            compound->rebuildBody();
+        }
+    }
+
+    Vector3 CollisionComponent::shapePosition() const
+    {
+        Entity* owner = entity();
+        return owner ? owner->position() + owner->rotation() * _linearOffset : _linearOffset;
+    }
+
+    Quaternion CollisionComponent::shapeRotation() const
+    {
+        Entity* owner = entity();
+        return owner ? owner->rotation() * _angularOffset : _angularOffset;
+    }
+
+    RigidBodyComponent* CollisionComponent::compoundBody() const
+    {
+        Entity* owner = entity();
+        if (!owner || isCompound() || owner->findComponent<RigidBodyComponent>()) {
+            return nullptr;
+        }
+        for (GraphNode* node = owner->parent(); node; node = node->parent()) {
+            auto* ancestor = dynamic_cast<Entity*>(node);
+            if (!ancestor) {
+                break;
+            }
+            auto* body = ancestor->findComponent<RigidBodyComponent>();
+            const auto* collision = ancestor->findComponent<CollisionComponent>();
+            if (collision && collision->isCompound()) {
+                return body;
+            }
+            if (body) {
+                // A body of another kind in between owns everything beneath it.
+                return nullptr;
+            }
+        }
+        return nullptr;
+    }
+
+    namespace
+    {
+        PhysicsShapeType physicsShapeFor(const std::string& type)
+        {
+            if (type == "sphere") { return PhysicsShapeType::Sphere; }
+            if (type == "capsule") { return PhysicsShapeType::Capsule; }
+            if (type == "cylinder") { return PhysicsShapeType::Cylinder; }
+            if (type == "plane") { return PhysicsShapeType::Plane; }
+            if (type == "cone") { return PhysicsShapeType::Cone; }
+            if (type == "mesh") { return PhysicsShapeType::Mesh; }
+            if (type == "compound") { return PhysicsShapeType::Compound; }
+            return PhysicsShapeType::Box;
+        }
+
+        // The compound's child shapes beneath `node`, each placed in the compound's space by
+        // composing the LOCAL transforms down from it (`position`, `rotation` and `scale` are
+        // `node`'s there). Taken from world transforms instead, the offsets would carry their
+        // rounding, and a Debug and a Release build would drop a pile of compounds differently.
+        // The compound's own scale is not in them, as it is in no single shape's size.
+        void collectCompoundChildren(GraphNode* node, const Vector3& position, const Quaternion& rotation,
+            const Vector3& scale, const bool dynamic, std::vector<PhysicsShapeDesc>& children)
+        {
+            for (const auto& owned : node->children()) {
+                auto* child = dynamic_cast<Entity*>(owned.get());
+                if (!child || !child->enabled()) {
+                    continue;
+                }
+                const auto* collision = child->findComponent<CollisionComponent>();
+                if (child->findComponent<RigidBodyComponent>() || (collision && collision->isCompound())) {
+                    continue;
+                }
+                const Vector3 childPosition = position + rotation * (scale * child->localPosition());
+                const Quaternion childRotation = rotation * child->localRotation();
+                if (collision && collision->enabled()) {
+                    PhysicsShapeDesc shape;
+                    if (collision->describeShape(shape, nullptr, dynamic)) {
+                        shape.offsetPosition = childPosition + childRotation * collision->linearOffset();
+                        shape.offsetRotation = (childRotation * collision->angularOffset()).normalized();
+                        children.push_back(std::move(shape));
+                    }
+                }
+                collectCompoundChildren(child, childPosition, childRotation, scale * child->localScale(), dynamic,
+                    children);
+            }
+        }
+    }
+
+    bool CollisionComponent::describeShape(PhysicsShapeDesc& out, std::vector<PhysicsShapeDesc>* children,
+        const bool dynamic) const
+    {
+        out.shape = physicsShapeFor(_type);
+        out.halfExtents = _halfExtents;
+        out.radius = _radius;
+        out.height = _height;
+        out.offsetPosition = _linearOffset;
+        out.offsetRotation = _angularOffset;
+        if (out.shape == PhysicsShapeType::Mesh) {
+            collectMeshGeometry(out.points, out.indices);
+            // Jolt simulates a triangle mesh only on a static or kinematic body.
+            if (_convexHull || dynamic) {
+                out.shape = PhysicsShapeType::ConvexHull;
+            }
+            return out.points.size() >= 4 && (out.shape != PhysicsShapeType::Mesh || !out.indices.empty());
+        }
+        if (out.shape == PhysicsShapeType::Compound) {
+            // The children carry their own places; the compound itself sits at the body's origin.
+            out.offsetPosition = Vector3(0.0f, 0.0f, 0.0f);
+            out.offsetRotation = Quaternion();
+            if (!children || !entity()) {
+                return false;
+            }
+            children->clear();
+            collectCompoundChildren(entity(), Vector3(0.0f, 0.0f, 0.0f), Quaternion(), Vector3(1.0f, 1.0f, 1.0f),
+                dynamic, *children);
+            return !children->empty();
+        }
+        return true;
     }
 
     BoundingSphere CollisionComponent::worldBounds() const
@@ -86,6 +212,8 @@ namespace visutwin::canvas
         _height = src->_height;
         _render = src->_render;
         _convexHull = src->_convexHull;
+        _linearOffset = src->_linearOffset;
+        _angularOffset = src->_angularOffset;
     }
 
     namespace

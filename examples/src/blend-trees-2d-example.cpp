@@ -21,6 +21,7 @@
 #include <memory>
 #include <string>
 
+#include "../animClips.h"
 #include "../exampleApp.h"
 #include "framework/assets/asset.h"
 #include "framework/components/anim/animComponent.h"
@@ -33,17 +34,6 @@ using namespace visutwin::canvas;
 
 namespace
 {
-    // The first animation track of a container (each bitmoji clip file holds one).
-    std::shared_ptr<AnimTrack> firstAnimTrack(Asset* asset)
-    {
-        auto* glb = asset ? dynamic_cast<GlbContainerResource*>(asset->resourceAs<ContainerResource>()) : nullptr;
-        if (!glb || glb->animTracks().empty()) {
-            spdlog::error("Animation '{}' holds no animation track", asset ? asset->name() : "?");
-            return nullptr;
-        }
-        return glb->animTracks().begin()->second;
-    }
-
     struct BlendPoint
     {
         const char* name;

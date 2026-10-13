@@ -36,6 +36,9 @@ namespace visutwin::canvas
         AnimLayerBlendType blendType = AnimLayerBlendType::OVERWRITE;
         /// Node paths this layer may drive (the curves' nodeName). Empty = every node.
         std::unordered_set<std::string> mask;
+        /// Node paths the layer may drive together with everything beneath them (upstream's
+        /// mask entry `{children: true}`).
+        std::vector<std::string> maskSubtrees;
     };
 
     /**
@@ -52,7 +55,7 @@ namespace visutwin::canvas
         AnimLayerDesc& addLayer(const std::string& name, const float weight = 1.0f,
             const AnimLayerBlendType blendType = AnimLayerBlendType::OVERWRITE)
         {
-            _layers.push_back(AnimLayerDesc{name, {}, {}, weight, blendType, {}});
+            _layers.push_back(AnimLayerDesc{name, {}, {}, weight, blendType, {}, {}});
             return _layers.back();
         }
 
