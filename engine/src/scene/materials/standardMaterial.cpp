@@ -47,6 +47,10 @@ namespace visutwin::canvas
         _anisotropy = 0.0f;
         _anisotropyRotation = 0.0f;
         _anisotropyMap = nullptr;
+        _specularColorMap = nullptr;
+        _specularColorMapUv = 0;
+        _specularityFactorMap = nullptr;
+        _specularityFactorMapUv = 0;
         _anisotropyMapUv = 0;
         _meshTangents = false;
         _enableGGXSpecular = false;
@@ -112,6 +116,8 @@ namespace visutwin::canvas
         _useLighting = true;
         _unlit = false;
         _vertexColorGamma = false;
+        _opacityFadesSpecular = true;
+        _alphaFade = 1.0f;
         _useSkybox = true;
         _twoSidedLighting = false;
 
@@ -238,7 +244,9 @@ namespace visutwin::canvas
         uniforms.ambientTint[0] = toLinear(_ambient.r);
         uniforms.ambientTint[1] = toLinear(_ambient.g);
         uniforms.ambientTint[2] = toLinear(_ambient.b);
-        uniforms.ambientTint[3] = 1.0f;
+        // The opacity scale (alphaFade), read only while the specular does not fade with the
+        // opacity; 1 otherwise, so a frame without it is unchanged.
+        uniforms.ambientTint[3] = _opacityFadesSpecular ? 1.0f : _alphaFade;
     }
 
     void StandardMaterial::packMsdf(MaterialUniforms& uniforms) const
@@ -316,7 +324,9 @@ namespace visutwin::canvas
         uniforms.metalnessSpecular[0] = static_cast<float>(f0 * r * factor);
         uniforms.metalnessSpecular[1] = static_cast<float>(f0 * g * factor);
         uniforms.metalnessSpecular[2] = static_cast<float>(f0 * b * factor);
-        uniforms.metalnessSpecular[3] = _specularityFactor;
+        // w: the specular maps' UV sets, the colour map's in bit 0 and the factor map's in bit 1.
+        uniforms.metalnessSpecular[3] = static_cast<float>((_specularColorMapUv == 1 ? 1 : 0) +
+            (_specularityFactorMapUv == 1 ? 2 : 0));
 
         // The specular workflow's F0 and gloss. `specular` is authored in sRGB and
         // uploaded linear; gloss is the same
@@ -479,6 +489,8 @@ namespace visutwin::canvas
         // Opacity map, alpha channel by default (the channel rides in opacityTransform0.w).
         overrideSlot(34, _opacityMap);
         overrideSlot(42, _anisotropyMap);
+        overrideSlot(43, _specularColorMap);
+        overrideSlot(44, _specularityFactorMap);
         // Vertex displacement map: a VERTEX-stage texture (the binding table's slot,
         // MetalTextureBinder::bindMaterialTextures).
         overrideSlot(kDisplacementMapMetalSlot, _displacementMap);

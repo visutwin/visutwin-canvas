@@ -227,6 +227,9 @@ Varyings wideLineVS(uint vid : SV_VulkanVertexID, uint iid : SV_VulkanInstanceID
 [shader("fragment")]
 float4 wideLineFS(Varyings input) : SV_Target0
 {
+    // Taken here, in uniform control flow: inside the branches below the derivatives of a
+    // neighbour that discarded would be undefined.
+    const float worldPerPixel = length(float2(ddx(input.distance), ddy(input.distance)));
     if (input.dash.x > 0.0 && input.dash.y > 0.0) {
         const float period = input.dash.x + input.dash.y;
         float phase = fmod(input.distance + input.dash.z, period);
@@ -234,7 +237,19 @@ float4 wideLineFS(Varyings input) : SV_Target0
             phase += period;
         }
         if (phase > input.dash.x) {
-            discard;
+            // In a gap. A round-capped dash keeps the half disc of each dash end: a gap pixel
+            // survives within half the width of the nearer dash end, measured in pixels along
+            // the line (the distance per pixel from its derivatives) and across it. Only the
+            // segment body carries the across coordinate (lineData.z).
+            if (input.dash.w > 1.5 && input.lineData.z > 0.5) {
+                const float along = min(phase - input.dash.x, period - phase) / max(worldPerPixel, 0.00001);
+                const float across = abs(input.lineData.x) * input.lineData.y;
+                if (length(float2(along, across)) > input.lineData.y) {
+                    discard;
+                }
+            } else {
+                discard;
+            }
         }
     }
     return input.color;

@@ -71,7 +71,9 @@ namespace
             {"sheenRoughnessFactor", number(0.3)}});
         base.extensions["KHR_materials_specular"] = object({
             {"specularColorFactor", array({number(0.5), number(1.0), number(1.0)})},
-            {"specularFactor", number(0.5)}});
+            {"specularFactor", number(0.5)},
+            {"specularTexture", object({{"index", Value(0)}})},
+            {"specularColorTexture", object({{"index", Value(0)}, {"texCoord", Value(1)}})}});
         base.extensions["KHR_materials_iridescence"] = object({
             {"iridescenceFactor", number(0.8)},
             {"iridescenceIor", number(1.4)},
@@ -208,8 +210,11 @@ namespace
             // f0(1.5) = 0.04, x colour 0.5 (linear, round-tripped through gamma), x factor 0.5.
             check(nearStrict(u.metalnessSpecular[0], 0.04f * 0.5f * 0.5f, 1e-5f) &&
                   nearStrict(u.metalnessSpecular[1], 0.04f * 0.5f, 1e-5f) &&
-                  nearStrict(u.metalnessSpecular[3], 0.5f, kTolerance),
-                "the non-metal F0 packs f0(IOR) x specular colour x factor");
+                  u.metalnessSpecular[3] == 1.0f,
+                "the non-metal F0 packs f0(IOR) x specular colour x factor, w the maps' UV sets");
+            check(material->specularityFactorMap() != nullptr && material->specularityFactorMapUv() == 0 &&
+                      material->specularColorMap() != nullptr && material->specularColorMapUv() == 1,
+                "the specular textures are bound, each on the UV set it names");
             check(nearStrict(u.anisotropyParams[0], std::cos(kPi / 6.0f), kTolerance) &&
                   nearStrict(u.anisotropyParams[1], std::sin(kPi / 6.0f), kTolerance),
                 "the anisotropy direction packs (cos, sin) of the rotation");
@@ -289,7 +294,7 @@ int main()
     {
         StandardMaterial defaults;
         const auto& u = defaults.packedUniforms();
-        check(u.metalnessSpecular[0] == 0.04f && u.metalnessSpecular[3] == 1.0f,
+        check(u.metalnessSpecular[0] == 0.04f && u.metalnessSpecular[3] == 0.0f,
             "a default material's non-metal F0 is EXACTLY 0.04, the constant it replaced");
         check(u.anisotropyParams[0] == 1.0f && u.anisotropyParams[1] == 0.0f && u.anisotropyParams[2] == 0.0f &&
                   u.anisotropyParams[3] == 0.0f,

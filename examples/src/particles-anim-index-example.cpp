@@ -77,7 +77,7 @@ protected:
             o.rate = 0.5f;
             o.loop = true;
             o.colorMap = sheet;
-            o.initialVelocity = Vector3(0.0f, 0.25f, 0.0f);
+            o.initialVelocity = 0.25f;
             o.emitterShape = ParticleEmitterShape::EMITTERSHAPE_SPHERE;
             o.emitterRadius = 0.1f;
             o.animTilesX = 4;

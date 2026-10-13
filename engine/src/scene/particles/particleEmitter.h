@@ -95,7 +95,10 @@ namespace visutwin::canvas
         Vector3 emitterExtents = Vector3(0.0f, 0.0f, 0.0f);  // box size (full extents)
         float emitterRadius = 0.0f;                          // sphere radius
 
-        Vector3 initialVelocity = Vector3(0.0f, 0.0f, 0.0f); // base velocity (units/s)
+        // Speed at birth (units/s), in the emitter's space: outward along the spawn direction
+        // from a sphere, along -Z from a box. Upstream's default of 1, so an emitter that sets
+        // nothing still drifts at 1 unit/s.
+        float initialVelocity = 1.0f;
         Vector3 velocitySpread = Vector3(0.0f);              // ± random per axis
         Vector3 gravity = Vector3(0.0f, 0.0f, 0.0f);
         float damping = 0.0f;             // fraction of velocity lost per second (0..1)
@@ -171,6 +174,10 @@ namespace visutwin::canvas
         // tiles long and they run in reading order, so a 4x4 sheet at 4 frames
         // holds four animations, indices 0-3.
         int animIndex = 0;
+        // Each particle plays a random one of the first animNumAnimations animations,
+        // picked from its index and kept for its whole life, in place of animIndex.
+        int animNumAnimations = 1;
+        bool randomizeAnimIndex = false;
         float animSpeed = 1.0f;
 
         ParticleBlendType blendType = ParticleBlendType::BLEND_NORMAL;

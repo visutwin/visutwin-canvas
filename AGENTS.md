@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 105 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 126 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -496,9 +496,10 @@ reflected bindings fall outside the table. The rules the rows encode:
   `textureSamplerState`, the same mapping Vulkan's per-texture samplers use) — exactly the
   maps Vulkan binds as combined samplers. A new map Vulkan binds as a combined sampler needs
   `ownSampler` and a Metal sampler slot within the budget comment in `metalTextureBinder.h`;
-  a separate-image map keeps `defaultSampler` on both. Slots 0-40 and 42 are taken today
+  a separate-image map keeps `defaultSampler` on both. Slots 0-40 and 42-44 are taken today
   (31-33 the gloss, thickness and refraction maps, 34 the opacity map, 42 the anisotropy map,
-  which skips 41 for the displacement map's vertex slot below; 35 is the second
+  which skips 41 for the displacement map's vertex slot below, 43-44 the specular colour and
+  specularity factor maps (Vulkan 36-37); 35 is the second
   directional shadow map, 36 the clustered cookie atlas, 37-38 the VSM spot moments and 39-40
   the two directional maps AGAIN as VSM moments, scene slots, not material ones: the Slang
   forward program reads a directional slot as a `depth2d` at 6 / 35 or as moments at 39 / 40,
@@ -582,6 +583,9 @@ The engine owns the input DEVICES; the application owns the event loop.
   `ElementInput` use) and Engine keeps it current from `canvasSize()` on resize. Without it
   every touch lands in the top-left corner. Only a touch SCREEN's (direct) fingers are
   touches (`isDirectTouchDevice`): a trackpad's contacts arrive as finger events too.
+- **SDL's gamepad subsystem has to be initialised by the application**
+  (`SDL_InitSubSystem(SDL_INIT_GAMEPAD)`; `ExampleApp` does it after the video one). Without
+  it SDL delivers no gamepad events and `GamePads` reports none connected, with nothing logged.
 - Examples must not poll SDL for input. `CameraControls` reads the engine's
   keyboard and mouse; there is no `platform/input.h` key sink.
 
@@ -1376,7 +1380,15 @@ present, but the rule below never depends on reading it.
   and scaled by `(1 - specularity)` and before occlusion, on both backends. A lightmap
   replaces the tinted term, and a lightmap BAKE keeps its ambient untinted. White, the
   default, packs exactly 1, so a material that never sets it renders bit-identically.
-  `lights`' ground uses it (upstream `Color.GRAY`).
+  `lights`' ground uses it (upstream `Color.GRAY`). Its W lane is NOT ambient: it carries
+  `alphaFade`, the factor the final alpha is multiplied by (1 unless
+  `setOpacityFadesSpecular(false)`).
+- **`opacityFadesSpecular` (default true) decides whether a blended surface's SPECULAR fades
+  with its opacity.** Off, under normal or premultiplied blending, the material compiles
+  `VT_FEATURE_OPACITY_KEEPS_SPECULAR`: the tail adds the specular's luminance (direct,
+  reflected and clearcoat), raised to 2.2, to the alpha, so a clear glass still shows its
+  highlights and reflections, and then multiplies the alpha by `alphaFade`. Other blend modes
+  ignore it, as upstream.
 - **SH light probes replace the ambient DIFFUSE only; the environment atlas
   still supplies the SPECULAR.** That is upstream's split (ambient and reflections
   are separate decisions), on both backends. Probes and atlas in one `if / else if`
@@ -1792,10 +1804,15 @@ present, but the rule below never depends on reading it.
   LUMINANCE on the scene yet: that example applies its numbers by hand. Anything that reads a light's strength for rendering goes
   through `LightComponent::renderIntensity(physicalUnits)`, not `intensity()`.
   `tests/glbCameraLightTests.cpp` checks both load paths.
-- **Three glTF extensions are FACTORS-ONLY where they touch materials.**
-  `KHR_materials_sheen`, `_specular` and `_iridescence` apply their factors (`applySheen`
-  and siblings in `glbParser.cpp`, beside `applyClearcoat`) and IGNORE their textures with
-  one warning per extension — there are no sheen, iridescence or specular maps.
+- **Two glTF extensions are FACTORS-ONLY where they touch materials.**
+  `KHR_materials_sheen` and `_iridescence` apply their factors (`applySheen` and siblings in
+  `glbParser.cpp`, beside `applyClearcoat`) and IGNORE their textures with one warning per
+  extension — there are no sheen or iridescence maps. `KHR_materials_specular` reads both
+  of its textures (`setSpecularColorMap` / `setSpecularityFactorMap`, SEPARATE images at Metal
+  43 / 44, Vulkan 36 / 37, each on the UV set the file names): the colour map's rgb (sRGB) and
+  the factor map's ALPHA scale the metalness workflow's non-metal F0; the colour map applies
+  only under `useMetalnessSpecularColor`, as the colour factor does. The two UV-set bits ride
+  in `metalnessSpecular.w`.
   `KHR_materials_anisotropy` reads its texture too (`StandardMaterial::setAnisotropyMap`,
   a SEPARATE image at Metal slot 42 / Vulkan set-1 binding 35, `VT_FEATURE_ANISOTROPY_MAP`
   only on an anisotropic variant, on the UV set the file names): rg is a tangent-space
@@ -2000,7 +2017,10 @@ present, but the rule below never depends on reading it.
   the two backends. An unset graph is a CurveSet whose curves have NO KEYS — a default
   `CurveSet` still holds one empty curve, and treating that as a zero graph2 halves
   every velocity graph on average. The option defaults are upstream's: scale 1, opaque,
-  white, BLEND_NORMAL, rate 1.
+  white, BLEND_NORMAL, rate 1, and `initialVelocity` 1 — a SCALAR speed along the spawn
+  direction: outward from the centre for a sphere emitter, the emitter's local -Z for a box,
+  before the velocity graphs. An animated sheet picks one of `animNumAnimations` rows per
+  emitter (`animIndex`), or one per particle under `randomizeAnimIndex`.
 - **A script fires upstream's lifecycle events on ITSELF: `enable` / `disable` and `state`
   (bool) when `enabled()` changes, and `destroy` once.** `enabled()` is the script's own flag
   (`setEnabled`) AND its component's active state, so a component or entity switched off fires

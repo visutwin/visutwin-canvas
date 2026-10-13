@@ -125,7 +125,7 @@ namespace visutwin::canvas
         Matrix4 worldToEmitter;     // local space: inverse node transform (world velocity graph); else identity
         float gravityDamping[4];    // xyz = gravity, w = damping (fraction/s)
         float shapeParams[4];       // xyz = box half-extents or x=radius, w = shape type
-        float velocityBase[4];      // xyz = base velocity, w = localSpace flag
+        float velocityBase[4];      // x = initial speed (radial / -Z), w = localSpace flag
         float velocitySpread[4];    // xyz = ± spread, w = loop flag
         float timeParams[4];        // dt, time, emission period (numParticles * rate), particle count
         float lifeRot[4];           // lifetime min/max, rotSpeed min/max (radians/s)
@@ -159,7 +159,8 @@ namespace visutwin::canvas
         float emitterPosition[4];    // xyz the emitter's world position (the wrap origin), w = localSpace
         float softParams[4];         // x softening, y camera near, z camera far, w = 1 when soft
         // Light cube (scene ambient + directional lights, six directions), for
-        // lit particles; [0].w = 1 when lit, [1].w = 1 for half Lambert, [2].w = 1 with a normal map.
+        // lit particles; [0].w = 1 when lit, [1].w = 1 for half Lambert, [2].w = 1 with a normal map,
+        // [3].w the sprite sheet's animation count and [4].w = 1 to pick one at random per particle.
         float lightCube[6][4];
         float colorLut[16][4];       // rgb + alpha over normalized life
         // x = size (quad half-extent), y = scale graph2, z = alpha graph2

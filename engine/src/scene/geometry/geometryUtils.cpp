@@ -15,6 +15,40 @@
 
 namespace visutwin::canvas
 {
+    std::vector<float> calculateNormals(const std::vector<float>& positions, const std::vector<uint32_t>& indices)
+    {
+        std::vector<float> normals(positions.size(), 0.0f);
+        const size_t vertexCount = positions.size() / 3;
+        const auto point = [&](const uint32_t i) { return Vector3(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]); };
+        for (size_t t = 0; t + 2 < indices.size(); t += 3) {
+            const uint32_t i1 = indices[t], i2 = indices[t + 1], i3 = indices[t + 2];
+            if (i1 >= vertexCount || i2 >= vertexCount || i3 >= vertexCount) {
+                continue;
+            }
+            const Vector3 p1 = point(i1);
+            const Vector3 face = (point(i2) - p1).cross(point(i3) - p1);
+            const float length = face.length();
+            if (length <= 0.0f) {
+                continue;
+            }
+            const Vector3 n = face * (1.0f / length);
+            for (const uint32_t i : {i1, i2, i3}) {
+                normals[i * 3] += n.getX();
+                normals[i * 3 + 1] += n.getY();
+                normals[i * 3 + 2] += n.getZ();
+            }
+        }
+        for (size_t i = 0; i < vertexCount; ++i) {
+            const float lengthSq = normals[i * 3] * normals[i * 3] + normals[i * 3 + 1] * normals[i * 3 + 1] +
+                normals[i * 3 + 2] * normals[i * 3 + 2];
+            const float inverse = lengthSq > 0.0f ? 1.0f / std::sqrt(lengthSq) : 0.0f;
+            normals[i * 3] *= inverse;
+            normals[i * 3 + 1] *= inverse;
+            normals[i * 3 + 2] *= inverse;
+        }
+        return normals;
+    }
+
     std::vector<float> calculateTangents(const std::vector<float>& positions,
         const std::vector<float>& normals, const std::vector<float>& uvs,
         const std::vector<uint32_t>& indices)

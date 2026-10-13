@@ -114,7 +114,8 @@
     X(vec4, anisotropyParams, {1.0f, 0.0f, 0.0f, 0.0f}) \
     /* --- Ambient tint --- */ \
     /* rgb = StandardMaterial::ambient, linear; multiplies the AMBIENT diffuse only */ \
-    /* (not a lightmap, not direct light). White (the default) packs exactly 1. w = pad. */ \
+    /* (not a lightmap, not direct light). White (the default) packs exactly 1. */ \
+    /* w = alphaFade, the opacity scale while the specular does not fade with opacity, else 1. */ \
     X(vec4, ambientTint, {1.0f, 1.0f, 1.0f, 1.0f}) \
     /* --- MSDF text, read only under VT_FEATURE_MSDF --- */ \
     /* x = font_pxrange, y = font_sdfIntensity, zw = the atlas page's size in texels */ \

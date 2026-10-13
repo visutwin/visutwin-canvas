@@ -200,6 +200,9 @@ namespace visutwin::canvas
             bool clearcoat = false;
             bool anisotropy = false;
             bool anisotropyMap = false;
+            bool opacityKeepsSpecular = false;   // the specular's luminance adds to the opacity
+            bool specularColorMap = false;       // the metalness specular colour map
+            bool specularityFactorMap = false;   // the specularity factor map
             bool sheen = false;
             bool iridescence = false;
             bool transmission = false;

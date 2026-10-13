@@ -109,6 +109,52 @@ models/ClearCoatTest.glb
   Author:   Analytical Graphics, Inc. (Ed Mackey)
   License:  CC-BY 4.0
 
+models/AnisotropyBarnLamp.glb
+  Original: AnisotropyBarnLamp (Khronos glTF sample asset)
+  Source:   https://github.com/KhronosGroup/glTF-Sample-Assets
+  Author:   Eric Chadwick, for Wayfair (© 2023 Wayfair)
+  License:  CC-BY 4.0
+
+models/AnisotropyRotationTest.glb
+  Original: AnisotropyRotationTest (Khronos glTF sample asset)
+  Source:   https://github.com/KhronosGroup/glTF-Sample-Assets
+  Author:   Ed Mackey, for Analytical Graphics, Inc. (© 2023)
+  License:  CC-BY 4.0
+
+models/AnisotropyDiscTest.glb, models/AnisotropyStrengthTest.glb
+  Original: AnisotropyDiscTest, AnisotropyStrengthTest (Khronos glTF sample assets)
+  Source:   https://github.com/KhronosGroup/glTF-Sample-Assets
+  Author:   Eric Chadwick; Emmett Lalish and Ed Mackey
+  License:  CC0 1.0
+
+models/dispersion-test.glb
+  Original: DispersionTest (Khronos glTF sample asset)
+  Source:   https://github.com/KhronosGroup/glTF-Sample-Assets
+  Author:   Ed Mackey, for Analytical Graphics, Inc. (© 2023); cloth backdrop by Adobe Inc. (CC0)
+  License:  CC-BY 4.0
+
+models/TransmissionRoughnessTest.glb, models/AttenuationTest.glb, models/SpecularTest.glb
+  Original: TransmissionRoughnessTest, AttenuationTest, SpecularTest (Khronos glTF sample assets)
+  Source:   https://github.com/KhronosGroup/glTF-Sample-Assets
+  Author:   Ed Mackey, for Analytical Graphics, Inc. (© 2021)
+  License:  CC-BY 4.0
+
+models/NormalTangentTest.glb
+  Original: NormalTangentTest (Khronos glTF sample asset)
+  Source:   https://github.com/KhronosGroup/glTF-Sample-Models
+  Author:   Ed Mackey
+  License:  CC-BY 4.0
+
+models/PrimitiveModeNormalsTest.glb
+  Original: PrimitiveModeNormalsTest (Khronos glTF sample asset)
+  Source:   https://github.com/KhronosGroup/glTF-Sample-Assets
+  License:  UNCONFIRMED. Mirrored byte-for-byte from the upstream example set, which
+  documents none. Establish its licence before a public release.
+
+textures/particles-coins.png, textures/particles-bonus.png, hdri/space.png
+  Mirrored from the upstream example set (space.png decoded from space.webp), which
+  documents no licence for them. UNCONFIRMED; establish before a public release.
+
 models/apartment.glb
   Original: Mirror's Edge Apartment - Interior Scene
   Source:   https://sketchfab.com/3d-models/mirrors-edge-apartment-interior-scene-9804e9f2fe284070b081c96ceaf8af96

@@ -41,7 +41,8 @@ struct ParticleRenderParams
     float4 wrapParams;    // xyz bounds, w = wrap
     float4 emitterPosition; // xyz, w = local space
     float4 softParams;    // softening, camera near, camera far, soft
-    float4 lightCube[6];  // rgb; [0].w lit, [1].w half Lambert, [2].w normal map
+    float4 lightCube[6];  // rgb; [0].w lit, [1].w half Lambert, [2].w normal map,
+                          // [3].w animation count, [4].w random animation per particle
     float4 colorLut[16];  // rgb + alpha over normalized life
     float4 scaleLut[16];  // x = size, y = size graph2, z = alpha graph2
 };
@@ -250,8 +251,13 @@ ParticleVaryings particleVS(uint vid : SV_VulkanVertexID, uint iid : SV_VulkanIn
     // reading order, so a 4x4 sheet at 4 frames holds four of them.
     const float2 tiles = max(params.animParams.xy, float2(1.0));
     const float numFrames = max(params.animParams.z, 1.0);
+    // A random animation per particle is picked from its index, so it holds for every life.
+    const float animation = params.lightCube[4].w > 0.5
+        ? min(floor(max(params.lightCube[3].w, 1.0) * particleRnd(particleIndex ^ 0x5bd1e995u)),
+              max(params.lightCube[3].w, 1.0) - 1.0)
+        : params.miscParams.w;
     const float frame = floor(glslMod(lifeT * numFrames * max(params.animParams.w, 0.0001), numFrames))
-        + params.miscParams.w * numFrames;
+        + animation * numFrames;
     const float2 frameOrigin = float2(glslMod(frame, tiles.x), floor(frame / tiles.x));
     const float2 tileUv = useMesh ? meshUv : float2(corner.x * 0.5 + 0.5, 0.5 - corner.y * 0.5);
     o.uv = (frameOrigin + tileUv) / tiles;

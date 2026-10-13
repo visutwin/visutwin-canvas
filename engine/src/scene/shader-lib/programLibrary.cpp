@@ -5,6 +5,8 @@
 //
 #include "programLibrary.h"
 
+#include "platform/graphics/blendState.h"
+
 #include "shaderChunks.h"
 
 #include <assert.h>
@@ -131,6 +133,17 @@ namespace visutwin::canvas
         options.ggxSpecular = stdMat.enableGGXSpecular();
         options.anisotropy = options.ggxSpecular && stdMat.anisotropy() != 0.0f;
         options.anisotropyMap = options.anisotropy && stdMat.anisotropyMap() != nullptr;
+        // The specular maps tint the metalness workflow's non-metal F0 only.
+        options.specularColorMap = stdMat.useMetalness() && stdMat.useMetalnessSpecularColor() &&
+            stdMat.specularColorMap() != nullptr;
+        options.specularityFactorMap = stdMat.useMetalness() && stdMat.specularityFactorMap() != nullptr;
+        // A specular kept at any opacity adds to the opacity only under normal or
+        // premultiplied blending (destination scaled by one minus source alpha).
+        if (!stdMat.opacityFadesSpecular()) {
+            const auto& blend = stdMat.blendState();
+            options.opacityKeepsSpecular = blend && blend->enabled() &&
+                blend->colorDstFactor() == BLENDMODE_ONE_MINUS_SRC_ALPHA;
+        }
         options.sheen = stdMat.sheenRoughness() > 0.0f || stdMat.sheenColor() != Color(0.0f, 0.0f, 0.0f, 1.0f);
         options.iridescence = stdMat.iridescenceIntensity() > 0.0f;
         options.transmission = stdMat.transmissionFactor() > 0.0f;
@@ -336,6 +349,9 @@ namespace visutwin::canvas
         set(ShaderFeature::Clearcoat, options.clearcoat);
         set(ShaderFeature::Anisotropy, options.anisotropy);
         set(ShaderFeature::AnisotropyMap, options.anisotropyMap);
+        set(ShaderFeature::OpacityKeepsSpecular, options.opacityKeepsSpecular);
+        set(ShaderFeature::SpecularColorMap, options.specularColorMap);
+        set(ShaderFeature::SpecularityFactorMap, options.specularityFactorMap);
         set(ShaderFeature::Sheen, options.sheen);
         set(ShaderFeature::Iridescence, options.iridescence);
         set(ShaderFeature::Transmission, options.transmission);

@@ -25,6 +25,7 @@
 #include "../exampleApp.h"
 #include "platform/graphics/vertexFormat.h"
 #include "scene/constants.h"
+#include "scene/geometry/geometryUtils.h"
 #include "scene/materials/standardMaterial.h"
 #include "scene/mesh.h"
 #include "scene/meshInstance.h"
@@ -92,40 +93,6 @@ namespace
     {
         const float length = std::sqrt(nx * nx + ny * ny + nz * nz);
         return length > 0.0f ? std::abs(x * nx + y * ny + z * nz) / length : 0.0f;
-    }
-
-    /// Face normals accumulated onto vertices, so a displaced target still lights
-    /// correctly rather than keeping the sphere's own normals.
-    std::vector<float> calculateNormals(const std::vector<float>& positions,
-        const std::vector<uint32_t>& indices)
-    {
-        std::vector<float> normals(positions.size(), 0.0f);
-        for (size_t i = 0; i + 2 < indices.size(); i += 3) {
-            const uint32_t a = indices[i], b = indices[i + 1], c = indices[i + 2];
-            const float e1[3] = {positions[b * 3] - positions[a * 3],
-                positions[b * 3 + 1] - positions[a * 3 + 1],
-                positions[b * 3 + 2] - positions[a * 3 + 2]};
-            const float e2[3] = {positions[c * 3] - positions[a * 3],
-                positions[c * 3 + 1] - positions[a * 3 + 1],
-                positions[c * 3 + 2] - positions[a * 3 + 2]};
-            const float n[3] = {e1[1] * e2[2] - e1[2] * e2[1],
-                e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]};
-            for (const uint32_t v : {a, b, c}) {
-                normals[v * 3] += n[0];
-                normals[v * 3 + 1] += n[1];
-                normals[v * 3 + 2] += n[2];
-            }
-        }
-        for (size_t i = 0; i + 2 < normals.size(); i += 3) {
-            const float len = std::sqrt(normals[i] * normals[i] +
-                normals[i + 1] * normals[i + 1] + normals[i + 2] * normals[i + 2]);
-            if (len > 1e-8f) {
-                normals[i] /= len;
-                normals[i + 1] /= len;
-                normals[i + 2] /= len;
-            }
-        }
-        return normals;
     }
 
     /// One target: push the vertices NEAR the plane out along their own normals, so

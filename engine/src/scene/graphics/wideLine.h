@@ -49,6 +49,14 @@ namespace visutwin::canvas
         /// Convenience form: a uniform colour and width.
         void setPoints(const std::vector<Vector3>& positions, const Color& color, float width);
 
+        /// Replace one channel and keep the others, as a line animated every frame does
+        /// (positions moving, colours changing only now and then). The point count cannot
+        /// change here: positions must hold the line's current point count, colours one rgb
+        /// or one per point, widths one value or one per point. A mismatch is refused.
+        void setPositions(const std::vector<float>& positions);
+        void setColors(const std::vector<float>& colors);
+        void setWidths(const std::vector<float>& widths);
+
         [[nodiscard]] size_t pointCount() const { return _positions.size() / 3; }
         [[nodiscard]] const std::vector<float>& positions() const { return _positions; }
         [[nodiscard]] const std::vector<float>& colors() const { return _colors; }

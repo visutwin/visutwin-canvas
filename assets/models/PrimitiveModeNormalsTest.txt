@@ -1,0 +1,10 @@
+Model Information:
+* title:	PrimitiveModeNormalsTest
+* source:	https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/PrimitiveModeNormalsTest
+* author:	Khronos glTF-Sample-Assets (the file names none; glTF-Transform v4.4.0 wrote it)
+
+Model License:
+* LICENCE TO CONFIRM against the sample's README in glTF-Sample-Assets. Upstream's copy
+  carries no licence note.
+
+Byte-identical to upstream's example asset. Used by the `primitive-mode` example.

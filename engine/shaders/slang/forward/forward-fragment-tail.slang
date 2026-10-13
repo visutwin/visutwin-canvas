@@ -32,6 +32,19 @@
     // coat or sheen keeps its full emission.
     color += emissive;
 
+    // A specular that does not fade with the opacity (opacityFadesSpecular off) keeps a
+    // blended surface's highlights at any opacity: its luminance, decoded as upstream does,
+    // is added to the opacity. alphaFade (1 unless set) then fades the whole surface.
+    if (vtFeatureEnabled(VT_FEATURE_OPACITY_KEEPS_SPECULAR_BIT)) {
+        const float3 luminance = float3(0.2126, 0.7152, 0.0722);
+        float specLum = dot(directSpecular + indirectSpecular, luminance);
+        if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
+            specLum += dot((ccSpecularLight + ccReflection) * ccSpecularity, luminance);
+        }
+        albedo.a = clamp(albedo.a + pow(max(specLum, 0.0), 2.2), 0.0, 1.0);
+    }
+    albedo.a *= material.ambientTint.w;
+
     // ── Blurred planar reflection ──
     // DEVIATION: upstream implements planar reflection as a ShaderMaterial script that
     // REPLACES the surface's material; here it is a shader feature fed by LightingData,

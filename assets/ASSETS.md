@@ -32,6 +32,9 @@ for details.
 - `playcanvas.png` / `playcanvas-grey.png` — logo textures (CC-0 assets, but the
   depicted logo is a third-party mark: branding, not reusable art)
 - `snowflake.png`, `spark.png`, `particles-numbers.png` — particle sprites (CC-0)
+- `particles-coins.png` (4x6 coin sprite sheet) and `particles-bonus.png` (4x2 bonus icons) —
+  byte-identical to upstream's example sprites, which record no licence. LICENCE TO CONFIRM.
+  Used by `particles-random-sprites`.
 - `normal-map.png` — tiling normal map (CC-0)
 - `heart.png` — light-cookie / decal texture; provenance unconfirmed, see
   THIRD_PARTY_NOTICES. Used by `lights`, `clustered-spot-shadows`, `mesh-decals`.
@@ -78,6 +81,9 @@ for details.
 - `idle.glb`, `idle-eager.glb`, `walk.glb`, `run.glb`, `jump-flip.glb`, `win-dance.glb` — Bitmoji locomotion clips (CC-0)
 
 ### hdri/ — complete
+- `space.png` — upstream's `hdri/space.webp` (1774x887 LDR starfield), decoded losslessly to
+  PNG because the asset loader has no WebP decoder; upstream records no licence. LICENCE TO
+  CONFIRM. Used by `wide-lines-dynamic`.
 - `cannon-2k.hdr` — Cannon outdoor HDRI from Poly Haven (CC-0)
 - `kloofendal-2k.hdr` — Kloofendal partly cloudy HDRI from Poly Haven (CC-0)
 - `shanghai-riverside-4k.hdr` — byte-identical to upstream's example HDRI (by its name
@@ -97,6 +103,20 @@ for details.
   © 2020 Analytical Graphics, Inc., created by Ed Mackey, see .txt)
 - `box_textured.glb` — BoxTextured from Khronos glTF-Sample-Assets (**CC-BY 4.0**,
   © 2017 Cesium, see .txt)
+- `AnisotropyBarnLamp.glb` (**CC-BY 4.0**, © 2023 Wayfair), `AnisotropyRotationTest.glb`
+  (**CC-BY 4.0**, © 2023 Analytical Graphics, Inc.), `AnisotropyDiscTest.glb` and
+  `AnisotropyStrengthTest.glb` (CC-0) — Khronos glTF-Sample-Assets, see each .txt. Used by
+  `anisotropy-lamp`, `-rotation`, `-disc` and `-strength`.
+- `dispersion-test.glb` (DispersionTest, **CC-BY 4.0**, © 2023 Analytical Graphics, Inc.; the
+  cloth backdrop CC-0, Adobe) and `TransmissionRoughnessTest.glb` (**CC-BY 4.0**, © 2021
+  Analytical Graphics, Inc.) — Khronos glTF-Sample-Assets, see .txt. Used by `dispersion` and
+  `transmission-roughness`.
+- `NormalTangentTest.glb`, `SpecularTest.glb` and `AttenuationTest.glb` — Khronos
+  glTF-Sample-Assets by Ed Mackey (**CC-BY 4.0**; Analytical Graphics, Inc. for the latter
+  two), byte-identical to upstream's, see .txt. Used by `normals-and-tangents`, `specular`
+  and `attenuation`.
+- `PrimitiveModeNormalsTest.glb` — Khronos glTF-Sample-Assets, byte-identical to upstream's.
+  LICENCE TO CONFIRM (see .txt). Used by `primitive-mode`.
 - `fox.glb` — Fox animated model from Khronos glTF-Sample-Assets (mesh CC-0 PixelMannen;
   rig + animation **CC-BY 4.0** tomkranis; glTF conversion **CC-BY 4.0** @AsoboStudio
   and @scurest, see .txt)

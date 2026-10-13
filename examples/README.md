@@ -1,6 +1,6 @@
 # VisuTwin Canvas Examples
 
-105 example applications, each a small self-contained program built on the
+126 example applications, each a small self-contained program built on the
 engine. All but one are ports of [PlayCanvas](https://playcanvas.com/) engine
 examples, so they can be compared side by side with upstream: the file header names
 the upstream example and lists every place the port could not follow it. The
@@ -108,6 +108,13 @@ The second column is the upstream example each one ports, as
 | parallax-mapping | materials/parallax-mapping | Parallax occlusion mapping in a brick room |
 | custom-shader | shaders/shader-toon | ShaderMaterial toon shader (MSL + GLSL) over the statue |
 | mesh-decals | graphics/mesh-decals | Decals stamped by a bouncing ball |
+| material-physical | materials/material-physical | A 5x5 grid of spheres, metalness against gloss, with text labels |
+| material-translucent-specular | materials/material-translucent-specular | Blended spheres whose specular survives their opacity (opacityFadesSpecular off) |
+| material-transparency | materials/material-transparency | Alpha blending against six opacity dither patterns |
+| normals-and-tangents | materials/normals-and-tangents | Khronos NormalTangentTest: a normal map read through the mesh's own tangents |
+| specular | test/specular | Khronos SpecularTest: KHR_materials_specular factors against its two maps |
+| attenuation | test/attenuation | Khronos AttenuationTest: transmissive slabs absorbing by attenuation colour and distance |
+| primitive-mode | test/primitive-mode | Khronos PrimitiveModeNormalsTest: points, lines and triangles with and without normals |
 
 ### Lighting & shadows
 
@@ -172,6 +179,14 @@ The second column is the upstream example each one ports, as
 | instancing-glb | graphics/instancing-glb | A glTF using EXT_mesh_gpu_instancing |
 | dynamic-batching | graphics/batching-dynamic | 500 moving primitives in one dynamic batch group |
 | wide-line | graphics/wide-line | Instanced polyline with per-point width and colour |
+| wide-lines-dynamic | graphics/wide-lines-dynamic | A globe-scale network of blooming world-width lines rewritten every frame |
+| wide-lines-styles | graphics/wide-lines-styles | Eight rows of wide-line styles: caps, joins, dashes and widths |
+| shapes | graphics/shapes | Every built-in primitive under one material |
+| hierarchy | graphics/hierarchy | 5460 entities in a six-level hierarchy of boxes and spheres |
+| model-textured-box | graphics/model-textured-box | A tumbling textured box lit by a circling red omni light |
+| mesh-generation | graphics/mesh-generation | A grid mesh rebuilt every frame, rising under four circling lights |
+| mesh-deformation | graphics/mesh-deformation | The statue swaying as its vertices are displaced on the CPU every frame |
+| instancing-custom | graphics/instancing-custom | 3000 instanced spheres pulled toward a bobbing sphere |
 
 ### Gaussian splatting & particles
 
@@ -181,12 +196,15 @@ The second column is the upstream example each one ports, as
 | gsplat-spherical-harmonics | gaussian-splatting/spherical-harmonics | A splat with view-dependent colour from SH bands |
 | particles | compute/particles | 1M compute-simulated particles colliding with spheres |
 | particles-anim-index | graphics/particles-anim-index | Sprite-sheet animation rows selected by animIndex |
+| particles-random-sprites | graphics/particles-random-sprites | Coin and bonus sprite sheets, each particle picking a random animation |
 
 ### Scene, camera & loading
 
 | Example | Upstream | Description |
 |---------|----------|-------------|
 | orbit | camera/orbit | Orbit camera controls around the statue |
+| fly | camera/fly | Fly camera controls around the statue |
+| multi | camera/multi | One camera with orbit, fly and pan all enabled |
 | glb-loader | loaders/glb | A GLB carrying meshes, lights and cameras |
 | draco-glb | loaders/draco-glb | A Draco-compressed glTF |
 | obj-loader | loaders/obj | An OBJ file through the OBJ parser |
@@ -217,6 +235,9 @@ The second column is the upstream example each one ports, as
 | Example | Upstream | Description |
 |---------|----------|-------------|
 | area-picker | graphics/area-picker | Picker area queries highlighting primitives |
+| keyboard | input/keyboard | The statue turned by the arrow keys |
+| mouse | input/mouse | The statue turned by dragging with the mouse |
+| gamepad | input/gamepad | The statue turned by a gamepad's D-pad |
 | transform-translate | gizmos/transform-translate | Translate gizmo |
 | transform-rotate | gizmos/transform-rotate | Rotate gizmo |
 | transform-scale | gizmos/transform-scale | Scale gizmo |

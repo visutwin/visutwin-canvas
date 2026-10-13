@@ -485,6 +485,18 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
     // factor (KHR_materials_specular); 0.04 for the defaults.
     float3 dielectricF0 = vtFeatureEnabled(VT_FEATURE_SPEC_GLOSS_BIT)
         ? specGlossColor : material.metalnessSpecular.rgb;
+    // The specular maps (KHR_materials_specular): the colour map's rgb, authored sRGB, and the
+    // factor map's alpha scale the non-metal F0, each on its UV set (metalnessSpecular.w bits).
+    if (vtFeatureEnabled(VT_FEATURE_SPECULAR_COLOR_MAP_BIT)) {
+        const uint uvBits = uint(material.metalnessSpecular.w + 0.5);
+        const float2 uvSpec = (uvBits & 1u) != 0u ? fragUV1 : fragUV0;
+        dielectricF0 *= pow(max(specularColorMap.Sample(materialSampler, uvSpec).rgb, float3(0.0)), float3(2.2));
+    }
+    if (vtFeatureEnabled(VT_FEATURE_SPECULARITY_FACTOR_MAP_BIT)) {
+        const uint uvBits = uint(material.metalnessSpecular.w + 0.5);
+        const float2 uvFactor = (uvBits & 2u) != 0u ? fragUV1 : fragUV0;
+        dielectricF0 *= specularityFactorMap.Sample(materialSampler, uvFactor).a;
+    }
     float3 F0 = lerp(dielectricF0, albedo.rgb, metallic);
     // VT_FEATURE_NO_SPECULAR: the material renders no
     // specular at all. A black F0 is not enough — the gloss-aware Fresnel still

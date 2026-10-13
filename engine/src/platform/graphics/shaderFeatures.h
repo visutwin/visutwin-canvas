@@ -41,6 +41,9 @@
     X(Clearcoat,                 "VT_FEATURE_CLEARCOAT") \
     X(Anisotropy,                "VT_FEATURE_ANISOTROPY") \
     X(AnisotropyMap,             "VT_FEATURE_ANISOTROPY_MAP") \
+    X(OpacityKeepsSpecular,      "VT_FEATURE_OPACITY_KEEPS_SPECULAR") \
+    X(SpecularColorMap,          "VT_FEATURE_SPECULAR_COLOR_MAP") \
+    X(SpecularityFactorMap,      "VT_FEATURE_SPECULARITY_FACTOR_MAP") \
     X(Sheen,                     "VT_FEATURE_SHEEN") \
     X(Iridescence,               "VT_FEATURE_IRIDESCENCE") \
     X(Transmission,              "VT_FEATURE_TRANSMISSION") \

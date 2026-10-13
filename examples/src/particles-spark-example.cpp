@@ -9,9 +9,7 @@
 // curves, is pulled down by a world velocity curve that turns into increasing gravity, spins at
 // 360 degrees a second, grows and shrinks, and cools from yellow through orange to red.
 //
-// DEVIATION: upstream's box emitter adds its default initialVelocity of 1 along the emitter's -Z
-// (particleUpdaterAABB). This port's initialVelocity is a vector, so it is written out as
-// (0, 0, -1). Upstream also builds a localPosCurve that it never uses; it is left out.
+// Upstream also builds a localPosCurve that it never uses; it is left out.
 //
 #include <memory>
 #include <vector>
@@ -79,8 +77,6 @@ protected:
         // Make particles move in different directions
         o.localVelocityGraph = CurveSet({{0.0f, 0.0f, 1.0f, 8.0f}, {0.0f, 0.0f, 1.0f, 6.0f}, {0.0f, 0.0f, 1.0f, 0.0f}});
         o.localVelocityGraph2 = CurveSet({{0.0f, 0.0f, 1.0f, -8.0f}, {0.0f, 0.0f, 1.0f, -6.0f}, {0.0f, 0.0f, 1.0f, 0.0f}});
-        // The box emitter's default initialVelocity, see the header
-        o.initialVelocity = Vector3(0.0f, 0.0f, -1.0f);
         particles->apply();
         return true;
     }

@@ -42,7 +42,7 @@ struct ParticleSimParams
     float4x4 worldToEmitter;
     float4 gravityDamping;   // xyz = gravity, w = damping fraction/s
     float4 shapeParams;      // xyz = box half-extents (x = radius), w = shape type
-    float4 velocityBase;     // xyz = base velocity, w = localSpace flag
+    float4 velocityBase;     // x = initial speed (radial for a sphere, -Z for a box), w = localSpace flag
     float4 velocitySpread;   // xyz = spread, w = loop flag
     float4 timeParams;       // dt, time, emission period, particle count
     float4 lifeRot;          // lifetime min/max, rotSpeed min/max (rad/s)
@@ -111,7 +111,7 @@ void particleSimKernel(uint3 dispatchId : SV_DispatchThreadID)
     }
 
     if (respawn) {
-        // Spawn position from the emitter shape, velocity from base + spread, per-particle
+        // Spawn position from the emitter shape, velocity from the initial speed + spread, per-particle
         // lifetime and rotation from the hashed seed.
         // ONE random vector, bounds, places the particle AND picks where it falls between
         // each pair of graphs (below): a spread is correlated with the spawn position, so a
@@ -122,11 +122,15 @@ void particleSimKernel(uint3 dispatchId : SV_DispatchThreadID)
         const float3 r3b = rnd3(lifeSeed + 3u);
 
         float3 localPos;
+        // The initial speed's direction: out along the spawn direction from a sphere, down the
+        // emitter's -Z from a box.
+        float3 initialDirection = float3(0.0, 0.0, -1.0);
         if (params.shapeParams.w > 0.5) {
             // Sphere: the direction of bounds, at a radius UNIFORM in [0, radius] (denser
             // toward the centre, not uniform in volume).
             const float3 dir = normalize(bounds + float3(1e-5, 0.0, 0.0));
             localPos = dir * (params.shapeParams.x * r3b.x);
+            initialDirection = dir;
         } else {
             // Box: the largest component of bounds lands on its face of the box shell at
             // that size, the others are scaled by twice that size (not uniform in volume).
@@ -139,7 +143,8 @@ void particleSimKernel(uint3 dispatchId : SV_DispatchThreadID)
         }
         p.posAge.xyz = mul(float4(localPos, 1.0), params.emitterTransform).xyz;
 
-        float3 vel = params.velocityBase.xyz + (rnd3(lifeSeed + 6u) * 2.0 - 1.0) * params.velocitySpread.xyz;
+        float3 vel = initialDirection * params.velocityBase.x +
+            (rnd3(lifeSeed + 6u) * 2.0 - 1.0) * params.velocitySpread.xyz;
         if (!localSpace) {
             // World space: rotate the velocity by the emitter orientation.
             vel = mul(float4(vel, 0.0), params.emitterTransform).xyz;

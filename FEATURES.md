@@ -6,8 +6,8 @@ the [README](README.md).
 
 ## Rendering & materials
 - **Forward PBR renderer** (metalness and specular workflows; normalised Blinn-Phong light specular by default, GGX on request) with multi-light support (directional, point, spot, rectangular/disk/spherical **area lights** via LTC) and a frame-graph pass scheduler
-- **StandardMaterial** with clearcoat, anisotropy, sheen, iridescence, transmission, **parallax occlusion mapping** (height base + self-shadowing), **spec-gloss** (KHR_materials_pbrSpecularGlossiness), **Oren-Nayar** diffuse, **detail normals** (reoriented blend), and vertex-stage **displacement mapping**; an **opacity map** with its own channel and UV transform, and an **ambient tint**
-- **Wide lines**: connected polylines with per-point colour and width, caps, joins and dash patterns, batched into one instanced draw
+- **StandardMaterial** with clearcoat, anisotropy, sheen, iridescence, transmission, **parallax occlusion mapping** (height base + self-shadowing), **spec-gloss** (KHR_materials_pbrSpecularGlossiness), **Oren-Nayar** diffuse, **detail normals** (reoriented blend), and vertex-stage **displacement mapping**; an **opacity map** with its own channel and UV transform, an **ambient tint**, and blended surfaces that keep their specular (`opacityFadesSpecular` off) under an extra alpha fade
+- **Wide lines**: connected polylines with per-point colour and width, caps, joins and dash patterns (round dash ends included), batched into one instanced draw; positions, colours and widths can be rewritten per frame
 - **Rigid-body physics** behind an application-supplied `PhysicsWorld` seam, with a Jolt backend: box/sphere/capsule/cylinder shapes, shapes **offset** from their body and **compound** bodies built from child entities' shapes, static/dynamic/kinematic bodies, forces, impulses, raycasts, and **joints** (fixed, ball, hinge, slider, 6dof) with limits, motors and break impulses
 - **Image-based lighting**: environment atlas (GGX/Lambert prefiltered), HDR cubemap skybox, **ambient SH light probes**, and **box-projected cubemap reflection probes** (parallax-corrected local reflections)
 - **Dynamic grab-pass refraction** with chromatic **dispersion** and KHR_materials_volume Beer-law attenuation
@@ -32,7 +32,7 @@ the [README](README.md).
 
 ## Gaussian splatting & particles
 - **Gaussian splatting** (classic path): 3DGS PLY loading, CPU-precomputed covariance, background depth sorter, EWA screen-space projection — with **view-dependent spherical harmonics** (bands 1–3) and the SuperSplat **`.compressed.ply`** quantized format
-- **GPU particle system**: compute-simulated pool, curve-driven size/color/alpha over life, local and world velocity graphs, rotation speed graph, bursts, pre-warm, align-to-motion and stretch, box/sphere emitters, sprite-sheet animation, additive/normal/premultiplied blending, screen-space particles drawn in the UI's order
+- **GPU particle system**: compute-simulated pool, curve-driven size/color/alpha over life, local and world velocity graphs, rotation speed graph, bursts, pre-warm, align-to-motion and stretch, box/sphere emitters with an initial speed along the spawn direction, sprite-sheet animation (one row per emitter or a random row per particle), additive/normal/premultiplied blending, screen-space particles drawn in the UI's order
 
 ## Post-processing & tooling
 - **TAA**, **SSAO** (post-compose or per-material lighting mode), **bloom** (configurable chain depth, threshold, optional full-resolution high quality), **depth of field** (multi-pass bokeh: circle of confusion, CoC-premultiplied far downsample, concentric near/far blur, composed by CoC), **edge detection**, and a compose chain with **color grading**, **3D LUT**, chromatic **fringing**, **color enhance**, **vignette**, and tone mapping (Linear, Filmic, ACES, **ACES2**, Neutral, None)
@@ -48,7 +48,7 @@ the [README](README.md).
 
 ## Foundation
 - **Scene graph** with an entity-component system (18 component types), entity cloning that remaps references inside the cloned subtree, and a fixed-timestep `fixedUpdate` phase with a time scale and layer composition with render-action scheduling
-- **GLB/glTF loading** with Draco decompression, mesh quantization, Basis/WebP/AVIF textures, cameras and `KHR_lights_punctual`, `KHR_materials_variants`, `EXT_mesh_gpu_instancing` and `KHR_gaussian_splatting` (sheen, specular and iridescence as factors only; anisotropy with its direction texture), plus OBJ/STL/Assimp parsers
+- **GLB/glTF loading** with Draco decompression, mesh quantization, Basis/WebP/AVIF textures, cameras and `KHR_lights_punctual`, `KHR_materials_variants`, `EXT_mesh_gpu_instancing` and `KHR_gaussian_splatting` (sheen and iridescence as factors only; specular with its colour and factor maps; anisotropy with its direction texture), plus OBJ/STL/Assimp parsers
 - **Screen-space and world-space UI** with anchored elements, image and MSDF text elements, buttons with tint and sprite states, nested stencil masks (rectangles and sprite shapes), layout groups, scrollbars and sliders, draggable elements, scroll views with momentum and bounce, and mouse and touch input events (hover, press, click, bubbling, hit padding)
 - **Input devices**: keyboard, mouse, touch and gamepads, fed from the application's event loop, with press and release edges that survive a press and release inside one frame
 - **Picking** through an id buffer, with the world-space point under the cursor read back from depth

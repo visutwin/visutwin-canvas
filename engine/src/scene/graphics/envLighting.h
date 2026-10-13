@@ -43,6 +43,8 @@ namespace visutwin::canvas
                                       int size, int numReflectionSamples, int numAmbientSamples,
                                       bool decodeSrgb = false);
 
+        /// A skybox cube map (RGBP) from an equirect: an RGBA32F HDR (linear), or an RGBA8 image,
+        /// whose bytes are gamma-encoded and decoded with gamma 2.2 per texel.
         static Texture* generateSkyboxCubemap(GraphicsDevice* device, Texture* source, int size = 0);
 
         /**

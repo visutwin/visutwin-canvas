@@ -345,7 +345,9 @@ namespace visutwin::canvas
             (_options.emitterExtents * 0.5f).store(params.shapeParams);
             params.shapeParams[3] = 0.0f;
         }
-        _options.initialVelocity.store(params.velocityBase);
+        params.velocityBase[0] = _options.initialVelocity;
+        params.velocityBase[1] = 0.0f;
+        params.velocityBase[2] = 0.0f;
         params.velocityBase[3] = _options.localSpace ? 1.0f : 0.0f;
         _options.velocitySpread.store(params.velocitySpread);
         params.velocitySpread[3] = _loop ? 1.0f : 0.0f;
@@ -467,6 +469,8 @@ namespace visutwin::canvas
         _renderParams.lightCube[0][3] = _options.lighting && !_options.screenSpace ? 1.0f : 0.0f;
         _renderParams.lightCube[1][3] = _options.halfLambert ? 1.0f : 0.0f;
         _renderParams.lightCube[2][3] = _options.lighting && _options.normalMap ? 1.0f : 0.0f;
+        _renderParams.lightCube[3][3] = static_cast<float>(std::max(_options.animNumAnimations, 1));
+        _renderParams.lightCube[4][3] = _options.randomizeAnimIndex ? 1.0f : 0.0f;
     }
 
     void ParticleEmitter::setLightCube(const float (&colors)[6][3])

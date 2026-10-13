@@ -1852,10 +1852,10 @@ namespace visutwin::canvas
         return fallback;
     }
 
-    // DEVIATION: the sheen, specular and iridescence extensions allow TEXTURES, and this
-    // engine's material has none of those maps (no shader reads a sheen, specular or
-    // iridescence map; the anisotropy texture IS read, applyAnisotropyExtension). The factors are applied; a texture is ignored with
-    // one warning per extension and process, so the file still loads.
+    // DEVIATION: the sheen and iridescence extensions allow TEXTURES, and this engine's
+    // material has no sheen or iridescence maps (the specular and anisotropy textures ARE
+    // read). The factors are applied; a texture is ignored with one warning per extension and
+    // process, so the file still loads.
     static void warnIgnoredExtensionTextures(const tinygltf::Value& ext, const char* extension,
         std::initializer_list<const char*> textureKeys)
     {
@@ -1902,9 +1902,11 @@ namespace visutwin::canvas
     /**
      * KHR_materials_specular, for a metallic-rough
      * material: the colour factor tints the non-metal F0 (stored gamma-encoded),
-     * the factor scales it; metals are untouched.
+     * the factor scales it, and their textures (colour rgb, factor alpha) scale them per
+     * texel; metals are untouched.
      */
-    static void applySpecularExtension(const tinygltf::Material& srcMaterial, StandardMaterial* material)
+    static void applySpecularExtension(const tinygltf::Material& srcMaterial, StandardMaterial* material,
+        const std::function<std::shared_ptr<Texture>(int)>& getOrCreateTexture)
     {
         const auto* ext = materialExtension(srcMaterial, "KHR_materials_specular");
         if (!ext || !material->useMetalness()) {
@@ -1915,7 +1917,26 @@ namespace visutwin::canvas
         material->setSpecular(color);
         material->setUseMetalnessSpecularColor(true);
         material->setSpecularityFactor(extensionNumber(*ext, "specularFactor", 1.0f));
-        warnIgnoredExtensionTextures(*ext, "KHR_materials_specular", {"specularTexture", "specularColorTexture"});
+        // The textures: specularTexture's alpha scales the factor, specularColorTexture's rgb
+        // (sRGB) tints the colour, each on the UV set it names.
+        const auto textureOf = [&](const char* name, int& uv) -> std::shared_ptr<Texture> {
+            if (!ext->Has(name)) {
+                return nullptr;
+            }
+            const auto info = ext->Get(name);
+            const int index = info.IsObject() && info.Has("index") ? info.Get("index").GetNumberAsInt() : -1;
+            uv = info.IsObject() && info.Has("texCoord") && info.Get("texCoord").GetNumberAsInt() == 1 ? 1 : 0;
+            return index >= 0 ? getOrCreateTexture(index) : nullptr;
+        };
+        int uv = 0;
+        if (const auto texture = textureOf("specularTexture", uv)) {
+            material->setSpecularityFactorMap(texture.get());
+            material->setSpecularityFactorMapUv(uv);
+        }
+        if (const auto texture = textureOf("specularColorTexture", uv)) {
+            material->setSpecularColorMap(texture.get());
+            material->setSpecularColorMapUv(uv);
+        }
     }
 
     /**
@@ -2133,7 +2154,7 @@ namespace visutwin::canvas
         applyVolumeExtensions(srcMaterial, material.get(), getOrCreateTexture);
         applyClearcoat(srcMaterial, material.get(), getOrCreateTexture);
         applySheen(srcMaterial, material.get());
-        applySpecularExtension(srcMaterial, material.get());
+        applySpecularExtension(srcMaterial, material.get(), getOrCreateTexture);
         applyIridescence(srcMaterial, material.get());
         applyAnisotropyExtension(srcMaterial, material.get(), getOrCreateTexture);
         applyEmissiveStrength(srcMaterial, material.get());

@@ -25,6 +25,12 @@
 
 namespace visutwin::canvas
 {
+    /// Smooth normals as xyz per vertex: each triangle's unit face normal summed on its corners,
+    /// then normalised, so every face counts the same whatever its area. A vertex used by no
+    /// triangle, or only by degenerate ones, keeps a zero normal rather than NaN. positions are
+    /// xyz per vertex, indices a triangle list.
+    std::vector<float> calculateNormals(const std::vector<float>& positions, const std::vector<uint32_t>& indices);
+
     /// Tangents as xyzw per vertex (`bitangent = cross(n, t.xyz) * t.w`).
     /// positions and normals are xyz per vertex, uvs uv per vertex, indices a
     /// triangle list.

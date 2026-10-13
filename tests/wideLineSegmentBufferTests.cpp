@@ -22,7 +22,9 @@
 //     second write in the same frame rewrites the frame's own buffer, and the ring comes back
 //     round only after every other frame in flight has had its own. On Metal an upload is a
 //     copy into memory the GPU reads directly, so rewriting the buffer a frame in flight draws
-//     tears its lines; no render shows it reliably, hence the test.
+//     tears its lines; no render shows it reliably, hence the test;
+//   - a line's channels can be replaced one at a time (an animated line rewrites its
+//     positions every frame) but never change its point count.
 
 #include <algorithm>
 #include <cstdint>
@@ -31,6 +33,7 @@
 #include <vector>
 
 #include "platform/graphics/vertexBuffer.h"
+#include "scene/graphics/wideLine.h"
 #include "scene/graphics/wideLineSegmentBuffer.h"
 #include "support/check.h"
 #include "support/stubDevice.h"
@@ -227,6 +230,28 @@ namespace
         const auto b = one.upload(single, large.data(), 8, kRecordSize, 2);
         check(a && a == b && one.slots.size() == 1, "with one frame in flight there is one buffer");
     }
+
+    void checkChannelSetters()
+    {
+        WideLine line;
+        line.setPoints({0, 0, 0, 1, 0, 0, 2, 0, 0}, {1, 0, 0}, {2.0f});
+        line.clearDirty();
+        line.setPositions({0, 1, 0, 1, 1, 0, 2, 1, 0});
+        check(line.dirty() && line.positions()[1] == 1.0f && line.colors().size() == 3 && line.widths().size() == 1,
+            "setPositions replaces the positions and keeps the colour and width");
+        line.clearDirty();
+        line.setPositions({0, 0, 0, 1, 0, 0});
+        check(!line.dirty() && line.pointCount() == 3, "setPositions refuses a different point count");
+        line.setColors({1, 0, 0, 0, 1, 0, 0, 0, 1});
+        line.setWidths({1.0f, 2.0f, 3.0f});
+        check(line.dirty() && line.colors().size() == 9 && line.widths()[2] == 3.0f,
+            "setColors and setWidths take one value per point");
+        line.clearDirty();
+        line.setColors({1, 0});
+        line.setWidths({1.0f, 2.0f});
+        check(!line.dirty() && line.colors().size() == 9 && line.widths().size() == 3,
+            "and refuse a count that is neither one nor one per point");
+    }
 }
 
 int main()
@@ -236,6 +261,7 @@ int main()
     checkGrowShrinkZero();
     checkCapacityRule();
     checkRing();
+    checkChannelSetters();
 
     return finish("wide-line segment buffer");
 }

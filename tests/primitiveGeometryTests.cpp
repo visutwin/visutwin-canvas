@@ -19,6 +19,9 @@
 // actually shaded with. Hand-written frames fail it: a box with (1, 0, 0) on every
 // face (parallel to the normal on +/-X), or sphere and capsule caps with tangent and
 // bitangent both reversed.
+//
+// And calculateNormals, the smooth normals a generated mesh takes: unit face normals summed
+// per vertex, so a large face does not outweigh a small one.
 
 #include <algorithm>
 #include <array>
@@ -30,6 +33,7 @@
 #include <vector>
 
 #include "framework/components/render/primitiveGeometry.h"
+#include "scene/geometry/geometryUtils.h"
 #include "support/check.h"
 
 using namespace visutwin::canvas;
@@ -359,6 +363,36 @@ int main()
         const PrimitiveGeometry inverted = createConeBaseGeometry(0.0f, 0.5f, 1.0f, 5, 20, false);
         check(noDegenerate(inverted) && indicesInRange(inverted),
               "inverted cone (zero base radius): no degenerate tip, only existing vertices indexed");
+    }
+
+    // calculateNormals: each triangle's UNIT face normal summed on its corners, then
+    // normalised, so a face counts the same whatever its area; a vertex with no usable
+    // triangle keeps a zero normal.
+    {
+        // Two triangles folded 90 degrees along their shared edge (vertices 0 and 1): one in the
+        // XZ plane facing +Y, a much larger one in the XY plane facing +Z.
+        const std::vector<float> positions = {
+            0, 0, 0,   1, 0, 0,   0, 0, -1,      // 0, 1 on the edge, 2 on the floor
+            0, 10, 0,                            // 3 up the wall, far away
+            5, 5, 5};                            // 4 used by nothing
+        const std::vector<uint32_t> indices = {0, 1, 2, 0, 1, 3};
+        const std::vector<float> normals = calculateNormals(positions, indices);
+        const float h = std::sqrt(0.5f);
+        const auto normalAt = [&](const size_t i) {
+            return std::array<float, 3>{normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2]};
+        };
+        const auto close = [](const std::array<float, 3>& a, const float x, const float y, const float z) {
+            return std::abs(a[0] - x) < 1e-5f && std::abs(a[1] - y) < 1e-5f && std::abs(a[2] - z) < 1e-5f;
+        };
+        check(normals.size() == positions.size(), "calculateNormals gives xyz per vertex");
+        check(close(normalAt(2), 0, 1, 0) && close(normalAt(3), 0, 0, 1),
+            "a vertex of one triangle takes that triangle's normal");
+        check(close(normalAt(0), 0, h, h) && close(normalAt(1), 0, h, h),
+            "a shared vertex averages its faces' UNIT normals, whatever their areas");
+        check(close(normalAt(4), 0, 0, 0), "a vertex no triangle uses keeps a zero normal");
+        const std::vector<float> degenerate = calculateNormals({0, 0, 0, 1, 1, 1, 2, 2, 2}, {0, 1, 2});
+        check(std::all_of(degenerate.begin(), degenerate.end(), [](const float v) { return v == 0.0f; }),
+            "a degenerate triangle contributes nothing, and gives no NaN");
     }
 
     return finish("primitive geometry");

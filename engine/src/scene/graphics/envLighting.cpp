@@ -8,6 +8,7 @@
 #include "envLighting.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <map>
@@ -481,10 +482,19 @@ namespace visutwin::canvas
             return nullptr;
         }
 
-        const auto* srcData = static_cast<const float*>(source->getLevel(0));
-        if (!srcData) {
-            spdlog::warn("EnvLighting::generateSkyboxCubemap: source has no pixel data");
+        // An RGBA32F equirect (an HDR), taken as linear, or an RGBA8 one (an image), whose
+        // bytes are gamma-encoded and decoded with gamma 2.2 (through a table, per texel).
+        const void* srcLevel = source->getLevel(0);
+        const bool bytes = source->format() == PixelFormat::PIXELFORMAT_RGBA8;
+        if (!srcLevel || (!bytes && source->format() != PixelFormat::PIXELFORMAT_RGBA32F)) {
+            spdlog::warn("EnvLighting::generateSkyboxCubemap: the source needs RGBA32F or RGBA8 pixel data");
             return nullptr;
+        }
+        const auto* srcFloats = static_cast<const float*>(srcLevel);
+        const auto* srcBytes = static_cast<const uint8_t*>(srcLevel);
+        std::array<float, 256> decodeByte{};
+        for (int i = 0; i < 256; ++i) {
+            decodeByte[i] = std::pow(static_cast<float>(i) / 255.0f, 2.2f);
         }
 
         const int srcW = static_cast<int>(source->width());
@@ -552,18 +562,18 @@ namespace visutwin::canvas
                     const float sx = fx - static_cast<float>(x0);
                     const float sy = fy - static_cast<float>(y0);
 
-                    auto pixel = [&](int ppx, int ppy) -> const float* {
-                        return &srcData[(ppy * srcW + ppx) * 4];
+                    // rgb only.
+                    auto pixel = [&](int ppx, int ppy) -> Vector3 {
+                        const size_t index = (static_cast<size_t>(ppy) * srcW + ppx) * 4;
+                        if (bytes) {
+                            return Vector3(decodeByte[srcBytes[index]], decodeByte[srcBytes[index + 1]],
+                                decodeByte[srcBytes[index + 2]]);
+                        }
+                        return Vector3::load(&srcFloats[index]);
                     };
 
-                    const float* p00 = pixel(x0, y0);
-                    const float* p10 = pixel(x1, y0);
-                    const float* p01 = pixel(x0, y1);
-                    const float* p11 = pixel(x1, y1);
-
-                    // RGBA32F source, rgb only.
-                    const Vector3 top = Vector3::lerp(Vector3::load(p00), Vector3::load(p10), sx);
-                    const Vector3 bot = Vector3::lerp(Vector3::load(p01), Vector3::load(p11), sx);
+                    const Vector3 top = Vector3::lerp(pixel(x0, y0), pixel(x1, y0), sx);
+                    const Vector3 bot = Vector3::lerp(pixel(x0, y1), pixel(x1, y1), sx);
                     const Vector3 rgb = Vector3::lerp(top, bot, sy);
 
                     // Tonemap: clamp HDR to [0, 1] with simple reinhard

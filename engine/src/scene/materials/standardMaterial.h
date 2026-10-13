@@ -127,6 +127,16 @@ namespace visutwin::canvas
             _opacityDitherMode = value;
         }
 
+        // Whether the specular and reflections fade with the opacity (true, the default: a
+        // blended surface at opacity 0 shows nothing). Off, a blended surface keeps its
+        // highlights at any opacity (glass, a soap bubble): under normal or premultiplied
+        // blending the specular's luminance is added to the opacity, and the opacity is then
+        // scaled by alphaFade, which fades the whole surface out instead.
+        bool opacityFadesSpecular() const { return _opacityFadesSpecular; }
+        void setOpacityFadesSpecular(const bool value) { _opacityFadesSpecular = value; markUniformsDirty(); }
+        float alphaFade() const { return _alphaFade; }
+        void setAlphaFade(const float value) { _alphaFade = value; markUniformsDirty(); }
+
         bool opacityDither() const { return _opacityDitherMode != DitherMode::DITHER_NONE; }
         // Convenience for the common case: enable dithering with the default 8x8 matrix.
         void setOpacityDither(const bool value)
@@ -333,6 +343,20 @@ namespace visutwin::canvas
         void setAnisotropyMap(Texture* texture) { _anisotropyMap = texture; markUniformsDirty(); }
         int anisotropyMapUv() const { return _anisotropyMapUv; }
         void setAnisotropyMapUv(const int uv) { _anisotropyMapUv = uv; markUniformsDirty(); }
+        /// The metalness workflow's specular maps (KHR_materials_specular's textures): the colour
+        /// map's rgb (authored sRGB) tints the specular colour, the factor map's alpha scales the
+        /// specularity factor, both only on the non-metal F0. Each is read on its UV set (0 or 1)
+        /// with no transform of its own (DEVIATION: upstream gives each tiling, offset and
+        /// rotation). The colour map is part of the specular colour, so it applies only under
+        /// setUseMetalnessSpecularColor(true), as the colour does.
+        Texture* specularColorMap() const { return _specularColorMap; }
+        void setSpecularColorMap(Texture* texture) { _specularColorMap = texture; markUniformsDirty(); }
+        int specularColorMapUv() const { return _specularColorMapUv; }
+        void setSpecularColorMapUv(const int uv) { _specularColorMapUv = uv; markUniformsDirty(); }
+        Texture* specularityFactorMap() const { return _specularityFactorMap; }
+        void setSpecularityFactorMap(Texture* texture) { _specularityFactorMap = texture; markUniformsDirty(); }
+        int specularityFactorMapUv() const { return _specularityFactorMapUv; }
+        void setSpecularityFactorMapUv(const int uv) { _specularityFactorMapUv = uv; markUniformsDirty(); }
         /// The meshes this material draws carry tangents of their own (a glTF primitive's
         /// TANGENT attribute; the glTF import sets it). A GGX material then lays its
         /// anisotropy on them rather than on the object-space frame it takes on a mesh
@@ -594,6 +618,10 @@ namespace visutwin::canvas
         float _anisotropy = 0.0f;
         Texture* _anisotropyMap = nullptr;
         int _anisotropyMapUv = 0;
+        Texture* _specularColorMap = nullptr;
+        int _specularColorMapUv = 0;
+        Texture* _specularityFactorMap = nullptr;
+        int _specularityFactorMapUv = 0;
         bool _meshTangents = false;
         float _anisotropyRotation = 0.0f;
         bool _enableGGXSpecular = false;
@@ -680,6 +708,8 @@ namespace visutwin::canvas
         bool _useLighting = true;
         bool _unlit = false;
         bool _vertexColorGamma = false;
+        bool _opacityFadesSpecular = true;
+        float _alphaFade = 1.0f;
         bool _useSkybox = true;
         bool _twoSidedLighting = false;
         bool _shadowCatcher = false;

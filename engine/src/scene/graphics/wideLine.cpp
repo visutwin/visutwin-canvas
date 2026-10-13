@@ -46,6 +46,37 @@ namespace visutwin::canvas
         setPoints(packed, {color.r, color.g, color.b}, {width});
     }
 
+    void WideLine::setPositions(const std::vector<float>& positions)
+    {
+        if (positions.size() != _positions.size()) {
+            spdlog::error("WideLine::setPositions: {} floats for a line of {} points (setPoints changes the count)",
+                positions.size(), pointCount());
+            return;
+        }
+        _positions = positions;
+        _dirty = true;
+    }
+
+    void WideLine::setColors(const std::vector<float>& colors)
+    {
+        if (colors.size() != 3 && colors.size() != pointCount() * 3) {
+            spdlog::error("WideLine::setColors: colors must be one rgb or one per point");
+            return;
+        }
+        _colors = colors;
+        _dirty = true;
+    }
+
+    void WideLine::setWidths(const std::vector<float>& widths)
+    {
+        if (widths.size() != 1 && widths.size() != pointCount()) {
+            spdlog::error("WideLine::setWidths: widths must be one value or one per point");
+            return;
+        }
+        _widths = widths;
+        _dirty = true;
+    }
+
     void WideLine::setDash(const float dashLength, const float gapLength, const float offset)
     {
         _dashLength = std::max(dashLength, 0.0f);

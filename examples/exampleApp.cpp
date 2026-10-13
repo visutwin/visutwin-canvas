@@ -476,6 +476,11 @@ namespace visutwin::canvas
             spdlog::error("SDL_Init failed: {}", SDL_GetError());
             return false;
         }
+        // Without the gamepad subsystem SDL sends no gamepad events, so the engine's GamePads
+        // never sees a pad. An example still runs without it.
+        if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) {
+            spdlog::warn("SDL gamepad subsystem unavailable: {}", SDL_GetError());
+        }
 
         SDL_WindowFlags flags = SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE;
         flags |= (_backend == Backend::Vulkan) ? SDL_WINDOW_VULKAN : SDL_WINDOW_METAL;

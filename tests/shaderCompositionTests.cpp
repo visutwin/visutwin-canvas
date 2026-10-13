@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include "platform/graphics/blendState.h"
 #include "platform/graphics/texture.h"
 #include "scene/materials/standardMaterial.h"
 #include "scene/shader-lib/programLibrary.h"
@@ -235,6 +236,52 @@ int main()
         a.setAnisotropyMap(nullptr);
         a.setEnableGGXSpecular(false);
         check(ProgramLibraryTestAccess::key(msl, &a) == base, "and turning both off returns to the old key");
+
+        // A specular kept at any opacity adds its luminance to the opacity under normal or
+        // premultiplied blending only; alphaFade rides in ambientTint.w only then.
+        a.setOpacityFadesSpecular(false);
+        a.setAlphaFade(0.5f);
+        check(!ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::OpacityKeepsSpecular) &&
+                  a.packedUniforms().ambientTint[3] == 0.5f,
+            "opacityFadesSpecular off on an opaque material compiles no variant, but packs alphaFade");
+        a.setBlendState(std::make_shared<BlendState>(BlendState::alphaBlend()));
+        check(ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::OpacityKeepsSpecular),
+            "under normal blending it compiles VT_FEATURE_OPACITY_KEEPS_SPECULAR");
+        a.setBlendState(std::make_shared<BlendState>(BlendState::additiveBlend()));
+        check(!ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::OpacityKeepsSpecular),
+            "and not under additive blending");
+        a.setOpacityFadesSpecular(true);
+        check(a.packedUniforms().ambientTint[3] == 1.0f, "fading the specular packs an alphaFade of 1");
+        a.setBlendState(std::make_shared<BlendState>());
+        a.setAlphaFade(1.0f);
+        check(ProgramLibraryTestAccess::key(msl, &a) == base, "and turning it back returns to the old key");
+
+        // The specular maps tint the metalness workflow's non-metal F0; the colour map is part
+        // of the specular colour, so it needs that colour switched on.
+        Texture specularMap(device.get());
+        a.setUseMetalness(true);
+        a.setSpecularityFactorMap(&specularMap);
+        a.setSpecularColorMap(&specularMap);
+        const auto mapsOnly = ProgramLibraryTestAccess::key(msl, &a);
+        check(mapsOnly.features.test(ShaderFeature::SpecularityFactorMap) &&
+                  !mapsOnly.features.test(ShaderFeature::SpecularColorMap),
+            "the factor map compiles its variant; the colour map waits for the specular colour");
+        a.setUseMetalnessSpecularColor(true);
+        a.setSpecularColorMapUv(1);
+        check(ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::SpecularColorMap) &&
+                  a.packedUniforms().metalnessSpecular[3] == 1.0f,
+            "with it, the colour map compiles too, its UV set in metalnessSpecular.w");
+        a.setUseMetalness(false);
+        check(!ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::SpecularColorMap) &&
+                  !ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::SpecularityFactorMap),
+            "and neither map applies in the specular workflow");
+        a.setSpecularColorMap(nullptr);
+        a.setSpecularityFactorMap(nullptr);
+        a.setSpecularColorMapUv(0);
+        a.setUseMetalnessSpecularColor(false);
+        a.setUseMetalness(false);
+        check(ProgramLibraryTestAccess::key(msl, &a) == base, "and clearing them returns to the old key");
+
         generic.setShaderVariantKey(1ull << 36);
         check(ProgramLibraryTestAccess::key(msl, &generic).features.test(ShaderFeature::GgxSpecular),
             "variant bit 36 asks a generic material for GGX");

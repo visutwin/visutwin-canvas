@@ -7,7 +7,7 @@
 // environment atlas (and optionally a directional light), seen by an orbit camera. Upstream
 // builds these with its orbit-camera script and no focus entity, which frames the whole scene:
 // the pivot is the centre of the scene's bounds, the camera first looks at it from where it was
-// authored (which sets the pitch), and the example then sets the yaw and the distance, or keeps
+// authored (which sets the pitch), and the example then sets the pitch, yaw and distance, or keeps
 // the framing distance (1.5 x the largest half extent over sin(fov / 2), clamped to the script's
 // maximum). This starts the examples' CameraControls in orbit mode at that pose.
 //
@@ -43,6 +43,7 @@ namespace visutwin::canvas
         Vector3 modelScale = Vector3(1.0f, 1.0f, 1.0f);
 
         Vector3 cameraPosition = Vector3(0.0f, 0.0f, 0.0f);   // where the camera is authored
+        std::optional<float> cameraPitch;          // set after the framing, degrees
         std::optional<float> cameraYaw;            // set after the framing, degrees
         std::optional<float> cameraDistance;       // set after the framing; unset keeps it
         float distanceMax = 1e6f;                  // the orbit script's distanceMax
@@ -105,8 +106,8 @@ namespace visutwin::canvas
             const BoundingBox bounds = entityBounds(_model);
             const Vector3 pivot = bounds.center();
             const Vector3 toPivot = (pivot - o.cameraPosition).normalized();
-            const float pitch = std::clamp(std::asin(std::clamp(toPivot.getY(), -1.0f, 1.0f)) * RAD_TO_DEG,
-                -90.0f, 90.0f);
+            const float pitch = o.cameraPitch.value_or(
+                std::clamp(std::asin(std::clamp(toPivot.getY(), -1.0f, 1.0f)) * RAD_TO_DEG, -90.0f, 90.0f));
             const float yaw = o.cameraYaw.value_or(std::atan2(-toPivot.getX(), -toPivot.getZ()) * RAD_TO_DEG);
             const Vector3 half = bounds.halfExtents();
             const float radius = std::max({half.getX(), half.getY(), half.getZ()});

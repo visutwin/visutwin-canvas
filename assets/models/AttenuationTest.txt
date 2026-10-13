@@ -1,0 +1,11 @@
+Model Information:
+* title:	AttenuationTest
+* source:	https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/AttenuationTest
+* author:	Ed Mackey, for Analytical Graphics, Inc. (from the file's own asset.copyright)
+
+Model License:
+* license type:	CC-BY-4.0 (https://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+* attribution:	© 2021, Analytical Graphics, Inc.
+
+Byte-identical to upstream's example asset. Used by the `attenuation` example.

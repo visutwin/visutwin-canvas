@@ -25,10 +25,7 @@
 // - upstream's orbitCamera script is the examples' CameraControls in orbit mode around the
 //   house's bounds centre, starting at the authored position; there is no inertia.
 // - the depth is device depth, linearised in the shader with the camera's clip planes.
-// - the bubbles' iridescence has no minimum thickness (only a thickness map would read it), and
-//   there is no opacityFadesSpecular: their specular is not faded with the opacity either way.
-// - upstream's box emitter adds its default initialVelocity of 1 along the emitter's -Z; this
-//   port's initialVelocity is a vector, written out as (0, 0, -1).
+// - the bubbles' iridescence has no minimum thickness (only a thickness map would read it).
 //
 #include <algorithm>
 #include <cmath>
@@ -355,6 +352,7 @@ protected:
             material->setUseMetalness(true);
             material->setMetalness(0.0f);
             material->setGloss(0.95f);
+            material->setOpacityFadesSpecular(false);
             material->setIridescenceIntensity(1.0f);
             material->setIridescenceIOR(1.33f);
             material->setIridescenceThicknessMax(600.0f + random() * 400.0f);
@@ -403,8 +401,6 @@ protected:
                                      {0.0f, 0.0f, 0.2f, 0.3f, 0.8f, 0.3f, 1.0f, 0.0f}});
             o.localVelocityGraph = CurveSet({{0.0f, -1.0f}, {0.0f, -0.5f}, {0.0f, -1.0f}});
             o.localVelocityGraph2 = CurveSet({{0.0f, 1.0f}, {0.0f, 1.0f}, {0.0f, 1.0f}});
-            // The box emitter's default initialVelocity, see the header
-            o.initialVelocity = Vector3(0.0f, 0.0f, -1.0f);
             particles->apply();
         }
 
