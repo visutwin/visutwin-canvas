@@ -36,6 +36,8 @@ visutwin_add_unit_test(visutwin-gpu-instance-cull-tests gpu-instance-cull gpuIns
 # (tests/envAtlasOrientationTests.cpp); `gpu` label for the same reason.
 visutwin_add_unit_test(visutwin-env-atlas-orientation-tests env-atlas-orientation envAtlasOrientationTests.cpp
     LABELS gpu TIMEOUT 60)
+# Texture::copy on a real device (tests/textureCopyTests.cpp); `gpu` label for the same reason.
+visutwin_add_unit_test(visutwin-texture-copy-tests texture-copy textureCopyTests.cpp LABELS gpu TIMEOUT 60)
 
 if(VISUTWIN_BACKEND_VULKAN)
     visutwin_add_unit_test(visutwin-vulkan-smoke vulkan-validation-smoke vulkanSmoke.cpp

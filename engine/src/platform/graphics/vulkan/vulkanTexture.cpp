@@ -798,6 +798,58 @@ namespace visutwin::canvas::gpu
         return ok;
     }
 
+    bool VulkanTexture::copyFrom(GraphicsDevice* device, HardwareTexture& source,
+        const TextureCopyRegion& region)
+    {
+        auto* vulkanDevice = dynamic_cast<VulkanGraphicsDevice*>(device);
+        auto* vulkanSource = dynamic_cast<VulkanTexture*>(&source);
+        if (!vulkanDevice || !vulkanSource || vulkanSource->_image == VK_NULL_HANDLE ||
+            _image == VK_NULL_HANDLE) {
+            return false;
+        }
+        if (vulkanDevice->recording()) {
+            // A one-shot copy would run ahead of the commands still being recorded, which
+            // may be what drew the source, as a read would.
+            spdlog::error("VulkanTexture::copyFrom: cannot copy while a frame or an offline "
+                "scope is recording — close it first");
+            return false;
+        }
+
+        // Both subresources are handed back in the layout they were found in, so the
+        // descriptors written for them stay valid; a destination never written (UNDEFINED)
+        // is left ready to sample.
+        const VkImageLayout sourcePrevious = vulkanSource->layout(region.sourceMipLevel, region.face);
+        const VkImageLayout destPrevious = layout(region.destMipLevel, region.face);
+        const auto restored = [](const VkImageLayout previous) {
+            return previous == VK_IMAGE_LAYOUT_UNDEFINED || previous == VK_IMAGE_LAYOUT_PREINITIALIZED
+                ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : previous;
+        };
+        return vulkanDevice->runOneShotCommands([&](VkCommandBuffer cmd) {
+            vulkanSource->transitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                region.sourceMipLevel, 1, region.face, 1);
+            transitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, region.destMipLevel, 1, region.face, 1);
+
+            VkImageCopy copy{};
+            copy.srcSubresource.aspectMask = vulkanSource->_aspect;
+            copy.srcSubresource.mipLevel = region.sourceMipLevel;
+            copy.srcSubresource.baseArrayLayer = region.face;
+            copy.srcSubresource.layerCount = 1;
+            copy.srcOffset = {static_cast<int32_t>(region.sourceX), static_cast<int32_t>(region.sourceY), 0};
+            copy.dstSubresource.aspectMask = _aspect;
+            copy.dstSubresource.mipLevel = region.destMipLevel;
+            copy.dstSubresource.baseArrayLayer = region.face;
+            copy.dstSubresource.layerCount = 1;
+            copy.dstOffset = {static_cast<int32_t>(region.destX), static_cast<int32_t>(region.destY), 0};
+            copy.extent = {region.width, region.height, 1};
+            vkCmdCopyImage(cmd, vulkanSource->_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, _image,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+
+            vulkanSource->transitionLayout(cmd, restored(sourcePrevious), region.sourceMipLevel, 1,
+                region.face, 1);
+            transitionLayout(cmd, restored(destPrevious), region.destMipLevel, 1, region.face, 1);
+        });
+    }
+
     void VulkanTexture::destroySampler()
     {
         if (_sampler != VK_NULL_HANDLE && _vkDevice != VK_NULL_HANDLE) {

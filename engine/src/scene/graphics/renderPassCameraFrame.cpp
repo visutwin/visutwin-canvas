@@ -459,10 +459,11 @@ namespace visutwin::canvas
 
         // The scene colour texture is held here: a RenderTarget stores only a raw pointer
         // to its colour buffer.
-        // Start at the device size (not 4×4) so the first frame isn't too small.
-        // Scaled the same way _sceneOptions scales it below, so a supersampled frame
-        // starts at its real size instead of growing into it on the second frame.
-        const auto [devW, devH] = gd->size();
+        // Start at the size of what the frame renders into, the camera's target or the back
+        // buffer (not 4×4), so the first frame isn't too small. Scaled the same way
+        // _sceneOptions scales it below, so a supersampled frame starts at its real size
+        // instead of growing into it on the second frame.
+        const auto [devW, devH] = outputSize();
         const int initW = std::max(static_cast<int>(std::floor(devW * _renderTargetScale)), 1);
         const int initH = std::max(static_cast<int>(std::floor(devH * _renderTargetScale)), 1);
         _sceneTexture = createColorTexture(gd.get(), "SceneColor", _hdrFormat, std::max(initW, 1), std::max(initH, 1));
@@ -1130,18 +1131,27 @@ namespace visutwin::canvas
         }
     }
 
+    std::pair<int, int> RenderPassCameraFrame::outputSize() const
+    {
+        if (_targetRenderTarget) {
+            return {_targetRenderTarget->width(), _targetRenderTarget->height()};
+        }
+        const auto gd = device();
+        return gd ? gd->size() : std::pair<int, int>{0, 0};
+    }
+
     void RenderPassCameraFrame::frameUpdate() const
     {
         RenderPass::frameUpdate();
 
         const auto gd = device();
 
-        // When rendering to the back buffer (no explicit target), the child passes
-        // need their offscreen render targets sized to the device/window dimensions.
-        // RenderPass::frameUpdate() skips the resize when resizeSource is null and
-        // the back buffer has no color buffer texture, so we handle it here.
-        if (gd && _sceneRenderTarget && !_targetRenderTarget) {
-            const auto [devW, devH] = gd->size();
+        // The scene targets follow what the frame renders into: the camera's own target,
+        // or the device when it renders to the back buffer. RenderPass::frameUpdate()
+        // skips the resize when resizeSource is null and the back buffer has no color
+        // buffer texture, and it cannot reach the prepass depth, so it is done here.
+        if (gd && _sceneRenderTarget) {
+            const auto [devW, devH] = outputSize();
             // Scaled like every other sizing path: without this the supersampled
             // scene target would be pulled back to the device size every frame.
             const int scaledW = std::max(static_cast<int>(std::floor(devW * _renderTargetScale)), 1);

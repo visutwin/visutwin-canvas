@@ -26,6 +26,7 @@
 #include "metalUniformRingBuffer.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
+#include "platform/graphics/gpu.h"
 
 namespace visutwin::canvas
 {
@@ -84,6 +85,11 @@ namespace visutwin::canvas
         void copyRenderTarget(RenderTarget* source, Texture* colorDestination,
             Texture* depthDestination) override;
         void generateMipmaps(Texture* texture) override;
+
+        // Blits a region of one texture into another in the open command buffer; false inside
+        // a render pass. Submitted with the frame or offline scope it is part of, alone otherwise.
+        bool encodeTextureCopy(MTL::Texture* source, MTL::Texture* destination,
+            const gpu::TextureCopyRegion& region);
 
         /// Depth-stencil, for UI masks (metal::kBackBufferDepthFormat); a blit needs matching
         /// formats, so a depth grab from the back buffer allocates this.

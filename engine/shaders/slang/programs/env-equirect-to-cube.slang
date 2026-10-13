@@ -3,7 +3,8 @@
 //
 // Created by Arnis Lektauers on 07.10.2026
 //
-// One face of a cube map from an equirect (input 0), decoded from gamma on request. The
+// One face of a cube map from an equirect (input 0), decoded from gamma and written as RGBP on
+// request (a skybox in an 8-bit cube). The
 // face mapping (cubeFaceUvToDir) is the one the hardware lookup uses, so the cube holds the
 // equirect's texel for every direction: sampling it along d returns equirect(d). The
 // reproject and convolve bakes rely on that.
@@ -15,7 +16,7 @@ struct FaceUniforms
 {
     uint face;         // 0..5
     uint decodeSrgb;
-    uint pad0;
+    uint encodeRgbp;
     uint pad1;
 };
 VT_DECLARE_QUAD_UNIFORMS(FaceUniforms, u)
@@ -33,5 +34,6 @@ float4 equirectToCubeFragment(QuadVarying input) : SV_Target0
     const float2 uv = clamp(input.uv, float2(0.0, 0.0), float2(1.0, 1.0));
     const float3 dir = cubeFaceUvToDir(u.face, uv);
     const float4 raw = sourceEquirect.Sample(dirToUvEquirect(dir));
-    return float4(decodeIfSrgb(raw.rgb, u.decodeSrgb != 0u), 1.0);
+    const float3 color = decodeIfSrgb(raw.rgb, u.decodeSrgb != 0u);
+    return (u.encodeRgbp != 0u) ? packRgbp(color) : float4(color, 1.0);
 }

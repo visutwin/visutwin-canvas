@@ -26,6 +26,10 @@ for details.
   substitute averaging 0.51 instead of this set's 0.75 sampled a prefiltered level,
   rendering `refraction`'s capsules a flat opaque wash instead of glass. Used by
   `refraction` and `area-light`.
+- `seaside-rocks01-color.ktx2`, `-gloss.ktx2`, `-normal.ktx2` — ETC1S KTX2 (11 mips) encoded
+  here with the basisu CLI from the three JPEGs above, in the layout of upstream's `.basis` set
+  (sRGB colour, linear gloss, the normal map packed with y in green and x in alpha), which this
+  engine cannot load as `.basis`. Same licence as the JPEGs. Used by `texture-basis`.
 - `seaside-rocks01-diffuse-alpha.png` (RGBA) and `seaside-rocks01-roughness.jpg` — from the
   same upstream set, byte-identical. LICENCE TO CONFIRM. Used by `opacity` (the emissive map
   and the red-channel opacity map).
@@ -36,6 +40,8 @@ for details.
   byte-identical to upstream's example sprites, which record no licence. LICENCE TO CONFIRM.
   Used by `particles-random-sprites`.
 - `normal-map.png` — tiling normal map (CC-0)
+- `pc-gray.png` — byte-identical to upstream's example texture, which records no licence.
+  LICENCE TO CONFIRM. Unused for now (upstream's grab-pass loads it but never shows it).
 - `heart.png` — light-cookie / decal texture; provenance unconfirmed, see
   THIRD_PARTY_NOTICES. Used by `lights`, `clustered-spot-shadows`, `mesh-decals`.
 - `bricks076a/` — ambientCG "Bricks 076 A" (CC-0), converted to webp; carries its
@@ -92,11 +98,16 @@ for details.
 - `st-peters-square.hdr` — Poly Haven's "St Peters Square Night", byte-identical to
   upstream's example HDRI (**CC-BY 4.0** per upstream's `st-peters-square.txt`, kept
   beside it). Used by `shadow-catcher`.
+- `wide-street.hdr` and `empty-room.hdr` — Poly Haven's "Wide Street 02" and "Small Empty
+  Room 2", byte-identical to upstream's example HDRIs (**CC-BY 4.0** per upstream's
+  `.txt` files, kept beside them). Used by `sky`.
 
 ### models/ — complete
 - `a_beautiful_game.glb` — ABeautifulGame chess set from Khronos glTF-Sample-Assets
   (**CC-BY 4.0** — © 2020 Academy Software Foundation for the model, © 2022 Ed Mackey
   for the glTF conversion)
+- `morph-stress-test.glb` — Khronos MorphStressTest (**CC-BY 4.0**, Ed Mackey), byte-identical
+  to upstream's example asset, its `.txt` kept beside it. Used by `mesh-morph-many`.
 - `antique_camera.glb` — AntiqueCamera from Khronos glTF-Sample-Assets (CC-0, UX3D,
   created by Maximillan Kamps, see .txt)
 - `ClearCoatTest.glb` — ClearCoatTest from Khronos glTF-Sample-Assets (**CC-BY 4.0**,

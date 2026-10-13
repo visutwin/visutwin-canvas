@@ -19,7 +19,10 @@ namespace visutwin::canvas
     {
         Default = 0,
         RGBP = 1,
-        RGBM = 2
+        RGBM = 2,
+        // A packed normal map: x in alpha, y in green (red and blue repeat green), z rebuilt
+        // from the two, the layout block-compressed normal maps keep their two channels in.
+        SwizzleGGGR = 3
     };
 
     class GraphicsDevice;
@@ -113,6 +116,31 @@ namespace visutwin::canvas
         bool read(std::vector<uint8_t>& out, uint32_t x = 0, uint32_t y = 0,
             uint32_t width = 0, uint32_t height = 0, uint32_t mipLevel = 0,
             uint32_t face = 0);
+
+        /**
+         * Copy a block of `source` into this texture on the GPU: `source` must have this
+         * texture's format, uncompressed, and be a different texture. The options pick the
+         * mip levels, the cube face (the same on both sides), the source rectangle (a zero
+         * width or height means the rest of the source level) and where it lands. The copy
+         * is ordered with the rendering: Metal encodes it into the open command buffer, so
+         * it must not be issued inside a render pass; Vulkan submits it at once and waits,
+         * so it must be issued outside a frame, as a read is. Returns false, copying
+         * nothing, when the arguments are out of range or the backend cannot copy now.
+         */
+        struct CopyOptions
+        {
+            uint32_t sourceMipLevel = 0;
+            uint32_t destMipLevel = 0;
+            uint32_t face = 0;
+            uint32_t sourceX = 0;
+            uint32_t sourceY = 0;
+            uint32_t width = 0;
+            uint32_t height = 0;
+            uint32_t destX = 0;
+            uint32_t destY = 0;
+        };
+        bool copy(const Texture& source, const CopyOptions& options);
+        bool copy(const Texture& source) { return copy(source, CopyOptions{}); }
 
         bool isCubemap() const { return _cubemap; }
 

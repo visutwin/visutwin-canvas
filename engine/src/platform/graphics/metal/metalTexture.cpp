@@ -505,4 +505,15 @@ namespace visutwin::canvas::gpu
             _metalTexture, region, pixelFormatBytesPerPixel(_texture->format()),
             out, outSize);
     }
+
+    bool MetalTexture::copyFrom(GraphicsDevice* device, HardwareTexture& source,
+        const TextureCopyRegion& region)
+    {
+        auto* metalDevice = dynamic_cast<MetalGraphicsDevice*>(device);
+        auto* metalSource = dynamic_cast<MetalTexture*>(&source);
+        if (!metalDevice || !metalSource || !metalSource->_metalTexture || !_metalTexture) {
+            return false;
+        }
+        return metalDevice->encodeTextureCopy(metalSource->_metalTexture, _metalTexture, region);
+    }
 }

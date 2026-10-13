@@ -57,7 +57,7 @@ macOS, `libvulkan-dev` on Ubuntu.
 
 ## Examples
 
-A few of the 126 examples, each a small self-contained program
+A few of the 146 examples, each a small self-contained program
 ([the full list](examples/README.md)):
 
 | | | | |

@@ -42,6 +42,7 @@ namespace visutwin::canvas
             if (floatData) return TextureEncoding::Default;
             if (type == TextureType::TEXTURETYPE_RGBP) return TextureEncoding::RGBP;
             if (type == TextureType::TEXTURETYPE_RGBM) return TextureEncoding::RGBM;
+            if (type == TextureType::TEXTURETYPE_SWIZZLEGGGR) return TextureEncoding::SwizzleGGGR;
             return TextureEncoding::Default;
         }
 

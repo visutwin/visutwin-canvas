@@ -282,6 +282,20 @@ int main()
         a.setUseMetalness(false);
         check(ProgramLibraryTestAccess::key(msl, &a) == base, "and clearing them returns to the old key");
 
+        // A packed (GGGR) normal map compiles its own unpack; a plain one, or none, does not.
+        Texture normalMap(device.get());
+        a.setNormalMap(&normalMap);
+        check(ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::NormalMap) &&
+                  !ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::NormalMapPacked),
+            "a plain normal map is unpacked from rgb");
+        normalMap.setEncoding(TextureEncoding::SwizzleGGGR);
+        a.setNormalMap(nullptr);
+        a.setNormalMap(&normalMap);
+        check(ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::NormalMapPacked),
+            "a GGGR normal map compiles VT_FEATURE_NORMAL_MAP_PACKED");
+        a.setNormalMap(nullptr);
+        check(ProgramLibraryTestAccess::key(msl, &a) == base, "and clearing it returns to the old key");
+
         generic.setShaderVariantKey(1ull << 36);
         check(ProgramLibraryTestAccess::key(msl, &generic).features.test(ShaderFeature::GgxSpecular),
             "variant bit 36 asks a generic material for GGX");

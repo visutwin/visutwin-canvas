@@ -27,6 +27,22 @@ namespace visutwin::canvas::gpu
         uint32_t face = 0;
     };
 
+    // A copy between two textures of one format: a width x height block of the source's
+    // mip level at (sourceX, sourceY) to the destination's mip level at (destX, destY), on
+    // the same cube face (0 for a 2D texture).
+    struct TextureCopyRegion
+    {
+        uint32_t sourceX = 0;
+        uint32_t sourceY = 0;
+        uint32_t destX = 0;
+        uint32_t destY = 0;
+        uint32_t width = 0;
+        uint32_t height = 0;
+        uint32_t sourceMipLevel = 0;
+        uint32_t destMipLevel = 0;
+        uint32_t face = 0;
+    };
+
     class HardwareTexture
     {
     public:
@@ -56,6 +72,17 @@ namespace visutwin::canvas::gpu
             uint8_t* out, size_t outSize)
         {
             (void)device; (void)region; (void)out; (void)outSize;
+            return false;
+        }
+
+        /**
+         * Copy `region` of `source`, a texture of the same backend and format, into this
+         * one on the GPU. Call it through `Texture::copy`, which validates the region.
+         * Returns false when the backend cannot do it now.
+         */
+        virtual bool copyFrom(GraphicsDevice* /*device*/, HardwareTexture& /*source*/,
+            const TextureCopyRegion& /*region*/)
+        {
             return false;
         }
     };

@@ -149,7 +149,7 @@ namespace visutwin::canvas
     }
 
     bool bakeEquirectToCubemap(GraphicsDevice* device, Texture* source,
-        Texture* target, const bool decodeSrgb)
+        Texture* target, const bool decodeSrgb, const bool encodeRgbp)
     {
         if (!device || !source || !target) {
             spdlog::warn("bakeEquirectToCubemap: source or target is null");
@@ -195,6 +195,7 @@ namespace visutwin::canvas
             env_shaders::EquirectToCubeUniforms uniforms{};
             uniforms.face = face;
             uniforms.decodeSrgb = decodeSrgb ? 1u : 0u;
+            uniforms.encodeRgbp = encodeRgbp ? 1u : 0u;
             quad.setUniforms(uniforms);
 
             device->startRenderPass(&pass);

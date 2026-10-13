@@ -1,6 +1,6 @@
 # VisuTwin Canvas Examples
 
-126 example applications, each a small self-contained program built on the
+146 example applications, each a small self-contained program built on the
 engine. All but one are ports of [PlayCanvas](https://playcanvas.com/) engine
 examples, so they can be compared side by side with upstream: the file header names
 the upstream example and lists every place the port could not follow it. The
@@ -107,6 +107,9 @@ The second column is the upstream example each one ports, as
 | refraction | materials/material-refraction | Env-atlas and dynamic grab-pass refraction |
 | parallax-mapping | materials/parallax-mapping | Parallax occlusion mapping in a brick room |
 | custom-shader | shaders/shader-toon | ShaderMaterial toon shader (MSL + GLSL) over the statue |
+| shader-material | shaders/shader-material | A textured box through a Slang ShaderMaterial |
+| shader-wobble | shaders/shader-wobble | The statue wobbling in a custom vertex shader |
+| shader-burn | shaders/shader-burn | The statue burning away against a noise threshold |
 | mesh-decals | graphics/mesh-decals | Decals stamped by a bouncing ball |
 | material-physical | materials/material-physical | A 5x5 grid of spheres, metalness against gloss, with text labels |
 | material-translucent-specular | materials/material-translucent-specular | Blended spheres whose specular survives their opacity (opacityFadesSpecular off) |
@@ -115,6 +118,8 @@ The second column is the upstream example each one ports, as
 | specular | test/specular | Khronos SpecularTest: KHR_materials_specular factors against its two maps |
 | attenuation | test/attenuation | Khronos AttenuationTest: transmissive slabs absorbing by attenuation colour and distance |
 | primitive-mode | test/primitive-mode | Khronos PrimitiveModeNormalsTest: points, lines and triangles with and without normals |
+| texture-basis | graphics/texture-basis | A torus with Basis Universal (KTX2) colour, gloss and packed normal maps |
+| text-markup | test/text-markup | The same texts with and without markup, which must match |
 
 ### Lighting & shadows
 
@@ -131,6 +136,8 @@ The second column is the upstream example each one ports, as
 | lights-non-clustered | graphics/lights-non-clustered | Spot, omni and directional lights without clustering |
 | light-physical-units | graphics/light-physical-units | glTF punctual lights in physical units, with exposure |
 | shadow-catcher | graphics/shadow-catcher | A statue under an HDR sky, its shadow caught on an invisible ground |
+| shadow-soft | graphics/shadow-soft | PCSS soft directional shadows over a terrain with drifting clouds |
+| lights-baked | graphics/lights-baked | Baked omni, spot and directional lights over a grid of primitives |
 | pcss-dither | graphics/dithered-transparency | Blend and dither strengths decoupled, dithered shadows |
 | pcss-local | test/contact-hardening-shadows | PCSS contact-hardening shadows from local lights |
 | lightmap-bake | graphics/lights-baked-a-o | CPU-baked lightmaps with shadows and AO |
@@ -148,6 +155,8 @@ The second column is the upstream example each one ports, as
 | reflection-planar | graphics/reflection-planar | A mirror ground sampling a reflection camera's texture by screen position |
 | reflection-planar-blurred | graphics/reflection-planar-blurred | Planar reflections blurred with height |
 | procedural-sky | graphics/procedural-sky | Laboratory in dunes under a time-of-day sun |
+| sky | graphics/sky | Dome, infinite and box skies from HDRIs, with colour enhance |
+| grab-pass | shaders/grab-pass | A frosted glass pane refracting the grabbed scene colour through a custom shader |
 
 ### Post-processing
 
@@ -165,6 +174,10 @@ The second column is the upstream example each one ports, as
 | volumetric-fog | camera-frame/volumetric-fog | Amber height fog with long shafts from a low sun through the terrain and clouds |
 | ambient-occlusion-davinci | — (original scene) | SSAO over the da Vinci workshop with the colour finishing chain |
 | edge-detect | compute/edge-detect | Compute-shader Sobel filter over an offscreen render |
+| outlines-colored | graphics/outlines-colored | Coloured outlines on laboratory objects under SSAO |
+| model-outline | graphics/model-outline | An outline around one of four primitives |
+| taa-alpha | test/taa-alpha | A camera frame with TAA keeping the alpha of its own render target |
+| ground-fog | shaders/ground-fog | A soft fog plane over a terrain, faded against the scene depth |
 
 ### Animation & geometry
 
@@ -179,6 +192,7 @@ The second column is the upstream example each one ports, as
 | instancing-glb | graphics/instancing-glb | A glTF using EXT_mesh_gpu_instancing |
 | dynamic-batching | graphics/batching-dynamic | 500 moving primitives in one dynamic batch group |
 | wide-line | graphics/wide-line | Instanced polyline with per-point width and colour |
+| mesh-morph-many | graphics/mesh-morph-many | Khronos MorphStressTest driven by eight morph targets |
 | wide-lines-dynamic | graphics/wide-lines-dynamic | A globe-scale network of blooming world-width lines rewritten every frame |
 | wide-lines-styles | graphics/wide-lines-styles | Eight rows of wide-line styles: caps, joins, dashes and widths |
 | shapes | graphics/shapes | Every built-in primitive under one material |
@@ -203,6 +217,11 @@ The second column is the upstream example each one ports, as
 | Example | Upstream | Description |
 |---------|----------|-------------|
 | orbit | camera/orbit | Orbit camera controls around the statue |
+| hello-world | misc/hello-world | A spinning box |
+| model-asset | graphics/model-asset | The statue and a small clone, lit by an omni light |
+| render-asset | graphics/render-asset | Cubes and the statue instanced from containers, turning |
+| texture-read | test/texture-read | Texture::read round trips for R8, RG8 and RGBA8 |
+| texture-copy | test/texture-copy | Texture::copy: whole levels, a mip and a sub-rectangle, read back |
 | fly | camera/fly | Fly camera controls around the statue |
 | multi | camera/multi | One camera with orbit, fly and pan all enabled |
 | glb-loader | loaders/glb | A GLB carrying meshes, lights and cameras |
@@ -229,6 +248,7 @@ The second column is the upstream example each one ports, as
 | raycast | physics/raycast | raycastFirst and raycastAll through two rows of shapes |
 | offset-collision | physics/offset-collision | Balls bouncing off a head collider offset from the character's feet |
 | compound-collision | physics/compound-collision | Chairs falling as compound bodies of a seat, a back and four legs |
+| mesh-collider-scaling | physics/mesh-collider-scaling | Spheres dropped through scaled torus mesh colliders, one pulsing |
 
 ### Interaction & UI
 

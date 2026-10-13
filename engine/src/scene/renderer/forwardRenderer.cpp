@@ -461,15 +461,18 @@ namespace visutwin::canvas
         // targets (scene color, depth, TAA history). Persisting it across
         // frames avoids reallocating ~56MB of GPU textures per frame and
         // preserves TAA history for correct temporal accumulation.
+        // The frame composes into what the camera renders into: its own target, or the back
+        // buffer (null).
         CameraComponent* cameraComponent = renderActions[endIndex]->camera;
+        const std::shared_ptr<RenderTarget>& target = renderActions[endIndex]->renderTarget;
         auto cameraFramePass = cameraComponent->cameraFrame();
         if (!cameraFramePass) {
             cameraFramePass = std::make_shared<RenderPassCameraFrame>(
-                _device, layerComposition, _scene.get(), this, blockActions, cameraComponent, nullptr);
+                _device, layerComposition, _scene.get(), this, blockActions, cameraComponent, target);
             cameraComponent->setCameraFrame(cameraFramePass);
         } else {
             cameraFramePass->updateSourceActions(
-                blockActions, layerComposition, _scene.get(), this, nullptr);
+                blockActions, layerComposition, _scene.get(), this, target);
         }
         frameGraph->addRenderPass(cameraFramePass);
     }

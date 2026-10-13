@@ -479,6 +479,24 @@ tangents). Packed into `anisotropyParams`: xy the rotation's (cos, sin), z the m
 the mesh-tangents flag. `anisotropy-strength`, `-rotation`, `-disc` and `-lamp` port upstream's
 four Khronos showcases.
 
+### Packed normal maps
+A normal map whose texture is `TextureEncoding::SwizzleGGGR` (a texture asset of type
+`TEXTURETYPE_SWIZZLEGGGR`) holds x in ALPHA and y in GREEN, the layout a two-channel
+block-compressed normal map keeps; the material compiles `VT_FEATURE_NORMAL_MAP_PACKED`, which
+unpacks xy = (a, g) x 2 - 1 and rebuilds z = sqrt(1 - |xy|^2). The variant is decided when the
+material resolves its shader, from the texture it holds then: set the encoding before the
+material is first drawn (an asset does), since changing it later moves no material version.
+`texture-basis` uses it.
+
+### Texture copies
+`Texture::copy(source, Texture::CopyOptions)` copies a block of one texture into another of the
+same uncompressed format on the GPU (`gpu::HardwareTexture::copyFrom`): source and destination
+mip, one cube face, the source rectangle (zero size = the rest of the level) and the
+destination offset, validated against both levels. Metal encodes a blit into the open command
+buffer (`MetalGraphicsDevice::encodeTextureCopy`, refused inside a render pass, flushed alone
+outside a frame); Vulkan runs `vkCmdCopyImage` on a one-shot command buffer and waits, refused
+while recording. `texture-copy` ports upstream's test; `tests/textureCopyTests.cpp` holds it.
+
 ### Specular maps and specular that survives opacity
 `KHR_materials_specular`'s two textures are `StandardMaterial::setSpecularColorMap` and
 `setSpecularityFactorMap` (with `...Uv`): separate images at Metal fragment slots 43 / 44,
@@ -1092,10 +1110,12 @@ as the sun moves, `reflection-probe-dynamic` every frame). The atlas rects are l
 the TARGET's projection: equirect, or octahedral when the target texture is octahedral —
 the reproject and the convolution alike (`ConvolveUniforms::targetProjection`), as
 upstream writes them; every scene atlas is equirect.
-`EnvLighting::generateSkyboxCubemap(device, source, size)` builds an RGBP skybox cube on the
-CPU from an equirect: an RGBA32F HDR taken as linear, or an RGBA8 image whose bytes are
-gamma-encoded and decoded with gamma 2.2 per texel (an 8-bit texture not marked sRGB is
-gamma-encoded data). `wide-lines-dynamic` builds its sky from `space.png` this way.
+`EnvLighting::generateSkyboxCubemap(device, source, size)` bakes an RGBP RGBA8 skybox cube on
+the GPU from an equirect, through the same `env-equirect-to-cube` program as the cube the atlas
+bake starts from (`bakeEquirectToCubemap` with `encodeRgbp`): an RGBA32F HDR is taken as linear,
+an RGBA8 image's bytes as gamma-encoded data (an 8-bit texture not marked sRGB is), filtered and
+then decoded with gamma 2.2. `wide-lines-dynamic` builds its sky from `space.png` this way; the
+CPU loop it replaced took 5 s for a 1024 cube in a Debug build.
 
 ## Live gotchas
 

@@ -23,7 +23,7 @@ namespace visutwin::canvas::env_shaders
     {
         uint32_t face = 0u;        // 0..5, the cube face being rendered
         uint32_t decodeSrgb = 0u;  // decode the source from gamma before writing
-        uint32_t _pad0 = 0u;
+        uint32_t encodeRgbp = 0u;  // write RGBP (an 8-bit cube holding HDR) instead of linear
         uint32_t _pad1 = 0u;
     };
     static_assert(sizeof(EquirectToCubeUniforms) == 16);

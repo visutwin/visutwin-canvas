@@ -45,12 +45,13 @@ namespace visutwin::canvas
 
     /**
      * Fill each of `target`'s six cube faces by sampling `source` along the
-     * direction that face's texels look at, then generate its mip chain.
+     * direction that face's texels look at, then generate its mip chain. With
+     * `encodeRgbp` the faces are written RGBP, for an RGBA8 target holding HDR.
      * `target` must already be created as a cubemap. Returns false if the
      * arguments or the shader are unusable, leaving the target untouched.
      */
     bool bakeEquirectToCubemap(GraphicsDevice* device, Texture* source,
-        Texture* target, bool decodeSrgb);
+        Texture* target, bool decodeSrgb, bool encodeRgbp = false);
 
     /**
      * Resample `source` into each of `request.rects` on `target`, converting

@@ -43,8 +43,9 @@ namespace visutwin::canvas
                                       int size, int numReflectionSamples, int numAmbientSamples,
                                       bool decodeSrgb = false);
 
-        /// A skybox cube map (RGBP) from an equirect: an RGBA32F HDR (linear), or an RGBA8 image,
-        /// whose bytes are gamma-encoded and decoded with gamma 2.2 per texel.
+        /// A skybox cube map (RGBP, RGBA8) baked on the GPU from an equirect: an RGBA32F HDR
+        /// (linear), or an RGBA8 image, whose bytes are gamma-encoded and decoded with gamma 2.2.
+        /// Returns a new texture the caller owns, or null.
         static Texture* generateSkyboxCubemap(GraphicsDevice* device, Texture* source, int size = 0);
 
         /**
@@ -61,13 +62,9 @@ namespace visutwin::canvas
             int size = 512, int numAmbientSamples = 2048, bool legacyAmbient = false);
 
     private:
-        static void dirToEquirectUv(float x, float y, float z, float& u, float& v);
-
         static void hemisphereSampleGGX(float& hx, float& hy, float& hz, float xi1, float xi2, float a);
         static void hemisphereSampleLambert(float& hx, float& hy, float& hz, float xi1, float xi2);
         static float D_GGX(float NoH, float linearRoughness);
-
-        static std::array<uint8_t, 4> encodeRGBP(float r, float g, float b);
 
         static int getRequiredSamplesGGX(int numSamples, int specularPower);
 

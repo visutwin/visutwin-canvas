@@ -188,6 +188,8 @@ namespace visutwin::canvas
 
             bool baseColorMap = false;
             bool normalMap = false;
+            // The normal map is packed (TextureEncoding::SwizzleGGGR): x in alpha, y in green.
+            bool normalMapPacked = false;
             bool metallicRoughnessMap = false;
             bool occlusionMap = false;
             bool emissiveMap = false;

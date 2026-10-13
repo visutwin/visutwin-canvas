@@ -234,6 +234,51 @@ namespace visutwin::canvas
         return _levels[face][mipLevel];
     }
 
+    bool Texture::copy(const Texture& source, const CopyOptions& options)
+    {
+        if (&source == this || !_impl || !source._impl || !_device || source._device != _device) {
+            spdlog::warn("Texture::copy({} <- {}): needs two different textures of one device", _name,
+                source._name);
+            return false;
+        }
+        if (source._format != _format || pixelFormatBytesPerPixel(_format) == 0) {
+            spdlog::warn("Texture::copy({} <- {}): the formats must match and be uncompressed", _name,
+                source._name);
+            return false;
+        }
+        if (options.sourceMipLevel >= source._numLevels || options.destMipLevel >= _numLevels) {
+            spdlog::warn("Texture::copy({} <- {}): mip {} -> {} does not exist", _name, source._name,
+                options.sourceMipLevel, options.destMipLevel);
+            return false;
+        }
+        const uint32_t sourceFaces = source._cubemap ? 6u : 1u;
+        const uint32_t destFaces = _cubemap ? 6u : 1u;
+        if (options.face >= sourceFaces || options.face >= destFaces) {
+            spdlog::warn("Texture::copy({} <- {}): face {} does not exist", _name, source._name, options.face);
+            return false;
+        }
+
+        const uint32_t sourceWidth = std::max(source._width >> options.sourceMipLevel, 1u);
+        const uint32_t sourceHeight = std::max(source._height >> options.sourceMipLevel, 1u);
+        const uint32_t destWidth = std::max(_width >> options.destMipLevel, 1u);
+        const uint32_t destHeight = std::max(_height >> options.destMipLevel, 1u);
+        const uint32_t width = options.width != 0 ? options.width
+            : (sourceWidth > options.sourceX ? sourceWidth - options.sourceX : 0);
+        const uint32_t height = options.height != 0 ? options.height
+            : (sourceHeight > options.sourceY ? sourceHeight - options.sourceY : 0);
+        if (width == 0 || height == 0 || options.sourceX + width > sourceWidth ||
+            options.sourceY + height > sourceHeight || options.destX + width > destWidth ||
+            options.destY + height > destHeight) {
+            spdlog::warn("Texture::copy({} <- {}): {}x{} from ({}, {}) to ({}, {}) leaves a level", _name,
+                source._name, width, height, options.sourceX, options.sourceY, options.destX, options.destY);
+            return false;
+        }
+
+        const gpu::TextureCopyRegion region{options.sourceX, options.sourceY, options.destX, options.destY,
+            width, height, options.sourceMipLevel, options.destMipLevel, options.face};
+        return _impl->copyFrom(_device, *source._impl, region);
+    }
+
     bool Texture::read(std::vector<uint8_t>& out, const uint32_t x, const uint32_t y,
         uint32_t width, uint32_t height, const uint32_t mipLevel, const uint32_t face)
     {

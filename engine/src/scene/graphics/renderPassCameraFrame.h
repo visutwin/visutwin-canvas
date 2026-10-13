@@ -7,6 +7,7 @@
 #pragma once
 
 #include <memory>
+#include <utility>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -148,6 +149,8 @@ namespace visutwin::canvas
         void updateCameraUseFlags();
         void setupScenePrepass(const CameraFrameOptions& options);
         void createPrepassRenderTarget() const;
+        // The size of what the frame renders into: the camera's target, or the device.
+        std::pair<int, int> outputSize() const;
         struct ScenePassesInfo
         {
             int lastAddedIndex = -1;

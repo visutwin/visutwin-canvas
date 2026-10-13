@@ -49,6 +49,22 @@ hdri/st-peters-square.hdr
   Source:   https://polyhaven.com/a/st_peters_square_night
   License:  CC-BY 4.0 (as upstream's st-peters-square.txt records it)
 
+hdri/wide-street.hdr
+  Original: Wide Street 02
+  Source:   https://polyhaven.com/a/wide_street_02
+  License:  CC-BY 4.0 (as upstream's wide-street.txt records it)
+
+hdri/empty-room.hdr
+  Original: Small Empty Room 2
+  Source:   https://polyhaven.com/a/small_empty_room_2
+  License:  CC-BY 4.0 (as upstream's empty-room.txt records it)
+
+models/morph-stress-test.glb
+  Original: MorphStressTest (Khronos glTF sample asset)
+  Source:   https://github.com/KhronosGroup/glTF-Sample-Models/tree/master/2.0/MorphStressTest
+  Author:   Ed Mackey
+  License:  CC-BY 4.0
+
 models/chess-board.glb
   Original: Chess Board
   Source:   https://sketchfab.com/3d-models/chess-board-901eeeca884f4622ac37b7e8f7cb82c3
@@ -228,7 +244,8 @@ Resolve before a public release:
   cubemaps/*-env-atlas.png       CC-0 replacements: tools/generate-env-atlas
   cubemaps/xmas_faces/*.png
   textures/heart.png
-  textures/seaside-rocks01-*.jpg, seaside-rocks01-diffuse-alpha.png
+  textures/seaside-rocks01-*.jpg, seaside-rocks01-diffuse-alpha.png,
+  textures/seaside-rocks01-*.ktx2 (encoded here from the JPEGs), textures/pc-gray.png
   models/SunglassesKhronos.glb   (see its entry above)
   models/statue.glb, geometry-camera-light.glb, playcanvas-cube.glb, bitmoji.glb,
   models/Lights.glb,

@@ -63,60 +63,6 @@ namespace visutwin::canvas
     }
 
     // ----------------------------------------------------------------
-    // RGBP encoding
-    // ----------------------------------------------------------------
-    std::array<uint8_t, 4> EnvLighting::encodeRGBP(float r, float g, float b)
-    {
-        // Decode in shader: color = rgb * (-a * 7.0 + 8.0); color = color * color;
-        // So encode: sqrt(color), then find 'a' such that rgb / (-a*7+8) fits in [0,1]
-        const float sr = std::sqrt(std::max(r, 0.0f));
-        const float sg = std::sqrt(std::max(g, 0.0f));
-        const float sb = std::sqrt(std::max(b, 0.0f));
-
-        const float maxVal = std::max({sr, sg, sb, 1.0f / 255.0f});
-        const float a = std::clamp((8.0f - maxVal) / 7.0f, 0.0f, 1.0f);
-        const float scale = -a * 7.0f + 8.0f;
-
-        return {
-            static_cast<uint8_t>(std::clamp(sr / scale * 255.0f + 0.5f, 0.0f, 255.0f)),
-            static_cast<uint8_t>(std::clamp(sg / scale * 255.0f + 0.5f, 0.0f, 255.0f)),
-            static_cast<uint8_t>(std::clamp(sb / scale * 255.0f + 0.5f, 0.0f, 255.0f)),
-            static_cast<uint8_t>(std::clamp(a * 255.0f + 0.5f, 0.0f, 255.0f))
-        };
-    }
-
-    // ----------------------------------------------------------------
-    // Direction <-> equirectangular UV
-    // Matches Metal shader toSphericalUv()
-    // ----------------------------------------------------------------
-    void EnvLighting::dirToEquirectUv(float x, float y, float z, float& u, float& v)
-    {
-        const float phi = std::atan2(x, z);         // azimuth
-        const float theta = std::asin(std::clamp(y, -1.0f, 1.0f)); // elevation
-        u = phi / ENV_TWO_PI + 0.5f;
-        v = 1.0f - (theta / ENV_PI + 0.5f);
-    }
-
-    // Face index + UV -> 3D direction (used by generateSkyboxCubemap).
-    static Vector3 faceUvToDir(int face, float u, float v)
-    {
-        // Convert UV [0,1] to [-1,1]
-        const float sc = u * 2.0f - 1.0f;
-        const float tc = v * 2.0f - 1.0f;
-
-        switch (face) {
-            case 0: return Vector3( 1.0f, -tc,  -sc  ).normalized();  // +X
-            case 1: return Vector3(-1.0f, -tc,   sc  ).normalized();  // -X
-            case 2: return Vector3( sc,    1.0f, tc  ).normalized();  // +Y
-            case 3: return Vector3( sc,   -1.0f, -tc ).normalized();  // -Y
-            case 4: return Vector3( sc,   -tc,   1.0f).normalized();  // +Z
-            case 5: return Vector3(-sc,   -tc,  -1.0f).normalized();  // -Z
-            // normalized() leaves the zero vector alone, as the manual divide did.
-            default: return Vector3(0.0f, 0.0f, 0.0f);
-        }
-    }
-
-    // ----------------------------------------------------------------
     // Hemisphere sampling
     // ----------------------------------------------------------------
     void EnvLighting::hemisphereSampleGGX(float& hx, float& hy, float& hz, float xi1, float xi2, float a)
@@ -472,8 +418,6 @@ namespace visutwin::canvas
 
     // ----------------------------------------------------------------
     // generateSkyboxCubemap
-    // EnvLighting.generateSkyboxCubemap()
-    // Creates a high-res cubemap from equirectangular HDR source.
     // ----------------------------------------------------------------
     Texture* EnvLighting::generateSkyboxCubemap(GraphicsDevice* device, Texture* source, int size)
     {
@@ -482,121 +426,42 @@ namespace visutwin::canvas
             return nullptr;
         }
 
-        // An RGBA32F equirect (an HDR), taken as linear, or an RGBA8 one (an image), whose
-        // bytes are gamma-encoded and decoded with gamma 2.2 (through a table, per texel).
-        const void* srcLevel = source->getLevel(0);
+        // An RGBA32F equirect (an HDR) is taken as linear; an RGBA8 one (an image) holds
+        // gamma-encoded bytes, which the bake decodes after the sampler has filtered them.
         const bool bytes = source->format() == PixelFormat::PIXELFORMAT_RGBA8;
-        if (!srcLevel || (!bytes && source->format() != PixelFormat::PIXELFORMAT_RGBA32F)) {
+        if (!bytes && source->format() != PixelFormat::PIXELFORMAT_RGBA32F) {
             spdlog::warn("EnvLighting::generateSkyboxCubemap: the source needs RGBA32F or RGBA8 pixel data");
             return nullptr;
         }
-        const auto* srcFloats = static_cast<const float*>(srcLevel);
-        const auto* srcBytes = static_cast<const uint8_t*>(srcLevel);
-        std::array<float, 256> decodeByte{};
-        for (int i = 0; i < 256; ++i) {
-            decodeByte[i] = std::pow(static_cast<float>(i) / 255.0f, 2.2f);
-        }
 
-        const int srcW = static_cast<int>(source->width());
-        const int srcH = static_cast<int>(source->height());
-
-        // default size = source.width / 4 for equirect
         if (size <= 0) {
-            size = srcW / 4;
+            size = static_cast<int>(source->width()) / 4;
         }
         // Clamp to what this device will allocate as a cube face, not to a
         // literal: the default size follows the source equirect's width, so a
         // large HDR can ask for more than the hardware accepts.
         size = std::clamp(size, 4, device->maxCubeMapSize());
 
-        spdlog::info("EnvLighting: generating {}x{} skybox cubemap from {}x{} equirect source",
-                     size, size, srcW, srcH);
-
-        const size_t facePixels = static_cast<size_t>(size) * static_cast<size_t>(size);
-        const size_t faceBytes = facePixels * 4; // RGBA8
-
-        // For each face, compute the direction for each pixel, sample the equirect source,
-        // and convert from linear HDR to sRGB RGBA8.
         TextureOptions options;
         options.name = "skyboxCubemap";
-        options.width = size;
-        options.height = size;
+        options.width = static_cast<uint32_t>(size);
+        options.height = static_cast<uint32_t>(size);
         options.format = PixelFormat::PIXELFORMAT_RGBA8;
         options.cubemap = true;
         options.mipmaps = false;
         options.minFilter = FilterMode::FILTER_LINEAR;
         options.magFilter = FilterMode::FILTER_LINEAR;
 
+        // RGBP keeps the HDR range in eight bits, as the env atlas does.
         auto* texture = new Texture(device, options);
         texture->setEncoding(TextureEncoding::RGBP);
-
-        for (int face = 0; face < 6; ++face) {
-            std::vector<uint8_t> faceData(faceBytes);
-
-            for (int py = 0; py < size; ++py) {
-                for (int px = 0; px < size; ++px) {
-                    // Compute face UV (pixel center)
-                    const float u = (static_cast<float>(px) + 0.5f) / static_cast<float>(size);
-                    const float v = (static_cast<float>(py) + 0.5f) / static_cast<float>(size);
-
-                    // Face UV -> world direction
-                    const Vector3 dir = faceUvToDir(face, u, v);
-
-                    // Direction -> equirect UV
-                    float srcU, srcV;
-                    dirToEquirectUv(dir.getX(), dir.getY(), dir.getZ(), srcU, srcV);
-
-                    // Wrap horizontally, clamp vertically
-                    srcU = srcU - std::floor(srcU);
-                    srcV = std::clamp(srcV, 0.0f, 1.0f);
-
-                    // Bilinear sample from source equirect (RGBA32F)
-                    const float fx = srcU * static_cast<float>(srcW - 1);
-                    const float fy = srcV * static_cast<float>(srcH - 1);
-
-                    const int x0 = std::clamp(static_cast<int>(std::floor(fx)), 0, srcW - 1);
-                    const int y0 = std::clamp(static_cast<int>(std::floor(fy)), 0, srcH - 1);
-                    const int x1 = (x0 + 1) % srcW;
-                    const int y1 = std::min(y0 + 1, srcH - 1);
-
-                    const float sx = fx - static_cast<float>(x0);
-                    const float sy = fy - static_cast<float>(y0);
-
-                    // rgb only.
-                    auto pixel = [&](int ppx, int ppy) -> Vector3 {
-                        const size_t index = (static_cast<size_t>(ppy) * srcW + ppx) * 4;
-                        if (bytes) {
-                            return Vector3(decodeByte[srcBytes[index]], decodeByte[srcBytes[index + 1]],
-                                decodeByte[srcBytes[index + 2]]);
-                        }
-                        return Vector3::load(&srcFloats[index]);
-                    };
-
-                    const Vector3 top = Vector3::lerp(pixel(x0, y0), pixel(x1, y0), sx);
-                    const Vector3 bot = Vector3::lerp(pixel(x0, y1), pixel(x1, y1), sx);
-                    const Vector3 rgb = Vector3::lerp(top, bot, sy);
-
-                    // Tonemap: clamp HDR to [0, 1] with simple reinhard
-                    // The skybox shader applies exposure + tonemapping at runtime,
-                    // so we store linear clamped to displayable range.
-                    // Use RGBP encoding for HDR preservation (same as envAtlas).
-                    const auto encoded = encodeRGBP(rgb.getX(), rgb.getY(), rgb.getZ());
-
-                    const size_t offset = (static_cast<size_t>(py) * size + px) * 4;
-                    faceData[offset + 0] = encoded[0];
-                    faceData[offset + 1] = encoded[1];
-                    faceData[offset + 2] = encoded[2];
-                    faceData[offset + 3] = encoded[3];
-                }
-            }
-
-            texture->setLevelData(0, faceData.data(), faceData.size(), face);
-        }
-
         texture->upload();
 
-        spdlog::info("EnvLighting: skybox cubemap generated successfully ({}x{} per face, RGBP)", size, size);
-
+        if (!bakeEquirectToCubemap(device, source, texture, bytes, true)) {
+            spdlog::error("EnvLighting::generateSkyboxCubemap: bake failed");
+            delete texture;
+            return nullptr;
+        }
         return texture;
     }
 }

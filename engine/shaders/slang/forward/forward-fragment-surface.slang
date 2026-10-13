@@ -420,7 +420,14 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
     if (haveNormalMap || haveDetailNormal) {
         float3 tn = float3(0.0, 0.0, 1.0);
         if (haveNormalMap) {
-            tn = normalMap.Sample(uvNormal).xyz * 2.0 - 1.0;
+            const float4 nmap = normalMap.Sample(uvNormal);
+            if (vtFeatureEnabled(VT_FEATURE_NORMAL_MAP_PACKED_BIT)) {
+                // Packed: x in alpha, y in green, z rebuilt for a unit normal.
+                tn.xy = nmap.ag * 2.0 - 1.0;
+                tn.z = sqrt(1.0 - saturate(dot(tn.xy, tn.xy)));
+            } else {
+                tn = nmap.xyz * 2.0 - 1.0;
+            }
             // normalScale blends the sampled
             // normal TOWARD FLAT, it does not scale xy. The two are only equal at
             // 0 and 1: scaling xy leaves z alone, so it steepens the normal's

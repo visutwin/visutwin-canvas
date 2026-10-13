@@ -1280,6 +1280,29 @@ namespace visutwin::canvas
         }
     }
 
+    bool MetalGraphicsDevice::encodeTextureCopy(MTL::Texture* source, MTL::Texture* destination,
+        const gpu::TextureCopyRegion& region)
+    {
+        if (!source || !destination) {
+            return false;
+        }
+        auto* commandBuffer = openCommandBuffer();
+        auto* blitEncoder = commandBuffer ? commandBuffer->blitCommandEncoder() : nullptr;
+        if (!blitEncoder) {
+            spdlog::warn("MetalGraphicsDevice: a texture copy cannot be encoded inside a render pass");
+            return false;
+        }
+        blitEncoder->copyFromTexture(source, region.face, region.sourceMipLevel,
+            MTL::Origin(region.sourceX, region.sourceY, 0), MTL::Size(region.width, region.height, 1),
+            destination, region.face, region.destMipLevel, MTL::Origin(region.destX, region.destY, 0));
+        blitEncoder->endEncoding();
+        // Inside a frame or an offline scope it is submitted with that; alone, here.
+        if (!_insideFrame && _envBatchDepth <= 0) {
+            flushCommands();
+        }
+        return true;
+    }
+
     uint32_t MetalGraphicsDevice::renderTargetFormatKey()
     {
         const RenderTarget* target = _renderTarget.get();

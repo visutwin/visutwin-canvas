@@ -24,8 +24,9 @@
 // compose/compose-effects.slang: Scene after fringing, Hdr after grading, Ldr after the
 // vignette, Output after gamma. The file in the tree makes each the identity, and it is
 // what the bundle compiles; with effects, RenderPassCompose serves a generated one
-// (buildComposeEffects) and compiles this program at run time. The output alpha stays 1
-// (DEVIATION: upstream writes the scene's alpha).
+// (buildComposeEffects) and compiles this program at run time. The output alpha is the
+// scene's (after the scene slot), so a camera rendering into a target of its own can leave
+// its uncovered pixels transparent.
 import vtquad;
 #include "bindings.slang"
 
@@ -488,6 +489,7 @@ float4 composeFragment(QuadVarying input) : SV_Target0
     const float2 invRes = float2(u.sceneTextureInvResX, u.sceneTextureInvResY);
     const float2 uv = clamp(input.uv, float2(0.0, 0.0), float2(1.0, 1.0));
     float3 result = sampleSceneReduced(uv, invRes, u.sceneDownscale);
+    float alpha = sceneTexture.Sample(uv).a;
 
     // 1. CAS (negative = on).
     if (u.sharpness < 0.0) {
@@ -500,7 +502,9 @@ float4 composeFragment(QuadVarying input) : SV_Target0
     }
 
     // Compose effects at the scene slot.
-    result = composeSlotScene(float4(result, 1.0), uv).rgb;
+    const float4 sceneSlot = composeSlotScene(float4(result, alpha), uv);
+    result = sceneSlot.rgb;
+    alpha = sceneSlot.a;
 
     // 3. DOF, before SSAO.
     if (u.dofEnabled != 0u) {
@@ -579,5 +583,5 @@ float4 composeFragment(QuadVarying input) : SV_Target0
 
     // Compose effects on the output values.
     result = composeSlotOutput(result, uv);
-    return float4(result, 1.0);
+    return float4(result, alpha);
 }

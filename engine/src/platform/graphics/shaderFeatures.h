@@ -26,6 +26,7 @@
 #define VT_SHADER_FEATURES(X) \
     X(BaseColorMap,              "VT_FEATURE_BASE_COLOR_MAP") \
     X(NormalMap,                 "VT_FEATURE_NORMAL_MAP") \
+    X(NormalMapPacked,           "VT_FEATURE_NORMAL_MAP_PACKED") \
     X(MetallicRoughnessMap,      "VT_FEATURE_METAL_ROUGHNESS_MAP") \
     X(OcclusionMap,              "VT_FEATURE_OCCLUSION_MAP") \
     X(EmissiveMap,               "VT_FEATURE_EMISSIVE_MAP") \

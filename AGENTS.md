@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 126 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 146 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -990,6 +990,14 @@ present, but the rule below never depends on reading it.
   layout it borrowed. The Vulkan path refuses outright while a frame or an offline
   scope is recording: that work is not submitted, so a one-shot read would run
   ahead of the very commands whose output is being asked for.
+- **A texture-to-texture copy goes through `Texture::copy(source, CopyOptions)`** (mip levels,
+  one cube face, a source rectangle and where it lands; one format, uncompressed, two
+  different textures), the GPU twin of `Texture::read`. Metal encodes the blit into the OPEN
+  command buffer, so it stays in order with the frame and is refused inside a render pass;
+  Vulkan submits a one-shot copy and waits, so it is refused while a frame or offline scope
+  records, as a read is, and hands both subresources back in the layout it found them (a
+  destination never written is left ready to sample). `tests/textureCopyTests.cpp` (`gpu`)
+  round-trips a whole level, a mip, a sub-rectangle over existing data and a cube face.
 - **An offline bake needs the per-draw uniform RINGS, which are frame-scoped, and a bake
   BEFORE THE FIRST FRAME (an env atlas built at load time, as upstream's examples do) is
   the special case.** `frameStart` is what advances a ring onto a region of its own. Before
@@ -2874,6 +2882,14 @@ present, but the rule below never depends on reading it.
   after the grab while the opaque world and the sky go to the back buffer for
   compose to overwrite. That is a black frame, not a missing reflection. Outside a
   camera frame the standalone grab pass copies the back buffer.
+- **A camera frame composes into its CAMERA's render target, and its output alpha is the
+  scene's.** `ForwardRenderer::addCameraFramePass` hands the frame the render action's target
+  (null for the back buffer), and the frame sizes its scene targets from that target
+  (`RenderPassCameraFrame::outputSize`), not from the window. Built with a null target, a
+  camera rendering into a texture through post-processing (`taa-alpha`) composed onto the BACK
+  BUFFER, and its texture was never written. Compose writes the scene's alpha after the scene
+  slot, so a texture cleared transparent stays transparent where nothing drew; nothing reads
+  the back buffer's alpha (the swapchain composites opaque, screenshots write 255).
 - **A camera frame effect's passes are built once per REBUILD, and the rebuild key is
   `CameraFrameOptions::effectsKey`** (the serial, required resources and `buildKey()` of
   every active effect that owns passes or requires a resource; a compose-only effect
@@ -3354,6 +3370,16 @@ What stays HERE is only what bites during UNRELATED work.
   hides it; a ribbed coat normal map shows it). Reference: `clearcoat` on Vulkan reads
   a mean absolute difference of 0.002 counts against Metal on the whole 900x700 frame,
   with 12 pixels above 8 counts — isolated specular glints.
+- **Parity gaps porting met, deferred:** (1) there is no per-texture sRGB flag: every colour
+  texture is decoded from gamma, where upstream treats a texture NOT flagged sRGB (its texture
+  assets by default) as linear — `texture-copy`'s images read darker than upstream's, exactly
+  by one decode; any port whose upstream loads colour textures without `srgb: true` differs the
+  same way. (2) The environment atlas is scene-global: no per-material `envAtlas` or box
+  projection (`graphics/reflection-box`). (3) No per-`MeshInstance` parameter overrides
+  (`test/material-instance-overrides`). (4) No `CanvasFont` (`text-emojis`, `element-colors`,
+  `element-states`). (5) `.basis` files do not load (libktx reads KTX2 only; `texture-basis`
+  ships KTX2 re-encodes). (6) A custom shader material gets no skin or morph variant
+  (`shaders/shader-hatch`).
 - **Queued — none a correctness bug:** the
   binding footprint exceeds WebGPU's defaults (Metal 43 texture slots, Vulkan 7 sets). The
   parsers derive tangents through one `generateTangents` / `tangentFromNormal`
