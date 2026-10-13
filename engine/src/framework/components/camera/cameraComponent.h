@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -128,6 +129,11 @@ namespace visutwin::canvas
     // colour enhance, LUTs) come from ComposeColorSettings.
     struct RenderingSettings : ComposeColorSettings
     {
+        // A debug view the camera frame's composition shows instead of the image: "scene",
+        // "depth", "bloom", "ssao", "dofcoc", "dofblur", "vignette", or a view a compose effect
+        // provides (CameraFrameEffectOptions::debugViews). Black when nothing in the frame
+        // produces it; empty for none. It does not make the camera render through a frame.
+        std::string composeDebug;
         float renderTargetScale = 1.0f;
         float sharpness = 0.0f;
         float bloomIntensity = 0.0f;  // 0 = disabled

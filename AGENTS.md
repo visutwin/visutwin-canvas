@@ -34,13 +34,13 @@ Vulkan 1.3.
 
 ```
 visutwin-canvas/
-  engine/          # Core 3D engine (365 .h + 259 .cpp + 1 .mm = 625 files)
+  engine/          # Core 3D engine (366 .h + 260 .cpp + 1 .mm = 627 files)
     src/core/      # Math (Vector2/3/4, Matrix4, Quaternion, SIMD multi-backend), shapes, events, tags
     src/platform/  # Graphics abstraction + Metal and Vulkan backends, input
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 88 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 91 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -2791,15 +2791,20 @@ present, but the rule below never depends on reading it.
   compose to overwrite. That is a black frame, not a missing reflection. Outside a
   camera frame the standalone grab pass copies the back buffer.
 - **A camera frame effect's passes are built once per REBUILD, and the rebuild key is
-  `CameraFrameOptions::effectsKey`** (every active effect's serial, required resources and
-  `buildKey()`). An effect setting that changes what its passes are built from belongs in
+  `CameraFrameOptions::effectsKey`** (the serial, required resources and `buildKey()` of
+  every active effect that owns passes or requires a resource; a compose-only effect
+  rebuilds nothing). An effect setting that changes what its passes are built from belongs in
   `buildKey()`; one a pass reads each frame is applied in `update()`, which runs every
   frame. A `postOpaque` pass splits the scene pass at the grab layer, so effect passes are
   created BEFORE the scene passes (`setupEffectPasses`). Single-sampled, the `SceneTarget`
   an effect gets is a colour-only alias of the scene texture (the depth it samples is the
   scene target's attachment), which `frameUpdate` rebuilds when the shared texture's size
   moves (`RenderTarget::refreshAttachments`): a target over a texture another target
-  resized cannot resize itself. Detail in ARCHITECTURE.md, camera frame effects.
+  resized cannot resize itself. A COMPOSE effect's chunk reaches the compose pass through
+  `compose/compose-effects.slang`, whose tree copy makes every hook the identity: keep it
+  so, since it is what the bundle builds and what every frame without a compose effect
+  runs; a change to the hooks or to `ComposeUniforms` (effectData at offset 208, asserted)
+  is a change to every camera frame. Detail in ARCHITECTURE.md, camera frame effects.
 - **The grabbed scene colour is LINEAR HDR under a camera frame and GAMMA-encoded
   otherwise**, so every consumer gates its decode on bit 5 of
   `LightingData::flagsAndPad[0]`, the same bit the sky and the tail check. There are

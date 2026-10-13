@@ -19,6 +19,13 @@
 // sharpness to lerp(-0.125, -0.2, s)); a positive one turns the kernel into a blur.
 // Tone mapping NONE applies neither the curve nor exposure. The 3D LUT is a 256x16 strip
 // loaded non-sRGB, so its sample is decoded here (DEVIATION: upstream lets the sampler).
+//
+// Compose effects (CameraFrameEffect with a ComposeSlot) are called through four hooks of
+// compose/compose-effects.slang: Scene after fringing, Hdr after grading, Ldr after the
+// vignette, Output after gamma. The file in the tree makes each the identity, and it is
+// what the bundle compiles; with effects, RenderPassCompose serves a generated one
+// (buildComposeEffects) and compiles this program at run time. The output alpha stays 1
+// (DEVIATION: upstream writes the scene's alpha).
 import vtquad;
 #include "bindings.slang"
 
@@ -72,6 +79,9 @@ struct ComposeUniforms
     uint dofMultipass;
     float dofBlurTexelX;
     float dofBlurTexelY;
+    uint debugMode;            // kComposeDebug* in composeShaders.h
+    uint cameraOrthographic;
+    float4 effectData[24];     // the compose effects' uniforms (kComposeEffectDataRows)
 };
 VT_DECLARE_QUAD_UNIFORMS(ComposeUniforms, u)
 VT_DECLARE_QUAD_INPUT0(sceneTexture)
@@ -413,6 +423,59 @@ float3 sampleSceneReduced(float2 uv, float2 invRes, float scale)
     return sum / float(taps * taps);
 }
 
+// What a compose effect's chunk reads besides its uniforms: the scene texture's size
+// (width, height, 1 / width, 1 / height) and the linear depth, valid when the depth input
+// is bound (an effect requiring FrameResource::Depth, the depth debug view, single-pass DOF).
+#define sceneTextureSize float4(1.0 / u.sceneTextureInvResX, 1.0 / u.sceneTextureInvResY, \
+    u.sceneTextureInvResX, u.sceneTextureInvResY)
+
+float getLinearScreenDepth(float2 uv)
+{
+    return quadLinearDepth(depthTexture.SampleLevel(uv, 0.0), u.dofCameraNear, u.dofCameraFar,
+        u.cameraOrthographic != 0u);
+}
+
+#include "compose/compose-effects.slang"
+
+// The built-in debug views: each the quantity its stage applies, black while the stage is
+// off. The composed effects' own views come from composeEffectDebug.
+float3 composeDebugView(uint mode, float2 uv, float3 result)
+{
+    if (mode == 1u) {          // scene: the scene texture before any effect
+        return sceneTexture.SampleLevel(uv, 0.0).rgb;
+    }
+    if (mode == 2u) {          // depth: a linear ramp over the clip range
+        const float depth = getLinearScreenDepth(uv);
+        return float3(1.0, 1.0, 1.0) * saturate((depth - u.dofCameraNear) / (u.dofCameraFar - u.dofCameraNear));
+    }
+    if (mode == 3u) {
+        return u.bloomEnabled != 0u ? bloomTexture.SampleLevel(uv, 0.0).rgb * max(u.bloomIntensity, 0.0)
+                                    : float3(0.0, 0.0, 0.0);
+    }
+    if (mode == 4u) {
+        return float3(1.0, 1.0, 1.0) * (u.ssaoEnabled != 0u ? saturate(ssaoTexture.SampleLevel(uv, 0.0).r) : 0.0);
+    }
+    if (mode == 5u) {
+        return u.dofEnabled != 0u && u.dofMultipass != 0u ? float3(sampleCoc(uv).rg, 0.0) : float3(0.0, 0.0, 0.0);
+    }
+    if (mode == 6u) {
+        return u.dofEnabled != 0u && u.dofMultipass != 0u ? blurTexture.SampleLevel(uv, 0.0).rgb
+                                                          : float3(0.0, 0.0, 0.0);
+    }
+    if (mode == 7u) {          // vignette: its gradient
+        if (u.vignetteEnabled == 0u) {
+            return float3(0.0, 0.0, 0.0);
+        }
+        const float2 curve = pow(abs(uv * 2.0 - 1.0), float2(1.0 / u.vignetteCurvature, 1.0 / u.vignetteCurvature));
+        const float edge = pow(length(curve), u.vignetteCurvature);
+        return float3(1.0, 1.0, 1.0) * (1.0 - u.vignetteIntensity * smoothstep(u.vignetteInner, u.vignetteOuter, edge));
+    }
+    if (mode >= 16u) {
+        return composeEffectDebug(mode - 16u, result);
+    }
+    return float3(0.0, 0.0, 0.0);   // 8: asked for a view nothing in this frame produces
+}
+
 [shader("vertex")]
 QuadVarying composeVertex(QuadVertexIn input)
 {
@@ -435,6 +498,9 @@ float4 composeFragment(QuadVarying input) : SV_Target0
     if (u.fringingIntensity > 0.0) {
         result = applyFringing(result, uv, u.fringingIntensity);
     }
+
+    // Compose effects at the scene slot.
+    result = composeSlotScene(float4(result, 1.0), uv).rgb;
 
     // 3. DOF, before SSAO.
     if (u.dofEnabled != 0u) {
@@ -469,6 +535,9 @@ float4 composeFragment(QuadVarying input) : SV_Target0
             float3(u.gradingTintR, u.gradingTintG, u.gradingTintB));
     }
 
+    // Compose effects in linear HDR.
+    result = composeSlotHdr(result, uv);
+
     // 8. Tone mapping.
     result = max(result, float3(0.0, 0.0, 0.0));
     if (u.tonemapMode == 1u) {           // FILMIC
@@ -498,7 +567,17 @@ float4 composeFragment(QuadVarying input) : SV_Target0
             u.vignetteIntensity, vigColor);
     }
 
+    // Compose effects after tone mapping, before gamma.
+    result = composeSlotLdr(result, uv);
+
+    if (u.debugMode != 0u) {
+        result = composeDebugView(u.debugMode, uv, result);
+    }
+
     // 11. Display gamma: the back buffer is a UNORM format, so gamma is applied here.
     result = pow(max(result, float3(0.0, 0.0, 0.0)) + 0.0000001, float3(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2));
+
+    // Compose effects on the output values.
+    result = composeSlotOutput(result, uv);
     return float4(result, 1.0);
 }

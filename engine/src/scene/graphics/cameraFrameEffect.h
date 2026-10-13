@@ -23,22 +23,43 @@
 // created from them; the frame recreates the passes whenever the set of active effects,
 // any one's required resources or its buildKey() changes.
 //
-// DEVIATION: an effect is registered on the camera component, which co-owns it, because
+// An effect can also add code to the composition, the frame's single compose pass, at one
+// of four slots (ComposeSlot), with no pass of its own: a Slang chunk defining
+// `apply<Id>` (float3 (float3 color, float2 uv) at Hdr / Ldr / Output, float4 (float4 color,
+// float2 uv) at Scene), called after the frame's own effects at that slot and in
+// registration order. The chunk reads `sceneTexture` (the scene, a Sampler2D),
+// `sceneTextureSize` (width, height, 1 / width, 1 / height), `getLinearScreenDepth(uv)` when
+// the effect requires FrameResource::Depth, and its uniforms by name. The frame declares
+// the uniforms (setUniform), so the chunk declares none; setDefine adds a #define, and
+// `<ID>` (the id in upper snake case) is defined while the effect is active. A view named in
+// `debugViews` is a `float3 debug<Name>()` in the chunk, shown through
+// RenderingSettings::composeDebug. The compose shader is compiled at run time for each
+// distinct set of chunks, defines and uniform names (a uniform's VALUE costs nothing).
+//
+// DEVIATIONS: an effect is registered on the camera component, which co-owns it, because
 // a camera frame here is created by the renderer for the camera rather than by the
-// application. An effect contributes passes only; it cannot add code to the composition.
+// application; the chunk is Slang, declares no uniforms, cannot be overridden through
+// ShaderChunks, and takes no texture uniform.
 //
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace visutwin::canvas
 {
     class CameraComponent;
+    struct Color;
     class GraphicsDevice;
+    struct Matrix4;
+    struct Vector2;
+    struct Vector3;
+    struct Vector4;
     class RenderPass;
     class RenderTarget;
     class Texture;
@@ -60,6 +81,41 @@ namespace visutwin::canvas
         SceneColorGrab,
         /// A render target onto the scene colour, for a pass that draws into the scene.
         SceneTarget,
+    };
+
+    /// Where in the compose pass an effect's chunk is called. In chain order: Scene right after
+    /// the scene sample (after CAS and fringing), Hdr in linear scene-referred colour before
+    /// tone mapping (after grading), Ldr after tone mapping, the colour LUT and the vignette,
+    /// before gamma, Output after gamma.
+    enum class ComposeSlot
+    {
+        None,
+        Scene,
+        Hdr,
+        Ldr,
+        Output,
+    };
+
+    /// An effect's declarations; fixed for its life.
+    struct CameraFrameEffectOptions
+    {
+        ComposeSlot slot = ComposeSlot::None;
+        /// The compose chunk, Slang; read only while the slot is not None.
+        std::string slang;
+        /// Debug views the chunk provides, each a `float3 debug<Name>()`.
+        std::vector<std::string> debugViews;
+        /// The function called at the slot; empty for `apply<Id>`.
+        std::string entryPoint;
+        std::vector<FrameResource> requiredResources;
+    };
+
+    /// A uniform an effect set: its float4 rows (1, or 4 for a matrix) and how many lanes the
+    /// shader reads (1-4; 16 for a matrix).
+    struct ComposeEffectUniform
+    {
+        std::string name;
+        int components = 1;
+        std::array<float, 16> value{};
     };
 
     /// What the frame hands an effect to create its passes from.
@@ -112,6 +168,7 @@ namespace visutwin::canvas
         /// `id` names the effect on its camera, where ids are unique. `requiredResources` is what
         /// requiredResources() returns unless a subclass decides it from its parameters.
         explicit CameraFrameEffect(std::string id, std::vector<FrameResource> requiredResources = {});
+        CameraFrameEffect(std::string id, CameraFrameEffectOptions options);
         virtual ~CameraFrameEffect() = default;
 
         CameraFrameEffect(const CameraFrameEffect&) = delete;
@@ -153,13 +210,48 @@ namespace visutwin::canvas
         /// Called every frame after update(), with the values of this frame.
         virtual void frameUpdate(const CameraFrameEffectContext& /*context*/) {}
 
+        /// The compose slot, the chunk and its debug views (see the file comment).
+        [[nodiscard]] ComposeSlot slot() const { return _slot; }
+        [[nodiscard]] const std::string& slang() const { return _slang; }
+        [[nodiscard]] const std::vector<std::string>& debugViews() const { return _debugViews; }
+        /// The function the composition calls: `apply<Id>` unless given.
+        [[nodiscard]] std::string entryPoint() const;
+        /// Defined on the compose shader while the effect is active: `colorEnhance` gives
+        /// `COLOR_ENHANCE`.
+        [[nodiscard]] std::string defineName() const;
+
+        /// Sets a #define for the chunk; an empty value removes it. Kept until changed, so a
+        /// fixed define is set once and one depending on a parameter in update(). A change
+        /// compiles another compose shader.
+        void setDefine(const std::string& name, const std::string& value = "1");
+        [[nodiscard]] const std::vector<std::pair<std::string, std::string>>& defines() const { return _defines; }
+
+        /// Sets a uniform the chunk reads by `name`. Set the values in update(), or in
+        /// frameUpdate() for one that changes every frame; a new name or another type
+        /// compiles another compose shader, a new value does not.
+        void setUniform(const std::string& name, float value);
+        void setUniform(const std::string& name, const Vector2& value);
+        void setUniform(const std::string& name, const Vector3& value);
+        void setUniform(const std::string& name, const Vector4& value);
+        void setUniform(const std::string& name, const Color& value);   // float4, rgba
+        void setUniform(const std::string& name, const Matrix4& value); // float4x4, as the engine's matrices
+        [[nodiscard]] const std::vector<ComposeEffectUniform>& uniforms() const { return _uniforms; }
+
         /// A process-wide serial: what the frame identifies an effect instance by, so that
         /// a new instance with the id of a removed one still rebuilds the passes.
         [[nodiscard]] uint64_t serial() const { return _serial; }
 
     private:
+        ComposeEffectUniform& uniformSlot(const std::string& name, int components);
+
         std::string _id;
         std::vector<FrameResource> _requiredResources;
+        ComposeSlot _slot = ComposeSlot::None;
+        std::string _slang;
+        std::vector<std::string> _debugViews;
+        std::string _entryPoint;
+        std::vector<std::pair<std::string, std::string>> _defines;
+        std::vector<ComposeEffectUniform> _uniforms;
         bool _enabled = true;
         uint64_t _serial = 0;
     };

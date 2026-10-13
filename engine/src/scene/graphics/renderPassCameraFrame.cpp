@@ -197,7 +197,9 @@ namespace visutwin::canvas
         options.effectSceneColorHalf = false;
         options.effectSceneTarget = false;
         for (const auto& effect : _cameraComponent->frameEffects()) {
-            if (!effect || !effect->active()) {
+            // An effect that only adds code to the composition changes no pass: the compose
+            // pass follows it every frame, so it does not rebuild the frame.
+            if (!effect || !effect->active() || (!effect->ownsPasses() && effect->requiredResources().empty())) {
                 continue;
             }
             options.effectsKey += std::to_string(effect->serial()) + ":";
@@ -649,11 +651,7 @@ namespace visutwin::canvas
             return;
         }
         for (const auto& effect : _cameraComponent->frameEffects()) {
-            if (!effect || !effect->active()) {
-                continue;
-            }
-            _activeEffects.push_back(effect);
-            if (!effect->ownsPasses()) {
+            if (!effect || !effect->active() || !effect->ownsPasses()) {
                 continue;
             }
 
@@ -707,7 +705,6 @@ namespace visutwin::canvas
             effect->destroyPasses();
         }
         _passEffects.clear();
-        _activeEffects.clear();
         _effectStagePasses = {};
     }
 
@@ -1086,6 +1083,24 @@ namespace visutwin::canvas
         // Vignette, fringing, grading, colour enhance and the LUTs.
         _composePass->setColorSettings(options);
 
+        // The compose effects, the debug view and what both read of the depth: the scene depth
+        // when an effect requires it or the depth view asks for it and the frame has one (the
+        // scene pass writes it single-sampled, the prepass under MSAA), and the camera planes.
+        if (_cameraComponent) {
+            _composePass->setEffects(_cameraComponent->frameEffects());
+            const std::string& debugView = _cameraComponent->rendering().composeDebug;
+            _composePass->setDebugView(debugView);
+            const bool depthAvailable = _sceneDepthTexture && (options.samples == 1 || options.prepassEnabled);
+            if (depthAvailable && (options.effectDepth || options.effectPrepassDepth || debugView == "depth")) {
+                _composePass->setDepthTexture(_sceneDepthTexture.get());
+            }
+            if (auto* camera = _cameraComponent->camera()) {
+                _composePass->setDofCameraNear(camera->nearClip());
+                _composePass->setDofCameraFar(camera->farClip());
+                _composePass->setCameraOrthographic(camera->projection() == ProjectionType::Orthographic);
+            }
+        }
+
         _composePass->init(_targetRenderTarget);
     }
 
@@ -1208,18 +1223,21 @@ namespace visutwin::canvas
             }
         }
 
-        // The effects get this frame's values once the TAA history is assigned, and before
-        // any of their passes renders (the frame graph updates a pass before its children).
-        if (!_activeEffects.empty()) {
+        // The active effects get this frame's values once the TAA history is assigned, and
+        // before any of their passes renders (the frame graph updates a pass before its
+        // children) or the composition is built from them (the compose pass's prepareShaders).
+        if (_cameraComponent && !_cameraComponent->frameEffects().empty()) {
             CameraFrameEffectContext context;
             context.sceneTexture = _sceneTextureResolved ? _sceneTextureResolved : _sceneTexture.get();
             if (_sceneTexture) {
                 context.sceneWidth = static_cast<int>(_sceneTexture->width());
                 context.sceneHeight = static_cast<int>(_sceneTexture->height());
             }
-            for (const auto& effect : _activeEffects) {
-                effect->update();
-                effect->frameUpdate(context);
+            for (const auto& effect : _cameraComponent->frameEffects()) {
+                if (effect && effect->active()) {
+                    effect->update();
+                    effect->frameUpdate(context);
+                }
             }
         }
     }

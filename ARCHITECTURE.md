@@ -1272,12 +1272,12 @@ The cross-cutting traps stay in `AGENTS.md`.
 of a camera frame: registered with `CameraComponent::addFrameEffect` (the camera co-owns
 it; ids are unique per camera; `removeFrameEffect`, `frameEffect(id)`), it adds render
 passes of its own at four stages and asks the frame for the resources they read. An
-active effect makes the camera render through a frame (`onPostprocessing`). Port of
-upstream's API for effects that own passes (its `postOpaque` stage included); the
-composition contributions upstream effects can also make (a shader chunk called at a
-compose slot) are NOT ported, and the built-in effects stay internal passes configured by
-`RenderingSettings` — DEVIATIONS both, plus the registration on the camera rather than on
-a CameraFrame object.
+active effect makes the camera render through a frame (`onPostprocessing`). An effect can
+also add code to the compose pass at a slot (below). Port of upstream's API (its
+`postOpaque` stage included). DEVIATIONS: the built-in effects stay internal passes
+configured by `RenderingSettings`, an effect registers on the camera rather than on a
+CameraFrame object, and a compose chunk is Slang, declares no uniforms, cannot be
+overridden through ShaderChunks and takes no texture.
 
 - **Stages** (`CameraFrameEffectPasses`), placed in `RenderPassCameraFrame::collectPasses`
   after the frame's own passes at that point, in registration order: `preScene` after the
@@ -1296,13 +1296,38 @@ a CameraFrame object.
   attachment; under MSAA the multisampled scene target itself, whose depth is internal).
   An effect asking for the target also keeps the multisampled target's twins stored.
 - **Lifetime**: `applyCameraSettings` builds `CameraFrameOptions::effectsKey` from every
-  active effect's serial, required resources and (if it owns passes) `buildKey()`; a change
+  active effect that owns passes or requires a resource (a compose-only effect changes no
+  pass): its serial, required resources and (if it owns passes) `buildKey()`; a change
   is a `needsReset`, which calls `destroyPasses()` on every effect whose passes were made
   and `createPasses()` on the active ones (`setupEffectPasses`, before the scene passes are
   built, since a `postOpaque` pass splits them). The passes persist across frames, like the
   frame's texture-owning sub-passes; the frame's destructor releases them too. Every frame
-  `frameUpdate` calls each active effect's `update()` and then `frameUpdate(context)` (the
-  scene texture after TAA, its size), before any effect pass renders.
+  `frameUpdate` calls each of the camera's active effects' `update()` and then
+  `frameUpdate(context)` (the scene texture after TAA, its size), before any effect pass
+  renders and before the composition is built from them.
+- **Compose slots** (`ComposeSlot`, `CameraFrameEffectOptions{slot, slang, debugViews,
+  entryPoint}`): `programs/compose.slang` includes `compose/compose-effects.slang` and calls
+  four hooks, Scene after fringing (on a float4), Hdr after grading, Ldr after the
+  vignette, Output after gamma. The file in the tree makes each the identity, and the
+  bundled compose is built with it, so with no compose effect the composition is the
+  bundled program, bit for bit. With effects, `RenderPassCompose::prepareShaders` runs
+  `buildComposeEffects` (`scene/graphics/composeEffects.h`, pure) every frame: each
+  effect's `#define <ID> 1`, its `setDefine`s, a macro per uniform (`#define tintColor
+  (u.effectData[1].xyz)`), its chunk, then the four hooks calling `apply<Id>` in slot and
+  registration order and `composeEffectDebug` for their views. The text is served as a
+  file override and compiled at run time (`getOrCreateSlangShaderWithFiles`, cached on the
+  device by the text's hash, ~0.1-0.2 s the first time), so a new uniform VALUE costs
+  nothing while a define, a uniform's name or type, or the active set compiles another.
+  The uniforms share `ComposeUniforms::effectData[24]` (float4 rows from offset 208, one per
+  value, four per matrix; asserted in `composeShaders.h` and against the bundle's
+  reflection, 592 bytes); an effect that does not fit is left out with an error. A chunk
+  reads `sceneTexture`, `sceneTextureSize` and `getLinearScreenDepth(uv)`, whose depth the
+  frame binds when an effect requires `Depth` (or the depth view asks) and the frame has one.
+- **Debug views** (`RenderingSettings::composeDebug`, a run-time mode, no variant):
+  `scene`, `depth`, `bloom`, `ssao`, `dofcoc`, `dofblur`, `vignette`, or an effect's view
+  (`float3 debug<Name>()`), shown before gamma; black when nothing in the frame produces it
+  (the depth view of a multisampled frame without a prepass, say). A debug view never turns
+  rendering on.
 - **The colour-only alias follows the shared scene texture by hand**: its own `width()`
   reads the already-resized texture, so `resize` would do nothing, and Vulkan caches the
   image views at `createFrameBuffers`. `frameUpdate` compares the size the alias was built
@@ -1316,8 +1341,13 @@ a CameraFrame object.
   Cached on the device by a hash of the source, and the SPIR-V in Vulkan's disk cache.
 
 `tests/cameraFrameEffectTests.cpp` holds the stage order (in the frame and as executed),
-the resources and the producers they switch on, rebuilds and the passes' lifetime;
-`tests/slangGpuTests.cpp` draws an application program from a string. Example:
+the resources and the producers they switch on, rebuilds and the passes' lifetime, and
+that a compose-only effect rebuilds nothing; `tests/composeEffectsTests.cpp` the generated
+file (order, identifiers, uniform rows and packing, overflow, debug modes, what changes the
+text); `tests/slangGpuTests.cpp` draws an application program from a string and a
+composition with an effect at each slot against the closed form. Examples:
+`custom-compose-shader` (a pixelation at the LDR slot), `hdr` (the bloom debug view) and,
+without effects, `volumetric-fog`. Example:
 `ink-outline` (upstream `camera-frame/ink-outline`): lines from the second difference of
 inverse depth and from luminance contrast, drawn at `postOpaque` under the bubbles and
 fireflies; Metal and Vulkan agree to 0.07 counts mean.

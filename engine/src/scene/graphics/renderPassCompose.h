@@ -6,11 +6,18 @@
 //
 #pragma once
 
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "composeColorSettings.h"
+#include "composeEffects.h"
 #include "renderPassShaderQuad.h"
 
 namespace visutwin::canvas
 {
+    class CameraFrameEffect;
+
     class RenderPassCompose : public RenderPassShaderQuad
     {
     public:
@@ -87,6 +94,21 @@ namespace visutwin::canvas
         const ComposeColorSettings& colorSettings() const { return _color; }
         void setColorSettings(const ComposeColorSettings& value) { _color = value; }
 
+        /// The camera's frame effects; those active with a compose slot are composed
+        /// (buildComposeEffects), each time the shader is prepared, so an effect's update()
+        /// running after this is set is what the frame composes.
+        void setEffects(const std::vector<std::shared_ptr<CameraFrameEffect>>& effects) { _effects = effects; }
+        /// The composition as last built: the effects composed, their views, what they need.
+        const ComposeEffectsBuild& effectsBuild() const { return _effectsBuild; }
+
+        /// The debug view to show instead of the composition (composeDebugMode), empty for none.
+        const std::string& debugView() const { return _debugView; }
+        void setDebugView(const std::string& value) { _debugView = value; }
+
+        /// For getLinearScreenDepth: whether the camera is orthographic. Its clip planes are the
+        /// DOF camera planes, set whatever the effects.
+        void setCameraOrthographic(const bool value) { _cameraOrthographic = value; }
+
         void execute() override;
         void prepareShaders() override;
 
@@ -114,5 +136,11 @@ namespace visutwin::canvas
         float _dofCameraFar = 100.0f;
 
         ComposeColorSettings _color;
+
+        std::vector<std::shared_ptr<CameraFrameEffect>> _effects;
+        ComposeEffectsBuild _effectsBuild;
+        std::string _reportedErrors;
+        std::string _debugView;
+        bool _cameraOrthographic = false;
     };
 }

@@ -142,4 +142,11 @@ namespace visutwin::canvas
     /// when it does not compile.
     std::shared_ptr<Shader> getOrCreateSlangShaderFromSource(GraphicsDevice* device, const std::string& name,
         const std::string& source, const std::string& variant = {});
+
+    /// The shader for engine program `program` / `variant` with some of its files replaced
+    /// (`files`: a file NAME and its text, as a chunk override), compiled at run time; cached on
+    /// the device under "slang:<program>[@<variant>]+<hash of the files>". With no files it is
+    /// getOrCreateSlangShader. Null, with the diagnostics logged, when it does not compile.
+    std::shared_ptr<Shader> getOrCreateSlangShaderWithFiles(GraphicsDevice* device, const std::string& program,
+        const SlangFileOverrides& files, const std::string& variant = {});
 }

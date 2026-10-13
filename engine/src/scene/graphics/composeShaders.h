@@ -15,10 +15,26 @@
 //
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace visutwin::canvas::compose_shaders
 {
+    /// Float4 rows the compose effects' uniforms share.
+    inline constexpr int kComposeEffectDataRows = 24;
+
+    /// Debug views of the compose pass (ComposeUniforms::debugMode).
+    inline constexpr uint32_t kComposeDebugNone = 0;
+    inline constexpr uint32_t kComposeDebugScene = 1;
+    inline constexpr uint32_t kComposeDebugDepth = 2;
+    inline constexpr uint32_t kComposeDebugBloom = 3;
+    inline constexpr uint32_t kComposeDebugSsao = 4;
+    inline constexpr uint32_t kComposeDebugDofCoc = 5;
+    inline constexpr uint32_t kComposeDebugDofBlur = 6;
+    inline constexpr uint32_t kComposeDebugVignette = 7;
+    inline constexpr uint32_t kComposeDebugMissing = 8;      // a view nothing in the frame produces: black
+    inline constexpr uint32_t kComposeDebugFirstEffect = 16;
+
     struct alignas(16) ComposeUniforms
     {
         uint32_t dofEnabled = 0u;
@@ -80,10 +96,19 @@ namespace visutwin::canvas::compose_shaders
         // Texel size of the DOF blur texture, for the low-quality 3x3 upsample.
         float dofBlurTexelX = 0.0f;
         float dofBlurTexelY = 0.0f;
+        // The debug view (kComposeDebug*, or kComposeDebugFirstEffect + i for the i-th view the
+        // composed effects provide); 0 shows the composition.
+        uint32_t debugMode = 0u;
+        // 1 when the camera is orthographic, for getLinearScreenDepth.
+        uint32_t cameraOrthographic = 0u;
+        // The uniforms of the compose effects (CameraFrameEffect::setUniform), one float4 row
+        // each, four for a matrix, laid out by buildComposeEffects.
+        alignas(16) float effectData[kComposeEffectDataRows][4] = {};
     };
 
-    // A block of scalars (plus one vec2) packs identically under MSL and
-    // std140, so both shaders declare this same field list.
-    static_assert(sizeof(ComposeUniforms) <= 512, "must fit kPerDrawUniformCapacity");
+    // Scalars, then a float4 array: packs identically under MSL and std140, so the program
+    // declares this same field list.
+    static_assert(offsetof(ComposeUniforms, effectData) == 208, "compose.slang places effectData at 208");
+    static_assert(sizeof(ComposeUniforms) <= 640, "must fit kPerDrawUniformCapacity");
 
 }

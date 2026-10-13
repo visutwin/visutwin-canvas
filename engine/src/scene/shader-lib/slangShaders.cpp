@@ -449,6 +449,13 @@ namespace visutwin::canvas
         return shader;
     }
 
+    namespace
+    {
+        /// A shader of `build`'s first entry per stage, cached on the device under `cacheKey`.
+        std::shared_ptr<Shader> createShaderFromBuild(GraphicsDevice* device, const std::string& cacheKey,
+            const SlangProgramBuild& build, const std::string& name);
+    }
+
     std::shared_ptr<Shader> getOrCreateSlangShaderFromSource(GraphicsDevice* device, const std::string& name,
         const std::string& source, const std::string& variant)
     {
@@ -469,30 +476,63 @@ namespace visutwin::canvas
         if (!compileProgramEntries(device, program, variant, {{program + ".slang", source}}, build)) {
             return nullptr;
         }
+        return createShaderFromBuild(device, cacheKey, build, name);
+    }
 
-        ShaderDefinition definition;
-        definition.name = cacheKey;
-        ShaderCode code;
-        code.specializeFeatures = true;
-        code.metalSource = build.metalSource;
-        for (const auto& entry : build.entries) {
-            std::string& target = entry.stage == "vertex" ? definition.vshader
-                : entry.stage == "fragment" ? definition.fshader : definition.cshader;
-            if (!target.empty()) {
-                continue;
+    std::shared_ptr<Shader> getOrCreateSlangShaderWithFiles(GraphicsDevice* device, const std::string& program,
+        const SlangFileOverrides& files, const std::string& variant)
+    {
+        if (files.empty()) {
+            return getOrCreateSlangShader(device, program, variant);
+        }
+        if (!device) {
+            return nullptr;
+        }
+        std::string material;
+        for (const auto& [name, text] : files) {
+            material += name + "\n" + text + "\n";
+        }
+        const std::string cacheKey = "slang:" + program + (variant.empty() ? "" : "@" + variant) + "+" +
+            hex(fnv1a64(material));
+        if (auto cached = device->getCachedShader(cacheKey)) {
+            return cached;
+        }
+        SlangProgramBuild build;
+        if (!compileProgramEntries(device, program, variant, files, build)) {
+            return nullptr;
+        }
+        return createShaderFromBuild(device, cacheKey, build, program);
+    }
+
+    namespace
+    {
+        std::shared_ptr<Shader> createShaderFromBuild(GraphicsDevice* device, const std::string& cacheKey,
+            const SlangProgramBuild& build, const std::string& name)
+        {
+            ShaderDefinition definition;
+            definition.name = cacheKey;
+            ShaderCode code;
+            code.specializeFeatures = true;
+            code.metalSource = build.metalSource;
+            for (const auto& entry : build.entries) {
+                std::string& target = entry.stage == "vertex" ? definition.vshader
+                    : entry.stage == "fragment" ? definition.fshader : definition.cshader;
+                if (!target.empty()) {
+                    continue;
+                }
+                target = entry.name;
+                auto& spirv = entry.stage == "vertex" ? code.vertexSpirv
+                    : entry.stage == "fragment" ? code.fragmentSpirv : code.computeSpirv;
+                spirv = entry.spirv;
             }
-            target = entry.name;
-            auto& spirv = entry.stage == "vertex" ? code.vertexSpirv
-                : entry.stage == "fragment" ? code.fragmentSpirv : code.computeSpirv;
-            spirv = entry.spirv;
-        }
 
-        auto shader = device->createShaderFromCode(definition, code);
-        if (shader) {
-            device->setCachedShader(cacheKey, shader);
-        } else {
-            spdlog::error("Slang shader '{}': the device refused the compiled code", name);
+            auto shader = device->createShaderFromCode(definition, code);
+            if (shader) {
+                device->setCachedShader(cacheKey, shader);
+            } else {
+                spdlog::error("Slang shader '{}': the device refused the compiled code", name);
+            }
+            return shader;
         }
-        return shader;
     }
 }

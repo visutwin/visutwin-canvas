@@ -22,6 +22,7 @@
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/lightingBlock.h"
 #include "platform/graphics/shader.h"
+#include "scene/graphics/composeShaders.h"
 #include "scene/gsplat/gsplatInstance.h"
 #include "scene/materials/material.h"
 #include "scene/shader-lib/slangShaders.h"
@@ -118,6 +119,7 @@ int main()
     checkBlock("gsplat-render", "gsplatVS", "params", sizeof(GpuGSplatParams));
     checkBlock("procedural-sky", "proceduralSkyFragment", "sky", sizeof(ProceduralSkyBlock));
     checkBlock("procedural-sky-cube", "proceduralSkyCubeFragment", "sky", sizeof(ProceduralSkyBlock));
+    checkBlock("compose", "composeFragment", "u", sizeof(compose_shaders::ComposeUniforms));
     SlangBundledProgram forward;
     if (findBundledSlangProgram("forward", forward)) {
         bool all = true;

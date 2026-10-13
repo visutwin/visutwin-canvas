@@ -9,16 +9,48 @@
 //
 #include "renderPassCompose.h"
 
+#include <spdlog/spdlog.h>
+
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/shader.h"
 #include "platform/graphics/texture.h"
 #include "scene/graphics/composeShaders.h"
+#include "scene/shader-lib/slangShaders.h"
 
 namespace visutwin::canvas
 {
     void RenderPassCompose::prepareShaders()
     {
-        if (!shader()) {
+        // The compose effects as they are now: built every time, because an effect's defines
+        // and uniform names can change from frame to frame. The shader for the generated file
+        // is cached on the device by its text, so an unchanged composition costs the
+        // generation and a lookup.
+        _effectsBuild = buildComposeEffects(_effects);
+        std::string errors;
+        for (const auto& error : _effectsBuild.errors) {
+            errors += error + "\n";
+        }
+        if (errors != _reportedErrors) {
+            _reportedErrors = errors;
+            for (const auto& error : _effectsBuild.errors) {
+                spdlog::error("RenderPassCompose: {}", error);
+            }
+        }
+
+        const auto gd = device();
+        if (!gd) {
+            return;
+        }
+        if (_effectsBuild.source.empty()) {
+            useSlangShader("compose");
+            return;
+        }
+        auto composed = getOrCreateSlangShaderWithFiles(gd.get(), "compose",
+            {{"compose-effects.slang", _effectsBuild.source}});
+        // A chunk that does not compile leaves the frame without its effects rather than black.
+        if (composed) {
+            setShader(composed);
+        } else {
             useSlangShader("compose");
         }
     }
@@ -31,7 +63,9 @@ namespace visutwin::canvas
         }
 
         // Normally there already: the frame graph prepares every pass's shaders first.
-        prepareShaders();
+        if (!shader()) {
+            prepareShaders();
+        }
         if (!shader()) {
             return;
         }
@@ -65,6 +99,14 @@ namespace visutwin::canvas
         uniforms.dofBlurRadius = _dofBlurRadius;
         uniforms.dofCameraNear = _dofCameraNear;
         uniforms.dofCameraFar = _dofCameraFar;
+        uniforms.cameraOrthographic = _cameraOrthographic ? 1u : 0u;
+
+        // The compose effects' uniforms, and the debug view (the depth view needs a depth).
+        packComposeEffectData(_effectsBuild, uniforms.effectData);
+        uniforms.debugMode = composeDebugMode(_debugView, _effectsBuild);
+        if (uniforms.debugMode == compose_shaders::kComposeDebugDepth && !_depthTexture) {
+            uniforms.debugMode = compose_shaders::kComposeDebugMissing;
+        }
 
         const ComposeColorSettings& c = _color;
         uniforms.vignetteEnabled = c.vignetteEnabled ? 1u : 0u;

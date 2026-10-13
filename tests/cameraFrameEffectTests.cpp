@@ -271,6 +271,67 @@ int main()
         check(indexOfType<RenderPassColorGrab>(after) < 0, "and the colour copy it asked for is no longer made");
     }
 
+    std::cout << "compose effects\n";
+    {
+        // A pass-owning effect to count rebuilds by, and a compose-only one.
+        auto owner = std::make_shared<TestEffect>("owner", std::vector<FrameResource>{},
+            std::vector<std::string>{"postScene"});
+        camera->addFrameEffect(owner);
+        auto rendering = camera->rendering();
+        rendering.bloomIntensity = 0.0f;   // nothing else to post-process
+        camera->setRendering(rendering);
+        frame();
+
+        class CountingCompose final : public CameraFrameEffect
+        {
+        public:
+            CountingCompose()
+                : CameraFrameEffect("tint", CameraFrameEffectOptions{.slot = ComposeSlot::Ldr,
+                      .slang = "float3 applyTint(float3 c, float2 uv) { return c * tintScale; }"}) {}
+            void update() override
+            {
+                ++updates;
+                setUniform("tintScale", 0.5f);
+            }
+            int updates = 0;
+        };
+        auto tint = std::make_shared<CountingCompose>();
+        camera->removeFrameEffect(owner);
+        frame();
+        camera->addFrameEffect(owner);
+        frame();
+        const int rebuiltBefore = owner->created;
+        camera->addFrameEffect(tint);
+        frame();
+        frame();
+        check(tint->updates == 2, "a compose effect's update() runs every frame");
+        check(owner->created == rebuiltBefore, "adding a compose-only effect rebuilds no pass");
+        tint->setEnabled(false);
+        frame();
+        tint->setEnabled(true);
+        frame();
+        check(owner->created == rebuiltBefore, "nor does turning it off and on");
+
+        camera->removeFrameEffect(owner);
+        frame();
+        check(camera->onPostprocessing() != nullptr && camera->cameraFrame() != nullptr,
+            "a compose effect alone makes the camera render through a frame");
+
+        auto depthTint = std::make_shared<CameraFrameEffect>("depthTint", CameraFrameEffectOptions{
+            .slot = ComposeSlot::Hdr, .slang = "float3 applyDepthTint(float3 c, float2 uv) { return c; }",
+            .requiredResources = {FrameResource::Depth}});
+        camera->addFrameEffect(owner);
+        frame();
+        const int beforeDepth = owner->created;
+        camera->addFrameEffect(depthTint);
+        frame();
+        check(owner->created == beforeDepth + 1, "a compose effect requiring a resource does rebuild the frame");
+        camera->removeFrameEffect(depthTint);
+        camera->removeFrameEffect(tint);
+        camera->removeFrameEffect(owner);
+        frame();
+    }
+
     std::cout << "the camera going away\n";
     {
         auto last = std::make_shared<TestEffect>("last", std::vector<FrameResource>{},

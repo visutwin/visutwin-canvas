@@ -36,7 +36,7 @@ the [README](README.md).
 
 ## Post-processing & tooling
 - **TAA**, **SSAO** (post-compose or per-material lighting mode), **bloom** (configurable chain depth, threshold, optional full-resolution high quality), **depth of field** (multi-pass bokeh: circle of confusion, CoC-premultiplied far downsample, concentric near/far blur, composed by CoC), **edge detection**, and a compose chain with **color grading**, **3D LUT**, chromatic **fringing**, **color enhance**, **vignette**, and tone mapping (Linear, Filmic, ACES, **ACES2**, Neutral, None)
-- **Camera frame effects**: an application adds render passes of its own to a camera's post-processing frame at four stages (before the scene, between its opaque and transparent layers, after the scene, after TAA), with the scene depth, colour copy, half-resolution scene and scene target handed to it; its shaders are Slang compiled at run time from a string, one source for both backends
+- **Camera frame effects**: an application adds render passes of its own to a camera's post-processing frame at four stages (before the scene, between its opaque and transparent layers, after the scene, after TAA), with the scene depth, colour copy, half-resolution scene and scene target handed to it; its shaders are Slang compiled at run time from a string, one source for both backends. An effect can instead add a few lines of Slang to the single compose pass at one of four points (scene, HDR, LDR, output) with uniforms set from C++, no extra pass; and the composition has **debug views** (scene, depth, bloom, SSAO, DOF CoC and blur, vignette, and any an effect provides)
 - **Planar reflections** with distance-based blur and **atmosphere/sky scattering** (Nishita)
 - **Procedural sky** (`ProceduralSky` script): Preetham daylight with a night sky (stars, twilight, moon), drawn per pixel and baked into the environment atlas that lights the scene, re-baked as the sun moves; drives a sun light
 - **Debug shader passes**: replace the forward output with a single surface quantity (albedo, world normal, opacity, specularity, gloss, metalness, AO, emission, lighting, UV0) — one variant, mode switched at runtime with no recompile
@@ -54,7 +54,7 @@ the [README](README.md).
 - **3D annotations** (upstream's annotations scripts): numbered hotspots that face the camera at a constant screen size and show through occluding geometry at a reduced opacity, with hover colour and a click-to-open tooltip built from UI elements
 - **Localization**: locales with fallbacks, messages from upstream's JSON format, CLDR plural forms, and text elements that follow the locale by key
 - **SIMD math** with SSE, ARM NEON, and Apple SIMD backends (Apple SIMD active on Apple Silicon)
-- **Single-source shaders (Slang)**: every engine shader written once and compiled at build time for both backends (31 programs, every file a build dependency of the bundle); the forward program's 23 chunks are user-overridable as Slang (per material or globally) with cache-invalidation hashing, and the 68-flag feature contract specialises one library per program on both backends
+- **Single-source shaders (Slang)**: every engine shader written once and compiled at build time for both backends (33 programs, every file a build dependency of the bundle); the forward program's 23 chunks are user-overridable as Slang (per material or globally) with cache-invalidation hashing, and the 68-flag feature contract specialises one library per program on both backends
 
 ## Module map
 

@@ -217,10 +217,9 @@ namespace visutwin::canvas
         std::shared_ptr<RenderPassCompose> _composePass;
         std::shared_ptr<RenderPassForward> _afterPass;
 
-        // The frame effects as of the last rebuild: every active one (update / frameUpdate
-        // go to these), those whose passes were created (destroyPasses goes to these, even
-        // after the camera let them go), and their passes per stage.
-        std::vector<std::shared_ptr<CameraFrameEffect>> _activeEffects;
+        // The frame effects whose passes were created at the last rebuild (destroyPasses goes
+        // to these, even after the camera let them go), and their passes per stage. update /
+        // frameUpdate go to the camera's active effects as they are each frame.
         std::vector<std::shared_ptr<CameraFrameEffect>> _passEffects;
         CameraFrameEffectPasses _effectStagePasses;
         // FrameResource::SceneTarget single-sampled: a colour-only target over the scene

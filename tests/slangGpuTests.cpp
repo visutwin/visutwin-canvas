@@ -21,7 +21,10 @@
 // And an application's own quad program compiled from a string at run time
 // (getOrCreateSlangShaderFromSource), importing the engine's modules and bindings as an
 // engine program does: it draws, a second request is the cached shader, and source that
-// does not compile gives no shader.
+// does not compile gives no shader. And the compose pass with a compose effect at each of its
+// four slots (CameraFrameEffect), the composition compiled at run time from the generated hook
+// file: each slot applies at its point of the chain (read back against the closed form), a
+// define and the effect's `<ID>` reach its chunk, and an effect's debug view replaces the image.
 // It needs a GPU and a window, so it carries the `gpu` label.
 //
 // The metal-cpp *_PRIVATE_IMPLEMENTATION translation unit of this executable: a program
@@ -54,7 +57,10 @@
 #include "platform/graphics/shader.h"
 #include "platform/graphics/slangCompiler.h"
 #include "platform/graphics/texture.h"
+#include "scene/constants.h"
+#include "scene/graphics/cameraFrameEffect.h"
 #include "scene/graphics/quadRender.h"
+#include "scene/graphics/renderPassCompose.h"
 #include "scene/shader-lib/slangShaders.h"
 #include "support/check.h"
 
@@ -131,6 +137,16 @@ QuadVarying appVertex(QuadVertexIn input) { return quadPassThrough(input); }
 [shader("fragment")]
 float4 appFragment(QuadVarying input) : SV_Target0 { return u.color; }
 )";
+
+    // One effect per compose slot, applied to a uniform scene of (0.25, 0.5, 0.75) with tone
+    // mapping NONE: scene x 0.5, then + 0.1 in HDR (under its <ID>), then x 2 in LDR (under a
+    // define), gamma, then blue set to 0.2 on the output.
+    std::shared_ptr<CameraFrameEffect> composeEffect(const char* id, const ComposeSlot slot, const char* slang,
+        std::vector<std::string> debugViews = {})
+    {
+        return std::make_shared<CameraFrameEffect>(id,
+            CameraFrameEffectOptions{.slot = slot, .slang = slang, .debugViews = std::move(debugViews)});
+    }
 
     std::string describe(const Pixel p)
     {
@@ -294,6 +310,72 @@ int main()
                         "it covers the target in its uniform's colour " + describe(left) + " " + describe(right));
                 }
             }
+            // The compose pass with an effect at every slot.
+            {
+                TextureOptions sceneOptions;
+                sceneOptions.name = "compose-effects-scene";
+                sceneOptions.width = kSize;
+                sceneOptions.height = kSize;
+                sceneOptions.format = PixelFormat::PIXELFORMAT_RGBA32F;
+                sceneOptions.mipmaps = false;
+                sceneOptions.numLevels = 1;
+                auto sceneTexture = std::make_unique<Texture>(device.get(), sceneOptions);
+                std::vector<float> scenePixels(static_cast<size_t>(kSize) * kSize * 4);
+                for (size_t i = 0; i < scenePixels.size(); i += 4) {
+                    scenePixels[i] = 0.25f;
+                    scenePixels[i + 1] = 0.5f;
+                    scenePixels[i + 2] = 0.75f;
+                    scenePixels[i + 3] = 1.0f;
+                }
+                sceneTexture->setLevelData(0, reinterpret_cast<const uint8_t*>(scenePixels.data()),
+                    scenePixels.size() * sizeof(float));
+                sceneTexture->upload();
+
+                auto sceneEffect = composeEffect("testScene", ComposeSlot::Scene,
+                    "float4 applyTestScene(float4 color, float2 uv) { return float4(color.rgb * sceneScale, color.a); }");
+                sceneEffect->setUniform("sceneScale", 0.5f);
+                auto hdrEffect = composeEffect("testHdr", ComposeSlot::Hdr,
+                    "float3 applyTestHdr(float3 color, float2 uv)\n{\n#if defined(TEST_HDR)\n    return color + hdrAdd;\n"
+                    "#else\n    return float3(0.0, 0.0, 0.0);\n#endif\n}\n"
+                    "float3 debugTestView() { return float3(0.0, 1.0, 0.0); }\n",
+                    {"testView"});
+                hdrEffect->setUniform("hdrAdd", Vector3(0.1f, 0.1f, 0.1f));
+                auto ldrEffect = composeEffect("testLdr", ComposeSlot::Ldr,
+                    "float3 applyTestLdr(float3 color, float2 uv) { return color * LDR_FACTOR; }");
+                ldrEffect->setDefine("LDR_FACTOR", "2.0");
+                auto outputEffect = composeEffect("testOutput", ComposeSlot::Output,
+                    "float3 applyTestOutput(float3 color, float2 uv) { return float3(color.rg, outputBlue); }");
+                outputEffect->setUniform("outputBlue", 0.2f);
+
+                const auto composeOnce = [&](const std::string& debugView, std::vector<uint8_t>& pixels) {
+                    RenderPassCompose compose(sharedDevice);
+                    compose.setSceneTexture(sceneTexture.get());
+                    compose.setToneMapping(TONEMAP_NONE);
+                    compose.setExposure(1.0f);
+                    compose.setEffects({sceneEffect, hdrEffect, ldrEffect, outputEffect});
+                    compose.setDebugView(debugView);
+                    compose.init(target);
+                    device->frameStart();
+                    compose.prepareShaders();
+                    compose.render();
+                    device->frameEnd();
+                    return compose.shader() != nullptr && color->read(pixels);
+                };
+
+                std::vector<uint8_t> pixels;
+                if (check(composeOnce("", pixels), "the composition with an effect at each slot compiles and draws")) {
+                    // pow(0.45, 1/2.2) = 0.6955, pow(0.7, 1/2.2) = 0.8503, then blue = 0.2.
+                    const Pixel p = at(pixels, kSize / 2, kSize / 2);
+                    check(isColor(p, 177, 217, 51), "each slot applies at its point of the chain: scene x 0.5, "
+                        "HDR + 0.1 (under its <ID>), LDR x 2 (a define), gamma, output blue 0.2 " + describe(p));
+                }
+                if (check(composeOnce("testView", pixels), "the composition draws an effect's debug view")) {
+                    const Pixel p = at(pixels, kSize / 2, kSize / 2);
+                    check(isColor(p, 0, 255, 51), "the effect's view replaces the image before gamma, the output "
+                        "slot still applies " + describe(p));
+                }
+            }
+
             check(getOrCreateSlangShaderFromSource(device.get(), "gpu-test-broken",
                       "import vtquad;\n[shader(\"fragment\")] float4 f() : SV_Target0 { return undefinedName; }\n") == nullptr,
                 "source that does not compile gives no shader");
