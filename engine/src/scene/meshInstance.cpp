@@ -32,6 +32,46 @@ namespace visutwin::canvas
     {
     }
 
+    void MeshInstance::setParameter(const std::string& name, const Material::ParameterValue& value)
+    {
+        if (name.empty()) {
+            return;
+        }
+        _parameters[name] = value;
+        _parametersChanged = true;
+    }
+
+    bool MeshInstance::deleteParameter(const std::string& name)
+    {
+        if (_parameters.erase(name) == 0) {
+            return false;
+        }
+        _parametersChanged = true;
+        return true;
+    }
+
+    const MaterialUniforms* MeshInstance::overriddenUniforms(const Material* material) const
+    {
+        if (_parameters.empty() || !material) {
+            return nullptr;
+        }
+        // packedUniforms() first: it can move the material's version.
+        const MaterialUniforms& base = material->packedUniforms();
+        if (!_overrideBlock || _parametersChanged || material != _overrideMaterial ||
+            material->uniformsVersion() != _overrideMaterialVersion) {
+            if (!_overrideBlock) {
+                _overrideBlock = std::make_unique<MaterialUniforms>();
+            }
+            *_overrideBlock = base;
+            Material::applyParameterOverrides(_parameters, *_overrideBlock);
+            _overrideMaterial = material;
+            _overrideMaterialVersion = material->uniformsVersion();
+            _overrideVersion = Material::nextUniformsVersion();
+            const_cast<MeshInstance*>(this)->_parametersChanged = false;
+        }
+        return _overrideBlock.get();
+    }
+
     std::unique_ptr<MeshInstance> MeshInstance::cloneFor(GraphNode* node) const
     {
         auto clone = std::make_unique<MeshInstance>(_mesh, _material, node);
@@ -46,6 +86,8 @@ namespace visutwin::canvas
         clone->_drawOrder = _drawOrder;
         clone->_calculateSortDistance = _calculateSortDistance;
         clone->_batchGroupId = _batchGroupId;
+        clone->_parameters = _parameters;
+        clone->_parametersChanged = !_parameters.empty();
 
         // A morph and a skin are per-instance STATE over shared data: the clone gets
         // its own, so animating one entity does not move the other.

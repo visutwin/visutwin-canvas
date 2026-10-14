@@ -2049,6 +2049,11 @@ namespace visutwin::canvas
                 const ShaderVariantInputs variant = shaderVariantInputs(meshInstance, boundMaterial);
 
                 device.setInstanceLightMap(instanceLightMap);
+                // The instance's parameter overrides, applied over the bound material's block.
+                const MaterialUniforms* instanceUniforms =
+                    meshInstance && entry->material ? meshInstance->overriddenUniforms(boundMaterial) : nullptr;
+                device.setInstanceMaterialUniforms(instanceUniforms,
+                    instanceUniforms ? meshInstance->overriddenUniformsVersion() : 0);
                 // Per-draw stencil (UI masks); null leaves the stencil off.
                 if (meshInstance) {
                     device.setStencilState(meshInstance->stencilFront(), meshInstance->stencilBack());
@@ -2111,8 +2116,9 @@ namespace visutwin::canvas
                 counters.forwardDrawCalls++;
             }
 
-            // No other pass may inherit the last draw's lightmap.
+            // No other pass may inherit the last draw's lightmap or uniform overrides.
             device.setInstanceLightMap(nullptr);
+            device.setInstanceMaterialUniforms(nullptr, 0);
             device.setStencilState();
         }
     }

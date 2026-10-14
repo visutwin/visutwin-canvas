@@ -18,6 +18,21 @@
 
 namespace visutwin::canvas
 {
+    /// The first of `names` `parameters` holds, or null.
+    inline const Material::ParameterValue* findParameter(const Material::ParameterMap& parameters,
+        std::initializer_list<const char*> names)
+    {
+        if (parameters.empty()) {
+            return nullptr;
+        }
+        for (const char* name : names) {
+            if (const auto it = parameters.find(name); it != parameters.end()) {
+                return &it->second;
+            }
+        }
+        return nullptr;
+    }
+
     /// The first of `names` the material has a parameter for, or null.
     inline const Material::ParameterValue* findMaterialParameter(const Material* material,
         std::initializer_list<const char*> names)

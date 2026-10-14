@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 #include <core/shape/boundingBox.h>
 
@@ -130,6 +131,27 @@ namespace visutwin::canvas
         // Owned here: the texture must outlive every draw that samples it.
         const std::shared_ptr<Texture>& lightMap() const { return _lightMap; }
         void setLightMap(std::shared_ptr<Texture> texture) { _lightMap = std::move(texture); }
+
+        /**
+         * Per-instance overrides of the material's uniforms, read with the material's own
+         * parameter names and conventions (Material::applyParameterOverrides: colours authored
+         * sRGB, `material_diffuse`, `material_emissive`, `material_gloss`, ...). The forward
+         * draw of this instance takes its material's packed block with these applied over it,
+         * so instances sharing one material differ only where they say. Textures and shader
+         * variants stay the material's; shadow and depth-only draws ignore the overrides.
+         */
+        void setParameter(const std::string& name, const Material::ParameterValue& value);
+        /// Removes an override, returning false when there was none.
+        bool deleteParameter(const std::string& name);
+        const Material::ParameterMap& parameters() const { return _parameters; }
+
+        /// The block a forward draw of this instance with `material` uploads: the material's
+        /// packed block with the overrides applied, rebuilt only when either changed. Null
+        /// when the instance overrides nothing (the material's own block is used).
+        const MaterialUniforms* overriddenUniforms(const Material* material) const;
+        /// Names the block overriddenUniforms() last returned: unique across all materials
+        /// and instances, so a backend can key a per-frame reuse on (block, version).
+        uint64_t overriddenUniformsVersion() const { return _overrideVersion; }
 
         bool cull() const { return _cull; }
         void setCull(const bool value) { _cull = value; }
@@ -480,6 +502,14 @@ namespace visutwin::canvas
         bool _castShadow = true;
         bool _receiveShadow = true;
         std::shared_ptr<Texture> _lightMap;
+
+        // Uniform overrides (setParameter) and the block built from them.
+        Material::ParameterMap _parameters;
+        bool _parametersChanged = false;
+        mutable std::unique_ptr<MaterialUniforms> _overrideBlock;
+        mutable const Material* _overrideMaterial = nullptr;
+        mutable uint64_t _overrideMaterialVersion = 0;
+        mutable uint64_t _overrideVersion = 0;
         bool _cull = true;
         bool _screenSpace = false;
         bool _visibleThisFrame = false;

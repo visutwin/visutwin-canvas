@@ -560,7 +560,19 @@ their own (the gloss map has no tiling).
 Example: `refraction-example.cpp` (port of upstream `materials/material-refraction`).
 
 ### Material System
-- `Material` base: glTF PBR metallic-roughness, `MaterialUniforms` struct (560 bytes, emitted from `materialUniformFields.h`) matches GPU `MaterialData`
+- `Material` base: glTF PBR metallic-roughness, `MaterialUniforms` struct (656 bytes, emitted from `materialUniformFields.h`) matches GPU `MaterialData`
+- Parameter overrides: `Material::setParameter` and `MeshInstance::setParameter` both go through
+  `Material::applyParameterOverrides`, which reads the material's names (`material_diffuse`,
+  `material_opacity`, `material_emissive`, `material_gloss`, `material_metalness`, ...; glTF
+  names such as `baseColorFactor` as aliases) in the engine's conventions: colours authored
+  sRGB, emissive linearised on the CPU, gloss packed as roughness. A material's overrides are
+  packed last into its own block; a mesh instance's into a copy of its material's block
+  (`MeshInstance::overriddenUniforms`), rebuilt when the material's version or the overrides
+  move, which the forward draw uploads in place of the material's (keyed on the copy and its
+  own version, so instances sharing a material never share a slot). DEVIATION: upstream's
+  mesh instance parameters are raw uniform values (linear colours) and also reach uniforms
+  outside the material block; here only the material block is overridable, and only in the
+  forward pass. `material-instance-overrides` drives it.
 - `StandardMaterial`: Full PBR (clearcoat, anisotropy, sheen, iridescence, transmission, parallax)
 - `ShaderMaterial`: Custom Metal shader with user entry points
 

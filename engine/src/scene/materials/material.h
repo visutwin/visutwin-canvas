@@ -119,6 +119,7 @@ namespace visutwin::canvas
     {
     public:
         using ParameterValue = std::variant<float, int32_t, uint32_t, bool, Color, Vector2, Vector3, Vector4, Matrix4, Texture*>;
+        using ParameterMap = std::unordered_map<std::string, ParameterValue>;
 
         Material();
 
@@ -335,6 +336,19 @@ namespace visutwin::canvas
         void applyParameterOverrides(MaterialUniforms& uniforms) const;
 
         /**
+         * The same overrides from any parameter map: a material's own, or a mesh instance's
+         * (MeshInstance::setParameter) applied over its material's packed block. Colours are
+         * authored sRGB, as setDiffuse and setEmissive take them; besides the names above
+         * it reads `material_diffuse` (rgb of the base colour), `material_opacity` (its
+         * alpha), `material_gloss` (roughness = 1 - gloss) and `material_metalness`.
+         */
+        static void applyParameterOverrides(const ParameterMap& parameters, MaterialUniforms& uniforms);
+
+        /// A fresh value of the process-wide counter uniformsVersion() draws from, for
+        /// anything else that versions a material block (a mesh instance's overrides).
+        static uint64_t nextUniformsVersion();
+
+        /**
          * Override to provide custom uniform data with a size different from MaterialUniforms.
          * Returns nullptr by default, in which case updateUniforms() is used.
          * When non-null, the returned data is copied directly to the GPU uniform ring buffer
@@ -458,7 +472,6 @@ namespace visutwin::canvas
         mutable MaterialUniforms _cachedUniforms{};
         mutable bool _uniformsDirty = true;
         uint64_t _uniformsVersion = nextUniformsVersion();
-        static uint64_t nextUniformsVersion();
     };
 
     // Assigns the default material to device cache

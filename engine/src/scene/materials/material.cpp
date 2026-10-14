@@ -89,10 +89,12 @@ namespace visutwin::canvas
 
     bool Material::removeParameter(const std::string& name)
     {
-        if (name.empty()) {
+        if (name.empty() || _parameters.erase(name) == 0) {
             return false;
         }
-        return _parameters.erase(name) > 0;
+        // The packed block read the parameter: it has to be rebuilt without it.
+        markUniformsDirty();
+        return true;
     }
 
     void Material::clearParameters()
@@ -145,34 +147,57 @@ namespace visutwin::canvas
 
     void Material::applyParameterOverrides(MaterialUniforms& uniforms) const
     {
+        applyParameterOverrides(_parameters, uniforms);
+    }
+
+    void Material::applyParameterOverrides(const ParameterMap& parameters, MaterialUniforms& uniforms)
+    {
         // Nine lookups of up to two names each, and unordered_map::find hashes the
         // string before it can discover the map is empty — which it is for every
         // material that never calls setParameter, i.e. nearly all of them.
-        if (_parameters.empty()) {
+        if (parameters.empty()) {
             return;
         }
 
-        readParameterColor4(findMaterialParameter(this, {"material_baseColor", "baseColorFactor"}), uniforms.baseColor);
+        readParameterColor4(findParameter(parameters, {"material_baseColor", "baseColorFactor"}), uniforms.baseColor);
+        {
+            // The diffuse colour alone (the base colour's rgb) and the opacity alone (its alpha).
+            float diffuse[4] = {uniforms.baseColor[0], uniforms.baseColor[1], uniforms.baseColor[2], 1.0f};
+            if (readParameterColor4(findParameter(parameters, {"material_diffuse"}), diffuse)) {
+                uniforms.baseColor[0] = diffuse[0];
+                uniforms.baseColor[1] = diffuse[1];
+                uniforms.baseColor[2] = diffuse[2];
+            }
+            readParameterFloat(findParameter(parameters, {"material_opacity"}), uniforms.baseColor[3]);
+        }
         {
             // Parameter override convention is sRGB input — linearize to match the typed path.
             float emissiveOverride[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-            if (readParameterColor4(findMaterialParameter(this, {"material_emissive", "emissiveFactor"}), emissiveOverride)) {
+            if (readParameterColor4(findParameter(parameters, {"material_emissive", "emissiveFactor"}), emissiveOverride)) {
                 uniforms.emissiveColor[0] = gammaToLinear(emissiveOverride[0]);
                 uniforms.emissiveColor[1] = gammaToLinear(emissiveOverride[1]);
                 uniforms.emissiveColor[2] = gammaToLinear(emissiveOverride[2]);
                 uniforms.emissiveColor[3] = emissiveOverride[3];
             }
         }
-        readParameterFloat(findMaterialParameter(this, {"material_alphaCutoff", "alphaCutoff"}), uniforms.alphaCutoff);
-        readParameterFloat(findMaterialParameter(this, {"material_metallic", "metallicFactor"}), uniforms.metallicFactor);
-        readParameterFloat(findMaterialParameter(this, {"material_roughness", "roughnessFactor"}), uniforms.roughnessFactor);
-        readParameterFloat(findMaterialParameter(this, {"material_normalScale", "normalScale"}), uniforms.normalScale);
-        readParameterFloat(findMaterialParameter(this, {"material_occlusionStrength", "occlusionStrength"}), uniforms.occlusionStrength);
-        readParameterFloat(findMaterialParameter(this, {"material_occludeSpecularIntensity", "occludeSpecularIntensity"}),
+        readParameterFloat(findParameter(parameters, {"material_alphaCutoff", "alphaCutoff"}), uniforms.alphaCutoff);
+        readParameterFloat(findParameter(parameters, {"material_metallic", "material_metalness", "metallicFactor"}),
+            uniforms.metallicFactor);
+        readParameterFloat(findParameter(parameters, {"material_roughness", "roughnessFactor"}), uniforms.roughnessFactor);
+        {
+            float gloss = 0.0f;
+            if (readParameterFloat(findParameter(parameters, {"material_gloss"}), gloss)) {
+                uniforms.roughnessFactor = 1.0f - gloss;
+            }
+        }
+        readParameterFloat(findParameter(parameters, {"material_normalScale", "normalScale"}), uniforms.normalScale);
+        readParameterFloat(findParameter(parameters, {"material_occlusionStrength", "occlusionStrength"}),
+            uniforms.occlusionStrength);
+        readParameterFloat(findParameter(parameters, {"material_occludeSpecularIntensity", "occludeSpecularIntensity"}),
             uniforms.occludeSpecularIntensity);
         {
             int occludeSpecularMode = static_cast<int>(uniforms.occludeSpecularMode);
-            readParameterInt(findMaterialParameter(this, {"material_occludeSpecular", "occludeSpecular"}), occludeSpecularMode);
+            readParameterInt(findParameter(parameters, {"material_occludeSpecular", "occludeSpecular"}), occludeSpecularMode);
             occludeSpecularMode = std::clamp(occludeSpecularMode,
                 static_cast<int>(SPECOCC_NONE), static_cast<int>(SPECOCC_GLOSSDEPENDENT));
             uniforms.occludeSpecularMode = static_cast<uint32_t>(occludeSpecularMode);

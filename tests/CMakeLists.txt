@@ -167,6 +167,7 @@ visutwin_add_unit_test(visutwin-cluster-grid-sharing-tests cluster-grid-sharing 
 visutwin_add_unit_test(visutwin-ktx2-target-tests ktx2-target ktx2TargetTests.cpp TINYGLTF DEFINITIONS VISUTWIN_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 visutwin_add_unit_test(visutwin-obj-stl-round-trip-tests obj-stl-round-trip objStlRoundTripTests.cpp)
 visutwin_add_unit_test(visutwin-frame-stats-tests frame-stats frameStatsTests.cpp)
+visutwin_add_unit_test(visutwin-mesh-instance-parameter-tests mesh-instance-parameter meshInstanceParameterTests.cpp)
 visutwin_add_unit_test(visutwin-curve-tests curve curveTests.cpp)
 visutwin_add_unit_test(visutwin-element-layout-tests element-layout elementLayoutTests.cpp)
 visutwin_add_unit_test(visutwin-element-input-tests element-input elementInputTests.cpp)

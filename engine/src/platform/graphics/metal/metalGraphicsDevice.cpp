@@ -1497,6 +1497,11 @@ namespace visutwin::canvas
         const void* customData = boundMaterial->customUniformData(customSize);
         if (customData && customSize > 0) {
             uniforms = {customData, customSize};
+        } else if (instanceMaterialUniforms()) {
+            // The mesh instance's overrides over the material's block: always handed over,
+            // since the ring reuse is keyed on this block (submitDrawUniforms), not on the
+            // material that materialChanged compares.
+            uniforms.data = instanceMaterialUniforms();
         } else if (materialChanged) {
             // Packed once per edit and reused across binds — see packedUniforms().
             uniforms.data = &boundMaterial->packedUniforms();
@@ -1587,12 +1592,17 @@ namespace visutwin::canvas
         // convolve draws then read the reproject block and wrote nothing.
         // A draw with neither a material nor a quad block carries the default block,
         // which one upload per pass serves (every opaque shadow caster and prepass draw).
+        // A mesh instance's override block is keyed on itself and its own version.
         const void* uniformKey = nullptr;
+        uint64_t uniformVersion = boundMaterial ? boundMaterial->uniformsVersion() : 0;
         if (!(quadRenderActive() && !quadUniformData().empty())) {
             uniformKey = boundMaterial ? static_cast<const void*>(boundMaterial)
                 : MetalUniformBinder::sharedDefaultBlockKey();
+            if (boundMaterial && uniforms.data == instanceMaterialUniforms()) {
+                uniformKey = instanceMaterialUniforms();
+                uniformVersion = instanceMaterialUniformsVersion();
+            }
         }
-        const uint64_t uniformVersion = boundMaterial ? boundMaterial->uniformsVersion() : 0;
         _uniformBinder.submitPerDrawUniforms(passEncoder, _uniformRing.get(),
             uniformKey, uniformVersion, uniforms.data, uniforms.size, hdrPass());
     }

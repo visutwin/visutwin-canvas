@@ -56,6 +56,7 @@ namespace visutwin::canvas
     class Compute;
     class Texture;
     class Material;
+    struct MaterialUniforms;
     struct RenderTargetOptions;
 
     /// Emit a one-time warning that the active backend does not implement a device
@@ -778,6 +779,20 @@ namespace visutwin::canvas
         void setInstanceLightMap(Texture* texture) { _instanceLightMap = texture; }
         Texture* instanceLightMap() const { return _instanceLightMap; }
 
+        // The drawing mesh instance's material block with its parameter overrides applied
+        // (MeshInstance::overriddenUniforms), uploaded IN PLACE of the material's packed
+        // block; `version` names it (unique, from Material::nextUniformsVersion), so a
+        // backend keys its reuse on (block, version) as it does on a material's. Set per
+        // draw by the forward renderer and cleared after its draw loop, like the lightmap.
+        // A custom uniform block (Material::customUniformData) still wins over it.
+        void setInstanceMaterialUniforms(const MaterialUniforms* block, uint64_t version)
+        {
+            _instanceMaterialUniforms = block;
+            _instanceMaterialUniformsVersion = block ? version : 0;
+        }
+        const MaterialUniforms* instanceMaterialUniforms() const { return _instanceMaterialUniforms; }
+        uint64_t instanceMaterialUniformsVersion() const { return _instanceMaterialUniformsVersion; }
+
         // when true, forward shaders output linear HDR
         // (tonemapping + gamma are deferred to the compose pass).  Set by
         // RenderPassForward when running inside a CameraFrame pipeline.
@@ -1253,6 +1268,8 @@ namespace visutwin::canvas
         std::shared_ptr<StencilParameters> _stencilBack;
         const Material* _material = nullptr;
         Texture* _instanceLightMap = nullptr;
+        const MaterialUniforms* _instanceMaterialUniforms = nullptr;
+        uint64_t _instanceMaterialUniformsVersion = 0;
 
         // GPU pass profiler — assigned by backends that support one.
         std::shared_ptr<GpuProfiler> _gpuProfiler;

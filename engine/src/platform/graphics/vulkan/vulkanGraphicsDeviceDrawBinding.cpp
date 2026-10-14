@@ -776,6 +776,7 @@ namespace visutwin::canvas
         MaterialUniforms materialUniforms;
         const void* uniformData = &materialUniforms;
         const Material* reusableMaterial = nullptr;
+        const void* overrideKey = nullptr;
         size_t uniformSize = sizeof(MaterialUniforms);
         // A quad pass has no material, so its own uniform block takes this slot.
         if (quadRenderActive() && !quadUniformData().empty()) {
@@ -787,6 +788,11 @@ namespace visutwin::canvas
             if (customData && customSize > 0) {
                 uniformData = customData;
                 uniformSize = customSize;
+            } else if (instanceMaterialUniforms()) {
+                // The mesh instance's overrides over the material's block, keyed on
+                // itself and its own (equally unique) version.
+                uniformData = instanceMaterialUniforms();
+                overrideKey = uniformData;
             } else {
                 // The material's cached pack, as Metal uses it: it re-packs only
                 // after a setter dirtied it, instead of once per draw.
@@ -805,8 +811,9 @@ namespace visutwin::canvas
         static const char kDefaultBlockKey = 0;
         const bool defaultBlock = !_material && uniformData == &materialUniforms;
         const void* reuseKey = reusableMaterial ? static_cast<const void*>(reusableMaterial)
-            : (defaultBlock ? static_cast<const void*>(&kDefaultBlockKey) : nullptr);
-        const uint64_t reuseVersion = reusableMaterial ? reusableMaterial->uniformsVersion() : 0;
+            : (defaultBlock ? static_cast<const void*>(&kDefaultBlockKey) : overrideKey);
+        const uint64_t reuseVersion = reusableMaterial ? reusableMaterial->uniformsVersion()
+            : (overrideKey ? instanceMaterialUniformsVersion() : 0);
         // The draw before this one bound the same block: nothing to look up or bind.
         if (reuseKey && _bound.uniformKey == reuseKey && _bound.uniformVersion == reuseVersion) {
             return true;

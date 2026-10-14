@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 147 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 148 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -2447,6 +2447,20 @@ present, but the rule below never depends on reading it.
   lights the draw accepts). Anything genuinely per draw must go
   in the model or material block, never in the lighting block, or every draw after
   the first reads the first one's value.
+- **A mesh instance's parameter overrides are a COPY of its material's block, keyed on
+  itself.** `MeshInstance::setParameter` takes the material's names and conventions
+  (`Material::applyParameterOverrides`, the one reader for both: colours authored sRGB, so
+  `material_diffuse` is what `setDiffuse` takes, not upstream's linear uniform value).
+  `overriddenUniforms(material)` packs `material->packedUniforms()` with the overrides over
+  it, rebuilt when the material's `uniformsVersion()`, the material itself or the overrides
+  change, and names the result with a fresh `Material::nextUniformsVersion()`. The forward
+  loop hands it to the device (`setInstanceMaterialUniforms`, cleared after the loop like
+  the instance lightmap), and both backends upload it IN PLACE of the material's block,
+  keyed on (block, its version) where a material draw keys on (material, version): keyed on
+  the material, two instances of it would share whichever block was uploaded first. Only
+  uniforms override; textures and variants stay the material's, and shadow and depth-only
+  draws take the material's block. `tests/meshInstanceParameterTests.cpp`;
+  `material-instance-overrides` shows a copy following its material's animation.
 - **Vulkan reuses per-draw uploads WITHIN A FRAME, keyed on what they came from.** Every
   draw of a material whose pack is unchanged shares one ring slot
   (`_materialUniformSlots`, keyed on the material and `Material::uniformsVersion()` — a
@@ -3396,10 +3410,9 @@ What stays HERE is only what bites during UNRELATED work.
   curve). Audited 2026-10-13: of the ported examples only `texture-copy` shows an unflagged
   texture in an image element (its thumbnails read lighter upstream, by exactly one decode);
   every UI atlas is flagged (`uiAtlasData.srgb`), and no port uses an unflagged colour map in a
-  material. A float texture as a colour map is linear upstream; nothing here exercises it. (2) No per-`MeshInstance` parameter overrides
-  (`test/material-instance-overrides`). (4) No `CanvasFont` (`text-emojis`, `element-colors`,
-  `element-states`). (5) `.basis` files do not load (libktx reads KTX2 only; `texture-basis`
-  ships KTX2 re-encodes). (6) A custom shader material gets no skin or morph variant
+  material. A float texture as a colour map is linear upstream; nothing here exercises it. (2) No `CanvasFont` (`text-emojis`, `element-colors`,
+  `element-states`). (3) `.basis` files do not load (libktx reads KTX2 only; `texture-basis`
+  ships KTX2 re-encodes). (4) A custom shader material gets no skin or morph variant
   (`shaders/shader-hatch`).
 - **Queued — none a correctness bug:** the
   binding footprint exceeds WebGPU's defaults (Metal 43 texture slots, Vulkan 7 sets). The
