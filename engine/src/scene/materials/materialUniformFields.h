@@ -145,4 +145,10 @@
     /* row 0's w (which the transform never reads) is the channel the opacity is read from */ \
     /* (0=r,1=g,2=b,3=a; default a). */ \
     X(vec4, opacityTransform0, {1, 0, 0, 3}) \
-    X(vec4, opacityTransform1, {0, 1, 0, 0})
+    X(vec4, opacityTransform1, {0, 1, 0, 0}) \
+    /* --- The material's own environment atlas and its box projection --- */ \
+    /* envBoxMin: xyz the projection box's world minimum, w the atlas encoding */ \
+    /* (0 = gamma, 1 = RGBP, 2 = RGBM, 3 = linear); envBoxMax: xyz the maximum, w the */ \
+    /* reflectivity, which scales the environment reflection. */ \
+    X(vec4, envBoxMin, {0, 0, 0, 1}) \
+    X(vec4, envBoxMax, {0, 0, 0, 1})

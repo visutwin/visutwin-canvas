@@ -93,7 +93,9 @@ namespace visutwin::canvas
 
         Engine* _engine = nullptr;
 
-        std::shared_ptr<Texture> _cube;
+        std::shared_ptr<Texture> _capture;   // level 0 only: what the face cameras render into
+        std::shared_ptr<Texture> _cube;      // mipmapped, filled from _capture by update()
+        std::vector<std::shared_ptr<RenderTarget>> _mipTargets;
         std::vector<std::shared_ptr<RenderTarget>> _faceTargets;
 
         Entity* _node = nullptr;

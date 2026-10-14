@@ -6,6 +6,7 @@
 #pragma once
 #include <algorithm>
 
+#include "core/shape/boundingBox.h"
 #include "material.h"
 
 namespace visutwin::canvas
@@ -357,6 +358,21 @@ namespace visutwin::canvas
         void setSpecularityFactorMap(Texture* texture) { _specularityFactorMap = texture; markUniformsDirty(); }
         int specularityFactorMapUv() const { return _specularityFactorMapUv; }
         void setSpecularityFactorMapUv(const int uv) { _specularityFactorMapUv = uv; markUniformsDirty(); }
+        /// The material's own environment atlas (an EnvLighting::generateAtlas result): it
+        /// replaces the scene's environment for this material's reflections, ambient and
+        /// refraction, without the scene's skybox intensity and rotation, which belong to the
+        /// scene's. Borrowed: the texture must outlive the material, or be cleared first.
+        Texture* envAtlas() const { return _envAtlas; }
+        void setEnvAtlas(Texture* texture) { _envAtlas = texture; markUniformsDirty(); }
+        /// Box projection of the environment reflections (CUBEPROJ_BOX) onto `box`, a world
+        /// axis-aligned box such as the room a reflection probe captured.
+        CubeProjection cubeMapProjection() const { return _cubeMapProjection; }
+        void setCubeMapProjection(const CubeProjection value) { _cubeMapProjection = value; markUniformsDirty(); }
+        const BoundingBox& cubeMapProjectionBox() const { return _cubeMapProjectionBox; }
+        void setCubeMapProjectionBox(const BoundingBox& box) { _cubeMapProjectionBox = box; markUniformsDirty(); }
+        /// Scales the environment reflection (the atlas or the reflection probe), 1 by default.
+        float reflectivity() const { return _reflectivity; }
+        void setReflectivity(const float value) { _reflectivity = value; markUniformsDirty(); }
         /// The meshes this material draws carry tangents of their own (a glTF primitive's
         /// TANGENT attribute; the glTF import sets it). A GGX material then lays its
         /// anisotropy on them rather than on the object-space frame it takes on a mesh
@@ -622,6 +638,10 @@ namespace visutwin::canvas
         int _specularColorMapUv = 0;
         Texture* _specularityFactorMap = nullptr;
         int _specularityFactorMapUv = 0;
+        Texture* _envAtlas = nullptr;
+        CubeProjection _cubeMapProjection = CUBEPROJ_NONE;
+        BoundingBox _cubeMapProjectionBox;
+        float _reflectivity = 1.0f;
         bool _meshTangents = false;
         float _anisotropyRotation = 0.0f;
         bool _enableGGXSpecular = false;

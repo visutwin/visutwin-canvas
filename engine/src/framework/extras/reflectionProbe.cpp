@@ -12,6 +12,7 @@
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/renderTarget.h"
 #include "platform/graphics/texture.h"
+#include "scene/graphics/envBake.h"
 #include "scene/camera.h"
 #include "scene/constants.h"
 #include "scene/renderer/lightCamera.h"
@@ -50,18 +51,27 @@ namespace visutwin::canvas
     {
         auto device = _engine->graphicsDevice();
 
-        // Mipmapped LDR color cubemap. The faces hold the normal forward output
-        // (tonemapped + gamma-encoded); the probe shader sRGB-decodes on sample,
-        // matching the static-cubemap path. Coarser mips approximate roughness.
-        TextureOptions cubeOptions;
-        cubeOptions.width = static_cast<uint32_t>(faceSize);
-        cubeOptions.height = static_cast<uint32_t>(faceSize);
-        cubeOptions.format = PixelFormat::PIXELFORMAT_RGBA8;
-        cubeOptions.cubemap = true;
+        // The six face cameras render into a one-level capture cube; update() fills the
+        // mipmapped cube the probe is sampled through from it, every level the LINEAR
+        // average of the texels it covers (bakeCubeMipsLinear), as an sRGB-format cube's mips
+        // are. Both hold the normal forward output (tonemapped + gamma-encoded), which the
+        // probe shader and the env bakes decode. Coarser mips approximate roughness.
+        TextureOptions captureOptions;
+        captureOptions.width = static_cast<uint32_t>(faceSize);
+        captureOptions.height = static_cast<uint32_t>(faceSize);
+        captureOptions.format = PixelFormat::PIXELFORMAT_RGBA8;
+        captureOptions.cubemap = true;
+        captureOptions.mipmaps = false;
+        captureOptions.numLevels = 1;
+        captureOptions.name = "reflectionProbeCapture";
+        _capture = std::make_shared<Texture>(device.get(), captureOptions);
+
+        TextureOptions cubeOptions = captureOptions;
         cubeOptions.mipmaps = true;
         cubeOptions.numLevels = static_cast<uint32_t>(mipLevelsFor(faceSize));
         cubeOptions.name = "reflectionProbeCube";
         _cube = std::make_shared<Texture>(device.get(), cubeOptions);
+        _cube->upload();
 
         // Probe root: the six face cameras hang off it, so setPosition() moves
         // all of them at once. Face cameras look along ±X/±Y/±Z (90° FOV).
@@ -73,7 +83,7 @@ namespace visutwin::canvas
         for (int face = 0; face < 6; ++face) {
             RenderTargetOptions rtOptions;
             rtOptions.graphicsDevice = device.get();
-            rtOptions.colorBuffer = _cube.get();
+            rtOptions.colorBuffer = _capture.get();
             rtOptions.face = face;
             rtOptions.depth = true;
             rtOptions.name = "reflectionProbeFace";
@@ -196,9 +206,9 @@ namespace visutwin::canvas
             return;
         }
 
-        // The six face cameras have just rendered the scene into cube level 0;
-        // build the coarser roughness mips from them.
-        _engine->graphicsDevice()->generateMipmaps(_cube.get());
+        // The six face cameras have just rendered the scene into the capture cube; fill the
+        // sampled cube's levels from it.
+        bakeCubeMipsLinear(_engine->graphicsDevice().get(), _capture.get(), _cube.get(), _mipTargets);
 
         if (!_installed) {
             applyProbe();

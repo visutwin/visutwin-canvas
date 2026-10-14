@@ -122,6 +122,7 @@ VT_DECLARE_opacityMap
 VT_DECLARE_anisotropyMap
 VT_DECLARE_specularColorMap
 VT_DECLARE_specularityFactorMap
+VT_DECLARE_materialEnvAtlas
 
 // ---- Scene samplers. Vulkan set 3 bindings 12 / 13; on Metal the forward draw binds the
 // same states at fragment samplers 7 / 8 (MetalGraphicsDevice::bindDrawSampler), and the

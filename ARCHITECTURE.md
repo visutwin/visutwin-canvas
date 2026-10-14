@@ -479,6 +479,23 @@ tangents). Packed into `anisotropyParams`: xy the rotation's (cos, sin), z the m
 the mesh-tangents flag. `anisotropy-strength`, `-rotation`, `-disc` and `-lamp` port upstream's
 four Khronos showcases.
 
+### Per-material environment atlas and box projection
+`StandardMaterial::setEnvAtlas(texture)` gives a material an environment atlas of its own (an
+`EnvLighting::generateAtlas` result, bound as a separate image at Metal slot 45 / Vulkan set-1
+binding 38, `VT_FEATURE_MATERIAL_ENV_ATLAS`): it replaces the scene's atlas for the material's
+reflections, its ambient (the Lambert rect) and its env-atlas refraction, without the scene's
+skybox intensity and rotation, as upstream's material `envAtlas` does. Its encoding rides in
+`envBoxMin.w` (0 gamma, 1 RGBP, 2 RGBM, 3 linear). `setCubeMapProjection(CUBEPROJ_BOX)` with
+`setCubeMapProjectionBox(box)` (`VT_FEATURE_BOX_PROJECTION`) intersects each reflection ray from
+the fragment with the world box and re-aims the lookup from the box centre, so a probe captured
+in a room lines its reflections up with the walls; it applies to the base, clearcoat, sheen and
+refraction lookups, not the ambient. `setReflectivity` (upstream `reflectivity`, default 1)
+scales the environment and probe reflections (`envBoxMax.w`). The forward chunks read every
+atlas through `envAvailable` / `envFetch` / `envRotate` / `envIntensity` / `envProject` in
+`common-utils`. `ReflectionProbe` fills its sampled cube's mips in linear space from a one-level
+capture cube (`bakeCubeMipsLinear`, the `env-cube-mips` program), as upstream's sRGB-format
+capture cube is mipmapped. `reflection-box` ports upstream's example.
+
 ### Packed normal maps
 A normal map whose texture is `TextureEncoding::SwizzleGGGR` (a texture asset of type
 `TEXTURETYPE_SWIZZLEGGGR`) holds x in ALPHA and y in GREEN, the layout a two-channel

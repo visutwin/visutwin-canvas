@@ -146,6 +146,71 @@ namespace visutwin::canvas
         {
             return getOrCreateSlangShader(device, "env-equirect-to-cube");
         }
+
+        std::shared_ptr<Shader> cubeMipsShader(GraphicsDevice* device)
+        {
+            return getOrCreateSlangShader(device, "env-cube-mips");
+        }
+    }
+
+    bool bakeCubeMipsLinear(GraphicsDevice* device, Texture* source, Texture* target,
+        std::vector<std::shared_ptr<RenderTarget>>& targets)
+    {
+        if (!device || !source || !target || !source->isCubemap() || !target->isCubemap() ||
+            source->width() != target->width()) {
+            spdlog::warn("bakeCubeMipsLinear: needs two cube maps of one face size");
+            return false;
+        }
+        auto shader = cubeMipsShader(device);
+        if (!shader) {
+            spdlog::error("bakeCubeMipsLinear: no shader for this device");
+            return false;
+        }
+
+        const uint32_t levels = std::max(target->getNumLevels(), 1u);
+        if (targets.size() != static_cast<size_t>(levels) * 6u) {
+            targets.assign(static_cast<size_t>(levels) * 6u, nullptr);
+        }
+
+        QuadRender quad(shader);
+        quad.setTexture(0, source);
+
+        device->beginOfflineWork();
+        for (uint32_t level = 0; level < levels; ++level) {
+            for (uint32_t face = 0; face < 6u; ++face) {
+                auto& renderTarget = targets[static_cast<size_t>(level) * 6u + face];
+                if (!renderTarget) {
+                    RenderTargetOptions targetOptions;
+                    targetOptions.graphicsDevice = device;
+                    targetOptions.colorBuffer = target;
+                    targetOptions.face = static_cast<int>(face);
+                    targetOptions.mipLevel = static_cast<int>(level);
+                    targetOptions.depth = false;
+                    targetOptions.samples = 1;
+                    targetOptions.name = "cubeMipsLevelFace";
+                    renderTarget = device->createRenderTarget(targetOptions);
+                    if (!renderTarget) {
+                        continue;
+                    }
+                }
+
+                EnvBakePass pass(device, "EnvCubeMips");
+                pass.init(renderTarget);
+
+                env_shaders::CubeMipsUniforms uniforms{};
+                uniforms.face = face;
+                uniforms.level = level;
+                uniforms.sourceSize = source->width();
+                quad.setUniforms(uniforms);
+
+                device->startRenderPass(&pass);
+                setBakeRenderState(device);
+                quad.render();
+                device->endRenderPass(&pass);
+            }
+        }
+        device->endOfflineWork();
+        return true;
     }
 
     bool bakeEquirectToCubemap(GraphicsDevice* device, Texture* source,

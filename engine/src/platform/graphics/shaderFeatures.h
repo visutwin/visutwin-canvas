@@ -27,6 +27,8 @@
     X(BaseColorMap,              "VT_FEATURE_BASE_COLOR_MAP") \
     X(NormalMap,                 "VT_FEATURE_NORMAL_MAP") \
     X(NormalMapPacked,           "VT_FEATURE_NORMAL_MAP_PACKED") \
+    X(MaterialEnvAtlas,          "VT_FEATURE_MATERIAL_ENV_ATLAS") \
+    X(BoxProjection,             "VT_FEATURE_BOX_PROJECTION") \
     X(MetallicRoughnessMap,      "VT_FEATURE_METAL_ROUGHNESS_MAP") \
     X(OcclusionMap,              "VT_FEATURE_OCCLUSION_MAP") \
     X(EmissiveMap,               "VT_FEATURE_EMISSIVE_MAP") \

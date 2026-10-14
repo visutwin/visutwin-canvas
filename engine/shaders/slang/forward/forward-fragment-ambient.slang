@@ -48,19 +48,17 @@
     // reflection ray hits on-screen geometry, so it only has to add the
     // difference rather than restructure the accumulation.
     float3 indirectSpecular = float3(0.0);
-    if (vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) &&
-        lighting.envParams.y > 0.5 &&
-        // bit 18: useSkybox off, so this material keeps
-        // the probe or flat ambient above and takes no scene reflection.
-        (material.flags & (1u << 18)) == 0u) {
-        float intensity = max(lighting.envParams.x, 0.0);
+    // The material's own atlas, or the scene's unless the material turns it off (flags bit 18,
+    // useSkybox off: it keeps the probe or flat ambient above and takes no scene reflection).
+    if (envAvailable()) {
+        float intensity = envIntensity();
 
         if (!vtFeatureEnabled(VT_FEATURE_LIGHT_PROBES_BIT)) {
             // Diffuse irradiance from the atlas' Lambert rect (the negate-X matches
             // the engine's atlas lookup handedness). Probes take priority over it.
-            float3 envN = cubeMapRotate(N);
+            float3 envN = envRotate(N);
             float3 diffDir = float3(-envN.x, envN.y, envN.z);
-            ambientIrradiance = decodeEnv(envAtlas.Sample(mapAmbientUv(dirToEquirect(diffDir)))) * intensity;
+            ambientIrradiance = envFetch(mapAmbientUv(dirToEquirect(diffDir))) * intensity;
         }
 
         // Specular: reflect, pick a mip, trilinear between levels, with the shiny
@@ -69,7 +67,7 @@
         float3 R = vtFeatureEnabled(VT_FEATURE_ANISOTROPY_BIT)
             ? getReflDirAniso(N, V, anisoB, 1.0 - roughness, anisoIntensity)
             : reflect(-V, N);
-        float3 envR = cubeMapRotate(R);
+        float3 envR = envRotate(envProject(R, fragWorldPos));
         float3 specDir = float3(-envR.x, envR.y, envR.z);
         float2 envUv = dirToEquirect(specDir);
         float level = clamp(roughness * 5.0, 0.0, 5.0);
@@ -94,13 +92,13 @@
         // takes the prefiltered chain, and both blend toward the next roughness mip.
         float3 envA;
         if (l0 == 0.0) {
-            float3 shinyA = decodeEnv(envAtlas.Sample(mapShinyUv(envUv, shinyL0)));
-            float3 shinyB = decodeEnv(envAtlas.Sample(mapShinyUv(envUv, shinyL0 + 1.0)));
+            float3 shinyA = envFetch(mapShinyUv(envUv, shinyL0));
+            float3 shinyB = envFetch(mapShinyUv(envUv, shinyL0 + 1.0));
             envA = lerp(shinyA, shinyB, shinyLevel - shinyL0);
         } else {
-            envA = decodeEnv(envAtlas.Sample(mapRoughnessUv(envUv, l0)));
+            envA = envFetch(mapRoughnessUv(envUv, l0));
         }
-        float3 envB = decodeEnv(envAtlas.Sample(mapRoughnessUv(envUv, l0 + 1.0)));
+        float3 envB = envFetch(mapRoughnessUv(envUv, l0 + 1.0));
         float3 prefiltered = lerp(envA, envB, level - l0) * intensity;
 
         // Gloss-aware Fresnel for the environment term (getFresnel), the same
@@ -111,7 +109,7 @@
         if (vtFeatureEnabled(VT_FEATURE_IRIDESCENCE_BIT)) {
             Fr = lerp(Fr, iridFresnel, iridIntensity);
         }
-        indirectSpecular = prefiltered * Fr * specularOn;
+        indirectSpecular = prefiltered * Fr * specularOn * material.envBoxMax.w;
 
         if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
             // Clearcoat reflection of the environment: the atlas along the coat's
@@ -119,18 +117,18 @@
             // when the coat is a mirror, the prefiltered chain otherwise — with the
             // coat's fixed-F0 Fresnel. Composed in the tail, not here: the base's
             // specular stays in indirectSpecular alone, which occlusion and SSR read.
-            float3 ccR = cubeMapRotate(reflect(-V, ccNormalW));
+            float3 ccR = envRotate(envProject(reflect(-V, ccNormalW), fragWorldPos));
             float2 ccEnvUv = dirToEquirect(normalize(float3(-ccR.x, ccR.y, ccR.z)));
             float ccLevel = clamp(1.0 - ccGlossiness, 0.0, 1.0) * 5.0;
             float ccL0 = floor(ccLevel);
             float3 ccEnv;
             if (ccL0 == 0.0) {
-                float3 a = decodeEnv(envAtlas.Sample(mapShinyUv(ccEnvUv, 0.0)));
-                float3 b = decodeEnv(envAtlas.Sample(mapShinyUv(ccEnvUv, 1.0)));
+                float3 a = envFetch(mapShinyUv(ccEnvUv, 0.0));
+                float3 b = envFetch(mapShinyUv(ccEnvUv, 1.0));
                 ccEnv = lerp(a, b, ccLevel);
             } else {
-                float3 a = decodeEnv(envAtlas.Sample(mapRoughnessUv(ccEnvUv, ccL0)));
-                float3 b = decodeEnv(envAtlas.Sample(mapRoughnessUv(ccEnvUv, ccL0 + 1.0)));
+                float3 a = envFetch(mapRoughnessUv(ccEnvUv, ccL0));
+                float3 b = envFetch(mapRoughnessUv(ccEnvUv, ccL0 + 1.0));
                 ccEnv = lerp(a, b, ccLevel - ccL0);
             }
             ccReflection = ccEnv * intensity * getFresnelCC(max(dot(ccNormalW, V), 0.0));
@@ -152,24 +150,23 @@
     // sheen roughness, scaled by the analytical directional albedo instead of the
     // DFG lookup. Without it a sheened surface lit only by an environment shows
     // no sheen.
-    if (vtFeatureEnabled(VT_FEATURE_SHEEN_BIT) &&
-        vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) && lighting.envParams.y > 0.5) {
-        float3 sheenR = cubeMapRotate(reflect(-V, N));
+    if (vtFeatureEnabled(VT_FEATURE_SHEEN_BIT) && envAvailable()) {
+        float3 sheenR = envRotate(envProject(reflect(-V, N), fragWorldPos));
         float2 sheenEnvUv = dirToEquirect(normalize(float3(-sheenR.x, sheenR.y, sheenR.z)));
         float sheenLevel = clamp(sheenRoughness, 0.0, 1.0) * 5.0;
         float sheenL0 = floor(sheenLevel);
 
         float3 sheenEnvColor;
         if (sheenL0 == 0.0) {
-            float3 sa = decodeEnv(envAtlas.Sample(mapShinyUv(sheenEnvUv, 0.0)));
-            float3 sb = decodeEnv(envAtlas.Sample(mapShinyUv(sheenEnvUv, 1.0)));
+            float3 sa = envFetch(mapShinyUv(sheenEnvUv, 0.0));
+            float3 sb = envFetch(mapShinyUv(sheenEnvUv, 1.0));
             sheenEnvColor = lerp(sa, sb, sheenLevel);
         } else {
-            float3 sa = decodeEnv(envAtlas.Sample(mapRoughnessUv(sheenEnvUv, sheenL0)));
-            float3 sb = decodeEnv(envAtlas.Sample(mapRoughnessUv(sheenEnvUv, sheenL0 + 1.0)));
+            float3 sa = envFetch(mapRoughnessUv(sheenEnvUv, sheenL0));
+            float3 sb = envFetch(mapRoughnessUv(sheenEnvUv, sheenL0 + 1.0));
             sheenEnvColor = lerp(sa, sb, sheenLevel - sheenL0);
         }
-        sheenSpecularIndirect = sheenEnvColor * max(lighting.envParams.x, 0.0)
+        sheenSpecularIndirect = sheenEnvColor * envIntensity()
             * sheenTint * sheenIBLApprox(max(dot(N, V), 0.001), sheenRoughness);
     }
 
@@ -231,7 +228,7 @@
         // The probe REPLACES the environment specular. `color` already carries that
         // term from the block above, so add only the difference — adding the probe
         // outright counted both.
-        float3 replaced = probeSpecular * probeFresnel * specularOn;
+        float3 replaced = probeSpecular * probeFresnel * specularOn * material.envBoxMax.w;
         color += replaced - indirectSpecular;
         indirectSpecular = replaced;
     }
@@ -468,16 +465,14 @@
             // factor, keep specular. Emissive is added in the tail, after this block.
             float3 specPart = directSpecular + indirectSpecular;
             color = lerp(color, refrColor + specPart, clamp(refractionFactor, 0.0, 1.0));
-        } else if (vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) &&
-            lighting.envParams.y > 0.5 && (material.flags & (1u << 18)) == 0u &&
-            refractionFactor > 0.0) {
+        } else if (envAvailable() && refractionFactor > 0.0) {
             // Env-atlas refraction: the reflection lookup
             // along the REFRACTED direction — not a mix toward this fragment's own
             // ambient (indirectDiffuse + indirectSpecular), which is not a refraction
             // at all and reads opaque at any transmission.
             float3 refrDir = refract(-V, N, 1.0 / max(material.refractionIndex, 1.001));
             float3 refrColor = (dot(refrDir, refrDir) > 0.0)
-                ? sampleEnvAtlas(normalize(refrDir), roughness) * max(lighting.envParams.x, 0.0)
+                ? sampleEnvAtlas(envProject(normalize(refrDir), fragWorldPos), roughness) * envIntensity()
                 : float3(0.0);
             if (material.attenuationParams.w > 0.0) {
                 // Same Beer's law as the dynamic path: a^(t/d) == exp(-(-ln a/d)*t).

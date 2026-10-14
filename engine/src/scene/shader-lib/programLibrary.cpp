@@ -123,6 +123,8 @@ namespace visutwin::canvas
         options.normalMap = (stdMat.normalMap() || stdMat.normalTexture());
         options.normalMapPacked = stdMat.normalMap() &&
             stdMat.normalMap()->encoding() == TextureEncoding::SwizzleGGGR;
+        options.materialEnvAtlas = stdMat.envAtlas() != nullptr;
+        options.boxProjection = stdMat.cubeMapProjection() == CUBEPROJ_BOX;
         options.metallicRoughnessMap = (stdMat.metalnessMap() || stdMat.metallicRoughnessTexture());
         options.occlusionMap = (stdMat.aoMap() || stdMat.occlusionTexture());
         options.emissiveMap = (stdMat.emissiveMap() || stdMat.emissiveTexture());
@@ -337,6 +339,8 @@ namespace visutwin::canvas
         set(ShaderFeature::BaseColorMap, options.baseColorMap);
         set(ShaderFeature::NormalMap, options.normalMap);
         set(ShaderFeature::NormalMapPacked, options.normalMap && options.normalMapPacked);
+        set(ShaderFeature::MaterialEnvAtlas, options.materialEnvAtlas);
+        set(ShaderFeature::BoxProjection, options.boxProjection);
         set(ShaderFeature::MetallicRoughnessMap, options.metallicRoughnessMap);
         set(ShaderFeature::OcclusionMap, options.occlusionMap);
         set(ShaderFeature::EmissiveMap, options.emissiveMap);

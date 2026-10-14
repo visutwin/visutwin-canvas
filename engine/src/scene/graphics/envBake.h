@@ -12,6 +12,7 @@
 //
 #pragma once
 
+#include <memory>
 #include <vector>
 
 #include "platform/graphics/constants.h"
@@ -19,6 +20,7 @@
 namespace visutwin::canvas
 {
     class GraphicsDevice;
+    class RenderTarget;
     class Texture;
 
     /// One destination rectangle of a reprojection. `seamPixels` is the border
@@ -52,6 +54,17 @@ namespace visutwin::canvas
      */
     bool bakeEquirectToCubemap(GraphicsDevice* device, Texture* source,
         Texture* target, bool decodeSrgb, bool encodeRgbp = false);
+
+    /**
+     * Fill every mip level of `target`, a gamma-encoded RGBA8 cube map, from level 0 of
+     * `source`, a cube of the same face size: each texel is the LINEAR average of the source
+     * texels it covers, decoded and encoded again, as an sRGB-format texture's mip chain would
+     * be (a blit averages the encoded values and darkens bright features). Level 0 is a copy.
+     * `targets` caches the per-(level, face) render targets between calls; pass the same
+     * vector each time. Returns false when the arguments or the shader are unusable.
+     */
+    bool bakeCubeMipsLinear(GraphicsDevice* device, Texture* source, Texture* target,
+        std::vector<std::shared_ptr<RenderTarget>>& targets);
 
     /**
      * Resample `source` into each of `request.rects` on `target`, converting

@@ -296,6 +296,26 @@ int main()
         a.setNormalMap(nullptr);
         check(ProgramLibraryTestAccess::key(msl, &a) == base, "and clearing it returns to the old key");
 
+        // A material's own environment atlas, and box projection of its reflections.
+        Texture materialAtlas(device.get());
+        materialAtlas.setEncoding(TextureEncoding::RGBP);
+        a.setEnvAtlas(&materialAtlas);
+        check(ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::MaterialEnvAtlas) &&
+                  !ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::BoxProjection) &&
+                  a.packedUniforms().envBoxMin[3] == 1.0f,
+            "a material atlas compiles VT_FEATURE_MATERIAL_ENV_ATLAS, its RGBP encoding packed in envBoxMin.w");
+        a.setCubeMapProjection(CUBEPROJ_BOX);
+        a.setCubeMapProjectionBox(BoundingBox(Vector3(0.0f, 200.0f, 0.0f), Vector3(400.0f, 200.0f, 400.0f)));
+        const MaterialUniforms& boxed = a.packedUniforms();
+        check(ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::BoxProjection) &&
+                  boxed.envBoxMin[0] == -400.0f && boxed.envBoxMin[1] == 0.0f && boxed.envBoxMin[2] == -400.0f &&
+                  boxed.envBoxMax[0] == 400.0f && boxed.envBoxMax[1] == 400.0f && boxed.envBoxMax[2] == 400.0f,
+            "box projection compiles VT_FEATURE_BOX_PROJECTION and packs the box as its world min and max");
+        a.setEnvAtlas(nullptr);
+        a.setCubeMapProjection(CUBEPROJ_NONE);
+        a.setCubeMapProjectionBox(BoundingBox());
+        check(ProgramLibraryTestAccess::key(msl, &a) == base, "and clearing both returns to the old key");
+
         generic.setShaderVariantKey(1ull << 36);
         check(ProgramLibraryTestAccess::key(msl, &generic).features.test(ShaderFeature::GgxSpecular),
             "variant bit 36 asks a generic material for GGX");

@@ -49,21 +49,67 @@ float3 decodeRGBP(float4 raw) { float3 c = raw.rgb * (-raw.a * 7.0 + 8.0); retur
 float3 decodeRGBM(float4 raw) { float3 c = (8.0 * raw.a) * raw.rgb; return c * c; }
 float3 srgbToLinear(float3 c) { return pow(max(c, float3(0.0)), float3(2.2)); }
 
-float3 decodeEnv(float4 raw) {
-    uint enc = uint(lighting.envParams.z + 0.5);
+// An environment texel decoded by its encoding: 0 gamma, 1 RGBP, 2 RGBM, 3 linear.
+float3 decodeEnvAs(float4 raw, uint enc) {
     if (enc == 1u) return decodeRGBP(raw);
     if (enc == 2u) return decodeRGBM(raw);
+    if (enc == 3u) return raw.rgb;
     return srgbToLinear(raw.rgb);
+}
+
+float3 decodeEnv(float4 raw) {
+    return decodeEnvAs(raw, uint(lighting.envParams.z + 0.5));
+}
+
+// The environment a material reflects and takes its ambient from: its own atlas when it has
+// one, the scene's otherwise. The scene's skybox intensity and rotation belong to the scene's
+// atlas only, and a material that turns the scene environment off (flags bit 18, useSkybox
+// off) still keeps an atlas of its own.
+bool envFromMaterial() { return vtFeatureEnabled(VT_FEATURE_MATERIAL_ENV_ATLAS_BIT); }
+
+bool envAvailable() {
+    return envFromMaterial() || (vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_BIT) &&
+        lighting.envParams.y > 0.5 && (material.flags & (1u << 18)) == 0u);
+}
+
+float3 envFetch(float2 uv) {
+    if (envFromMaterial()) {
+        return decodeEnvAs(materialEnvAtlas.SampleLevel(linearClampSampler, uv, 0.0),
+            uint(material.envBoxMin.w + 0.5));
+    }
+    return decodeEnv(envAtlas.Sample(uv));
+}
+
+float3 envRotate(float3 dir) { return envFromMaterial() ? dir : cubeMapRotate(dir); }
+
+float envIntensity() { return envFromMaterial() ? 1.0 : max(lighting.envParams.x, 0.0); }
+
+// Box projection of a reflection direction (CUBEPROJ_BOX): the ray from the fragment meets the
+// material's box, and the lookup is re-aimed from the box CENTRE at that point, so a flat
+// environment tracks a room's walls as the surface moves. Without it, the direction as given.
+float3 envProject(float3 dir, float3 worldPos) {
+    if (!vtFeatureEnabled(VT_FEATURE_BOX_PROJECTION_BIT)) {
+        return dir;
+    }
+    const float3 boxMin = material.envBoxMin.xyz;
+    const float3 boxMax = material.envBoxMax.xyz;
+    const float3 invDir = 1.0 / dir;
+    const float3 toMax = (boxMax - worldPos) * invDir;
+    const float3 toMin = (boxMin - worldPos) * invDir;
+    const float3 far = select(dir > float3(0.0), toMax, toMin);
+    const float t = min(min(far.x, far.y), far.z);
+    return normalize(worldPos + dir * t - (boxMin + boxMax) * 0.5);
 }
 
 // Environment atlas lookup along a world direction at a roughness: the unconvolved shiny rect at a screen-space
 // mip for a mirror, the prefiltered chain otherwise, blended toward the next
-// roughness level. Decoded, NOT scaled by the environment intensity. Uses screen
+// roughness level. Decoded, NOT scaled by the environment intensity (envIntensity()). The
+// material's atlas when it has one (envFetch). Uses screen
 // derivatives, so call it from uniform control flow only. The env-atlas
 // refraction uses it; the specular block in forward-fragment-ambient spells the
 // same lookup inline.
 float3 sampleEnvAtlas(float3 dir, float roughness) {
-    dir = cubeMapRotate(dir);   // Scene::skyboxRotation, as every env-atlas lookup
+    dir = envRotate(dir);   // Scene::skyboxRotation for the scene's atlas
     float2 envUv = dirToEquirect(float3(-dir.x, dir.y, dir.z));
     float level = clamp(roughness * 5.0, 0.0, 5.0);
     float l0 = floor(level);
@@ -77,13 +123,13 @@ float3 sampleEnvAtlas(float3 dir, float roughness) {
 
     float3 envA;
     if (l0 == 0.0) {
-        envA = lerp(decodeEnv(envAtlas.Sample(mapShinyUv(envUv, shinyL0))),
-                   decodeEnv(envAtlas.Sample(mapShinyUv(envUv, shinyL0 + 1.0))),
+        envA = lerp(envFetch(mapShinyUv(envUv, shinyL0)),
+                   envFetch(mapShinyUv(envUv, shinyL0 + 1.0)),
                    shinyLevel - shinyL0);
     } else {
-        envA = decodeEnv(envAtlas.Sample(mapRoughnessUv(envUv, l0)));
+        envA = envFetch(mapRoughnessUv(envUv, l0));
     }
-    float3 envB = decodeEnv(envAtlas.Sample(mapRoughnessUv(envUv, l0 + 1.0)));
+    float3 envB = envFetch(mapRoughnessUv(envUv, l0 + 1.0));
     return lerp(envA, envB, level - l0);
 }
 

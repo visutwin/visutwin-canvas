@@ -12,6 +12,7 @@
 #include <cmath>
 
 #include "platform/graphics/shaderBindings.h"
+#include "platform/graphics/texture.h"
 
 namespace visutwin::canvas
 {
@@ -51,6 +52,10 @@ namespace visutwin::canvas
         _specularColorMapUv = 0;
         _specularityFactorMap = nullptr;
         _specularityFactorMapUv = 0;
+        _envAtlas = nullptr;
+        _cubeMapProjection = CUBEPROJ_NONE;
+        _cubeMapProjectionBox = BoundingBox();
+        _reflectivity = 1.0f;
         _anisotropyMapUv = 0;
         _meshTangents = false;
         _enableGGXSpecular = false;
@@ -135,6 +140,23 @@ namespace visutwin::canvas
         float toLinear(const float c)
         {
             return gammaToLinear(c);
+        }
+
+        /// How the forward shader decodes an environment atlas: 0 gamma (an 8-bit image),
+        /// 1 RGBP, 2 RGBM, 3 linear (a float texture).
+        int envAtlasEncodingCode(const Texture* atlas)
+        {
+            if (!atlas) {
+                return 1;
+            }
+            switch (atlas->encoding()) {
+            case TextureEncoding::RGBP:
+                return 1;
+            case TextureEncoding::RGBM:
+                return 2;
+            default:
+                return pixelFormatBytesPerPixel(atlas->format()) > 4 ? 3 : 0;
+            }
         }
     }
 
@@ -328,6 +350,19 @@ namespace visutwin::canvas
         uniforms.metalnessSpecular[3] = static_cast<float>((_specularColorMapUv == 1 ? 1 : 0) +
             (_specularityFactorMapUv == 1 ? 2 : 0));
 
+        // The material's environment atlas: its encoding, and the box its reflections are
+        // projected onto.
+        const Vector3 boxMin = _cubeMapProjectionBox.center() - _cubeMapProjectionBox.halfExtents();
+        const Vector3 boxMax = _cubeMapProjectionBox.center() + _cubeMapProjectionBox.halfExtents();
+        uniforms.envBoxMin[0] = boxMin.getX();
+        uniforms.envBoxMin[1] = boxMin.getY();
+        uniforms.envBoxMin[2] = boxMin.getZ();
+        uniforms.envBoxMin[3] = static_cast<float>(envAtlasEncodingCode(_envAtlas));
+        uniforms.envBoxMax[0] = boxMax.getX();
+        uniforms.envBoxMax[1] = boxMax.getY();
+        uniforms.envBoxMax[2] = boxMax.getZ();
+        uniforms.envBoxMax[3] = _reflectivity;
+
         // The specular workflow's F0 and gloss. `specular` is authored in sRGB and
         // uploaded linear; gloss is the same
         // `gloss` the metalness workflow uses, with glossInvert applied.
@@ -491,6 +526,7 @@ namespace visutwin::canvas
         overrideSlot(42, _anisotropyMap);
         overrideSlot(43, _specularColorMap);
         overrideSlot(44, _specularityFactorMap);
+        overrideSlot(45, _envAtlas);
         // Vertex displacement map: a VERTEX-stage texture (the binding table's slot,
         // MetalTextureBinder::bindMaterialTextures).
         overrideSlot(kDisplacementMapMetalSlot, _displacementMap);

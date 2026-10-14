@@ -1,6 +1,6 @@
 # VisuTwin Canvas Examples
 
-146 example applications, each a small self-contained program built on the
+147 example applications, each a small self-contained program built on the
 engine. All but one are ports of [PlayCanvas](https://playcanvas.com/) engine
 examples, so they can be compared side by side with upstream: the file header names
 the upstream example and lists every place the port could not follow it. The
@@ -153,6 +153,7 @@ The second column is the upstream example each one ports, as
 |---------|----------|-------------|
 | reflection-probe-dynamic | graphics/reflection-cubemap | Live cubemap capture and its reprojections |
 | reflection-planar | graphics/reflection-planar | A mirror ground sampling a reflection camera's texture by screen position |
+| reflection-box | graphics/reflection-box | A room reflecting a live probe through per-material, box-projected environment atlases |
 | reflection-planar-blurred | graphics/reflection-planar-blurred | Planar reflections blurred with height |
 | procedural-sky | graphics/procedural-sky | Laboratory in dunes under a time-of-day sun |
 | sky | graphics/sky | Dome, infinite and box skies from HDRIs, with colour enhance |

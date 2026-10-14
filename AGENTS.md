@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 146 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 147 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -496,10 +496,11 @@ reflected bindings fall outside the table. The rules the rows encode:
   `textureSamplerState`, the same mapping Vulkan's per-texture samplers use) — exactly the
   maps Vulkan binds as combined samplers. A new map Vulkan binds as a combined sampler needs
   `ownSampler` and a Metal sampler slot within the budget comment in `metalTextureBinder.h`;
-  a separate-image map keeps `defaultSampler` on both. Slots 0-40 and 42-44 are taken today
+  a separate-image map keeps `defaultSampler` on both. Slots 0-40 and 42-45 are taken today
   (31-33 the gloss, thickness and refraction maps, 34 the opacity map, 42 the anisotropy map,
   which skips 41 for the displacement map's vertex slot below, 43-44 the specular colour and
-  specularity factor maps (Vulkan 36-37); 35 is the second
+  specularity factor maps (Vulkan 36-37), 45 the material's own environment atlas (Vulkan 38);
+  35 is the second
   directional shadow map, 36 the clustered cookie atlas, 37-38 the VSM spot moments and 39-40
   the two directional maps AGAIN as VSM moments, scene slots, not material ones: the Slang
   forward program reads a directional slot as a `depth2d` at 6 / 35 or as moments at 39 / 40,
@@ -860,7 +861,7 @@ through `getOrCreateQuadShader` (`quadShader.h`) with the prelude and vertex sta
 `quadShaderSource.h` (`useCachedShader`); nothing in the engine uses that route. A quad pass is otherwise a shader,
 up to 8 input textures on fragment slots 0-7, and one uniform block. The block rides the per-draw MATERIAL slot (Metal buffer 3 / Vulkan
 set 0 binding 0) via `GraphicsDevice::setQuadUniformData`; `kPerDrawUniformCapacity`
-(640; `MaterialUniforms` itself is 624 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
+(656; `MaterialUniforms` itself is 656 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
 allocation behind it. A smaller block is copied into the front of a full-size
 allocation, so never shorten the allocation. Quad passes draw an oversized
 fullscreen TRIANGLE and, on Metal, bind `_postSampler` (linear, clamp, no anisotropy),
@@ -1397,6 +1398,22 @@ present, but the rule below never depends on reading it.
   reflected and clearcoat), raised to 2.2, to the alpha, so a clear glass still shows its
   highlights and reflections, and then multiplies the alpha by `alphaFade`. Other blend modes
   ignore it, as upstream.
+- **A material with an environment atlas of its own (`StandardMaterial::setEnvAtlas`) reflects
+  and takes its ambient and env refraction from it, not the scene's**, without the scene's
+  skybox intensity and rotation, and keeps it when it turns the scene environment off (bit 18).
+  Every material-facing atlas read goes through the helpers in `forward/common-utils.slang`
+  (`envAvailable`, `envFetch`, `envRotate`, `envIntensity`): a new lookup that samples
+  `envAtlas` directly ignores a material's atlas. Box projection (`setCubeMapProjection(
+  CUBEPROJ_BOX)` with a world box) bends every REFLECTION lookup (`envProject`), not the
+  ambient. `reflectivity` (default 1) scales the environment reflection; the atlas encoding,
+  the box and the reflectivity ride in `envBoxMin` / `envBoxMax`. `reflection-box` shows it.
+- **A ReflectionProbe's mips are averaged in LINEAR space.** The face cameras render into a
+  one-level capture cube and `update()` fills the sampled cube from it (`bakeCubeMipsLinear`:
+  decode, box-average, encode), as upstream's sRGB-format capture cube is mipmapped. A blit
+  mip chain over the gamma-encoded faces darkens a bright feature on a dark surround at every
+  level, and an atlas prefiltered from it reflected it 1.2x too dark per bounce
+  (`reflection-box`, whose walls reflect each other, read 7.4 against upstream; now 4.4). The
+  atlas bake's own bilinear taps still filter the gamma values before decoding.
 - **SH light probes replace the ambient DIFFUSE only; the environment atlas
   still supplies the SPECULAR.** That is upstream's split (ambient and reflections
   are separate decisions), on both backends. Probes and atlas in one `if / else if`
@@ -3379,8 +3396,7 @@ What stays HERE is only what bites during UNRELATED work.
   curve). Audited 2026-10-13: of the ported examples only `texture-copy` shows an unflagged
   texture in an image element (its thumbnails read lighter upstream, by exactly one decode);
   every UI atlas is flagged (`uiAtlasData.srgb`), and no port uses an unflagged colour map in a
-  material. A float texture as a colour map is linear upstream; nothing here exercises it. (2) The environment atlas is scene-global: no per-material `envAtlas` or box
-  projection (`graphics/reflection-box`). (3) No per-`MeshInstance` parameter overrides
+  material. A float texture as a colour map is linear upstream; nothing here exercises it. (2) No per-`MeshInstance` parameter overrides
   (`test/material-instance-overrides`). (4) No `CanvasFont` (`text-emojis`, `element-colors`,
   `element-states`). (5) `.basis` files do not load (libktx reads KTX2 only; `texture-basis`
   ships KTX2 re-encodes). (6) A custom shader material gets no skin or morph variant

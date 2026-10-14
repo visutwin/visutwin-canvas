@@ -28,6 +28,17 @@ namespace visutwin::canvas::env_shaders
     };
     static_assert(sizeof(EquirectToCubeUniforms) == 16);
 
+    /// Uniforms for the linear-space cube mip pass (env-cube-mips.slang): one level of one
+    /// face from the source's level 0.
+    struct alignas(16) CubeMipsUniforms
+    {
+        uint32_t face = 0u;
+        uint32_t level = 0u;
+        uint32_t sourceSize = 1u;
+        uint32_t _pad0 = 0u;
+    };
+    static_assert(sizeof(CubeMipsUniforms) == 16);
+
     /// Uniforms for the reprojection pass. `uvMod` applies the seam expansion
     /// (the bake adds a border so bilinear taps at a rect edge stay inside it);
     /// the projection ids mirror TextureProjection in platform/graphics/constants.h.

@@ -190,6 +190,10 @@ namespace visutwin::canvas
             bool normalMap = false;
             // The normal map is packed (TextureEncoding::SwizzleGGGR): x in alpha, y in green.
             bool normalMapPacked = false;
+            // The material reflects an environment atlas of its own instead of the scene's,
+            // projected onto a box when boxProjection is set.
+            bool materialEnvAtlas = false;
+            bool boxProjection = false;
             bool metallicRoughnessMap = false;
             bool occlusionMap = false;
             bool emissiveMap = false;

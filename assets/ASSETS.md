@@ -40,6 +40,9 @@ for details.
   byte-identical to upstream's example sprites, which record no licence. LICENCE TO CONFIRM.
   Used by `particles-random-sprites`.
 - `normal-map.png` — tiling normal map (CC-0)
+- `sample-video-still.jpg` — 640x360 still (at 2 s) of upstream's example video
+  `SampleVideo_1280x720_1mb.mp4`, a clip of Big Buck Bunny (**CC-BY 3.0**, © Blender
+  Foundation, www.bigbuckbunny.org). Used by `reflection-box`, which has no video textures.
 - `pc-gray.png` — byte-identical to upstream's example texture, which records no licence.
   LICENCE TO CONFIRM. Unused for now (upstream's grab-pass loads it but never shows it).
 - `heart.png` — light-cookie / decal texture; provenance unconfirmed, see

@@ -65,6 +65,14 @@ namespace visutwin::canvas
     constexpr uint32_t SPECOCC_AO = 1u;
     constexpr uint32_t SPECOCC_GLOSSDEPENDENT = 2u;
 
+    // How a material's environment is projected: from infinitely far away, or onto a world
+    // axis-aligned box (a room), so the reflection tracks the walls as the surface moves.
+    enum CubeProjection
+    {
+        CUBEPROJ_NONE,
+        CUBEPROJ_BOX
+    };
+
     enum SkyType
     {
         SKYTYPE_INFINITE,

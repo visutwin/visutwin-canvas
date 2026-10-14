@@ -59,6 +59,13 @@ hdri/empty-room.hdr
   Source:   https://polyhaven.com/a/small_empty_room_2
   License:  CC-BY 4.0 (as upstream's empty-room.txt records it)
 
+textures/sample-video-still.jpg
+  Original: Big Buck Bunny (a still of the clip upstream's examples ship as
+            SampleVideo_1280x720_1mb.mp4)
+  Source:   https://peach.blender.org
+  Author:   Blender Foundation
+  License:  CC-BY 3.0 (https://creativecommons.org/licenses/by/3.0/)
+
 models/morph-stress-test.glb
   Original: MorphStressTest (Khronos glTF sample asset)
   Source:   https://github.com/KhronosGroup/glTF-Sample-Models/tree/master/2.0/MorphStressTest
