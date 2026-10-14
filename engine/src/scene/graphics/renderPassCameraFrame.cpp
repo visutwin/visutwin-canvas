@@ -1196,6 +1196,25 @@ namespace visutwin::canvas
             _taaPass->setDepthTexture(_sceneDepthTexture.get());
         }
 
+        // The depth of field's focus and blur follow the camera every frame, as upstream's
+        // CameraFrame.update copies them: they are not reset options, so the passes'
+        // setup alone left a running camera at the values it started with.
+        if (_cameraComponent && _cameraComponent->dof().enabled) {
+            const auto& dof = _cameraComponent->dof();
+            if (_dofPass) {
+                _dofPass->setFocusDistance(dof.focusDistance);
+                _dofPass->setFocusRange(dof.focusRange);
+                _dofPass->setBlurRadius(dof.blurRadius);
+                _dofPass->setBlurRings(dof.blurRings);
+                _dofPass->setBlurRingPoints(dof.blurRingPoints);
+            }
+            if (_composePass) {
+                _composePass->setDofFocusDistance(dof.focusDistance);
+                _composePass->setDofFocusRange(dof.focusRange);
+                _composePass->setDofBlurRadius(dof.blurRadius * _renderTargetScale);
+            }
+        }
+
         // The colour-only alias of the scene target shares the scene texture, which the
         // resize above (or the scene pass) reallocates; its own size reads the new one, so
         // compare with the size its attachments were built at.
