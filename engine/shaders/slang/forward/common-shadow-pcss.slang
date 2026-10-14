@@ -207,6 +207,12 @@ float getShadowPCSSDirectional(int slot, float2 uv, float receiverDepth,
         // Constant filter size — no contact hardening.
         filterRadius = penumbraSize / worldPerUv;
     }
+    // DEVIATION: the radius never drops below the footprint of the default PCF3
+    // kernel (1.5 texels). Contact hardening shrinks it with the caster-receiver
+    // gap, and these taps are nearest-filtered steps: a caster millimetres above
+    // its receiver (bristles over a thorax, a dithered wing membrane over a body)
+    // drew its shadow map texels as hard-edged squares, sharper than PCF ever does.
+    filterRadius = max(filterRadius, 1.5 / directionalShadowSize(slot).x);
 
     float invSamples = 1.0 / float(shadowSamples);
     float sum = 0.0;

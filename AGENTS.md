@@ -3092,6 +3092,14 @@ present, but the rule below never depends on reading it.
   counts). Gather at the shared CORNER, not at the tap point: there the hardware's
   sub-texel rounding cannot pick a different 2x2 block from the one the weights assume.
   PCSS keeps its point taps on both backends.
+- **Directional PCSS never filters narrower than 1.5 texels** (DEVIATION, in
+  `getShadowPCSSDirectional`), the footprint of the default PCF3 kernel. Contact hardening
+  shrinks the radius with the caster-receiver gap, and its taps are nearest-filtered steps,
+  so a caster millimetres above its receiver drew its shadow-map texels as hard-edged
+  squares (bristles and a dithered wing membrane over a fly's body, visutwin-robotics'
+  fly demo). A scene that relies on the floor also needs a normal offset of a couple of
+  texels on curved receivers lit at a grazing angle, or those taps shadow the surface with
+  itself in contour rings. No golden case reaches directional PCSS by default.
 - **A directional VSM bias is `vsmBias / (cascade-0 fitted far / 7)`**, the spot rule over
   the fitted depth span; passed raw, it is a variance floor several times too large.
 - **A VSM SPOT stores distance / range, not depth, and an omni light asking for VSM
