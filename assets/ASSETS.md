@@ -186,7 +186,7 @@ Mirrored from the upstream examples (for visual parity):
   Draco, byte-identical to upstream's, see .txt). Used by `annotations`.
 - `cat.glb` — Egyptian Cat Statue by Ankledot, Sketchfab (**CC-BY 4.0**, webp textures re-encoded to png, see .txt)
 - `tamiya-dt03.compressed.ply` — Tamiya DT-03 by Simon Bethke, SuperSplat
-  (**CC-BY 4.0**, see .txt). Used by `gsplat-example`. Downloaded as a 154 MB
+  (**CC-BY 4.0**, see .txt). Used by `gsplat-example` and `gsplat-shadows`. Downloaded as a 154 MB
   uncompressed 3DGS PLY and converted with `tools/ply_to_compressed_ply.py`
   (thinned to 500k splats, SH dropped) — rerun that script to regenerate.
 - `sh_sphere.ply`, `compressed_rings.ply`, `torus_splats.ply` — procedurally

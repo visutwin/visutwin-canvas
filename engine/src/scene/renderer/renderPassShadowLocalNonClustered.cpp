@@ -16,6 +16,7 @@
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/depthState.h"
 #include "platform/graphics/graphicsDevice.h"
+#include "platform/graphics/renderTarget.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "platform/graphics/vertexFormat.h"
 #include <scene/graphNode.h>
@@ -75,6 +76,12 @@ namespace visutwin::canvas
         const bool vsm = _applyVsm && _light->shadowType() == SHADOW_VSM_16F;
         if (!bindLocalShadowState(_graphicsDevice.get(), programLibrary.get(), _light, shaders, vsm)) {
             return;
+        }
+        // The whole map, stated: a splat caster sizes its footprints in the viewport's pixels.
+        if (const auto& target = renderTarget()) {
+            _graphicsDevice->setViewport(0.0f, 0.0f, static_cast<float>(target->width()),
+                static_cast<float>(target->height()));
+            _graphicsDevice->setScissor(0, 0, target->width(), target->height());
         }
         drawLocalShadowFace(_graphicsDevice.get(), programLibrary.get(), shaders,
             _light, _face, _shadowCamera, _shadowRenderer->componentRegistry());

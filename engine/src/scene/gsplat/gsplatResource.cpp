@@ -81,7 +81,7 @@ namespace visutwin::canvas
         // ── Splat shader + material ──────────────────────────────────────
         // The Slang program gsplat-render: the screen-space covariance projection, the
         // normalized-exponential falloff and the output stage.
-        _shader = getOrCreateSlangShader(device.get(), "gsplat-render");
+        _shader = getOrCreateSlangShader(device.get(), "gsplat-render", "color");
 
         _material = std::make_shared<Material>();
         _material->setName("gsplat");

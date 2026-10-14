@@ -309,29 +309,48 @@ namespace visutwin::canvas
             }
         }
 
-        // VISUTWIN_LOCAL_LIGHT=x,y,z,intensity,range adds a white OMNI light, which under
-        // the default clustered lighting goes through the cluster loop rather than the
-        // main light array. No example puts a local light on a clearcoat, sheen,
-        // iridescent or Oren-Nayar material, so this is how that loop's material terms
-        // are driven; a run without it is the control, and the difference between the
-        // two frames is the light's contribution alone.
+        // VISUTWIN_LOCAL_LIGHT=x,y,z,intensity,range[,shadows[,spotAngle[,clustered]]] adds a
+        // white OMNI light, which under the default clustered lighting goes through the cluster
+        // loop rather than the main light array. No example puts a local light on a clearcoat,
+        // sheen, iridescent or Oren-Nayar material, so this is how that loop's material terms
+        // are driven; a run without it is the control, and the difference between the two
+        // frames is the light's contribution alone. `shadows` 1 makes it cast; `spotAngle` > 0
+        // makes it a SPOT aimed straight down with that outer half-angle in degrees; `clustered`
+        // 0 switches the scene to the non-clustered path (the light then takes a main-array
+        // slot and, casting, a shadow map of its own). Together they reach all four local
+        // shadow paths: omni and spot, atlas and own map.
         if (const char* local = std::getenv("VISUTWIN_LOCAL_LIGHT"); local && *local) {
             float x = 0.0f, y = 0.0f, z = 0.0f, intensity = 1.0f, range = 10.0f;
-            if (std::sscanf(local, "%f,%f,%f,%f,%f", &x, &y, &z, &intensity, &range) == 5) {
+            int shadows = 0, clustered = 1;
+            float spotAngle = 0.0f;
+            if (std::sscanf(local, "%f,%f,%f,%f,%f,%d,%f,%d", &x, &y, &z, &intensity, &range, &shadows, &spotAngle,
+                    &clustered) >= 5) {
                 auto* lightEntity = new Entity();
                 lightEntity->setName("local-light");
                 lightEntity->setEngine(_engine.get());
                 _engine->root()->addChild(lightEntity);
                 lightEntity->setLocalPosition(x, y, z);
                 auto* light = static_cast<LightComponent*>(lightEntity->addComponent<LightComponent>());
-                light->setType(LightType::LIGHTTYPE_OMNI);
+                const bool spot = spotAngle > 0.0f;
+                light->setType(spot ? LightType::LIGHTTYPE_SPOT : LightType::LIGHTTYPE_OMNI);
+                if (spot) {
+                    // A spot shines down its -Y, which is already straight down.
+                    light->setOuterConeAngle(spotAngle);
+                    light->setInnerConeAngle(spotAngle * 0.8f);
+                }
                 light->setColor(Color(1.0f, 1.0f, 1.0f));
                 light->setIntensity(intensity);
                 light->setRange(range);
-                spdlog::info("Local light: omni at ({}, {}, {}) intensity {} range {} from VISUTWIN_LOCAL_LIGHT",
-                    x, y, z, intensity, range);
+                light->setCastShadows(shadows != 0);
+                if (clustered == 0) {
+                    _engine->scene()->setClusteredLightingEnabled(false);
+                }
+                spdlog::info("Local light: {} at ({}, {}, {}) intensity {} range {}{}{} from VISUTWIN_LOCAL_LIGHT",
+                    spot ? "spot" : "omni", x, y, z, intensity, range, shadows != 0 ? ", casting" : "",
+                    clustered == 0 ? ", non-clustered" : "");
             } else {
-                spdlog::warn("VISUTWIN_LOCAL_LIGHT='{}' is not x,y,z,intensity,range; ignored", local);
+                spdlog::warn("VISUTWIN_LOCAL_LIGHT='{}' is not x,y,z,intensity,range[,shadows[,spotAngle[,clustered]]]; "
+                    "ignored", local);
             }
         }
 

@@ -13,6 +13,9 @@
 // would leave every shadow map still rendering, just with casters assigned to the
 // wrong faces — a silent, partial loss of shadows.
 //
+// The faces are also rendered upside down against hardware cube addressing, which the
+// shaders' cube shadow reads undo (omniShadowCubeDir); checkCubeAddressing holds the two.
+//
 // So it is checked here. If this test fails, do NOT adjust it to match: either put
 // the rotation table back, or rewrite the classification's six blocks to the new
 // order.
@@ -86,11 +89,96 @@ namespace
         }
         return true;
     }
+
+    // Hardware cube addressing (Metal and Vulkan alike): the face of the major axis, and (s, t)
+    // in [0, 1] with t = 0 the face's FIRST row.
+    int hardwareCubeTexel(const Vector3& d, float& s, float& t)
+    {
+        const float ax = std::abs(d.getX()), ay = std::abs(d.getY()), az = std::abs(d.getZ());
+        int face;
+        float sc, tc, ma;
+        if (ax >= ay && ax >= az) {
+            ma = ax;
+            face = d.getX() > 0.0f ? 0 : 1;
+            sc = d.getX() > 0.0f ? -d.getZ() : d.getZ();
+            tc = -d.getY();
+        } else if (ay >= az) {
+            ma = ay;
+            face = d.getY() > 0.0f ? 2 : 3;
+            sc = d.getX();
+            tc = d.getY() > 0.0f ? d.getZ() : -d.getZ();
+        } else {
+            ma = az;
+            face = d.getZ() > 0.0f ? 4 : 5;
+            sc = d.getZ() > 0.0f ? d.getX() : -d.getX();
+            tc = -d.getY();
+        }
+        s = (sc / ma + 1.0f) * 0.5f;
+        t = (tc / ma + 1.0f) * 0.5f;
+        return face;
+    }
+
+    // The shaders' omniShadowCubeDir (forward-fragment-head.slang), the reflection every cube
+    // shadow read applies.
+    Vector3 omniShadowCubeDir(const Vector3& d)
+    {
+        const float ax = std::abs(d.getX()), ay = std::abs(d.getY()), az = std::abs(d.getZ());
+        if (ay > ax && ay >= az) {
+            return Vector3(d.getX(), d.getY(), -d.getZ());
+        }
+        return Vector3(d.getX(), -d.getY(), d.getZ());
+    }
+
+    // Where a direction lands in its face as the face camera RENDERS it (row 0 the top of the
+    // image, as every target here) against where the hardware looks it up. The faces come out
+    // upside down against the hardware's t axis (u = s, v = 1 - t); the reflected lookup reads
+    // the texel the direction was rendered at. A face table changed without the reflection
+    // following it would leave every non-clustered omni shadow mirrored, which no frame of a
+    // symmetric scene shows.
+    bool checkCubeAddressing()
+    {
+        const std::unique_ptr<Camera> camera =
+            ShadowRenderer::createShadowCamera(SHADOW_PCF3_32F, LightType::LIGHTTYPE_OMNI, 0);
+        GraphNode node("face");
+        camera->setNode(&node);
+        camera->setFov(90.0f);
+        camera->setAspectRatio(1.0f);
+        const Vector3 directions[] = {
+            Vector3(1.0f, 0.3f, 0.1f), Vector3(1.0f, -0.2f, 0.5f), Vector3(-1.0f, 0.3f, 0.1f),
+            Vector3(-1.0f, -0.2f, 0.5f), Vector3(0.3f, 1.0f, 0.1f), Vector3(-0.2f, 1.0f, 0.5f),
+            Vector3(0.3f, -1.0f, 0.1f), Vector3(-0.2f, -1.0f, 0.5f), Vector3(0.3f, 0.1f, 1.0f),
+            Vector3(-0.2f, 0.5f, 1.0f), Vector3(0.3f, 0.1f, -1.0f), Vector3(-0.2f, 0.5f, -1.0f)};
+        bool ok = true;
+        for (const Vector3& d : directions) {
+            float s = 0.0f, t = 0.0f;
+            const int face = hardwareCubeTexel(d, s, t);
+            node.setLocalRotation(LightCamera::pointLightRotations[face]);
+            const Matrix4 viewProjection = camera->projectionMatrix() * node.worldTransform().inverse();
+            const Vector4 clip = viewProjection * Vector4(d.getX(), d.getY(), d.getZ(), 1.0f);
+            const float u = (clip.getX() / clip.getW() + 1.0f) * 0.5f;
+            const float v = (1.0f - clip.getY() / clip.getW()) * 0.5f;
+            if (std::abs(u - s) > EPSILON || std::abs(v - (1.0f - t)) > EPSILON) {
+                std::cerr << "face " << face << " renders (" << d.getX() << ", " << d.getY() << ", " << d.getZ()
+                          << ") at (" << u << ", " << v << "), not at the hardware's (s, 1 - t) = (" << s << ", "
+                          << 1.0f - t << ")\n";
+                ok = false;
+            }
+            float rs = 0.0f, rt = 0.0f;
+            const int readFace = hardwareCubeTexel(omniShadowCubeDir(d), rs, rt);
+            if (readFace != face || std::abs(rs - u) > EPSILON || std::abs(rt - v) > EPSILON) {
+                std::cerr << "the reflected lookup of (" << d.getX() << ", " << d.getY() << ", " << d.getZ()
+                          << ") reads face " << readFace << " at (" << rs << ", " << rt << "), not face " << face
+                          << " at (" << u << ", " << v << ")\n";
+                ok = false;
+            }
+        }
+        return ok;
+    }
 }
 
 int main()
 {
-    const bool ok = checkFaceAxes() && checkFaceFov();
+    const bool ok = checkFaceAxes() && checkFaceFov() && checkCubeAddressing();
     if (!ok) {
         std::cerr << "omni face axis tests FAILED\n";
         return 1;

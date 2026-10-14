@@ -99,6 +99,26 @@ namespace visutwin::canvas
         _gpuParams.shBands = static_cast<uint32_t>(_resource->data().shBands());
     }
 
+    GpuGSplatParams GSplatInstance::shadowParams(const Matrix4& model, const Matrix4& view,
+        const Matrix4& projection, const float viewportWidth, const float viewportHeight,
+        const bool orthographic, const int vsmMode, const float farClip) const
+    {
+        GpuGSplatParams params{};
+        params.modelView = view * model;
+        params.projection = projection;
+        params.viewport[0] = viewportWidth;
+        params.viewport[1] = viewportHeight;
+        params.viewport[2] = viewportWidth > 0.0f ? 1.0f / viewportWidth : 0.0f;
+        params.viewport[3] = viewportHeight > 0.0f ? 1.0f / viewportHeight : 0.0f;
+        params.splatCount = static_cast<uint32_t>(_resource->numSplats());
+        params.shBands = 0;
+        params.cameraOrtho = orthographic ? 1u : 0u;
+        params.output[0] = _alphaClip;
+        params.output[1] = static_cast<float>(vsmMode);
+        params.output[2] = farClip;
+        return params;
+    }
+
     Vector3 GSplatInstance::sortDirection(const Matrix4& model, const Vector3& cameraForward)
     {
         // Column-major: columns 0/1/2 are the transformed X/Y/Z axes, and weight i is

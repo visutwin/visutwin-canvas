@@ -371,6 +371,30 @@ namespace visutwin::canvas
         return compileProgramEntries(device, program, variant, overrides, out);
     }
 
+    bool spirvFragmentWritesNoOutput(const std::vector<uint32_t>& spirv)
+    {
+        // The header is five words; each instruction's first word holds its word count
+        // (high half) and opcode (low half). OpVariable is 59, its storage class the
+        // fourth word, and Output is storage class 3.
+        constexpr uint32_t kOpVariable = 59;
+        constexpr uint32_t kStorageClassOutput = 3;
+        if (spirv.size() <= 5 || spirv[0] != 0x07230203u) {
+            return false;
+        }
+        for (size_t i = 5; i < spirv.size();) {
+            const uint32_t wordCount = spirv[i] >> 16;
+            const uint32_t opcode = spirv[i] & 0xFFFFu;
+            if (wordCount == 0 || i + wordCount > spirv.size()) {
+                return false;
+            }
+            if (opcode == kOpVariable && wordCount >= 4 && spirv[i + 3] == kStorageClassOutput) {
+                return false;
+            }
+            i += wordCount;
+        }
+        return true;
+    }
+
     std::shared_ptr<Shader> getOrCreateSlangShader(GraphicsDevice* device, const std::string& program,
         const std::string& variant, const ShaderFeatureSet& features)
     {
@@ -440,6 +464,7 @@ namespace visutwin::canvas
             }
         }
 
+        code.depthOnlyFragment = spirvFragmentWritesNoOutput(code.fragmentSpirv);
         auto shader = device->createShaderFromCode(definition, code);
         if (shader) {
             device->setCachedShader(cacheKey, shader);
@@ -525,6 +550,7 @@ namespace visutwin::canvas
                     : entry.stage == "fragment" ? code.fragmentSpirv : code.computeSpirv;
                 spirv = entry.spirv;
             }
+            code.depthOnlyFragment = spirvFragmentWritesNoOutput(code.fragmentSpirv);
 
             auto shader = device->createShaderFromCode(definition, code);
             if (shader) {

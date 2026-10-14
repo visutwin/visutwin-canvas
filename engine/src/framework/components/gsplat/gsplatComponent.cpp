@@ -13,6 +13,8 @@
 
 #include "framework/entity.h"
 #include "framework/components/render/renderComponent.h"
+#include "scene/gsplat/gsplatInstance.h"
+#include "scene/meshInstance.h"
 
 namespace visutwin::canvas
 {
@@ -56,16 +58,44 @@ namespace visutwin::canvas
             _entity->addComponentInstance(std::move(renderComponent),
                 componentTypeID<RenderComponent>());
         }
+        applySettings();
 
         spdlog::info("GSplatComponent: attached {} splats to '{}'",
             _resource->numSplats(), _entity->name());
     }
 
+    void GSplatComponent::setCastShadows(const bool value)
+    {
+        _castShadows = value;
+        applySettings();
+    }
+
+    void GSplatComponent::setAlphaClip(const float value)
+    {
+        _alphaClip = value;
+        applySettings();
+    }
+
+    void GSplatComponent::applySettings()
+    {
+        if (!_meshInstance) {
+            return;
+        }
+        _meshInstance->setCastShadow(_castShadows);
+        if (auto* gsplat = _meshInstance->gsplatInstance()) {
+            gsplat->setAlphaClip(_alphaClip);
+        }
+    }
+
     void GSplatComponent::cloneFrom(const Component* source)
     {
         // The resource is shared; the splat instance (and its sort) is the clone's own.
-        if (const auto* src = dynamic_cast<const GSplatComponent*>(source); src && src->_resource) {
-            setResource(src->_resource);
+        if (const auto* src = dynamic_cast<const GSplatComponent*>(source)) {
+            _castShadows = src->_castShadows;
+            _alphaClip = src->_alphaClip;
+            if (src->_resource) {
+                setResource(src->_resource);
+            }
         }
     }
 }

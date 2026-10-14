@@ -10,17 +10,64 @@
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "platform/graphics/vertexFormat.h"
+#include "scene/camera.h"
 #include "scene/graphNode.h"
+#include "scene/gsplat/gsplatInstance.h"
+#include "scene/gsplat/gsplatResource.h"
 #include "scene/mesh.h"
 #include "scene/meshInstance.h"
 #include "scene/morph.h"
 #include "scene/skinInstance.h"
 #include "scene/shader-lib/programLibrary.h"
+#include "scene/shader-lib/slangShaders.h"
 #include "shadowCasterFiltering.h"
 #include "cullModeResolve.h"
 
 namespace visutwin::canvas
 {
+    namespace
+    {
+        // A splat cloud cast as opaque footprints: every splat, its gaussian clipped at the
+        // instance's alpha clip, from the pass's camera at the viewport's pixel size.
+        bool drawGSplatDepthOnly(GraphicsDevice* device, MeshInstance* meshInstance, GSplatInstance& gsplat,
+            const Matrix4& viewProjection, DepthOnlyShaders& shaders, Camera* camera)
+        {
+            GSplatResource* resource = gsplat.resource();
+            // A pass that never set its viewport would size every footprint to nothing.
+            if (!camera || !camera->node() || !resource || !resource->splatBuffer() || resource->numSplats() <= 0 ||
+                device->vw() <= 0.0f || device->vh() <= 0.0f) {
+                return false;
+            }
+            if (!shaders.gsplat) {
+                shaders.gsplat = getOrCreateSlangShader(device, "gsplat-render", shaders.vsm ? "shadow-vsm" : "shadow");
+                if (!shaders.gsplat) {
+                    return false;
+                }
+            }
+            const bool orthographic = camera->projection() == ProjectionType::Orthographic;
+            // A perspective VSM pass stores the distance from the light (a spot), as the mesh
+            // casters' moments do; an orthographic one the depth.
+            const int vsmMode = shaders.vsm ? (orthographic ? 1 : 2) : 0;
+            const Matrix4 model = meshInstance->node() ? meshInstance->node()->worldTransform() : Matrix4::identity();
+            const GpuGSplatParams params = gsplat.shadowParams(model, camera->node()->worldTransform().inverse(),
+                camera->projectionMatrix(), device->vw(), device->vh(), orthographic, vsmMode, camera->farClip());
+
+            device->setCullMode(CullMode::CULLFACE_NONE);
+            device->setMaterial(nullptr);
+            device->setShader(shaders.gsplat);
+            device->setVertexBuffer(meshInstance->mesh()->getVertexBuffer(), 0);
+            resource->splatBuffer()->markStorageUse();
+            // The shadow variant reads no order; the splats stand in for the order binding.
+            device->setGSplatState(resource->splatBuffer(), resource->splatBuffer(), resource->shBuffer(),
+                &params, sizeof(params));
+            device->setTransformUniforms(viewProjection, model);
+            device->draw(meshInstance->mesh()->getPrimitive(), meshInstance->mesh()->getIndexBuffer(),
+                resource->numSplats(), -1, true, true);
+            device->setShader(shaders.plain);
+            return true;
+        }
+    }
+
     void prepareDepthOnlyShaders(const std::shared_ptr<GraphicsDevice>& device, const bool vsm)
     {
         if (const auto programLibrary = getProgramLibrary(device)) {
@@ -29,7 +76,8 @@ namespace visutwin::canvas
     }
 
     bool drawDepthOnly(GraphicsDevice* device, ProgramLibrary* programLibrary,
-        MeshInstance* meshInstance, const Matrix4& viewProjection, DepthOnlyShaders& shaders)
+        MeshInstance* meshInstance, const Matrix4& viewProjection, DepthOnlyShaders& shaders,
+        Camera* camera)
     {
         if (!device || !programLibrary || !meshInstance || !meshInstance->mesh()) {
             return false;
@@ -38,6 +86,14 @@ namespace visutwin::canvas
         // view of it means anything (see MeshInstance::setScreenSpace).
         if (meshInstance->screenSpace()) {
             return false;
+        }
+
+        if (auto* gsplat = meshInstance->gsplatInstance()) {
+            if (!drawGSplatDepthOnly(device, meshInstance, *gsplat, viewProjection, shaders, camera)) {
+                return false;
+            }
+            meshInstance->setVisibleThisFrame(true);
+            return true;
         }
 
         meshInstance->setVisibleThisFrame(true);

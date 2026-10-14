@@ -456,7 +456,29 @@ engine's own emitter and splat paths do, which avoids a 24 MB index buffer.
 - **View-dependent SH** (bands 1-3): the generic PLY header parser reads `f_rest_*` (9/24/45 coeffs → bands 1/2/3), dequantizes them coefficient-major interleaved (`[c0.rgb, c1.rgb, ...]`, 45 floats/splat zero-padded) into a per-splat SH storage buffer (vertex slot 12). The shader evaluates `gsplatEvalSH` (upstream `gsplatEvalSH.js` basis) by the model-space view direction `normalize(transpose(mat3(modelView)) · viewPos)` and adds it to the DC color in display/gamma space before the sRGB→linear decode. `shBands` rides in `GpuGSplatParams` (runtime branch, no shader variant; SH0 assets bind a 1-float dummy at slot 12). DEVIATION: upstream quantizes SH to 11-10-11 in a texture; this stores raw floats.
 - **Compressed `.compressed.ply`** (SuperSplat format): auto-detected by a leading `chunk` element. Per-256-splat chunk min/max bounds (12 or 18 floats) + a uint `vertex` element — 11-10-11 unorm position/scale lerped into the chunk box, 2-10-10-10 largest-component quaternion, 8888 color — dequantized through the SAME covariance/color path as uncompressed (`buildSplat` helper). Optional uchar `sh` element (channel-major, `u8·8/255−4`). ~4× smaller than float PLY. DEVIATION: no WebP-packed SOG format, no unified octree streaming/LOD path.
 
-Example: `gsplat-example` (port of upstream `gaussian-splatting/simple` — a CC-BY-4.0 `tamiya-dt03.compressed.ply` capture on upstream's ground/PCSS-light/orbit setup), which exercises the compressed path. `gsplat-spherical-harmonics` (port of upstream `gaussian-splatting/spherical-harmonics`, upstream's `skull.compressed.ply`, three SH bands) covers bands 1-3. NOT ported: WebP SOG, unified octree streaming/LOD (~13k upstream lines).
+- **Shadows**: `GSplatComponent::setCastShadows(true)` (off by default, as upstream) puts the
+  splat instance in the shadow casters, and every shadow pass draws it through the depth-only
+  draw (`drawDepthOnly`, which needs the pass's CAMERA and a set VIEWPORT: footprints are built
+  from the view and projection apart and sized in the viewport's pixels; the prepass passes no
+  camera and draws no splats). The `gsplat-render` program has three variants: `color`, and
+  `shadow` / `shadow-vsm`, which draw EVERY splat (instance i is splat i, no sort) as an opaque
+  footprint whose fragment is discarded below the alpha clip (`setAlphaClip`, default 0.3,
+  carried to the fragment in the varying: Metal binds the parameter block to the vertex stage
+  alone) and writes the centre's depth, or EVSM moments of it (of distance / far for a
+  perspective pass, as a VSM spot stores). The `shadow` fragment writes no colour, which is
+  how a depth-only Vulkan pass keeps it (`spirvFragmentWritesNoOutput` flags any Slang shader
+  whose fragment writes nothing); dropped, every splat cast its whole quad. DEVIATION: the alpha
+  clip is per component, where upstream's unified path sets it scene-wide.
+- The footprint's major axis is taken from whichever of the two forms of the lambda1
+  eigenvector is longer: `(offDiagonal, lambda1 - diagonal1)` alone is rounding noise for a
+  footprint aligned with x, which the two backends turned differently (a needle along x drew
+  1.6k pixels apart).
+
+Example: `gsplat-example` (port of upstream `gaussian-splatting/simple` — a CC-BY-4.0 `tamiya-dt03.compressed.ply` capture on upstream's ground/PCSS-light/orbit setup), which exercises the compressed path. `gsplat-spherical-harmonics` (port of upstream `gaussian-splatting/spherical-harmonics`, upstream's `skull.compressed.ply`, three SH bands) covers bands 1-3 and casts its PCSS shadow. `gsplat-shadow-orientation` (upstream
+`test/gsplat-shadow-orientation`: six needles built as activated splats in code) checks that a
+footprint's shadow is oriented like the splat, and `gsplat-shadows` (upstream
+`gaussian-splatting/shadows`, two Tamiya captures in place of its bikers) casts onto a shadow
+catcher under turning lights. NOT ported: WebP SOG, unified octree streaming/LOD (~13k upstream lines).
 
 ### Spec-Gloss / Oren-Nayar / Detail Normals / Displacement / Clearcoat
 Four `VT_FEATURE_*` material shader features, plus clearcoat:

@@ -225,10 +225,16 @@ float pcssLinearizeDepth(float z, float nearClip, float farClip) {
     return (nearClip * farClip) / max(farClip - z * (farClip - nearClip), 1e-6);
 }
 
-// Stored omni depth (far*(d-near)/((far-near)*d)) → normalized distance d/far.
-float pcssCubeStoredToLinear(float stored, float nearClip, float farClip) {
+// Stored omni depth (far*(d-near)/((far-near)*d)) → the normalized RADIAL distance along
+// `dir` (unit length), the measure the receiver's own depth uses. A face stores the distance
+// along its own axis, d, which is the radial distance times the direction's largest component:
+// compared as it is, every texel away from a face's centre read nearer than the receiver behind
+// it, and a ground plane casting into the cube shadowed itself everywhere but a disc under the
+// centre of each face.
+float pcssCubeStoredToLinear(float stored, float3 dir, float nearClip, float farClip) {
     float d = (farClip * nearClip) / max(farClip - stored * (farClip - nearClip), 1e-6);
-    return d / farClip;
+    const float3 a = abs(dir);
+    return d / (max(a.x, max(a.y, a.z)) * farClip);
 }
 
 // Vogel sphere (radius = weight = i/count).
@@ -292,7 +298,7 @@ float getShadowPCSSOmni(OmniShadowMap tex, float3 lightDir, float searchArea,
     for (int i = 0; i < PCSS_LOCAL_SAMPLE_COUNT; ++i) {
         float3 sampleDir = normalize(lightDirNorm +
             pcssVogelSphere(i, PCSS_LOCAL_SAMPLE_COUNT, phi) * searchArea);
-        float depthLin = pcssCubeStoredToLinear(shadowDepthRead(tex, sampleDir), nearClip, farClip);
+        float depthLin = pcssCubeStoredToLinear(shadowDepthRead(tex, sampleDir), sampleDir, nearClip, farClip);
         if (depthLin < receiverDepth) {
             blockerSum += depthLin;
             numBlockers++;
@@ -311,7 +317,7 @@ float getShadowPCSSOmni(OmniShadowMap tex, float3 lightDir, float searchArea,
     for (int i = 0; i < PCSS_LOCAL_SAMPLE_COUNT; ++i) {
         float3 sampleDir = normalize(lightDirNorm +
             pcssVogelSphere(i, PCSS_LOCAL_SAMPLE_COUNT, phi) * filterRadius);
-        float depthLin = pcssCubeStoredToLinear(shadowDepthRead(tex, sampleDir), nearClip, farClip);
+        float depthLin = pcssCubeStoredToLinear(shadowDepthRead(tex, sampleDir), sampleDir, nearClip, farClip);
         sum += step(receiverDepth, depthLin);
     }
     return sum * invCount;

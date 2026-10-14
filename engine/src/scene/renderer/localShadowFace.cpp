@@ -121,7 +121,7 @@ namespace visutwin::canvas
         LightRenderData* renderData = light->getRenderData(nullptr, face);
         if (renderData && renderData->visibleCastersFrame == device->renderVersion()) {
             for (auto* meshInstance : renderData->visibleCasters) {
-                if (drawDepthOnly(device, programLibrary, meshInstance, viewProjection, shaders)) {
+                if (drawDepthOnly(device, programLibrary, meshInstance, viewProjection, shaders, shadowCamera)) {
                     device->frameCounters().shadowDrawCalls++;
                 }
             }
@@ -141,7 +141,7 @@ namespace visutwin::canvas
             if (!shouldRenderShadowMeshInstance(meshInstance, shadowCamera, shadowFrustum)) {
                 continue;
             }
-            if (drawDepthOnly(device, programLibrary, meshInstance, viewProjection, shaders)) {
+            if (drawDepthOnly(device, programLibrary, meshInstance, viewProjection, shaders, shadowCamera)) {
                 device->frameCounters().shadowDrawCalls++;
             }
         }

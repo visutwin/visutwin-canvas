@@ -152,7 +152,7 @@ namespace visutwin::canvas
             if (rd->visibleCastersFrame == _graphicsDevice->renderVersion()) {
                 for (auto* meshInstance : rd->visibleCasters) {
                     if (drawDepthOnly(_graphicsDevice.get(), programLibrary.get(), meshInstance,
-                            viewProjection, shaders)) {
+                            viewProjection, shaders, shadowCam)) {
                         _graphicsDevice->frameCounters().shadowDrawCalls++;
                     }
                 }
@@ -172,7 +172,7 @@ namespace visutwin::canvas
                 }
 
                 if (drawDepthOnly(_graphicsDevice.get(), programLibrary.get(), meshInstance,
-                        viewProjection, shaders)) {
+                        viewProjection, shaders, shadowCam)) {
                     _graphicsDevice->frameCounters().shadowDrawCalls++;
                 }
             }

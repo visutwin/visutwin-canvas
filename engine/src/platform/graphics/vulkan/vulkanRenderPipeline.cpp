@@ -667,8 +667,9 @@ namespace visutwin::canvas
             return true;
         };
 
+        // Every variant of the splat program (colour, shadow) generates its vertices.
         const bool gpuDrivenVertex =
-            shader->name() == "slang:particle-render" || shader->name() == "slang:gsplat-render";
+            shader->name() == "slang:particle-render" || shader->name().starts_with("slang:gsplat-render@");
         if ((!gpuDrivenVertex &&
              !appendFormat(vertexFormat, 0, VK_VERTEX_INPUT_RATE_VERTEX)) ||
             (instanced && !appendFormat(instanceFormat, 1, VK_VERTEX_INPUT_RATE_INSTANCE))) {

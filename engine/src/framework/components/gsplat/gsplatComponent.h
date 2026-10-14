@@ -31,9 +31,23 @@ namespace visutwin::canvas
         void setResource(const std::shared_ptr<GSplatResource>& resource);
         const std::shared_ptr<GSplatResource>& resource() const { return _resource; }
 
+        /// Whether the splats cast shadows for the lights that cast them (default false). A
+        /// shadow draws every splat as an opaque footprint, clipped where its gaussian falls
+        /// below alphaClip().
+        bool castShadows() const { return _castShadows; }
+        void setCastShadows(bool value);
+
+        /// The gaussian alpha below which a splat's footprint casts no shadow (default 0.3).
+        /// Higher values thin the shadow to the splats' dense cores.
+        float alphaClip() const { return _alphaClip; }
+        void setAlphaClip(float value);
+
     private:
+        void applySettings();
 
         std::shared_ptr<GSplatResource> _resource;
+        bool _castShadows = false;
+        float _alphaClip = 0.3f;
         // The splat instance this component attached to the entity's render component,
         // removed again when the resource is replaced or cleared.
         MeshInstance* _meshInstance = nullptr;

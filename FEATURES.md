@@ -34,7 +34,7 @@ the [README](README.md).
 - **Morph-weight animation** from glTF `weights` channels
 
 ## Gaussian splatting & particles
-- **Gaussian splatting** (classic path): 3DGS PLY loading, CPU-precomputed covariance, background depth sorter, EWA screen-space projection — with **view-dependent spherical harmonics** (bands 1–3) and the SuperSplat **`.compressed.ply`** quantized format
+- **Gaussian splatting** (classic path): 3DGS PLY loading, CPU-precomputed covariance, background depth sorter, EWA screen-space projection — with **view-dependent spherical harmonics** (bands 1–3), the SuperSplat **`.compressed.ply`** quantized format, and **shadow casting** (alpha-clipped footprints into directional, spot and omni shadow maps, PCF / PCSS / VSM)
 - **GPU particle system**: compute-simulated pool, curve-driven size/color/alpha over life, local and world velocity graphs, rotation speed graph, bursts, pre-warm, align-to-motion and stretch, box/sphere emitters with an initial speed along the spawn direction, sprite-sheet animation (one row per emitter or a random row per particle), additive/normal/premultiplied blending, screen-space particles drawn in the UI's order
 
 ## Post-processing & tooling

@@ -12,6 +12,16 @@
 // covariance's upper triangle) at Metal buffer 7 / Vulkan set 6 binding 0, the order at 8 /
 // binding 1, the spherical-harmonic coefficients (45 floats a splat) at 12 / binding 2, the
 // parameters at 11 / binding 3.
+//
+// The SHADOW variants draw every splat as an opaque caster, instance i being splat i (the
+// depth test resolves them, so no order is needed): a fragment whose gaussian alpha falls
+// below the alpha clip is discarded, every other one writes the depth of the splat's centre
+// or, for a VSM light, its EVSM moments. There `outputParams` is (alpha clip, VSM mode, far
+// clip, unused): mode 1 stores the depth, mode 2 the distance from the light over the far
+// clip, which is what a perspective (spot) pass's moments hold.
+// @variant color: VT_GSPLAT_COLOR=1
+// @variant shadow: VT_GSPLAT_SHADOW=1
+// @variant shadow-vsm: VT_GSPLAT_SHADOW=1 VT_GSPLAT_SHADOW_VSM=1
 #include "bindings.slang"
 
 // The forward pass's tone mapping operators, without its lighting-block dispatch.
@@ -135,11 +145,21 @@ GSplatVaryings gsplatVS(uint vid : SV_VulkanVertexID, uint iid : SV_VulkanInstan
     o.uv = float2(0.0);
     o.color = float4(0.0);
 
+#if defined(VT_GSPLAT_SHADOW)
+    const uint splatIndex = iid;
+#else
     const uint splatIndex = drawOrder[iid];
+#endif
     if (splatIndex >= params.splatCount) {
         return o;
     }
     const uint base = splatIndex * 10u;
+#if defined(VT_GSPLAT_SHADOW)
+    // A splat no fragment of which can reach the alpha clip casts nothing.
+    if (unpackColor(splats[base + 3u]).a <= params.outputParams.x) {
+        return o;
+    }
+#endif
     const float3 center = loadFloat3(base);
     const float3 covA = loadFloat3(base + 4u);   // Sigma00, Sigma01, Sigma02
     const float3 covB = loadFloat3(base + 7u);   // Sigma11, Sigma12, Sigma22
@@ -204,9 +224,15 @@ GSplatVaryings gsplatVS(uint vid : SV_VulkanVertexID, uint iid : SV_VulkanInstan
         return o;
     }
 
-    // The epsilon keeps a circular footprint (offDiagonal 0, lambda1 == diagonal1), whose
-    // eigenvector is the zero vector, from normalizing to NaN; it then takes the x axis.
-    const float2 axis = normalize(float2(offDiagonal, lambda1 - diagonal1) + float2(1e-8, 0.0));
+    // The major axis is the eigenvector of lambda1, which either row of (cov - lambda1 I)
+    // gives: (offDiagonal, lambda1 - diagonal1) or (lambda1 - diagonal2, offDiagonal). The
+    // longer one is taken. A footprint aligned with x (offDiagonal near 0, lambda1 near
+    // diagonal1) makes the first a vector of rounding noise whose direction differed between
+    // the backends, while the second is well conditioned there. The epsilon keeps a circular
+    // footprint, where both vanish, from normalizing to NaN; it then takes the x axis.
+    const float2 axisA = float2(offDiagonal, lambda1 - diagonal1);
+    const float2 axisB = float2(lambda1 - diagonal2, offDiagonal);
+    const float2 axis = normalize((dot(axisA, axisA) >= dot(axisB, axisB) ? axisA : axisB) + float2(1e-8, 0.0));
     const float2 cornerUV[4] = { float2(-1.0, -1.0), float2(1.0, -1.0), float2(-1.0, 1.0), float2(1.0, 1.0) };
     const float2 uv = cornerUV[vid];
     clip.xy += (uv.x * l1 * axis + uv.y * l2 * float2(axis.y, -axis.x)) * c;
@@ -221,6 +247,19 @@ GSplatVaryings gsplatVS(uint vid : SV_VulkanVertexID, uint iid : SV_VulkanInstan
     clip.z = clamp(0.5 * (clip.z + clip.w), 0.0, clip.w);
 
     const float4 color = unpackColor(splats[base + 3u]);
+#if defined(VT_GSPLAT_SHADOW)
+    // The caster needs only the alpha, and a VSM pass the depth its moments warp: the
+    // centre's, which the whole quad shares. The alpha clip rides along too: Metal hands the
+    // parameter block to the vertex stage alone.
+    float shadowDepth = clip.z / clip.w;
+    if (params.outputParams.y > 1.5) {
+        shadowDepth = min(length(view.xyz) / max(params.outputParams.z, 1e-6), 0.99999);
+    }
+    o.position = clip;
+    o.uv = uv;
+    o.color = float4(shadowDepth, params.outputParams.x, 0.0, color.a);
+    return o;
+#else
     float3 displayColor = color.rgb;
     if (params.shBands > 0u) {
         // The model-space view direction. An orthographic camera's rays all run along its
@@ -236,10 +275,20 @@ GSplatVaryings gsplatVS(uint vid : SV_VulkanVertexID, uint iid : SV_VulkanInstan
     // is 1 for every splat under an orthographic projection.
     o.color = float4(gsplatPrepareOutput(max(displayColor, float3(0.0)), -view.z), color.a);
     return o;
+#endif
 }
 
+// A depth-only shadow pass has no colour attachment, so its fragment stage writes nothing.
+#if defined(VT_GSPLAT_SHADOW) && !defined(VT_GSPLAT_SHADOW_VSM)
+#define GSPLAT_FRAGMENT_RESULT void
+#define GSPLAT_FRAGMENT_TARGET
+#else
+#define GSPLAT_FRAGMENT_RESULT float4
+#define GSPLAT_FRAGMENT_TARGET : SV_Target0
+#endif
+
 [shader("fragment")]
-float4 gsplatFS(GSplatVaryings input) : SV_Target0
+GSPLAT_FRAGMENT_RESULT gsplatFS(GSplatVaryings input) GSPLAT_FRAGMENT_TARGET
 {
     const float q = dot(input.uv, input.uv);
     if (q > 1.0) {
@@ -248,5 +297,17 @@ float4 gsplatFS(GSplatVaryings input) : SV_Target0
     // A normalized exponential falloff: 1 at the centre, 0 at the edge.
     const float e4 = 0.018315638889;
     const float alpha = ((exp(-4.0 * q) - e4) / (1.0 - e4)) * input.color.a;
+#if defined(VT_GSPLAT_SHADOW)
+    if (alpha < input.color.g) {
+        discard;
+    }
+#if defined(VT_GSPLAT_SHADOW_VSM)
+    // EVSM_16F moments, as the mesh casters write them (shadowVsmFragment).
+    const float VSM_EXPONENT = 5.54;
+    const float warped = exp(VSM_EXPONENT * (2.0 * input.color.r - 1.0));
+    return float4(warped, warped * warped, 1.0, 1.0);
+#endif
+#else
     return float4(input.color.rgb * alpha, alpha);
+#endif
 }

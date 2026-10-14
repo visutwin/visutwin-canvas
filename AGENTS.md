@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 148 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 150 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -1320,6 +1320,23 @@ present, but the rule below never depends on reading it.
   holds raw pointers). The per-light test must stay the one the pass would make, on the
   same frustum: `tests/localShadowCasterTests.cpp` holds a spot's list against that
   reference in both lighting modes. The work is counted in `cullTime`.
+- **A non-clustered omni shadow cube holds its faces UPSIDE DOWN, and every read of it
+  reflects the lookup to match** (`omniShadowCubeDir` in `forward/forward-fragment-head.slang`,
+  inside every cube `shadowDepthRead` / `shadowCompare`). The face cameras
+  (`LightCamera::pointLightRotations`) roll the faces 180 degrees for a target with its origin at
+  the BOTTOM (upstream's WebGL); with row 0 at the top here, each face's rows run against the
+  hardware's t axis, and read as they were the cube answered with the direction mirrored across
+  the face's horizontal centre line: every non-clustered omni shadow landed mirrored (a caster
+  beside the light threw its shadow toward the wrong side), on both backends, while the
+  clustered path, which maps the faces itself, was right. A vertical mirror is not a rotation,
+  so the table cannot fix it; the reflection (y on the X and Z faces, z on the Y faces) keeps
+  the face. `tests/omniFaceAxisTests.cpp` holds the rendered layout against the hardware's and
+  the reflection against both: change the table and the reflection together. Check with
+  `VISUTWIN_LOCAL_LIGHT=...,1,0,0` against `...,1` on an asymmetric caster: the two paths'
+  shadows must land in the same place. The mirror also hid a second bug: the PCSS omni blocker
+  search compared a face's AXIS distance with the receiver's RADIAL one
+  (`pcssCubeStoredToLinear` now takes the direction), which shadowed the ground everywhere but a
+  disc under each face's centre.
 - **Omni shadow bias is applied to the receiver's DISTANCE, before the perspective
   projection** — a fixed post-projection offset erases omni shadows entirely at
   ordinary light ranges, since cubemap shadow depth is crushed against 1.0. The cubemap
@@ -2447,6 +2464,19 @@ present, but the rule below never depends on reading it.
   lights the draw accepts). Anything genuinely per draw must go
   in the model or material block, never in the lighting block, or every draw after
   the first reads the first one's value.
+- **A gaussian splat casts through the depth-only draw, which needs the pass's CAMERA and a
+  set VIEWPORT** (`drawDepthOnly(..., camera)`): its footprints are built from the view and
+  the projection apart and sized in the viewport's pixels, so a pass that gives no camera draws
+  no splats and one that never set its viewport would size them to nothing (the non-clustered
+  local shadow pass now sets its own). Two things the shadow variants depend on, each of which
+  silently changed every splat shadow's size on one backend: Metal binds the splat parameter
+  block to the VERTEX stage alone, so a value the fragment needs rides in the varying; and a
+  depth-only Vulkan pipeline drops the fragment stage unless the shader says it writes no
+  colour (`ShaderCode::depthOnlyFragment`, which every Slang shader now takes from its own
+  SPIR-V, `spirvFragmentWritesNoOutput`), so without it every splat cast its whole quad. Prove
+  a change here with the alpha clip as the stimulus (0.0001 against 0.9 must move the same
+  pixels on both backends); `gsplat-shadow-orientation` and `gsplat-spherical-harmonics`
+  compare with upstream.
 - **A mesh instance's parameter overrides are a COPY of its material's block, keyed on
   itself.** `MeshInstance::setParameter` takes the material's names and conventions
   (`Material::applyParameterOverrides`, the one reader for both: colours authored sRGB, so
@@ -3208,9 +3238,12 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
 9. `VISUTWIN_FIXED_DT=seconds` replaces the measured frame time, so an animated
    example reaches the same state at the same frame in every run. With it, two runs
    of one binary are bit-identical and two builds CAN be screenshot-diffed.
-10. `VISUTWIN_LOCAL_LIGHT=x,y,z,intensity,range` adds a white omni light, which under
-    the default clustered lighting goes through the CLUSTER loop. The frame minus a run
-    without it is that light alone; compare it across backends.
+10. `VISUTWIN_LOCAL_LIGHT=x,y,z,intensity,range[,shadows[,spotAngle[,clustered]]]` adds a
+    white omni light, which under the default clustered lighting goes through the CLUSTER
+    loop. The frame minus a run without it is that light alone; compare it across backends.
+    `shadows` 1 makes it cast, `spotAngle` > 0 makes it a spot aimed straight down with that
+    outer half-angle, `clustered` 0 switches the scene to the non-clustered path: together
+    the four local shadow paths (omni / spot, atlas / own map).
 
 11. `VISUTWIN_BLOOM_THRESHOLD=t` sets the bloom threshold on every camera. No upstream
     example sets one; t=0 must reproduce the unset frame exactly.
@@ -3365,9 +3398,6 @@ What stays HERE is only what bites during UNRELATED work.
   `ui-particle-system` — user-interface/particle-system — and `text-localization`) port
   upstream's CURRENT versions; `text-emojis` is not ported yet (it draws with upstream's
   `CanvasFont`, a system-font rasteriser this port does not have).
-- **Gaussian splats cast no shadows.** `GSplatResource::createMeshInstance` turns shadow
-  casting off and there is no splat alpha clip for a shadow pass, so
-  `gsplat-spherical-harmonics`' skull leaves its ground unshadowed where upstream's does not.
 - **Example coverage gaps.** Nothing exercises: SH light probes (drive them with
   `VISUTWIN_AMBIENT_SH`), SSR (drive it with `VISUTWIN_SSR_FLOOR`), detail
   normals (upstream's `test/detail-map` cannot be ported faithfully — it toggles

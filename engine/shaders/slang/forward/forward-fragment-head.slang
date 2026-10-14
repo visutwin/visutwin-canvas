@@ -182,13 +182,31 @@ VT_DECLARE_clusterShadowAtlas
 // compare tap by gathering the four texels (shadowTap in common-parallax), with the same
 // result to rounding. A local light's VSM moments are a separate map on Metal (37 / 38)
 // and the same binding as its depth map on Vulkan. ----
+
+// An omni shadow cube's faces are rendered by the cameras of LightCamera::pointLightRotations,
+// whose 180-degree rolls fit a render target with its origin at the BOTTOM. With row 0 at the
+// top, as every target here, each face holds its image upside down against hardware cube
+// addressing, whose t axis runs down the rows: read as it is, the cube returns the depth of
+// the direction mirrored across the face's horizontal centre line. Reflecting the component
+// that drives t (y on the X and Z faces, z on the Y faces) reads the texel the direction was
+// rendered at; the magnitudes are unchanged, so the hardware picks the same face. Every cube
+// shadow read goes through here. omniFaceAxisTests holds the rendered layout this undoes.
+float3 omniShadowCubeDir(float3 dir)
+{
+    const float3 a = abs(dir);
+    if (a.y > a.x && a.y >= a.z) {
+        return float3(dir.x, dir.y, -dir.z);
+    }
+    return float3(dir.x, -dir.y, dir.z);
+}
+
 #if defined(VT_TARGET_METAL)
 typealias LocalShadowMap = DepthTexture2D;
 typealias OmniShadowMap = DepthTextureCube;
 float shadowDepthRead(DepthTexture2D map, float2 uv) { return map.SampleLevel(nearestClampSampler, uv, 0.0); }
-float shadowDepthRead(DepthTextureCube map, float3 dir) { return map.SampleLevel(nearestClampSampler, dir, 0.0); }
+float shadowDepthRead(DepthTextureCube map, float3 dir) { return map.SampleLevel(nearestClampSampler, omniShadowCubeDir(dir), 0.0); }
 float shadowCompare(DepthTexture2D map, float2 uv, float receiver) { return map.SampleCmpLevelZero(shadowCompareSampler, uv, receiver); }
-float shadowCompare(DepthTextureCube map, float3 dir, float receiver) { return map.SampleCmpLevelZero(shadowCompareSampler, dir, receiver); }
+float shadowCompare(DepthTextureCube map, float3 dir, float receiver) { return map.SampleCmpLevelZero(shadowCompareSampler, omniShadowCubeDir(dir), receiver); }
 int2 vtTextureSize(DepthTexture2D t, int lod) { uint w, h, levels; t.GetDimensions(uint(lod), w, h, levels); return int2(int(w), int(h)); }
 float shadowDepthReadDirectional(DepthTexture2D map, float2 uv) { return shadowDepthRead(map, uv); }
 float4 localShadowMoments(int slot, float2 uv)
@@ -200,7 +218,7 @@ float4 localShadowMoments(int slot, float2 uv)
 typealias LocalShadowMap = Sampler2D;
 typealias OmniShadowMap = SamplerCube;
 float shadowDepthRead(Sampler2D map, float2 uv) { return map.SampleLevel(uv, 0.0).r; }
-float shadowDepthRead(SamplerCube map, float3 dir) { return map.SampleLevel(dir, 0.0).r; }
+float shadowDepthRead(SamplerCube map, float3 dir) { return map.SampleLevel(omniShadowCubeDir(dir), 0.0).r; }
 float shadowDepthReadDirectional(Texture2D map, float2 uv) { return map.SampleLevel(nearestClampSampler, uv, 0.0).r; }
 float4 localShadowMoments(int slot, float2 uv)
 {

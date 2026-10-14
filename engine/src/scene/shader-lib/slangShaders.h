@@ -125,6 +125,12 @@ namespace visutwin::canvas
     [[nodiscard]] bool compileSlangProgramFromSource(GraphicsDevice* device, std::string_view program,
         ShaderCode& code, std::string_view variant = {});
 
+    /// Whether a fragment stage's SPIR-V writes no output at all: no variable in the Output
+    /// storage class (a depth-only stage that may only discard). Such a stage runs in a
+    /// depth-only pass, which drops every other fragment stage (ShaderCode::depthOnlyFragment),
+    /// so every Slang shader is flagged from its own code rather than by its caller.
+    [[nodiscard]] bool spirvFragmentWritesNoOutput(const std::vector<uint32_t>& spirv);
+
     /// The shader for `program` / `variant` on `device`, cached on the device under
     /// "slang:<program>[@<variant>]" (with the feature set's hash when `features` is not
     /// empty): from the bundle, or from the source tree when VISUTWIN_SLANG_RUNTIME is set

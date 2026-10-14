@@ -36,7 +36,8 @@ namespace visutwin::canvas
         // by the renderer per draw from the same scene state the forward pass reads.
         float fogColor[4];      // linear rgb, unused
         float fogParams[4];     // start, end, density, type (FogType; 0 = none)
-        float output[4];        // exposure, tone mapping mode, linear HDR target (0/1), unused
+        float output[4];        // exposure, tone mapping mode, linear HDR target (0/1), unused;
+                                // a shadow draw's: alpha clip, VSM mode, far clip, unused
     };
     static_assert(sizeof(GpuGSplatParams) == 208);
 
@@ -72,6 +73,19 @@ namespace visutwin::canvas
          */
         static Vector3 sortDirection(const Matrix4& model, const Vector3& cameraForward);
 
+        /**
+         * The parameter block of a SHADOW draw (the gsplat-render "shadow" variants), which
+         * draws every splat in index order from a shadow camera into a target of the given
+         * size. `vsmMode` 0 writes depth only, 1 EVSM moments of the depth, 2 of the
+         * distance from the light over `farClip` (a perspective pass).
+         */
+        GpuGSplatParams shadowParams(const Matrix4& model, const Matrix4& view, const Matrix4& projection,
+            float viewportWidth, float viewportHeight, bool orthographic, int vsmMode, float farClip) const;
+
+        /// A shadow fragment whose gaussian alpha is below this is not a caster (default 0.3).
+        float alphaClip() const { return _alphaClip; }
+        void setAlphaClip(const float value) { _alphaClip = value; }
+
         const std::shared_ptr<VertexBuffer>& orderBuffer() const { return _orderBuffers[_activeOrderBuffer]; }
         uint32_t visibleCount() const { return _visibleCount; }
         const GpuGSplatParams& gpuParams() const { return _gpuParams; }
@@ -99,5 +113,6 @@ namespace visutwin::canvas
 
         std::vector<uint32_t> _fetchScratch;
         GpuGSplatParams _gpuParams{};
+        float _alphaClip = 0.3f;
     };
 }

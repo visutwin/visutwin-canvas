@@ -36,10 +36,11 @@ using namespace visutwin::canvas::test;
 namespace
 {
     // The block a program's entry reflects under `name`, or nullptr.
-    const SlangReflectedBinding* reflected(const char* program, const char* entry, const char* name)
+    const SlangReflectedBinding* reflected(const char* program, const char* entry, const char* name,
+        const char* variant)
     {
         static SlangBundledProgram found;
-        if (!findBundledSlangProgram(program, found)) {
+        if (!findBundledSlangProgram(program, found, variant)) {
             return nullptr;
         }
         for (const auto& e : found.entries) {
@@ -55,11 +56,13 @@ namespace
         return nullptr;
     }
 
-    void checkBlock(const char* program, const char* entry, const char* name, const uint32_t bytes)
+    void checkBlock(const char* program, const char* entry, const char* name, const uint32_t bytes,
+        const char* variant = "")
     {
-        const auto* binding = reflected(program, entry, name);
+        const auto* binding = reflected(program, entry, name, variant);
         check(binding && binding->kind == SlangDescriptorKind::UniformBuffer && binding->blockBytes == bytes,
-            std::string(program) + ":" + entry + " reflects '" + name + "' as " + std::to_string(bytes) + " bytes" +
+            std::string(program) + (*variant ? std::string("@") + variant : std::string()) + ":" + entry +
+            " reflects '" + name + "' as " + std::to_string(bytes) + " bytes" +
             (binding ? " (" + std::to_string(binding->blockBytes) + ")" : " (missing)"));
     }
 }
@@ -116,7 +119,26 @@ int main()
     checkBlock("shadow", "shadowVsmFragment", "material", sizeof(MaterialUniforms));
     checkBlock("particle-render", "particleVS", "params", sizeof(GpuParticleRenderParams));
     checkBlock("particle-render", "particleFS", "params", sizeof(GpuParticleRenderParams));
-    checkBlock("gsplat-render", "gsplatVS", "params", sizeof(GpuGSplatParams));
+    checkBlock("gsplat-render", "gsplatVS", "params", sizeof(GpuGSplatParams), "color");
+    checkBlock("gsplat-render", "gsplatVS", "params", sizeof(GpuGSplatParams), "shadow");
+
+    // A depth-only shadow pass keeps a fragment stage only when it writes nothing: the splat
+    // shadow variant's discard is what shapes the footprint, its moments variant and the
+    // colour variant write a target.
+    {
+        const auto fragmentOf = [](const char* variant) {
+            SlangBundledProgram found;
+            std::vector<uint32_t> words;
+            if (findBundledSlangProgram("gsplat-render", found, variant) && found.fragmentSpirv) {
+                words.assign(found.fragmentSpirv, found.fragmentSpirv + found.fragmentSpirvWords);
+            }
+            return words;
+        };
+        check(spirvFragmentWritesNoOutput(fragmentOf("shadow")), "the splat shadow fragment writes no output");
+        check(!spirvFragmentWritesNoOutput(fragmentOf("shadow-vsm")), "the splat VSM fragment writes its moments");
+        check(!spirvFragmentWritesNoOutput(fragmentOf("color")), "the splat colour fragment writes its colour");
+        check(!spirvFragmentWritesNoOutput({}), "no code is not a depth-only stage");
+    }
     checkBlock("procedural-sky", "proceduralSkyFragment", "sky", sizeof(ProceduralSkyBlock));
     checkBlock("procedural-sky-cube", "proceduralSkyCubeFragment", "sky", sizeof(ProceduralSkyBlock));
     checkBlock("compose", "composeFragment", "u", sizeof(compose_shaders::ComposeUniforms));

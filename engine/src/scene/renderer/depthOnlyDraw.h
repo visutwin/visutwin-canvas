@@ -12,6 +12,7 @@
 namespace visutwin::canvas
 {
     class GraphicsDevice;
+    class Camera;
     class MeshInstance;
     class ProgramLibrary;
     class Shader;
@@ -33,6 +34,8 @@ namespace visutwin::canvas
         std::shared_ptr<Shader> skinnedMorphed;
         std::shared_ptr<Shader> instanced;
         std::shared_ptr<Shader> instancedColor;
+        // A gaussian splat caster's (the gsplat-render shadow variant matching `vsm`).
+        std::shared_ptr<Shader> gsplat;
         // Every variant writes EVSM moments (a VSM light's shadow pass).
         bool vsm = false;
     };
@@ -54,10 +57,16 @@ namespace visutwin::canvas
      * instances reach here at all — a shadow pass and a prepass disagree about that
      * (castShadow versus depth write), which is why it is not folded in.
      */
-    /// Returns whether it drew (false only for a missing device, library or mesh), so a
-    /// shadow pass can count its caster draws into FrameCounters::shadowDrawCalls.
+    /// Returns whether it drew (false for a missing device, library or mesh, and for a
+    /// caster this pass cannot draw), so a shadow pass can count its caster draws into
+    /// FrameCounters::shadowDrawCalls.
+    ///
+    /// A gaussian splat caster is drawn only when `camera`, the pass's camera, is given: its
+    /// footprints are built from the view and the projection apart, and sized in pixels of the
+    /// device's current viewport. A pass that gives none (the prepass) draws no splats.
     bool drawDepthOnly(GraphicsDevice* device, ProgramLibrary* programLibrary,
-        MeshInstance* meshInstance, const Matrix4& viewProjection, DepthOnlyShaders& shaders);
+        MeshInstance* meshInstance, const Matrix4& viewProjection, DepthOnlyShaders& shaders,
+        Camera* camera = nullptr);
 
     /// Creates the two depth-only programs every such pass binds before its loop (the
     /// plain one and the dynamic-batch one), for a pass's prepareShaders(). `vsm` as

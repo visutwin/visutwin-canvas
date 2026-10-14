@@ -12,9 +12,9 @@
 // (0.5, 0.5, 0.4), gloss 0.2, metalness 0.5, receive-only) whose top is at y = 0.05. A
 // white directional light at (55, 90, 20) casts a 2048 PCSS shadow (intensity 0.5, bias
 // 0.2, normal bias 0.05, distance 10, penumbra 0.05 with falloff 4, 16 samples and 16
-// blocker samples). The camera clears to grey 0.2, tone-maps ACES and orbits a pivot
-// 0.2 above the skull from a distance of 4 at yaw 32 and pitch -10, out to 60. The back
-// buffer is not multisampled. Turn the camera around the skull to see the SH colour
+// blocker samples), which the skull casts, its splats clipped at alpha 0.1. The camera
+// clears to grey 0.2, tone-maps ACES and orbits a pivot 0.2 above the skull from a
+// distance of 4 at yaw 32 and pitch -10, out to 60. The back buffer is not multisampled. Turn the camera around the skull to see the SH colour
 // shift.
 //
 // No keys beyond the orbit camera's (drag to orbit, wheel to zoom, R to reset).
@@ -25,9 +25,8 @@
 //   only (one instanced draw per splat set with a background CPU depth sort), which is
 //   upstream's CPU-sort raster renderer in effect, so there is nothing to choose and no
 //   key for it.
-// - upstream asks the splat to cast shadows and sets a scene-wide splat alpha clip of
-//   0.1, which applies only to the splat's shadow and pick passes. The splat here casts
-//   no shadow, so the ground shows the light alone; the colour pass is unchanged.
+// - upstream sets its splat alpha clip of 0.1 scene-wide; here it is the skull's own
+//   (GSplatComponent::setAlphaClip). It applies to the shadow alone, as there.
 // - upstream's orbitCamera script (inertia 0.2, distanceMax 60) is the examples'
 //   CameraControls in orbit mode around the same pivot from the same pose; there is no
 //   inertia.
@@ -100,6 +99,10 @@ protected:
 
         auto* gsplatComponent = static_cast<GSplatComponent*>(skull->addComponent<GSplatComponent>());
         gsplatComponent->setResource(splatResource);
+        // The skull casts the light's shadow onto the ground, its footprints clipped where
+        // their gaussian alpha falls below 0.1.
+        gsplatComponent->setCastShadows(true);
+        gsplatComponent->setAlphaClip(0.1f);
 
         skull->setLocalPosition(kSkullX, kSkullY, kSkullZ);
         skull->setLocalEulerAngles(180.0f, 90.0f, 0.0f);
