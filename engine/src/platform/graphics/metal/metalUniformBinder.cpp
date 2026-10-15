@@ -88,7 +88,12 @@ namespace visutwin::canvas
         // Allocate ModelData from ring buffer and update offset (slot 2).
         // The ring buffer itself was bound to slot 2 in startRenderPass().
         const size_t transformOffset = transformRing->allocate(&modelData, sizeof(ModelData));
-        encoder->setVertexBufferOffset(transformOffset, 2);
+        if (transformRing->buffer() != _encoderTransformBuffer) {
+            encoder->setVertexBuffer(transformRing->buffer(), transformOffset, 2);
+            _encoderTransformBuffer = transformRing->buffer();
+        } else {
+            encoder->setVertexBufferOffset(transformOffset, 2);
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -270,6 +275,7 @@ namespace visutwin::canvas
         // silently reuse the FIRST draw's uniforms. That is invisible while a pass draws
         // one quad, but a pass drawing a rect list (the environment bakes) would have every
         // draw after the first read the first one's block.
+        syncUniformRing(uniformRing);
         size_t materialOffset;
         if (materialKey != nullptr && _materialBoundThisPass && materialKey == _lastMaterialKey
             && materialVersion == _lastMaterialVersion) {
@@ -278,6 +284,7 @@ namespace visutwin::canvas
             materialOffset = _defaultBlockOffset;
         } else {
             materialOffset = uniformRing->allocate(uniformData, uniformSize);
+            syncUniformRing(uniformRing);
             if (materialKey == sharedDefaultBlockKey()) {
                 _defaultBlockOffset = materialOffset;
                 _defaultBlockBoundThisPass = true;
@@ -289,7 +296,13 @@ namespace visutwin::canvas
         _materialBoundThisPass = true;
         // Nothing else moves slot 3's offset within a pass, so an unchanged offset is
         // already on the encoder.
-        if (!_materialOffsetSetThisPass || materialOffset != _encoderMaterialOffset) {
+        if (uniformRing->buffer() != _encoderMaterialBuffer) {
+            encoder->setFragmentBuffer(uniformRing->buffer(), materialOffset, 3);
+            encoder->setVertexBuffer(uniformRing->buffer(), materialOffset, 3);
+            _encoderMaterialBuffer = uniformRing->buffer();
+            _encoderMaterialOffset = materialOffset;
+            _materialOffsetSetThisPass = true;
+        } else if (!_materialOffsetSetThisPass || materialOffset != _encoderMaterialOffset) {
             encoder->setFragmentBufferOffset(materialOffset, 3);
             encoder->setVertexBufferOffset(materialOffset, 3);
             _encoderMaterialOffset = materialOffset;
@@ -319,9 +332,16 @@ namespace visutwin::canvas
             if (!_lightingBoundThisPass ||
                 std::memcmp(&_lightingUniforms, &_lastLightingUniforms, sizeof(LightingUniforms)) != 0) {
                 _lastLightingOffset = uniformRing->allocate(&_lightingUniforms, sizeof(LightingUniforms));
+                // A growth here leaves slot 3's cached offsets in the old buffer: drop them.
+                syncUniformRing(uniformRing);
                 std::memcpy(&_lastLightingUniforms, &_lightingUniforms, sizeof(LightingUniforms));
                 // Slot 4's offset is moved only here, so it needs setting only on upload.
-                encoder->setFragmentBufferOffset(_lastLightingOffset, 4);
+                if (uniformRing->buffer() != _encoderLightingBuffer) {
+                    encoder->setFragmentBuffer(uniformRing->buffer(), _lastLightingOffset, 4);
+                    _encoderLightingBuffer = uniformRing->buffer();
+                } else {
+                    encoder->setFragmentBufferOffset(_lastLightingOffset, 4);
+                }
                 _lightingBoundThisPass = true;
             }
             _lastLightingVersion = _lightingVersion;
@@ -342,6 +362,20 @@ namespace visutwin::canvas
         // packed, uploaded and its textures bound again.
         return !_materialBoundThisPass || static_cast<const void*>(mat) != _lastMaterialKey
             || (mat && mat->uniformsVersion() != _lastMaterialVersion);
+    }
+
+    void MetalUniformBinder::syncUniformRing(const MetalUniformRingBuffer* uniformRing)
+    {
+        // Every cached offset is into the buffer it was allocated from; once the ring has
+        // grown into a new one, reusing such an offset against the slot's new buffer would
+        // read another draw's block. Drop them all, so each block is uploaded again.
+        if (uniformRing->buffer() == _cachedOffsetsBuffer) {
+            return;
+        }
+        _cachedOffsetsBuffer = uniformRing->buffer();
+        _materialBoundThisPass = false;
+        _defaultBlockBoundThisPass = false;
+        _lightingBoundThisPass = false;
     }
 
     void MetalUniformBinder::resetPassState()

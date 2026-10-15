@@ -182,6 +182,14 @@ namespace visutwin::canvas
 
         void resetPassState() override;
 
+        /// The ring buffers a new pass's encoder holds at slots 2 and 3 / 4.
+        void noteRingBuffersBound(MTL::Buffer* transformBuffer, MTL::Buffer* uniformBuffer)
+        {
+            _encoderTransformBuffer = transformBuffer;
+            _encoderMaterialBuffer = uniformBuffer;
+            _encoderLightingBuffer = uniformBuffer;
+        }
+
         [[nodiscard]] bool isMaterialChanged(const Material* mat) const override;
 
         [[nodiscard]] Texture* envAtlasTexture() const override { return _envAtlasTexture; }
@@ -261,5 +269,14 @@ namespace visutwin::canvas
         // The offset the encoder's slot 3 currently holds.
         bool _materialOffsetSetThisPass = false;
         size_t _encoderMaterialOffset = 0;
+        // The ring buffers the encoder's slots 2, 3 and 4 hold. A ring that grew mid-pass
+        // has a new buffer, which is bound in full rather than by offset.
+        MTL::Buffer* _encoderTransformBuffer = nullptr;
+        MTL::Buffer* _encoderMaterialBuffer = nullptr;
+        MTL::Buffer* _encoderLightingBuffer = nullptr;
+        // The uniform ring buffer every cached offset above points into; when the ring
+        // replaces it, the caches are dropped (syncUniformRing).
+        MTL::Buffer* _cachedOffsetsBuffer = nullptr;
+        void syncUniformRing(const MetalUniformRingBuffer* uniformRing);
     };
 }

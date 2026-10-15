@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstring>
+#include <vector>
 
 namespace visutwin::canvas
 {
@@ -22,19 +23,19 @@ namespace visutwin::canvas
      * linearly-advancing write cursor. Three frame regions prevent CPU/GPU
      * contention without explicit fencing per draw.
      *
-     * Apple Metal Best Practices Guide recommends:
-     * - setVertexBytes() for data < 4 KB (acceptable for small draw counts)
-     * - Persistent MTLBuffer + setVertexBufferOffset() for high draw counts
-     * - Triple buffering, paced by the device's MetalFrameGate
-     * - 256-byte alignment for constant buffer offsets
+     * The ring starts SMALL and grows inside the frame that needs more: an allocation
+     * that does not fit replaces the buffer with one twice the size and continues there.
+     * Every offset already handed out still refers to the OLD buffer, which the draws
+     * encoded so far have bound, so the old buffer is kept until the frames that may read
+     * it have completed (kMaxInflightFrames frame starts later). A caller therefore binds
+     * an offset against buffer(), and must re-bind the BUFFER, not just the offset, when
+     * buffer() differs from the one it bound (MetalUniformBinder does).
      *
      * Usage:
-     *   1. beginFrame()           -- after the device's frame gate: grow if the last
-     *                                 frame overflowed, advance to the next region
+     *   1. beginFrame()           -- after the device's frame gate: advance to the next
+     *                                 region, free buffers no frame in flight reads
      *   2. allocate(data, size)   -- write per-draw data, get buffer offset
-     *   3. encoder->setVertexBufferOffset(offset, index)  -- cheap offset-only bind
-     *   The gate's completion signal on the frame's last command buffer is what
-     *   frees a region again (MetalFrameGate).
+     *   3. bind buffer() at that offset (offset only while buffer() is unchanged)
      */
     class MetalUniformRingBuffer
     {
@@ -44,22 +45,24 @@ namespace visutwin::canvas
 
         /**
          * @param device           Metal device for buffer allocation
-         * @param maxDrawsPerFrame Starting capacity in draw calls per frame. Not a
-         *                         limit: a frame that asks for more grows the ring
-         *                         (see growIfNeeded), at the cost of one wrong frame.
+         * @param maxDrawsPerFrame Starting capacity in allocations per frame. Not a limit:
+         *                         a frame that asks for more grows the ring in place.
          * @param uniformStructSize Size of the largest uniform struct this ring will hold
          * @param label            Debug label for Metal GPU capture
          */
-        MetalUniformRingBuffer(MTL::Device* device, MetalFrameGate& gate, size_t maxDrawsPerFrame,
+        MetalUniformRingBuffer(MTL::Device* device, size_t maxDrawsPerFrame,
                                size_t uniformStructSize, const char* label = "UniformRing")
-            : _device(device), _label(label), _gate(gate)
+            : _device(device), _label(label)
         {
             _alignedSlotSize = alignUp(uniformStructSize, kAlignment);
-            allocateBuffer(maxDrawsPerFrame);
+            allocateBuffer(std::max<size_t>(maxDrawsPerFrame, 1));
         }
 
         ~MetalUniformRingBuffer()
         {
+            for (const auto& retired : _retired) {
+                retired.buffer->release();
+            }
             if (_buffer) {
                 _buffer->release();
                 _buffer = nullptr;
@@ -78,10 +81,17 @@ namespace visutwin::canvas
          */
         void beginFrame()
         {
-            growIfNeeded();
+            // The gate has just waited out the frame kMaxInflightFrames before this one,
+            // so a buffer retired that many frame starts ago is read by nothing.
+            std::erase_if(_retired, [](Retired& retired) {
+                if (--retired.framesLeft > 0) {
+                    return false;
+                }
+                retired.buffer->release();
+                return true;
+            });
             _frameIndex = (_frameIndex + 1) % kMaxInflightFrames;
             _drawCount = 0;
-            _requestedDraws = 0;
         }
 
         /**
@@ -89,27 +99,17 @@ namespace visutwin::canvas
          *
          * @param data     Pointer to uniform struct data
          * @param dataSize Size in bytes of the data to copy (must be <= alignedSlotSize)
-         * @return Byte offset into the MTLBuffer — pass to setVertexBufferOffset/setFragmentBufferOffset
+         * @return Byte offset into buffer() as it is AFTER the call
          */
         [[nodiscard]] size_t allocate(const void* data, size_t dataSize)
         {
             assert(data != nullptr);
             assert(dataSize <= _alignedSlotSize && "Data exceeds aligned slot size");
+            if (_drawCount >= _maxDrawsPerFrame) [[unlikely]] {
+                grow();
+            }
             if (!_basePtr) {
                 return 0;
-            }
-            // Overflowing the frame region would memcpy into the next in-flight
-            // frame's data (or past the MTLBuffer). Reuse the last slot without
-            // modifying it: overwriting it would also change the uniforms of the
-            // already-encoded draw that owns that slot before the GPU reads it.
-            // The excess draws are wrong for THIS frame and cannot be made right —
-            // every offset already handed out is referenced by an encoded draw — so
-            // the demand is counted instead and the ring grows at the next frame
-            // boundary, where a full GPU drain makes reallocation safe.
-            ++_requestedDraws;
-            if (_drawCount >= _maxDrawsPerFrame) [[unlikely]] {
-                const size_t lastSlot = _maxDrawsPerFrame - 1;
-                return regionIndex() * _regionSize + lastSlot * _alignedSlotSize;
             }
 
             const size_t offset = regionIndex() * _regionSize + _drawCount * _alignedSlotSize;
@@ -135,9 +135,23 @@ namespace visutwin::canvas
         [[nodiscard]] size_t alignedSlotSize() const { return _alignedSlotSize; }
         [[nodiscard]] size_t currentDrawCount() const { return _drawCount; }
         [[nodiscard]] size_t maxDrawsPerFrame() const { return _maxDrawsPerFrame; }
-        [[nodiscard]] size_t totalSize() const { return _totalSize; }
+        /// The current buffer plus any retired one frames in flight may still read.
+        [[nodiscard]] size_t totalSize() const
+        {
+            size_t total = _totalSize;
+            for (const auto& retired : _retired) {
+                total += retired.buffer->length();
+            }
+            return total;
+        }
 
     private:
+        struct Retired
+        {
+            MTL::Buffer* buffer;
+            int framesLeft;
+        };
+
         // Region 0 until the first beginFrame() advances the cursor onto it.
         [[nodiscard]] size_t regionIndex() const { return _frameIndex < 0 ? 0 : static_cast<size_t>(_frameIndex); }
 
@@ -151,13 +165,8 @@ namespace visutwin::canvas
             _maxDrawsPerFrame = maxDrawsPerFrame;
             _regionSize = maxDrawsPerFrame * _alignedSlotSize;
             _totalSize = kMaxInflightFrames * _regionSize;
-
-            if (_buffer) {
-                _buffer->release();
-                _buffer = nullptr;
-                _basePtr = nullptr;
-            }
             _buffer = _device ? _device->newBuffer(_totalSize, MTL::ResourceStorageModeShared) : nullptr;
+            _basePtr = nullptr;
             if (_buffer) {
                 _buffer->setLabel(NS::String::string(_label, NS::UTF8StringEncoding));
                 _basePtr = static_cast<uint8_t*>(_buffer->contents());
@@ -165,38 +174,28 @@ namespace visutwin::canvas
         }
 
         /**
-         * Reallocate to fit the demand the PREVIOUS frame actually had. Growing
-         * by taking another buffer from a pool cannot be done mid-frame here, because an offset is only meaningful
-         * against the buffer bound at the start of the render pass. So the growth
-         * happens here, at a frame boundary, behind a full drain: the caller has
-         * already waited for THIS region, and the other kMaxInflightFrames - 1
-         * regions are waited for below, after which nothing references the old
-         * buffer and it can be replaced. The drain is why this is worth avoiding
-         * rather than relying on — but it happens once per size increase, not per
-         * frame, and the alternative is a permanently wrong frame.
+         * Replace the buffer with one of twice the capacity, mid-frame. The draws encoded
+         * so far keep the old buffer bound and read their offsets from it, so it is retired
+         * rather than freed; this frame continues in its own region of the new buffer, whose
+         * every region is unused by the GPU.
          */
-        void growIfNeeded()
+        void grow()
         {
-            if (_requestedDraws <= _maxDrawsPerFrame) {
-                return;
-            }
-            const size_t wanted = std::max(_requestedDraws, _maxDrawsPerFrame * 2);
-
             const size_t previous = _maxDrawsPerFrame;
-            _gate.withOtherFramesDrained([&] { allocateBuffer(wanted); });
-
-            spdlog::warn("{}: {} allocations requested but only {} fit; the excess shared one "
-                         "uniform slot for that frame. Grown to {} ({} MB); the next frame is correct.",
-                         _label, _requestedDraws, previous, _maxDrawsPerFrame,
-                         _totalSize / (1024 * 1024));
-            _frameIndex = -1;   // the region cursor restarts against the new buffer
+            if (_buffer) {
+                _retired.push_back({_buffer, kMaxInflightFrames});
+            }
+            allocateBuffer(previous * 2);
+            _drawCount = 0;
+            spdlog::debug("{}: grown from {} to {} slots a frame ({} KB)", _label, previous,
+                _maxDrawsPerFrame, _totalSize / 1024);
         }
 
         MTL::Device* _device = nullptr;
         const char* _label = "UniformRing";
         MTL::Buffer* _buffer = nullptr;
         uint8_t* _basePtr = nullptr;
-        MetalFrameGate& _gate;
+        std::vector<Retired> _retired;
 
         size_t _alignedSlotSize = 0;
         size_t _regionSize = 0;
@@ -205,8 +204,5 @@ namespace visutwin::canvas
 
         int _frameIndex = -1; // Will become 0 on first beginFrame()
         size_t _drawCount = 0;
-        // Allocations ASKED for this frame, including those that did not fit. The
-        // difference from _drawCount is what the ring has to grow by.
-        size_t _requestedDraws = 0;
     };
 }

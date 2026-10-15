@@ -2232,27 +2232,30 @@ present, but the rule below never depends on reading it.
   the engine in `run()` once `create()` has returned, for exactly this reason —
   starting it in `initEngine()` initializes an empty world and renders an empty
   first frame. Every script initializes before any script post-initializes.
-- **The per-draw uniform rings GROW, and the growth is why an overflow is only
-  ever one bad frame.** Both backends size a frame region for a draw count, count
-  what the frame actually ASKED for (including what did not fit), and reallocate at
-  the next frame boundary. Growth cannot happen mid-frame: every offset already
-  handed out is interpreted against the one buffer bound at the start of the render
-  pass (Metal) or named by the persistent dynamic-UBO descriptor sets (Vulkan). So
-  it happens behind a full drain — Metal waits out the other two in-flight frames
-  through the device's `MetalFrameGate` (one semaphore paces every ring), Vulkan calls `vkDeviceWaitIdle` and then REWRITES the two
-  descriptor sets through `writeUniformRingDescriptors`, which is also what
-  initialization calls so the two cannot describe the buffer differently.
-  The overflowing frame itself still degrades, and the two backends degrade
-  differently because their allocators differ: Metal's fixed-slot ring hands the
-  excess draws the last slot's uniforms, while Vulkan's variable-size bump
-  allocator cannot alias safely (the previous allocation may be a different struct
-  entirely) and skips them. Both say so in one message per frame. Note that the
-  demand measured DURING an overflowing frame is an underestimate on Vulkan,
-  because a skipped draw never asks for what it would have needed — which is why
-  growth is `max(requested, current * 2)` and why a first overflow can take two
+- **The per-draw uniform rings GROW; Metal's inside the frame, Vulkan's at the next
+  frame boundary.** Metal's two rings (`MetalUniformRingBuffer`: transform, and the
+  material + lighting slots) start at 256 slots a frame and DOUBLE on the allocation that
+  does not fit: the new buffer takes over, the frame continues in its own region of it,
+  and the old buffer is retired until `kMaxInflightFrames` frame starts later, since the
+  draws already encoded bind it. So a Metal caller binds a ring offset against
+  `buffer()` and re-binds the BUFFER when `buffer()` differs from the one the encoder
+  holds; `MetalUniformBinder` tracks slots 2, 3 and 4 that way and drops every cached
+  offset when the uniform ring changes buffer (`syncUniformRing`). No frame is wrong and
+  nothing drains. Sized up front for 4096 draws, the two held 79 MB whatever the scene
+  (`ambient-occlusion`'s VRAM 249.5 MB against upstream's 171; now 177). Starting at one
+  slot, `taa`, `ambient-occlusion` and `clustered-lighting` grow 13-17 times in their first
+  frames and render them bit-identically to a ring that never grows; skipping the slot-2
+  rebind moves 147k pixels. Vulkan's ring cannot do the same: its offsets are named by
+  persistent dynamic-UBO descriptor sets. It counts what the frame ASKED for (including
+  what did not fit) and reallocates at the next frame boundary behind `vkDeviceWaitIdle`,
+  then REWRITES the two descriptor sets through `writeUniformRingDescriptors`, which is
+  also what initialization calls so the two cannot describe the buffer differently. The
+  overflowing Vulkan frame skips the excess draws (a variable-size bump allocator cannot
+  alias safely) and says so once; a skipped draw never asks for what it would have
+  needed, so growth is `max(requested, current * 2)` and a first overflow can take two
   frames to settle.
 - **A matrix palette is uploaded once a FRAME, named by a version, and Metal's palette
-  ring grows like the uniform rings.** `SkinInstance` and `SkinBatchInstance` take a new
+  ring grows at a frame boundary, as Vulkan's uniform ring does.** `SkinInstance` and `SkinBatchInstance` take a new
   `paletteVersion()` (`GraphicsDevice::nextPaletteVersion()`, process-wide, never 0)
   each time they rewrite their palette, and pass it to `setDynamicBatchPalette`; Metal's
   ring (`MetalPaletteRingBuffer`, its bookkeeping in `PaletteFrameAllocator`) hands

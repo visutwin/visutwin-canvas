@@ -140,11 +140,12 @@ namespace visutwin::canvas
         }
 
         /**
-         * Reallocate to fit what the PREVIOUS frame asked for, behind a full drain, as
-         * MetalUniformRingBuffer::growIfNeeded does and for the same reason: an offset
-         * means something only against the buffer bound when the pass began, so the
+         * Reallocate to fit what the PREVIOUS frame asked for, behind a full drain: the
+         * palette offset is bound against the buffer bound when the pass began, so the
          * buffer can be replaced only where nothing in flight references it. The caller
-         * has waited for this region; the other regions are waited for here.
+         * has waited for this region; the other regions are waited for here. (The uniform
+         * rings grow mid-frame instead, re-binding their new buffer; this one has not
+         * needed to.)
          */
         void growIfNeeded()
         {

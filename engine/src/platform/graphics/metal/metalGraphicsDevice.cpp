@@ -270,20 +270,17 @@ namespace visutwin::canvas
         _renderPipeline = std::make_unique<MetalRenderPipeline>(this);
         _computePipeline = std::make_unique<MetalComputePipeline>(this);
 
-        // Triple-buffered ring buffers for per-draw uniform data.
-        // Slot sizes derive from sizeof() below; for reference: ModelData is 128B
-        // (aligns to 256B slots), LightingUniforms is the largest at 1440B
-        // (aligns to 1536B slots), and MaterialUniforms (352B) shares the
-        // uniform ring, fitting within the LightingUniforms-sized slot.
-        //
-        // _transformRing: 1 allocation per draw call (ModelData at slot 2).
-        // _uniformRing:   2 allocations per draw call (MaterialUniforms at slot 3 +
-        //                 LightingUniforms at slot 4), so needs 2× the draw capacity.
-        static constexpr size_t kMaxDrawsPerFrame = 4096;
+        // Triple-buffered ring buffers for per-draw uniform data, one slot per allocation:
+        // _transformRing takes ModelData (slot 2) once per draw, _uniformRing the material
+        // block (slot 3) when it changes and the lighting block (slot 4) when THAT changes,
+        // in slots sized for the lighting block. Both start small and double inside the
+        // frame that needs more, so a scene pays for what it draws (sized for 4096 draws up
+        // front, the two held 79 MB whatever the scene).
+        static constexpr size_t kInitialDrawsPerFrame = 256;
         _transformRing = std::make_unique<MetalUniformRingBuffer>(
-            _device, _frameGate, kMaxDrawsPerFrame, sizeof(ModelData), "TransformRing");
+            _device, kInitialDrawsPerFrame, sizeof(ModelData), "TransformRing");
         _uniformRing = std::make_unique<MetalUniformRingBuffer>(
-            _device, _frameGate, kMaxDrawsPerFrame * 2, sizeof(MetalUniformBinder::LightingUniforms), "UniformRing");
+            _device, kInitialDrawsPerFrame, sizeof(MetalUniformBinder::LightingUniforms), "UniformRing");
 
         // Variable-size bump-allocator ring buffer for matrix palettes (dynamic batches
         // and skins). Starts at 256KB a frame and grows with what a frame asks for.
@@ -2172,12 +2169,14 @@ namespace visutwin::canvas
 
         // Bind ring buffers once per render pass. Per-draw calls will only
         // update the offset (setVertexBufferOffset), which is much cheaper
-        // than rebinding the buffer + validating it each time.
+        // than rebinding the buffer + validating it each time, until a ring grows
+        // mid-pass and the binder binds its new buffer.
         _renderPassEncoder->setVertexBuffer(_transformRing->buffer(), 0, 2);
         _renderPassEncoder->setFragmentBuffer(_uniformRing->buffer(), 0, 3);
         _renderPassEncoder->setVertexBuffer(_uniformRing->buffer(), 0, 3);
         _renderPassEncoder->setFragmentBuffer(_uniformRing->buffer(), 0, 4);
         _renderPassEncoder->setVertexBuffer(_paletteRing->buffer(), 0, 6);
+        _uniformBinder.noteRingBuffersBound(_transformRing->buffer(), _uniformRing->buffer());
 
         // Bind clustered lighting buffers at fragment slots 7 (lights) and 8 (cells).
         bindClusterBuffersOnEncoder();
