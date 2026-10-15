@@ -29,6 +29,8 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <format>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -378,7 +380,9 @@ namespace visutwin::canvas
         // render (less the display wait), and the per-phase frame statistics the renderer
         // counts (cull, sort, forward, shadow, skin, cluster). Medians, not means: a window
         // always holds a few frames the OS descheduled. Run with vsync off
-        // (VISUTWIN_NO_VSYNC=1) so the render time is not the pacing wait.
+        // (VISUTWIN_NO_VSYNC=1) so the render time is not the pacing wait. A second line,
+        // GPU_PASSES, gives each pass's median GPU time from the device profiler (a pass
+        // that runs twice a frame is listed twice, the second as name#2).
         int cpuStatsFirst = -1;
         int cpuStatsLast = -1;
         if (const char* value = std::getenv("VISUTWIN_CPU_STATS"); value && *value) {
@@ -387,6 +391,8 @@ namespace visutwin::canvas
             }
         }
         std::vector<std::array<double, 11>> cpuSamples;
+        // Per-pass GPU times of the same frames, by pass name in first-seen order.
+        std::vector<std::pair<std::string, std::vector<double>>> gpuPassSamples;
         int frameIndex = 0;
 
         // A scripted capture (VISUTWIN_SCREENSHOT) ignores the person at the machine: a drag
@@ -450,6 +456,22 @@ namespace visutwin::canvas
                     profiler->setEnabled(true);
                 }
                 const double gpuMs = profiler ? profiler->frameMilliseconds() : 0.0;
+                if (profiler) {
+                    // A pass name can occur several times a frame (the two blur directions):
+                    // each occurrence is its own column.
+                    std::vector<std::string> seen;
+                    for (const auto& pass : profiler->passTimings()) {
+                        const auto occurrence = std::count(seen.begin(), seen.end(), pass.name);
+                        seen.push_back(pass.name);
+                        const std::string key = occurrence ? std::format("{}#{}", pass.name, occurrence + 1) : pass.name;
+                        auto it = std::find_if(gpuPassSamples.begin(), gpuPassSamples.end(),
+                            [&](const auto& entry) { return entry.first == key; });
+                        if (it == gpuPassSamples.end()) {
+                            it = gpuPassSamples.insert(gpuPassSamples.end(), {key, {}});
+                        }
+                        it->second.push_back(pass.milliseconds);
+                    }
+                }
                 cpuSamples.push_back({updateMs, f.renderTime, f.cullTime, f.sortTime, f.forwardTime,
                     f.shadowMapTime, f.skinTime + f.morphTime, f.lightClustersTime,
                     static_cast<double>(stats->drawCalls().total), static_cast<double>(f.shaders), gpuMs});
@@ -467,6 +489,14 @@ namespace visutwin::canvas
                         "sort {:.3f} forward {:.3f} shadow {:.3f} skin+morph {:.3f} clusters {:.3f} | draws {:.0f} "
                         "shaders {:.0f} | gpu {:.3f}", cpuStatsFirst, cpuStatsLast, median[0], median[1], median[2],
                         median[3], median[4], median[5], median[6], median[7], median[8], median[9], median[10]);
+                    std::string passes;
+                    for (auto& [name, column] : gpuPassSamples) {
+                        std::nth_element(column.begin(), column.begin() + column.size() / 2, column.end());
+                        passes += std::format(" | {} {:.3f}", name, column[column.size() / 2]);
+                    }
+                    if (!passes.empty()) {
+                        spdlog::warn("GPU_PASSES frames {}-{} median ms:{}", cpuStatsFirst, cpuStatsLast, passes);
+                    }
                 }
             }
             ++frameIndex;

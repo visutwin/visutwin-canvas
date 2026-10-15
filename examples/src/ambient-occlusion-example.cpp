@@ -20,6 +20,7 @@
 #include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
 #include "../ssaoKeys.h"
+#include "platform/graphics/blendState.h"
 #include "platform/graphics/depthState.h"
 #include "scene/constants.h"
 #include "scene/graphics/renderPassConstants.h"
@@ -88,8 +89,12 @@ protected:
                 if (!mat) continue;
                 // disable baked AO map — we want SSAO only
                 mat->setAoMap(nullptr);
-                // disable blending / enable depth writes
+                // disable blending / enable depth writes. Half the lab's glTF materials
+                // are alphaMode BLEND: left blending in the opaque pass, they defeat the
+                // GPU's hidden-surface removal and every overlapping fragment is shaded
+                // (the forward pass ran 3.5x slower on Metal).
                 mat->setTransparent(false);
+                mat->setBlendState(BlendState::noBlend());
                 mat->setDepthState(std::make_shared<DepthState>());
             }
         }

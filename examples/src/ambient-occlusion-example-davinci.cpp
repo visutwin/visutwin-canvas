@@ -22,6 +22,7 @@
 #include "../exampleApp.h"
 #include "../ssaoKeys.h"
 #include "core/math/quaternion.h"
+#include "platform/graphics/blendState.h"
 #include "platform/graphics/depthState.h"
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"
@@ -118,6 +119,7 @@ protected:
                 mat->setAoMap(nullptr);
                 // disable blending / enable depth writes
                 mat->setTransparent(false);
+                mat->setBlendState(BlendState::noBlend());
                 mat->setDepthState(std::make_shared<DepthState>());
             }
         }

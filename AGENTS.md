@@ -1097,15 +1097,29 @@ present, but the rule below never depends on reading it.
   `gpu-performance-state-intervals` table shows the GPU in its MINIMUM state 55-88% of the
   time under either engine, and every pass costs 2-3x more there than at Maximum; bucket
   per-frame costs by state, or run both engines at once so they share one clock. (3) A
-  pass interval is a WALL interval on a shared GPU: with our window on screen WindowServer
-  composites a 29-encoder buffer every frame at 120 Hz INSIDE our forward pass's interval,
-  and the hardware counters show the forward window as ~1 ms of shading followed by ~1.4 ms
-  at zero utilization with the GPU still "Active" — a stall, not our work — which is why
-  the forward pass's interval barely changes between 900x700 and 1800x1400. Two traps in
+  pass interval is a WALL interval on a shared GPU, and other processes' work lands inside
+  it. A long, near-idle TAIL in a pass is not that, though: `ambient-occlusion`'s forward
+  pass once read ~1 ms of shading then ~1.4 ms near zero utilization, taken for a stall,
+  and it was overdraw the GPU could not reject (blended opaque materials, the next entry).
+  Compare a pass with upstream's in the SAME trace, as utilization x time: equal work at a
+  third of the occupancy is the signature. Upstream in the in-app browser renders only
+  while its pane is active; drive it with `app.tick(performance.now())` on a timer. Two traps in
   the measurement itself: `xctrace record --launch` leaves a SECOND instance of the example
   running after its time limit (start the binary yourself and record `--all-processes`;
   `pgrep -fl visutwin-ambient` before every recording), and a browser's frames must be
   grouped by command buffer with 5+ encoders, not by Metal's `frame-number`.
+- **A material drawn in an OPAQUE layer must not blend, and `setTransparent(false)` does
+  not turn blending off.** Upstream's examples take a glTF scene's alpha-BLEND materials
+  into the opaque pass with `blendType = BLEND_NONE`; the port is
+  `setBlendState(BlendState::noBlend())` (or `setAlphaMode(OPAQUE)`, which resets the depth
+  state too). A blended draw defeats the tiler's hidden-surface removal, so every
+  overlapping fragment is shaded: half of `ambient-occlusion`'s lab materials blended,
+  and its Metal forward pass took 2.4 ms against 0.94 ms without, for 676 pixels of
+  difference that moved the frame TOWARD upstream's. The image barely shows it; the
+  GPU counters do (fragment occupancy and ALU a third of upstream's over three times the
+  time). Removing a `discard` or forcing the uber-shader's functions inline measured nothing
+  here; ablating the shader through `VISUTWIN_SLANG_RUNTIME` with a copied tree did locate
+  the cost.
 - **`xctrace` gives a GPU capture without the Xcode GUI.** `xcrun xctrace record
   --template 'Metal System Trace' --time-limit 8s --env VISUTWIN_BACKEND=metal
   --launch -- <binary>`, then `xctrace export --xpath '/trace-toc/run[@number="1"]/
@@ -3277,7 +3291,8 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
     backends from an empty scene to 20k draws, vsync on and off), and
     the renderer's per-phase frame statistics (cull, sort, forward, shadow, skin and morph,
     clusters), and the GPU frame time from the device profiler, which the report switches
-    on. `VISUTWIN_NO_VSYNC=1` turns off Metal's display sync for such a run; Vulkan
+    on, and a second line, GPU_PASSES, with each pass's median GPU time (a pass run twice a
+    frame is listed twice, the second as `name#2`). `VISUTWIN_NO_VSYNC=1` turns off Metal's display sync for such a run; Vulkan
     always presents FIFO. The HUD costs about 0.01 ms a frame compact and 0.05 ms with
     graphs (`MiniStats::postRender`, timed directly); one HUD-on run against one HUD-off
     run says nothing. Trust the PHASE

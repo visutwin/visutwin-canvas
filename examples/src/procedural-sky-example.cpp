@@ -29,6 +29,8 @@
 #include "core/math/curve.h"
 #include "framework/assets/asset.h"
 #include "scene/constants.h"
+#include "platform/graphics/blendState.h"
+#include "platform/graphics/depthState.h"
 #include "scene/materials/standardMaterial.h"
 #include "scene/meshInstance.h"
 #include "framework/components/componentRegistry.h"
@@ -120,6 +122,8 @@ protected:
                         meshInstance ? meshInstance->material() : nullptr)) {
                     material->setAoMap(nullptr);
                     material->setTransparent(false);
+                    material->setBlendState(BlendState::noBlend());
+                    material->setDepthState(std::make_shared<DepthState>());
                 }
             }
         }
