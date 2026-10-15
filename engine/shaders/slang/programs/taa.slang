@@ -7,7 +7,13 @@
 // depth (point sampled: an edge pixel reprojected with a depth halfway between the object
 // and the background fetches history from neither and ghosts), the history is fetched with
 // Catmull-Rom or bilinear, clamped to the 3x3 neighbourhood of the current frame and mixed
-// 5% (100% when the reprojection leaves the frame). Inputs: 0 source, 1 history, 2 depth.
+// 5% (100% when the reprojection leaves the frame), rising towards 50% with the distance the
+// history was reprojected from. Inputs: 0 source, 1 history, 2 depth.
+//
+// The mix is taken under a reversible tone mapping of the EXPOSED colours. Mixed in linear
+// HDR, the samples of a bright surface partially covering a pixel dominate its average, which
+// the display tone mapping then shows nearly as bright as the surface: the edges of bright
+// geometry stay thick and aliased.
 //
 // The clamp and the mix happen in PREMULTIPLIED space, the coverage-correct one (straight
 // RGB interpolates colour and opacity independently at edges, which fringes and ghosts),
@@ -19,6 +25,7 @@
 // holds (ndcZ_gl + 1) / 2 and is mapped back to GL NDC Z; the uv has v = 0 at the top while
 // the projection is GL's (+Y up), so ndcY = 1 - 2v.
 import vtquad;
+import vttonemapreversible;
 #include "bindings.slang"
 
 struct TaaUniforms
@@ -28,7 +35,14 @@ struct TaaUniforms
     float4 jitters;        // xy = current-frame NDC jitter, zw = previous frame's
     float4 texSizeFlags;   // xy = texture size, z = highQuality, w = historyValid
     float4 cameraParams;
+    float4 blendParams;    // x = the exposure the scene is displayed with
 };
+
+// The most of the current frame taken while the camera moves a pixel's surface across the
+// screen, and the motion (in history pixels) at which all of it is taken. With the camera
+// still the history accumulates at the base weight.
+static const float kTaaMotionBlend = 0.5;
+static const float kTaaMotionPixels = 32.0;
 VT_DECLARE_QUAD_UNIFORMS(TaaUniforms, u)
 VT_DECLARE_QUAD_INPUT0(sourceTexture)
 VT_DECLARE_QUAD_INPUT1(historyTexture)
@@ -125,10 +139,18 @@ float4 taaFragment(QuadVarying input) : SV_Target0
     const float3 srcPremul = srcColor.rgb * srcColor.a;
     const float3 historyPremulClamped = colorClampPremul(uv, historyPremul, texSize);
 
+    // The further the history was reprojected from, the further it has been resampled (which
+    // blurs it) and the likelier it does not hold this surface at all.
+    const float baseBlend = 0.05;
+    const float motion = length((uv - historyUv) * texSize);
+    const float blend = lerp(baseBlend, max(baseBlend, kTaaMotionBlend),
+                             clamp(motion / kTaaMotionPixels, 0.0, 1.0));
     const float mixFactor = (historyUv.x < 0.0 || historyUv.x > 1.0 ||
-                             historyUv.y < 0.0 || historyUv.y > 1.0) ? 1.0 : 0.05;
+                             historyUv.y < 0.0 || historyUv.y > 1.0) ? 1.0 : blend;
 
-    const float3 mixedPremul = lerp(historyPremulClamped, srcPremul, mixFactor);
+    const float e = max(u.blendParams.x, 1e-6);
+    const float3 mixedPremul = reversibleTonemapInverse(
+        lerp(reversibleTonemap(historyPremulClamped * e), reversibleTonemap(srcPremul * e), mixFactor)) / e;
     const float a = srcColor.a;
     // Below one UNORM8 alpha step un-premultiplying is ill-defined; use the current RGB.
     const float3 rgbStraight = (a > 1.0 / 255.0) ? (mixedPremul / a) : srcColor.rgb;

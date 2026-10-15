@@ -21,6 +21,19 @@ namespace visutwin::canvas
     {
     }
 
+    void Sky::setEnabled(const bool value)
+    {
+        if (_enabled != value) {
+            _enabled = value;
+            // The materials' variants stay: the lighting they read does not change.
+            if (value) {
+                updateSkyMesh();
+            } else {
+                resetSkyMesh();
+            }
+        }
+    }
+
     void Sky::setType(const int value)
     {
         if (_type != value) {
@@ -41,7 +54,7 @@ namespace visutwin::canvas
 
     void Sky::updateSkyMesh()
     {
-        if (!_scene) {
+        if (!_scene || !_enabled) {
             resetSkyMesh();
             return;
         }

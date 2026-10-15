@@ -129,6 +129,7 @@ namespace visutwin::canvas
             ? static_cast<float>(_sourceTexture->height()) : 1.0f;
         uniforms.texSizeFlags[2] = _highQuality ? 1.0f : 0.0f;
         uniforms.texSizeFlags[3] = _historyValid ? 1.0f : 0.0f;
+        uniforms.blendParams[0] = _displayExposure;
 
         setQuadTextureBinding(0, _sourceTexture);
         setQuadTextureBinding(1, history);

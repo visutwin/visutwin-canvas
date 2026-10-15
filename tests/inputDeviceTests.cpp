@@ -17,6 +17,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include "platform/input/controller.h"
 #include "platform/input/gamePads.h"
@@ -277,8 +278,19 @@ namespace
         // pinch handler counts two fingers after one has gone.
         check(touchesAtEnd == 1, "touchend reports the fingers that REMAIN");
 
+        touch.handleEvent(fingerEvent(SDL_EVENT_FINGER_DOWN, 3, 0.5f, 0.5f));
+        int cancels = 0;
+        std::vector<size_t> remainingAtCancel;
+        touch.on("touchcancel", [&](const TouchEvent& event) {
+            ++cancels;
+            remainingAtCancel.push_back(event.touches.size());
+        });
         touch.handleEvent(focusLostEvent());
         check(touch.touches().empty(), "losing focus drops every finger");
+        // A finger held while focus moves away never sends its end; without a cancel a
+        // listener counting fingers would count it down for good.
+        check(cancels == 2, "losing focus cancels each finger it drops");
+        check(remainingAtCancel == std::vector<size_t>{1, 0}, "each cancel reports the fingers that remain");
     }
 
     void controllerActionsAndAxes()

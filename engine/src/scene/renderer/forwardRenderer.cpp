@@ -159,6 +159,18 @@ namespace visutwin::canvas
             resolveAutoAspectRatio(cam);
         }
 
+        // A camera draws the scene's sky unless an active effect of its camera frame renders
+        // one in its place. Decided per frame, before the cull that drops the sky.
+        for (Camera* cam : uniqueCameras(actions)) {
+            cam->setSkyVisible(true);
+        }
+        for (const auto* action : actions) {
+            if (action && action->camera && action->camera->camera() && rendersThroughCameraFrame(*action) &&
+                action->camera->frameEffectRendersSky()) {
+                action->camera->camera()->setSkyVisible(false);
+            }
+        }
+
         resetCulledInstances();
         for (const auto* action : actions) {
             if (action && action->camera && action->layer) {

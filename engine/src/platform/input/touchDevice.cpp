@@ -82,11 +82,23 @@ namespace visutwin::canvas
             break;
         }
         case SDL_EVENT_WINDOW_FOCUS_LOST:
-            detach();
+            cancelAll();
             break;
         default:
             break;
         }
+    }
+
+    void TouchDevice::cancelAll()
+    {
+        // One touchcancel per finger, newest first, each erased before its event so the
+        // list on it holds only the fingers that remain, as for a single release.
+        while (!_touches.empty()) {
+            const Touch cancelled = _touches.back();
+            _touches.pop_back();
+            fire("touchcancel", TouchEvent{.touches = _touches, .changed = {cancelled}});
+        }
+        _attached = false;
     }
 
     void TouchDevice::detach()

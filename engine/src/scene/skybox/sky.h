@@ -32,6 +32,11 @@ namespace visutwin::canvas
         void resetSkyMesh();
         SkyMesh* skyMesh();
 
+        /// Whether the sky is drawn (true by default). Off, no sky mesh or shader is created,
+        /// while the scene's environment (the env atlas, the skybox cubemap) still lights it.
+        void setEnabled(bool value);
+        bool enabled() const { return _enabled; }
+
         void setType(int value);
         int type() const { return _type; }
 
@@ -62,6 +67,7 @@ namespace visutwin::canvas
         std::shared_ptr<GraphicsDevice> _device;
         Scene* _scene = nullptr;
         int _type = SKYTYPE_INFINITE;
+        bool _enabled = true;
         bool _depthWrite = false;
         Vector3 _center = Vector3(0.0f, 1.0f, 0.0f);
         GraphNode _node = GraphNode("SkyMeshNode");

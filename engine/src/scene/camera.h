@@ -205,6 +205,12 @@ namespace visutwin::canvas
         uint32_t cullingMask() const { return _cullingMask; }
         void setCullingMask(const uint32_t value) { _cullingMask = value; }
 
+        /// Whether the camera draws the scene's sky. The renderer sets it every frame, before
+        /// culling: cleared while an active effect of the camera's frame renders the sky in its
+        /// place (CameraFrameEffect::rendersSky).
+        bool skyVisible() const { return _skyVisible; }
+        void setSkyVisible(const bool value) { _skyVisible = value; }
+
         GraphNode* node() const { return _node; }
         // Non-owning: the node (typically an Entity) is owned elsewhere.
         void setNode(GraphNode* value);
@@ -322,6 +328,7 @@ namespace visutwin::canvas
         float _sensitivity = 1000.0f;
 
         uint32_t _cullingMask = 0xFFFFFFFFu;
+        bool _skyVisible = true;
         float _orthoHeight = 10.0f;
 
         ProjectionType _projection = ProjectionType::Perspective;

@@ -5,8 +5,9 @@
 //
 // The uniform block of the TAA resolve, engine/shaders/slang/programs/taa.slang: depth
 // reprojection into the previous frame, Catmull-Rom or bilinear history fetch,
-// neighbourhood colour clamping, 5% history blend (100% when the reprojection lands
-// offscreen). Textures: 0 source, 1 history, 2 scene depth.
+// neighbourhood colour clamping, 5% history blend rising with the reprojection distance
+// (100% when it lands offscreen), mixed under a reversible tone mapping at the display
+// exposure. Textures: 0 source, 1 history, 2 scene depth.
 //
 #pragma once
 
@@ -27,7 +28,8 @@ namespace visutwin::canvas::taa_shaders
         float jitters[4];                  // offset 128
         float texSizeFlags[4];             // offset 144  xy = size, z = highQuality, w = historyValid
         float cameraParams[4];             // offset 160
+        float blendParams[4];              // offset 176  x = display exposure (1 without tone mapping)
     };
-    static_assert(sizeof(TaaUniforms) == 176);
+    static_assert(sizeof(TaaUniforms) == 192);
 
 }

@@ -1447,8 +1447,14 @@ overridden through ShaderChunks and takes no texture.
   built, since a `postOpaque` pass splits them). The passes persist across frames, like the
   frame's texture-owning sub-passes; the frame's destructor releases them too. Every frame
   `frameUpdate` calls each of the camera's active effects' `update()` and then
-  `frameUpdate(context)` (the scene texture after TAA, its size), before any effect pass
-  renders and before the composition is built from them.
+  `frameUpdate(context)` (the scene texture after TAA, its size, and `dt`: the engine's
+  update steps since the frame last rendered, the difference of `Engine::updatedTime()`, so
+  0 for a frame rendered again without an update, while paused, and on the frame's first
+  frame), before any effect pass renders and before the composition is built from them.
+- **An effect rendering the sky** says so with `rendersSky()`: while it is active the
+  renderer clears the camera's `Camera::skyVisible` before culling (`cullMeshInstancesForFrame`,
+  set again every frame), and the cull drops the scene's sky material for that camera only.
+  Only for a camera that renders through its frame: outside one no effect runs.
 - **Compose slots** (`ComposeSlot`, `CameraFrameEffectOptions{slot, slang, debugViews,
   entryPoint}`): `programs/compose.slang` includes `compose/compose-effects.slang` and calls
   four hooks, Scene after fringing (on a float4), Hdr after grading, Ldr after the
@@ -1540,6 +1546,11 @@ scene-depth output, so geometry beyond the sky mesh is hidden by it here and not
 Before the feature existed the depth write was a no-op: `shadow-catcher`'s DOF blurred
 the dome's floor up to the statue's feet. It is applied to the current mesh and to every
 rebuilt one.
+
+`Sky::setEnabled(false)` stops the sky drawing without building its mesh or shader, while
+the scene's environment (env atlas, skybox cubemap) still lights it; the materials keep their
+variants. A single camera can leave the sky out instead (`Camera::skyVisible`, cleared by the
+renderer while an effect of its frame renders the sky; see camera frame effects).
 
 Two traps, both of which silently produce no sky at all:
 - **`Scene::setAtmosphereEnabled` must rebuild the sky mesh.** The atmosphere

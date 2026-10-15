@@ -298,6 +298,12 @@ namespace visutwin::canvas
             [](const auto& effect) { return effect->active(); });
     }
 
+    bool CameraComponent::frameEffectRendersSky() const
+    {
+        return std::any_of(_frameEffects.begin(), _frameEffects.end(),
+            [](const auto& effect) { return effect->active() && effect->rendersSky(); });
+    }
+
     void CameraComponent::setPriority(const int value)
     {
         _priority = value;

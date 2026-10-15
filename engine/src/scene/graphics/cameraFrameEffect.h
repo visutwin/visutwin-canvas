@@ -160,6 +160,12 @@ namespace visutwin::canvas
         /// The scene's size in pixels this frame.
         int sceneWidth = 0;
         int sceneHeight = 0;
+        /// The time the world advanced by since the camera frame last rendered, in seconds:
+        /// the engine's update steps since (clamped and time-scaled, as scripts get them). 0
+        /// for a frame rendered again without an update, while the world is paused, and on
+        /// the camera frame's first frame. Anything an effect advances over time advances by
+        /// this, so it pauses with the world.
+        float dt = 0.0f;
     };
 
     class CameraFrameEffect
@@ -184,6 +190,10 @@ namespace visutwin::canvas
         /// Whether the effect takes part. The enabled flag by default; a subclass can also
         /// say no for parameters that make it do nothing.
         [[nodiscard]] virtual bool active() const { return _enabled; }
+
+        /// Whether the effect renders the camera's sky while it is active. The camera then does
+        /// not draw the scene's sky, which the effect replaces.
+        [[nodiscard]] virtual bool rendersSky() const { return false; }
 
         /// The resources the effect's passes read.
         [[nodiscard]] virtual std::vector<FrameResource> requiredResources() const { return _requiredResources; }

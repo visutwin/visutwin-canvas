@@ -24,6 +24,8 @@
 #include "renderPassSsao.h"
 #include "renderPassVolumetricFog.h"
 #include "renderPassTAA.h"
+#include "framework/components/componentSystem.h"
+#include "framework/engine.h"
 #include "scene/graphics/colorTarget.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "scene/constants.h"
@@ -1039,6 +1041,26 @@ namespace visutwin::canvas
         }
     }
 
+    void RenderPassCameraFrame::applyDisplaySettings() const
+    {
+        // Per-camera tone mapping wins over the scene-wide value, so the HDR path resolves it
+        // the same way the standard forward path does. Followed every frame: an exposure or a
+        // tone mapping changed at run time is not a reset option.
+        const int sceneToneMapping = _scene ? _scene->toneMapping() : TONEMAP_LINEAR;
+        const int cameraToneMapping = _cameraComponent ? _cameraComponent->toneMapping() : TONEMAP_INHERIT;
+        const int toneMapping = cameraToneMapping != TONEMAP_INHERIT ? cameraToneMapping : sceneToneMapping;
+        const float exposure = _scene ? _scene->exposureFor(_cameraComponent ? _cameraComponent->camera() : nullptr) : 1.0f;
+        if (_composePass) {
+            _composePass->setToneMapping(toneMapping);
+            _composePass->setExposure(exposure);
+        }
+        // The TAA history is blended at the exposure compose displays it with; tone mapping
+        // NONE applies no exposure.
+        if (_taaPass) {
+            _taaPass->setDisplayExposure(toneMapping == TONEMAP_NONE ? 1.0f : exposure);
+        }
+    }
+
     void RenderPassCameraFrame::setupComposePass(const CameraFrameOptions& options)
     {
         _composePass = std::make_shared<RenderPassCompose>(device());
@@ -1058,12 +1080,7 @@ namespace visutwin::canvas
         // scene puts under one output pixel. Set whatever the effects do, since a
         // scaled scene target exists whether or not anything else is enabled.
         _composePass->setSceneDownscale(_renderTargetScale);
-        // Per-camera tone mapping wins over the scene-wide value, so the HDR path
-        // resolves it the same way the standard forward path does.
-        const int sceneToneMapping = _scene ? _scene->toneMapping() : TONEMAP_LINEAR;
-        const int cameraToneMapping = _cameraComponent ? _cameraComponent->toneMapping() : TONEMAP_INHERIT;
-        _composePass->setToneMapping(cameraToneMapping != TONEMAP_INHERIT ? cameraToneMapping : sceneToneMapping);
-        _composePass->setExposure(_scene ? _scene->exposureFor(_cameraComponent ? _cameraComponent->camera() : nullptr) : 1.0f);
+        applyDisplaySettings();
 
         // Single-pass fallback parameters (read only when no CoC texture is bound).
         if (options.dofEnabled && _cameraComponent) {
@@ -1195,6 +1212,7 @@ namespace visutwin::canvas
         if (_taaPass) {
             _taaPass->setDepthTexture(_sceneDepthTexture.get());
         }
+        applyDisplaySettings();
 
         // The depth of field's focus and blur follow the camera every frame, as upstream's
         // CameraFrame.update copies them: they are not reset options, so the passes'
@@ -1255,8 +1273,21 @@ namespace visutwin::canvas
         // The active effects get this frame's values once the TAA history is assigned, and
         // before any of their passes renders (the frame graph updates a pass before its
         // children) or the composition is built from them (the compose pass's prepareShaders).
+        // The world's time since this frame last rendered, taken whether or not an effect is
+        // active now, so one added later does not get the whole time since the frame began.
+        float frameDt = 0.0f;
+        if (const auto* engine = _cameraComponent && _cameraComponent->system()
+                ? _cameraComponent->system()->engine() : nullptr) {
+            const double now = engine->updatedTime();
+            if (_lastUpdatedTime >= 0.0) {
+                frameDt = static_cast<float>(now - _lastUpdatedTime);
+            }
+            _lastUpdatedTime = now;
+        }
+
         if (_cameraComponent && !_cameraComponent->frameEffects().empty()) {
             CameraFrameEffectContext context;
+            context.dt = frameDt;
             context.sceneTexture = _sceneTextureResolved ? _sceneTextureResolved : _sceneTexture.get();
             if (_sceneTexture) {
                 context.sceneWidth = static_cast<int>(_sceneTexture->width());

@@ -163,6 +163,7 @@ namespace visutwin::canvas
         void setupSceneHalfPass(const CameraFrameOptions& options, Texture* sourceTexture);
         void setupBloomPass(const CameraFrameOptions& options, Texture* inputTexture);
         void setupDofPass(const CameraFrameOptions& options, Texture* inputTexture, Texture* inputTextureHalf);
+        void applyDisplaySettings() const;
         void setupComposePass(const CameraFrameOptions& options);
         void setupAfterPass(const CameraFrameOptions& options, const ScenePassesInfo& scenePassesInfo);
 
@@ -213,6 +214,8 @@ namespace visutwin::canvas
         std::shared_ptr<RenderPassSsao> _ssaoPass;
         std::shared_ptr<RenderPassVolumetricFog> _volumetricFogPass;
         std::shared_ptr<RenderPassVolumetricFogCombine> _volumetricFogCombinePass;
+        // The engine's updatedTime() when this frame last rendered; negative before the first.
+        mutable double _lastUpdatedTime = -1.0;
         std::shared_ptr<RenderPassTAA> _taaPass;
         std::shared_ptr<RenderPassDownsample> _scenePassHalf;
         std::shared_ptr<RenderPassBloom> _bloomPass;

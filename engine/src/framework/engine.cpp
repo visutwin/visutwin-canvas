@@ -698,6 +698,7 @@ namespace visutwin::canvas
     {
         dt = effectiveDeltaTime(dt);
         _frame++;
+        _updatedTime += dt;
 
         if (_stats) {
             _stats->frame().fixedUpdateTime = 0.0;

@@ -527,8 +527,13 @@ namespace visutwin::canvas
                 return Bucket::None;
             }
 
+            // A camera may leave the scene's sky to an effect of its frame.
+            if (material->isSkybox() && camera && !camera->skyVisible()) {
+                return Bucket::None;
+            }
+
             // A skybox is drawn around the camera and has no meaningful bounds, so it
-            // is never culled.
+            // is never frustum culled.
             if (!material->isSkybox() && hasCameraFrustum && meshInstance->cull() &&
                 !isVisibleInFrustum(cameraFrustum, meshInstance->aabb())) {
                 return Bucket::None;

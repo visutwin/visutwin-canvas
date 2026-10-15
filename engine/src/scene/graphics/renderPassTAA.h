@@ -30,6 +30,9 @@ namespace visutwin::canvas
         void setSourceTexture(Texture* sourceTexture) { _sourceTexture = sourceTexture; }
         void setDepthTexture(Texture* depthTexture) { _depthTexture = depthTexture; }
         void setHighQuality(const bool value) { _highQuality = value; }
+        /// The exposure compose displays the resolved scene with (1 when it tone maps with
+        /// NONE, which applies no exposure): the history is blended at that exposure.
+        void setDisplayExposure(const float value) { _displayExposure = value; }
 
     private:
         void setup();
@@ -40,6 +43,7 @@ namespace visutwin::canvas
         CameraComponent* _cameraComponent = nullptr;
         bool _highQuality = true;
         bool _historyValid = false;
+        float _displayExposure = 1.0f;
 
         std::array<std::shared_ptr<Texture>, 2> _historyTextures{};
         std::array<std::shared_ptr<RenderTarget>, 2> _historyRenderTargets{};

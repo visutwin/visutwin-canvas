@@ -275,6 +275,8 @@ namespace visutwin::canvas
         [[nodiscard]] const std::vector<std::shared_ptr<CameraFrameEffect>>& frameEffects() const { return _frameEffects; }
         /// Whether any registered effect is active.
         [[nodiscard]] bool hasActiveFrameEffect() const;
+        /// Whether an active effect renders the sky in place of the scene's.
+        [[nodiscard]] bool frameEffectRendersSky() const;
 
         // Persistent camera frame for postprocessing (TAA, DOF, etc.)
         std::shared_ptr<RenderPassCameraFrame> cameraFrame() const { return _cameraFrame; }

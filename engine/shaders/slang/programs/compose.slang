@@ -28,6 +28,7 @@
 // scene's (after the scene slot), so a camera rendering into a target of its own can leave
 // its uncovered pixels transparent.
 import vtquad;
+import vttonemapreversible;
 #include "bindings.slang"
 
 struct ComposeUniforms
@@ -198,25 +199,22 @@ float3 toneMapAces2(float3 color, float exposure)
     return clamp(color, float3(0.0, 0.0, 0.0), float3(1.0, 1.0, 1.0));
 }
 
-float maxComp(float x, float y, float z) { return max(x, max(y, z)); }
-float3 toSDR(float3 c) { return c / (1.0 + maxComp(c.r, c.g, c.b)); }
-float3 toHDR(float3 c) { return c / max(1.0 - maxComp(c.r, c.g, c.b), 1e-4); }
 
 // Contrast Adaptive Sharpening.
 float3 applyCas(float3 color, float2 uv, float sharpness, float2 invRes)
 {
-    const float3 a = toSDR(sceneTexture.Sample(uv + float2(0.0, -invRes.y)).rgb);
-    const float3 b = toSDR(sceneTexture.Sample(uv + float2(-invRes.x, 0.0)).rgb);
-    const float3 c = toSDR(color);
-    const float3 d = toSDR(sceneTexture.Sample(uv + float2(invRes.x, 0.0)).rgb);
-    const float3 e = toSDR(sceneTexture.Sample(uv + float2(0.0, invRes.y)).rgb);
+    const float3 a = reversibleTonemap(sceneTexture.Sample(uv + float2(0.0, -invRes.y)).rgb);
+    const float3 b = reversibleTonemap(sceneTexture.Sample(uv + float2(-invRes.x, 0.0)).rgb);
+    const float3 c = reversibleTonemap(color);
+    const float3 d = reversibleTonemap(sceneTexture.Sample(uv + float2(invRes.x, 0.0)).rgb);
+    const float3 e = reversibleTonemap(sceneTexture.Sample(uv + float2(0.0, invRes.y)).rgb);
 
     const float min_g = min(a.g, min(b.g, min(c.g, min(d.g, e.g))));
     const float max_g = max(a.g, max(b.g, max(c.g, max(d.g, e.g))));
     const float sharpening_amount = sqrt(min(1.0 - max_g, min_g) / max(max_g, 1e-4));
     const float w = sharpening_amount * sharpness;
     const float3 res = (w * (a + b + d + e) + c) / (4.0 * w + 1.0);
-    return toHDR(max(res, float3(0.0, 0.0, 0.0)));
+    return reversibleTonemapInverse(max(res, float3(0.0, 0.0, 0.0)));
 }
 
 // Fringing (chromatic aberration): red and blue shifted by the SQUARED distance from the

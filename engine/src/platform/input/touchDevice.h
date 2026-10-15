@@ -42,9 +42,13 @@ namespace visutwin::canvas
     public:
         void handleEvent(const SDL_Event& event);
 
-        /// Drop every tracked finger. A touch in progress when the window loses
-        /// focus sends no touch-end, and would otherwise stay in the list forever.
+        /// Drop every tracked finger without an event (teardown).
         void detach();
+
+        /// End every tracked finger with a `touchcancel`. Losing window focus does this: a
+        /// touch in progress then never sends its end, and a listener counting fingers
+        /// (a pinch, MultiTouchSource) would otherwise count it down for good.
+        void cancelAll();
 
         /// The window size in points.
         void setWindowSize(int width, int height);

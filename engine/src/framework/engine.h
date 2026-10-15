@@ -100,6 +100,13 @@ namespace visutwin::canvas
         float maxDeltaTime() const { return _maxDeltaTime; }
         void setMaxDeltaTime(float seconds) { _maxDeltaTime = seconds; }
 
+        /// The time every update() so far has advanced the world by, in seconds: the sum of
+        /// the steps after the clamp and the time scale. Anything that advances with the world
+        /// but runs elsewhere (a camera frame's effects, which update as it renders) takes its
+        /// own step as the difference since it last looked, so it pauses with the world and a
+        /// frame rendered again without an update advances it by nothing.
+        double updatedTime() const { return _updatedTime; }
+
         // Run one fixed-timestep simulation substep (deterministic dt)
         void fixedUpdate(float fixedDt);
 
@@ -274,6 +281,7 @@ namespace visutwin::canvas
         // Fixed timestep state
         float _fixedDeltaTime = 1.0f / 60.0f;
         double _fixedTimeAccumulator = 0.0;
+        double _updatedTime = 0.0;
         int _maxFixedSubSteps = 8;
         float _fixedTimeAlpha = 0.0f;
 

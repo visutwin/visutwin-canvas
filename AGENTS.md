@@ -1567,7 +1567,13 @@ present, but the rule below never depends on reading it.
   (the current one before unprojecting, the previous one after projecting into the last
   frame: the history holds the image without it), and the history is at least RGBA16F
   whatever the scene format: at a 5% weight, a lower precision rounds the steps away and
-  the history stops converging (`taa` 3.89 -> 2.39 against upstream).
+  the history stops converging (`taa` 3.89 -> 2.39 against upstream). The mix is taken under
+  the reversible tone mapping `c / (1 + max(c))` (`vttonemapreversible`, which compose's
+  sharpening shares) of the colours at the DISPLAY exposure — `RenderPassTAA::
+  setDisplayExposure`, 1 under tone mapping NONE, which applies none — so a bright surface
+  partly covering a pixel does not dominate it, and the weight rises from 5% toward 50% over
+  32 history pixels of reprojection distance. The camera frame resolves tone mapping and
+  exposure EVERY frame (`applyDisplaySettings`), for compose and TAA alike.
 - **Do not draw to the back buffer after `Engine::render()`** — `frameEnd`
   presents the drawable and a stale `_frameDrawable` reuse is a pointer-auth
   SIGSEGV. Use `Renderer::addAppendPass` to append app passes to the frame graph.

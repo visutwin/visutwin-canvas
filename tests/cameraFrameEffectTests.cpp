@@ -33,7 +33,15 @@
 #include "scene/graphics/renderPassCompose.h"
 #include "scene/graphics/renderPassDownsample.h"
 #include "scene/graphics/renderPassPrepass.h"
+#include "scene/composition/layerComposition.h"
+#include "scene/constants.h"
+#include "scene/layer.h"
 #include "scene/materials/standardMaterial.h"
+#include "scene/meshInstance.h"
+#include "scene/renderer/forwardRenderer.h"
+#include "scene/scene.h"
+#include "scene/skybox/sky.h"
+#include "scene/skybox/skyMesh.h"
 #include "scene/renderer/renderPassForward.h"
 #include "support/check.h"
 #include "support/stubDevice.h"
@@ -85,9 +93,11 @@ namespace
         std::string buildKey() const override { return key; }
         void update() override { ++updates; }
         void frameUpdate(const CameraFrameEffectContext& context) override { lastContext = context; }
+        bool rendersSky() const override { return sky; }
 
         std::vector<std::string> stages;
         std::string key;
+        bool sky = false;
         int created = 0;
         int destroyed = 0;
         int updates = 0;
@@ -329,6 +339,60 @@ int main()
         camera->removeFrameEffect(depthTint);
         camera->removeFrameEffect(tint);
         camera->removeFrameEffect(owner);
+        frame();
+    }
+
+    std::cout << "the time of the frame\n";
+    {
+        auto timed = std::make_shared<TestEffect>("timed", std::vector<FrameResource>{},
+            std::vector<std::string>{"postScene"});
+        camera->addFrameEffect(timed);
+        frame();
+        frame();
+        check(near(timed->lastContext.dt, 1.0f / 60.0f, 1e-6f), "dt is the update step since the last render");
+        engine->update(1.0f / 60.0f);
+        engine->update(1.0f / 60.0f);
+        engine->render();
+        check(near(timed->lastContext.dt, 2.0f / 60.0f, 1e-6f), "every update since the last render counts");
+        engine->render();
+        check(timed->lastContext.dt == 0.0f, "a frame rendered again without an update advances by nothing");
+        engine->setTimeScale(0.0f);
+        frame();
+        check(timed->lastContext.dt == 0.0f, "nor does a paused world");
+        engine->setTimeScale(0.5f);
+        frame();
+        check(near(timed->lastContext.dt, 0.5f / 60.0f, 1e-6f), "the step is time-scaled, as scripts get it");
+        engine->setTimeScale(1.0f);
+
+        std::cout << "an effect rendering the sky\n";
+        Scene& scene = *engine->scene();
+        auto skyMaterial = std::make_shared<Material>();
+        skyMaterial->setIsSkybox(true);
+        scene.setSkyMaterial(skyMaterial);
+        const auto skyboxLayer = scene.layers()->getLayerById(LAYERID_SKYBOX);
+        const auto skyCulled = [&] {
+            const auto& culled = engine->renderer()->culledInstances(camera->camera(), cameraEntity,
+                skyboxLayer.get());
+            const MeshInstance* sky = scene.sky()->skyMesh() ? scene.sky()->skyMesh()->meshInstance() : nullptr;
+            const auto has = [&](const std::vector<MeshInstance*>& list) {
+                return std::find(list.begin(), list.end(), sky) != list.end();
+            };
+            return sky && (has(culled.opaque) || has(culled.transparent));
+        };
+        frame();
+        check(camera->camera()->skyVisible() && skyCulled(), "the camera draws the scene's sky");
+        timed->sky = true;
+        frame();
+        check(!camera->camera()->skyVisible() && !skyCulled(), "not while an effect renders the sky in its place");
+        timed->setEnabled(false);
+        frame();
+        check(camera->camera()->skyVisible() && skyCulled(), "and again once that effect is inactive");
+        scene.sky()->setEnabled(false);
+        check(scene.sky()->skyMesh() == nullptr, "a disabled sky builds no sky mesh");
+        scene.sky()->setEnabled(true);
+        check(scene.sky()->skyMesh() != nullptr, "enabled again, it builds one");
+        scene.setSkyMaterial(nullptr);
+        camera->removeFrameEffect(timed);
         frame();
     }
 
