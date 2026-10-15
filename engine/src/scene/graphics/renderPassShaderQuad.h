@@ -20,6 +20,7 @@
 #include "platform/graphics/constants.h"
 #include "platform/graphics/depthState.h"
 #include "platform/graphics/renderPass.h"
+#include "platform/graphics/shaderFeatures.h"
 #include "platform/graphics/stencilParameters.h"
 
 namespace visutwin::canvas
@@ -70,7 +71,8 @@ namespace visutwin::canvas
         /// Takes the Slang program `program` / `variant` (engine/shaders/slang/programs),
         /// cached on the device, as the pass's shader: what an engine quad pass's
         /// prepareShaders() calls.
-        void useSlangShader(const std::string& program, const std::string& variant = {});
+        void useSlangShader(const std::string& program, const std::string& variant = {},
+            const ShaderFeatureSet& features = {});
 
         /// Takes the shader compiled at run time from the Slang `source`
         /// (getOrCreateSlangShaderFromSource), cached on the device: an application's own quad

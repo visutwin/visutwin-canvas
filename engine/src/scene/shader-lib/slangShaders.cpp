@@ -478,7 +478,7 @@ namespace visutwin::canvas
     {
         /// A shader of `build`'s first entry per stage, cached on the device under `cacheKey`.
         std::shared_ptr<Shader> createShaderFromBuild(GraphicsDevice* device, const std::string& cacheKey,
-            const SlangProgramBuild& build, const std::string& name);
+            const SlangProgramBuild& build, const std::string& name, const ShaderFeatureSet& features = {});
     }
 
     std::shared_ptr<Shader> getOrCreateSlangShaderFromSource(GraphicsDevice* device, const std::string& name,
@@ -505,10 +505,10 @@ namespace visutwin::canvas
     }
 
     std::shared_ptr<Shader> getOrCreateSlangShaderWithFiles(GraphicsDevice* device, const std::string& program,
-        const SlangFileOverrides& files, const std::string& variant)
+        const SlangFileOverrides& files, const std::string& variant, const ShaderFeatureSet& features)
     {
         if (files.empty()) {
-            return getOrCreateSlangShader(device, program, variant);
+            return getOrCreateSlangShader(device, program, variant, features);
         }
         if (!device) {
             return nullptr;
@@ -517,8 +517,11 @@ namespace visutwin::canvas
         for (const auto& [name, text] : files) {
             material += name + "\n" + text + "\n";
         }
-        const std::string cacheKey = "slang:" + program + (variant.empty() ? "" : "@" + variant) + "+" +
+        std::string cacheKey = "slang:" + program + (variant.empty() ? "" : "@" + variant) + "+" +
             hex(fnv1a64(material));
+        if (features != ShaderFeatureSet{}) {
+            cacheKey += ":" + hex(features.hash());
+        }
         if (auto cached = device->getCachedShader(cacheKey)) {
             return cached;
         }
@@ -526,16 +529,17 @@ namespace visutwin::canvas
         if (!compileProgramEntries(device, program, variant, files, build)) {
             return nullptr;
         }
-        return createShaderFromBuild(device, cacheKey, build, program);
+        return createShaderFromBuild(device, cacheKey, build, program, features);
     }
 
     namespace
     {
         std::shared_ptr<Shader> createShaderFromBuild(GraphicsDevice* device, const std::string& cacheKey,
-            const SlangProgramBuild& build, const std::string& name)
+            const SlangProgramBuild& build, const std::string& name, const ShaderFeatureSet& features)
         {
             ShaderDefinition definition;
             definition.name = cacheKey;
+            definition.features = features;
             ShaderCode code;
             code.specializeFeatures = true;
             code.metalSource = build.metalSource;

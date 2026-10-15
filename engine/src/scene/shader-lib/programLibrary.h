@@ -13,6 +13,7 @@
 
 #include "core/hash.h"
 #include "platform/graphics/graphicsDevice.h"
+#include "platform/graphics/lightingBlock.h"
 #include "scene/materials/material.h"
 #include "scene/materials/standardMaterial.h"
 #include "scene/shader-lib/slangShaders.h"
@@ -172,6 +173,9 @@ namespace visutwin::canvas
         // are not overwritten by a sample of the unbound atlas texture (reading
         // a null texture binding returns nonzero dimensions on Apple GPUs).
         void setEnvAtlasEnabled(bool value) { _envAtlasEnabled = value; }
+        /// How the scene's environment atlas (and the skybox) is decoded: a variant, as the
+        /// binders' envParams.z says it, so the shader carries one decode, not all of them.
+        void setEnvAtlasEncoding(const EnvAtlasEncoding value) { _envAtlasEncoding = value; }
 
         // Local reflection probe (box-projected cubemap) active this frame.
         void setReflectionProbeEnabled(bool value) { _reflectionProbeEnabled = value; }
@@ -197,7 +201,13 @@ namespace visutwin::canvas
             bool metallicRoughnessMap = false;
             bool occlusionMap = false;
             bool emissiveMap = false;
+            // A StandardMaterial's gloss and opacity maps: variants, not runtime flags, so a
+            // material without them carries neither read (and its registers) in its shader.
+            bool glossMap = false;
+            bool opacityMap = false;
             bool envAtlas = true;
+            bool envAtlasRgbp = false;   // the scene atlas's encoding; neither is sRGB
+            bool envAtlasRgbm = false;
 
             // Feature toggles for future shader chunk ports.
             bool shadowMapping = false;
@@ -383,6 +393,7 @@ namespace visutwin::canvas
         bool _atmosphereEnabled = false;
         bool _lightProbesEnabled = false;
         bool _envAtlasEnabled = true;
+        EnvAtlasEncoding _envAtlasEncoding = EnvAtlasEncoding::Srgb;
         bool _reflectionProbeEnabled = false;
     };
 

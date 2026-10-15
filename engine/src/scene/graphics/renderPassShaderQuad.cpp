@@ -17,6 +17,11 @@ namespace visutwin::canvas
 {
     void RenderPassShaderQuad::setShader(const std::shared_ptr<Shader>& shader)
     {
+        // A pass that resolves its shader every frame (compose) mostly gets the same one.
+        if (shader == _shader && _quadRender) {
+            return;
+        }
+
         // destroy old
         _quadRender.reset();
 
@@ -27,13 +32,14 @@ namespace visutwin::canvas
         }
     }
 
-    void RenderPassShaderQuad::useSlangShader(const std::string& program, const std::string& variant)
+    void RenderPassShaderQuad::useSlangShader(const std::string& program, const std::string& variant,
+        const ShaderFeatureSet& features)
     {
         const auto gd = device();
         if (!gd) {
             return;
         }
-        setShader(getOrCreateSlangShader(gd.get(), program, variant));
+        setShader(getOrCreateSlangShader(gd.get(), program, variant, features));
     }
 
     void RenderPassShaderQuad::useSlangSource(const std::string& name, const std::string& source,

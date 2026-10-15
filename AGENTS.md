@@ -331,6 +331,22 @@ bindings like a program of the tree, so it needs the source tree at run time. Wh
   `VT_SHADOW_PROGRAM`, and `forwardFinish` then writes only what a shadow fragment reads, so
   the shared vertex stage drops the normal frame there. Together these took the Slang shadow
   pass on `post-processing` from 35% over the hand-written MSL to level.
+- **A path gated only by a RUNTIME value is paid for by every draw of the variant, even when
+  it never runs.** A uniform branch is cheap; the registers the dead path keeps live are not
+  (lower occupancy, more ALU over more time). Where upstream compiles a path under a define,
+  gate it on a feature (or a program's own specialisation word, below), keeping the uniform
+  test inside. Measured on `ambient-occlusion` (Metal, 900x700): the compose program's
+  stages on uniforms alone cost the pass 0.109 ms against 0.051 specialised (its switches are
+  feature word 0, `compose_shaders::composeSwitches`, mirrored in `compose.slang`); the
+  forward program's gloss and opacity map reads (`VT_FEATURE_GLOSS_MAP` / `_OPACITY_MAP`),
+  the scene atlas's 4-way decode (`VT_FEATURE_ENV_ATLAS_RGBP` / `_RGBM`, a frame switch from
+  `envAtlasEncodingOf`, which the binders' `envParams.z` also comes from) and the cluster
+  loop's cookie path (gated on the cookie variants), with the loop's N.L early-out, took its
+  forward pass's fragment time from 0.96 to 0.75 ms. A quad program may give the bits of a
+  feature word its own meaning (`ShaderFeatureSet::setWord`,
+  `useSlangShader(program, variant, features)`).
+  Measure a candidate with `VISUTWIN_SLANG_RUNTIME` and a copied tree before porting it:
+  the skybox rotation (`cubeMapRotate`) measured 0.03 ms and was left alone.
 - **Call a slot-indexed helper with a LITERAL slot, one call per slot.** The shadow helpers
   take a slot (0 / 1) and pick the slot's map and parameters from it. Called with the light's
   slot as a runtime value, every inlined copy keeps both slots' lookups and selects between
@@ -715,7 +731,10 @@ vignette → gamma. Configured via
 ComposePassParams. The colour settings (vignette, fringing, grading, enhance, LUTs) are
 ONE struct, `ComposeColorSettings` (`scene/graphics/composeColorSettings.h`), which both
 settings structs derive from and the compose pass takes whole: a new one is a field
-there plus its line in `RenderPassCompose::execute`, not a copy at every hop.
+there plus its line in `RenderPassCompose::packUniforms`, not a copy at every hop. A new
+STAGE also gets a switch bit (`composeSwitches` in `composeShaders.h` and the matching
+`kComposeSwitch*` in `compose.slang`): the compose program is specialised per combination of
+stages, and a stage gated on its uniform alone costs every frame its registers.
 
 - DOF runs BEFORE SSAO. Occlusion multiplies the already-defocused colour and is
   not itself blurred, so it keeps full strength out of focus; the other way round
@@ -759,8 +778,18 @@ to a pass last ONE frame**: passes persist while the graph is rebuilt every fram
 deriving them afresh, restoring only a flag that still holds the graph's value; a
 one-way edit would let one frame's adjacency stick to a pass for good. A pass that must
 keep its target for a LATER frame (history, persistent accumulation) sets its own store:
-the graph only sees one frame. `tests/frameGraphTests.cpp` holds propagation, merging,
-before-pass order and the undo; `tests/shaderCompositionTests.cpp` holds the forward chunk
+the graph only sees one frame. **Adjacent passes on one target MERGE** (the second loading
+everything) into one device pass, the BACK BUFFER included: only a pass with no target at all
+(`!hasRenderTarget()`: a grab, an orchestrator) never merges. Refusing every null target kept
+a camera frame's compose and its after pass (the UI layer) as two back-buffer passes, the
+second loading and re-resolving the 4x MSAA surface the first stored (0.06 ms a frame on
+`ambient-occlusion`, an empty UI layer). A merged pass is BEGUN with its first pass's ops and
+both backends fix the end of the pass at begin, so the graph gives the first pass the LAST
+pass's stores and resolves (a DEVIATION: upstream keeps the store it raised for the absorbed
+load and writes the whole MSAA surface out). `before()` / `after()` of merged passes run with
+the device pass open, so they may not encode GPU work of their own (the engine-level
+`prerender` / `postrender` events run outside the passes). `tests/frameGraphTests.cpp` holds
+propagation, merging, before-pass order and the undo; `tests/shaderCompositionTests.cpp` holds the forward chunk
 registry against the files the programs include, override precedence and variant keys.
 
 **Tone mapping.** 6 modes dispatched in `forward/common-tonemap.slang :: toneMapByMode`: LINEAR (0),
@@ -1107,7 +1136,14 @@ present, but the rule below never depends on reading it.
   the measurement itself: `xctrace record --launch` leaves a SECOND instance of the example
   running after its time limit (start the binary yourself and record `--all-processes`;
   `pgrep -fl visutwin-ambient` before every recording), and a browser's frames must be
-  grouped by command buffer with 5+ encoders, not by Metal's `frame-number`.
+  grouped by command buffer with 5+ encoders, not by Metal's `frame-number`. Upstream can be
+  ABLATED the same way ours is, in the page: a chunk set per MATERIAL
+  (`material.getShaderChunks(pc.SHADERLANGUAGE_WGSL).set(name, src)`, `shaderChunksVersion`,
+  `clearVariants()`, `update()`) reaches its shaders; one set on the global
+  `ShaderChunks.get(device, 'wgsl')` after the materials compiled does not (the program cache
+  is not keyed on it). Check the frame changed before believing the timing. That is how
+  `ambient-occlusion`'s forward gap was placed OUTSIDE the cluster loop: upstream's loop
+  costs 0.55 of its 0.71 ms, ours 0.38 of 0.96 ms.
 - **A material drawn in an OPAQUE layer must not blend, and `setTransparent(false)` does
   not turn blending off.** Upstream's examples take a glTF scene's alpha-BLEND materials
   into the opaque pass with `blendType = BLEND_NONE`; the port is

@@ -57,8 +57,13 @@ float3 decodeEnvAs(float4 raw, uint enc) {
     return srgbToLinear(raw.rgb);
 }
 
+// The scene atlas's (and the skybox's) decode, as a variant: the frame switches carry the
+// encoding the binders write to envParams.z, so the shader holds one decode instead of every
+// encoding at each of its four or five fetches (ambient-occlusion's forward pass: 0.065 ms).
 float3 decodeEnv(float4 raw) {
-    return decodeEnvAs(raw, uint(lighting.envParams.z + 0.5));
+    if (vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_RGBP_BIT)) return decodeRGBP(raw);
+    if (vtFeatureEnabled(VT_FEATURE_ENV_ATLAS_RGBM_BIT)) return decodeRGBM(raw);
+    return srgbToLinear(raw.rgb);
 }
 
 // The environment a material reflects and takes its ambient from: its own atlas when it has

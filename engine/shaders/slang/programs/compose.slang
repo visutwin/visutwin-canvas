@@ -85,6 +85,29 @@ struct ComposeUniforms
     float4 effectData[24];     // the compose effects' uniforms (kComposeEffectDataRows)
 };
 VT_DECLARE_QUAD_UNIFORMS(ComposeUniforms, u)
+
+// The SWITCHES: which stages this frame runs, as bits of feature word 0 (a Metal function
+// constant, a Vulkan specialization constant; compose_shaders::composeSwitches in
+// composeShaders.h sets them, keep the values in step). Each combination specialises to a
+// function holding only its stages; gated on the uniforms alone, every stage stayed in the
+// one function and cost the pass twice its work. Bits 16-19 are the tone-mapping mode.
+static const uint kComposeSwitchCas = 1u << 0u;
+static const uint kComposeSwitchFringing = 1u << 1u;
+static const uint kComposeSwitchDof = 1u << 2u;
+static const uint kComposeSwitchSsao = 1u << 3u;
+static const uint kComposeSwitchBloom = 1u << 4u;
+static const uint kComposeSwitchColorEnhance = 1u << 5u;
+static const uint kComposeSwitchGrading = 1u << 6u;
+static const uint kComposeSwitchLut = 1u << 7u;
+static const uint kComposeSwitchVignette = 1u << 8u;
+static const uint kComposeSwitchDebug = 1u << 9u;
+static const uint kComposeSwitchDownscale = 1u << 10u;
+static const uint kComposeSwitchToneMapShift = 16u;
+
+bool composeSwitch(uint bit)
+{
+    return (vtFeatureMask0 & bit) != 0u;
+}
 VT_DECLARE_QUAD_INPUT0(sceneTexture)
 VT_DECLARE_QUAD_INPUT1(bloomTexture)
 VT_DECLARE_QUAD_INPUT2(ssaoTexture)
@@ -488,16 +511,17 @@ float4 composeFragment(QuadVarying input) : SV_Target0
 {
     const float2 invRes = float2(u.sceneTextureInvResX, u.sceneTextureInvResY);
     const float2 uv = clamp(input.uv, float2(0.0, 0.0), float2(1.0, 1.0));
-    float3 result = sampleSceneReduced(uv, invRes, u.sceneDownscale);
+    float3 result = composeSwitch(kComposeSwitchDownscale) ? sampleSceneReduced(uv, invRes, u.sceneDownscale)
+        : sceneTexture.Sample(uv).rgb;
     float alpha = sceneTexture.Sample(uv).a;
 
     // 1. CAS (negative = on).
-    if (u.sharpness < 0.0) {
+    if (composeSwitch(kComposeSwitchCas) && u.sharpness < 0.0) {
         result = applyCas(result, uv, u.sharpness, invRes);
     }
 
     // 2. Fringing, on the scene image ahead of the other effects.
-    if (u.fringingIntensity > 0.0) {
+    if (composeSwitch(kComposeSwitchFringing) && u.fringingIntensity > 0.0) {
         result = applyFringing(result, uv, u.fringingIntensity);
     }
 
@@ -507,7 +531,7 @@ float4 composeFragment(QuadVarying input) : SV_Target0
     alpha = sceneSlot.a;
 
     // 3. DOF, before SSAO.
-    if (u.dofEnabled != 0u) {
+    if (composeSwitch(kComposeSwitchDof) && u.dofEnabled != 0u) {
         if (u.dofMultipass != 0u) {
             result = applyDof(result, uv, u.blurTextureUpscale != 0u, float2(u.dofBlurTexelX, u.dofBlurTexelY));
         } else {
@@ -517,24 +541,24 @@ float4 composeFragment(QuadVarying input) : SV_Target0
     }
 
     // 4. SSAO.
-    if (u.ssaoEnabled != 0u) {
+    if (composeSwitch(kComposeSwitchSsao) && u.ssaoEnabled != 0u) {
         const float ssao = clamp(ssaoTexture.Sample(uv).r, 0.0, 1.0);
         result *= ssao;
     }
 
     // 5. Bloom.
-    if (u.bloomEnabled != 0u) {
+    if (composeSwitch(kComposeSwitchBloom) && u.bloomEnabled != 0u) {
         const float3 bloomColor = bloomTexture.Sample(uv).rgb;
         result += bloomColor * max(u.bloomIntensity, 0.0);
     }
 
     // 6. Colour enhance (HDR).
-    if (u.colorEnhanceEnabled != 0u) {
+    if (composeSwitch(kComposeSwitchColorEnhance) && u.colorEnhanceEnabled != 0u) {
         result = applyColorEnhance(result, u.ceShadows, u.ceHighlights, u.ceVibrance, u.ceDehaze, u.ceMidtones);
     }
 
     // 7. Colour grading (HDR).
-    if (u.gradingEnabled != 0u) {
+    if (composeSwitch(kComposeSwitchGrading) && u.gradingEnabled != 0u) {
         result = applyGrading(result, u.gradingBrightness, u.gradingSaturation, u.gradingContrast,
             float3(u.gradingTintR, u.gradingTintG, u.gradingTintB));
     }
@@ -544,28 +568,29 @@ float4 composeFragment(QuadVarying input) : SV_Target0
 
     // 8. Tone mapping.
     result = max(result, float3(0.0, 0.0, 0.0));
-    if (u.tonemapMode == 1u) {           // FILMIC
+    const uint tonemapMode = (vtFeatureMask0 >> kComposeSwitchToneMapShift) & 0xFu;
+    if (tonemapMode == 1u) {           // FILMIC
         result = toneMapFilmic(result, u.exposure);
-    } else if (u.tonemapMode == 2u) {    // HEJL
+    } else if (tonemapMode == 2u) {    // HEJL
         result = toneMapHejl(result, u.exposure);
-    } else if (u.tonemapMode == 3u) {    // ACES
+    } else if (tonemapMode == 3u) {    // ACES
         result = toneMapAces(result, u.exposure);
-    } else if (u.tonemapMode == 4u) {    // ACES2
+    } else if (tonemapMode == 4u) {    // ACES2
         result = toneMapAces2(result, u.exposure);
-    } else if (u.tonemapMode == 5u) {    // NEUTRAL
+    } else if (tonemapMode == 5u) {    // NEUTRAL
         result = toneMapNeutral(result, u.exposure);
-    } else if (u.tonemapMode == 6u) {    // NONE: no curve, no exposure
+    } else if (tonemapMode == 6u) {    // NONE: no curve, no exposure
     } else {                             // LINEAR (default)
         result = result * u.exposure;
     }
 
     // 9. 3D colour LUT (after tone mapping).
-    if (u.lutEnabled != 0u) {
+    if (composeSwitch(kComposeSwitchLut) && u.lutEnabled != 0u) {
         result = applyColorLUT(result, u.lut2Enabled != 0u, u.lutIntensity1, u.lutIntensity2, u.lutBlend);
     }
 
     // 10. Vignette (tone-mapped linear space, before gamma).
-    if (u.vignetteEnabled != 0u) {
+    if (composeSwitch(kComposeSwitchVignette) && u.vignetteEnabled != 0u) {
         const float3 vigColor = float3(u.vignetteColorR, u.vignetteColorG, u.vignetteColorB);
         result = applyVignette(result, uv, u.vignetteInner, u.vignetteOuter, u.vignetteCurvature,
             u.vignetteIntensity, vigColor);
@@ -574,7 +599,7 @@ float4 composeFragment(QuadVarying input) : SV_Target0
     // Compose effects after tone mapping, before gamma.
     result = composeSlotLdr(result, uv);
 
-    if (u.debugMode != 0u) {
+    if (composeSwitch(kComposeSwitchDebug) && u.debugMode != 0u) {
         result = composeDebugView(u.debugMode, uv, result);
     }
 

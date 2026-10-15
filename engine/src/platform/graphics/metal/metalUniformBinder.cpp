@@ -211,17 +211,7 @@ namespace visutwin::canvas
         _lightingUniforms.envParams[0] = skyboxIntensity;
         _lightingUniforms.envParams[1] = envAtlas ? 1.0f : 0.0f;
         if (envAtlas) {
-            switch (envAtlas->encoding()) {
-            case TextureEncoding::RGBP:
-                _lightingUniforms.envParams[2] = static_cast<float>(EnvAtlasEncoding::Rgbp);
-                break;
-            case TextureEncoding::RGBM:
-                _lightingUniforms.envParams[2] = static_cast<float>(EnvAtlasEncoding::Rgbm);
-                break;
-            default:
-                _lightingUniforms.envParams[2] = static_cast<float>(EnvAtlasEncoding::Srgb);
-                break;
-            }
+            _lightingUniforms.envParams[2] = static_cast<float>(envAtlasEncodingOf(envAtlas));
         }
         _lightingUniforms.envParams[3] = skyboxMip;
     }

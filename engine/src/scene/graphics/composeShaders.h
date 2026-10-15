@@ -111,4 +111,42 @@ namespace visutwin::canvas::compose_shaders
     static_assert(offsetof(ComposeUniforms, effectData) == 208, "compose.slang places effectData at 208");
     static_assert(sizeof(ComposeUniforms) <= 656, "must fit kPerDrawUniformCapacity");
 
+    /// The compose program's SWITCHES: which stages this frame runs, given to the program as
+    /// feature word 0 (a Metal function constant, a Vulkan specialization constant), so each
+    /// combination compiles to a function holding only its own stages, as upstream builds one
+    /// shader per define set. Gated on uniforms alone, every disabled stage stayed in the one
+    /// function and the pass cost twice what the stages it ran did (ambient-occlusion: 0.109
+    /// ms against 0.053 at 900x700, Metal). The bit values are compose.slang's
+    /// kComposeSwitch*; keep the two in step. The uniforms still carry each flag.
+    inline constexpr uint32_t kComposeSwitchCas = 1u << 0;
+    inline constexpr uint32_t kComposeSwitchFringing = 1u << 1;
+    inline constexpr uint32_t kComposeSwitchDof = 1u << 2;
+    inline constexpr uint32_t kComposeSwitchSsao = 1u << 3;
+    inline constexpr uint32_t kComposeSwitchBloom = 1u << 4;
+    inline constexpr uint32_t kComposeSwitchColorEnhance = 1u << 5;
+    inline constexpr uint32_t kComposeSwitchGrading = 1u << 6;
+    inline constexpr uint32_t kComposeSwitchLut = 1u << 7;
+    inline constexpr uint32_t kComposeSwitchVignette = 1u << 8;
+    inline constexpr uint32_t kComposeSwitchDebug = 1u << 9;
+    inline constexpr uint32_t kComposeSwitchDownscale = 1u << 10;   // sceneDownscale above 1
+    inline constexpr uint32_t kComposeSwitchToneMapShift = 16;      // the tone-mapping mode, 4 bits
+
+    [[nodiscard]] constexpr uint32_t composeSwitches(const ComposeUniforms& u)
+    {
+        uint32_t switches = 0u;
+        if (u.sharpness < 0.0f) switches |= kComposeSwitchCas;
+        if (u.fringingIntensity > 0.0f) switches |= kComposeSwitchFringing;
+        if (u.dofEnabled != 0u) switches |= kComposeSwitchDof;
+        if (u.ssaoEnabled != 0u) switches |= kComposeSwitchSsao;
+        if (u.bloomEnabled != 0u) switches |= kComposeSwitchBloom;
+        if (u.colorEnhanceEnabled != 0u) switches |= kComposeSwitchColorEnhance;
+        if (u.gradingEnabled != 0u) switches |= kComposeSwitchGrading;
+        if (u.lutEnabled != 0u) switches |= kComposeSwitchLut;
+        if (u.vignetteEnabled != 0u) switches |= kComposeSwitchVignette;
+        if (u.debugMode != 0u) switches |= kComposeSwitchDebug;
+        if (u.sceneDownscale > 1.0f) switches |= kComposeSwitchDownscale;
+        switches |= (u.tonemapMode & 0xFu) << kComposeSwitchToneMapShift;
+        return switches;
+    }
+
 }

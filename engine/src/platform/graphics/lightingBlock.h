@@ -18,6 +18,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "texture.h"
+
 namespace visutwin::canvas
 {
     struct DerivedLighting;
@@ -50,6 +52,24 @@ namespace visutwin::canvas
         Rgbp = 1u,
         Rgbm = 2u,
     };
+
+    /// The encoding of a scene environment atlas: what both binders write to envParams[2]
+    /// and what the forward variants decode (ProgramLibrary::setEnvAtlasEncoding). One
+    /// function, so the uniform and the variant cannot disagree.
+    inline EnvAtlasEncoding envAtlasEncodingOf(const Texture* atlas)
+    {
+        if (!atlas) {
+            return EnvAtlasEncoding::Srgb;
+        }
+        switch (atlas->encoding()) {
+        case TextureEncoding::RGBP:
+            return EnvAtlasEncoding::Rgbp;
+        case TextureEncoding::RGBM:
+            return EnvAtlasEncoding::Rgbm;
+        default:
+            return EnvAtlasEncoding::Srgb;
+        }
+    }
 
     struct LightingBlock
     {

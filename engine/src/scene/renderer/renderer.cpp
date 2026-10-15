@@ -2174,6 +2174,7 @@ namespace visutwin::canvas
         programLibrary.setSsaoEnabled(_device->ssaoForwardTexture() != nullptr);
         programLibrary.setLightProbesEnabled(_scene && _scene->hasAmbientSH());
         programLibrary.setEnvAtlasEnabled(_scene && _scene->envAtlas() != nullptr);
+        programLibrary.setEnvAtlasEncoding(envAtlasEncodingOf(_scene ? _scene->envAtlas() : nullptr));
         programLibrary.setReflectionProbeEnabled(_scene && _scene->reflectionProbe() != nullptr);
 
         // Atmosphere scattering: when enabled on the scene, compile skybox shaders

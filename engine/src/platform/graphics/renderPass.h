@@ -119,6 +119,11 @@ namespace visutwin::canvas
 
         std::shared_ptr<RenderTarget> renderTarget() const { return _renderTarget; };
 
+        /// True once init() gave the pass a target: a null renderTarget() then means the
+        /// back buffer. A pass never initialised (a grab, an orchestrator) has no target
+        /// and starts no device pass.
+        bool hasRenderTarget() const { return _renderTargetInitialized; }
+
         const std::vector<std::shared_ptr<ColorAttachmentOps>>& colorArrayOps() const { return _colorArrayOps; }
 
         std::shared_ptr<DepthStencilAttachmentOps> depthStencilOps() const { return _depthStencilOps; }

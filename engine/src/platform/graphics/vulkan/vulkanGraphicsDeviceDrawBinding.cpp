@@ -1656,17 +1656,7 @@ namespace visutwin::canvas
         _lightingUbo.envParams[0] = skyboxIntensity;
         _lightingUbo.envParams[1] = envAtlas ? 1.0f : 0.0f;
         if (envAtlas) {
-            switch (envAtlas->encoding()) {
-            case TextureEncoding::RGBP:
-                _lightingUbo.envParams[2] = static_cast<float>(VulkanEnvEncoding::Rgbp);
-                break;
-            case TextureEncoding::RGBM:
-                _lightingUbo.envParams[2] = static_cast<float>(VulkanEnvEncoding::Rgbm);
-                break;
-            default:
-                _lightingUbo.envParams[2] = static_cast<float>(VulkanEnvEncoding::Srgb);
-                break;
-            }
+            _lightingUbo.envParams[2] = static_cast<float>(envAtlasEncodingOf(envAtlas));
         }
         _lightingUbo.envParams[3] = skyboxMip;
 

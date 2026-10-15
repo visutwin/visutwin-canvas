@@ -111,8 +111,12 @@ namespace visutwin::canvas
             auto secondRT = secondPass->renderTarget();
 
             // if the render targets are different, we can't merge the passes
-            // also only merge passes that have a render target
-            if (firstRT != secondRT || firstRT == nullptr) {
+            // also only merge passes that have a render target. A null target is the BACK
+            // BUFFER, which merges like any other; a pass with no target at all (a grab, an
+            // orchestrator) starts no device pass and never merges. Refusing every null
+            // target left a camera frame's compose and its after pass (the UI layer) as two
+            // back-buffer passes, the second loading and re-resolving what the first stored.
+            if (firstRT != secondRT || !firstPass->hasRenderTarget() || !secondPass->hasRenderTarget()) {
                 continue;
             }
 
@@ -148,6 +152,37 @@ namespace visutwin::canvas
             // merge the passes
             firstPass->setSkipEnd(true);
             secondPass->setSkipStart(true);
+        }
+
+        // A merged pass is begun with its FIRST pass's ops, and a backend fixes the end of
+        // the pass at begin (Metal's store and resolve actions, Vulkan's dynamic rendering
+        // info): so the first pass ends the merged pass the way its LAST pass would. The
+        // store raised above because the next pass loads the target is an encoder-internal
+        // load now, and storing it anyway writes a whole MSAA surface (and its depth) that
+        // nothing reads. Walked backwards so a chain of three takes the third's ops. The
+        // edits are the graph's, undone at the next compile like the stores above.
+        // DEVIATION: upstream keeps the first pass's raised stores.
+        for (size_t i = _renderPasses.size() - 1; i-- > 0;) {
+            const auto& firstPass = _renderPasses[i];
+            if (!firstPass->skipEnd()) {
+                continue;
+            }
+            const auto& lastPass = _renderPasses[i + 1];
+            const auto& firstColorOps = firstPass->colorArrayOps();
+            const auto& lastColorOps = lastPass->colorArrayOps();
+            const size_t count = std::min(firstColorOps.size(), lastColorOps.size());
+            for (size_t j = 0; j < count; j++) {
+                firstPass->setAttachmentFlagByGraph(firstColorOps[j], firstColorOps[j]->store, lastColorOps[j]->store);
+                firstPass->setAttachmentFlagByGraph(firstColorOps[j], firstColorOps[j]->resolve,
+                    lastColorOps[j]->resolve);
+            }
+            const auto firstDepth = firstPass->depthStencilOps();
+            const auto lastDepth = lastPass->depthStencilOps();
+            if (firstDepth && lastDepth) {
+                firstPass->setAttachmentFlagByGraph(firstDepth, firstDepth->storeDepth, lastDepth->storeDepth);
+                firstPass->setAttachmentFlagByGraph(firstDepth, firstDepth->storeStencil, lastDepth->storeStencil);
+                firstPass->setAttachmentFlagByGraph(firstDepth, firstDepth->resolveDepth, lastDepth->resolveDepth);
+            }
         }
 
         // Walk over render passes to find passes rendering to the same cubemap texture.

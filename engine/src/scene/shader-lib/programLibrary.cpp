@@ -128,6 +128,8 @@ namespace visutwin::canvas
         options.metallicRoughnessMap = (stdMat.metalnessMap() || stdMat.metallicRoughnessTexture());
         options.occlusionMap = (stdMat.aoMap() || stdMat.occlusionTexture());
         options.emissiveMap = (stdMat.emissiveMap() || stdMat.emissiveTexture());
+        options.glossMap = stdMat.glossMap() != nullptr;
+        options.opacityMap = stdMat.opacityMap() != nullptr;
 
         options.fog = stdMat.useFog() && !options.skybox;
         options.parallax = stdMat.heightMap() != nullptr;
@@ -270,6 +272,8 @@ namespace visutwin::canvas
     {
         // Set by the renderer for the frame (or the camera) before the draw loop.
         options.envAtlas = _envAtlasEnabled;
+        options.envAtlasRgbp = _envAtlasEncoding == EnvAtlasEncoding::Rgbp;
+        options.envAtlasRgbm = _envAtlasEncoding == EnvAtlasEncoding::Rgbm;
         options.reflectionProbe = _reflectionProbeEnabled;
         options.lightClustering = _clusteredLightingEnabled || variantBit(variantBits, 18);
         options.ssao = _ssaoEnabled || variantBit(variantBits, 19);
@@ -344,6 +348,8 @@ namespace visutwin::canvas
         set(ShaderFeature::MetallicRoughnessMap, options.metallicRoughnessMap);
         set(ShaderFeature::OcclusionMap, options.occlusionMap);
         set(ShaderFeature::EmissiveMap, options.emissiveMap);
+        set(ShaderFeature::GlossMap, options.glossMap);
+        set(ShaderFeature::OpacityMap, options.opacityMap);
         set(ShaderFeature::AlphaTest, options.alphaTest);
         set(ShaderFeature::DoubleSided, options.doubleSided);
         set(ShaderFeature::Shadows, options.shadowMapping);
@@ -352,6 +358,8 @@ namespace visutwin::canvas
         set(ShaderFeature::PointSpotAttenuation, options.pointSpotAttenuation);
         set(ShaderFeature::MultiLight, options.multiLight);
         set(ShaderFeature::EnvAtlas, options.envAtlas);
+        set(ShaderFeature::EnvAtlasRgbp, options.envAtlasRgbp);
+        set(ShaderFeature::EnvAtlasRgbm, options.envAtlasRgbm);
         set(ShaderFeature::Parallax, options.parallax);
         set(ShaderFeature::Clearcoat, options.clearcoat);
         set(ShaderFeature::Anisotropy, options.anisotropy);
@@ -616,6 +624,8 @@ namespace visutwin::canvas
         add(_pcf1ShadowsEnabled);
         add(_pcf5ShadowsEnabled);
         add(_areaLightsEnabled);
+        add(_envAtlasEncoding == EnvAtlasEncoding::Rgbp);
+        add(_envAtlasEncoding == EnvAtlasEncoding::Rgbm);
         return bits;
     }
 

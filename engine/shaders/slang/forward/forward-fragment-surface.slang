@@ -161,8 +161,9 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
         baseFactor.a * baseSample.a * vertexTint.a);
 
     // Opacity map, flags bit 19: one channel (opacityTransform0.w) on the base colour's UV
-    // set under its own transform, as the shadow frontend reads it.
-    if ((material.flags & (1u << 19)) != 0u) {
+    // set under its own transform, as the shadow frontend reads it. Gated on the variant
+    // too, so a material without the map does not carry the read.
+    if (vtFeatureEnabled(VT_FEATURE_OPACITY_MAP_BIT) && (material.flags & (1u << 19)) != 0u) {
         float2 uvOpacity = ((material.flags & (1u << 4)) != 0u) ? fragUV1 : fragUV0;
         uvOpacity = applyUvTransform(uvOpacity, material.opacityTransform0, material.opacityTransform1);
         albedo.a *= opacityMap.Sample(materialSampler, uvOpacity)[int(material.opacityTransform0.w)];
@@ -306,7 +307,7 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
     roughness = clamp(roughness, 0.04, 1.0);
     // Gloss map: one channel scales the authored gloss FACTOR, the product is
     // inverted under glossInvert, and the result replaces the roughness above.
-    if (material.mapChannelParams.y >= 0.0) {
+    if (vtFeatureEnabled(VT_FEATURE_GLOSS_MAP_BIT) && material.mapChannelParams.y >= 0.0) {
         float4 glossSample = glossMap.Sample(materialSampler, uvGloss);
         float glossValue = material.mapChannelParams.x * glossSample[int(material.mapChannelParams.y)];
         if (material.glossMapParams.x > 0.5) {

@@ -37,6 +37,11 @@
                     atten *= getSpotEffect(cl.params.x, cl.directionSpot.w, cone);
                 }
                 if (atten < 1e-5) continue;
+                // A punctual light behind the surface adds nothing (every term below is
+                // scaled by N.L), so it costs no shadow lookup and no BRDF. Without it a
+                // room lit by a few shadowed torches sampled the shadow atlas for every
+                // light facing away (ambient-occlusion's forward pass: 0.96 -> 0.89 ms).
+                if (clShape == 0u && dot(N, L) <= 0.0) continue;
 
                 // Clustered shadow: each shadow-casting light owns a rect of the
                 // atlas. shadowData = {castShadows, normalOffsetBias, intensity,
@@ -74,9 +79,12 @@
 
                 // Clustered cookie: params.w is 0 for none, else
                 // (CookieChannel + 1) * 2 + intensity; read through the shadow's own
-                // projection (spot) or face pick (omni), in the cookie atlas.
+                // projection (spot) or face pick (omni), in the cookie atlas. Compiled only
+                // while some light has a cookie (the cookie variants): the dead path cost a
+                // cookie-less scene's loop its registers.
                 float3 cookieMask = float3(1.0);
-                if (cl.params.w > 0.0) {
+                if ((vtFeatureEnabled(VT_FEATURE_COOKIE_2D_BIT) || vtFeatureEnabled(VT_FEATURE_COOKIE_CUBE_BIT)) &&
+                    cl.params.w > 0.0) {
                     float channelCode = floor(cl.params.w * 0.5);
                     uint cookieChannel = uint(channelCode - 1.0);
                     float cookieIntensity = cl.params.w - channelCode * 2.0;

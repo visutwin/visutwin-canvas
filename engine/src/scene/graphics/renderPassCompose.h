@@ -13,6 +13,7 @@
 #include "composeColorSettings.h"
 #include "composeEffects.h"
 #include "renderPassShaderQuad.h"
+#include "composeShaders.h"
 
 namespace visutwin::canvas
 {
@@ -113,6 +114,11 @@ namespace visutwin::canvas
         void prepareShaders() override;
 
     private:
+        /// The uniform block for this frame's settings and the effects last built.
+        compose_shaders::ComposeUniforms packUniforms() const;
+        /// The shader for these switches (compose_shaders::composeSwitches) and the effects.
+        void selectShader(uint32_t switches);
+
         Texture* _sceneTexture = nullptr;
         float _sceneDownscale = 1.0f;
         Texture* _bloomTexture = nullptr;
@@ -140,6 +146,7 @@ namespace visutwin::canvas
         std::vector<std::shared_ptr<CameraFrameEffect>> _effects;
         ComposeEffectsBuild _effectsBuild;
         std::string _reportedErrors;
+        uint32_t _shaderSwitches = 0u;   // the switches the current shader was specialised for
         std::string _debugView;
         bool _cameraOrthographic = false;
     };

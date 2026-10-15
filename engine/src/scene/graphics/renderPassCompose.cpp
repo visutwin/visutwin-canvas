@@ -37,21 +37,31 @@ namespace visutwin::canvas
             }
         }
 
+        selectShader(compose_shaders::composeSwitches(packUniforms()));
+    }
+
+    void RenderPassCompose::selectShader(const uint32_t switches)
+    {
         const auto gd = device();
         if (!gd) {
             return;
         }
+        _shaderSwitches = switches;
+        // The switches are the program's feature word 0, so every combination is a function
+        // specialised from the one library.
+        ShaderFeatureSet features;
+        features.setWord(0, switches);
         if (_effectsBuild.source.empty()) {
-            useSlangShader("compose");
+            useSlangShader("compose", {}, features);
             return;
         }
         auto composed = getOrCreateSlangShaderWithFiles(gd.get(), "compose",
-            {{"compose-effects.slang", _effectsBuild.source}});
+            {{"compose-effects.slang", _effectsBuild.source}}, {}, features);
         // A chunk that does not compile leaves the frame without its effects rather than black.
         if (composed) {
             setShader(composed);
         } else {
-            useSlangShader("compose");
+            useSlangShader("compose", {}, features);
         }
     }
 
@@ -62,14 +72,33 @@ namespace visutwin::canvas
             return;
         }
 
-        // Normally there already: the frame graph prepares every pass's shaders first.
+        // Normally there already: the frame graph prepares every pass's shaders first. A
+        // setting changed since then (by a frame-graph pass of this frame) re-specialises.
         if (!shader()) {
             prepareShaders();
+        }
+        const compose_shaders::ComposeUniforms uniforms = packUniforms();
+        if (const uint32_t switches = compose_shaders::composeSwitches(uniforms); switches != _shaderSwitches) {
+            selectShader(switches);
         }
         if (!shader()) {
             return;
         }
 
+        setQuadTextureBinding(0, _sceneTexture);
+        setQuadTextureBinding(1, _bloomTexture);
+        setQuadTextureBinding(2, _ssaoTexture);
+        setQuadTextureBinding(3, _depthTexture);
+        setQuadTextureBinding(4, _color.colorLUT);
+        setQuadTextureBinding(5, _color.colorLUT2);
+        setQuadTextureBinding(6, _cocTexture);
+        setQuadTextureBinding(7, _blurTexture);
+        setQuadUniforms(uniforms);
+        RenderPassShaderQuad::execute();
+    }
+
+    compose_shaders::ComposeUniforms RenderPassCompose::packUniforms() const
+    {
         compose_shaders::ComposeUniforms uniforms{};
         uniforms.dofEnabled = _dofEnabled ? 1u : 0u;
         uniforms.taaEnabled = _taaEnabled ? 1u : 0u;
@@ -154,15 +183,6 @@ namespace visutwin::canvas
             uniforms.dofBlurTexelX = 1.0f / static_cast<float>(_blurTexture->width());
             uniforms.dofBlurTexelY = 1.0f / static_cast<float>(_blurTexture->height());
         }
-        setQuadTextureBinding(0, _sceneTexture);
-        setQuadTextureBinding(1, _bloomTexture);
-        setQuadTextureBinding(2, _ssaoTexture);
-        setQuadTextureBinding(3, _depthTexture);
-        setQuadTextureBinding(4, _color.colorLUT);
-        setQuadTextureBinding(5, _color.colorLUT2);
-        setQuadTextureBinding(6, _cocTexture);
-        setQuadTextureBinding(7, _blurTexture);
-        setQuadUniforms(uniforms);
-        RenderPassShaderQuad::execute();
+        return uniforms;
     }
 }

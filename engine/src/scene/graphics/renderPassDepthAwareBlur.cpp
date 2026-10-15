@@ -68,7 +68,7 @@ namespace visutwin::canvas
         uniforms.invResAndDir[1] = 1.0f / static_cast<float>(rt->colorBuffer()->height());
         uniforms.invResAndDir[2] = _horizontal ? 1.0f : 0.0f;
         uniforms.invResAndDir[3] = _horizontal ? 0.0f : 1.0f;
-        uniforms.params[0] = 8.0f;  // filterSize
+        uniforms.params[0] = 4.0f;  // filterSize: 9 taps a direction
         uniforms.params[1] = camera->nearClip();
         uniforms.params[2] = camera->farClip();
 

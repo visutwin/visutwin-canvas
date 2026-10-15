@@ -5,10 +5,10 @@
 //
 // A bilateral blur of the SSAO term that respects depth discontinuities, so ambient
 // occlusion does not halo across silhouettes. Separable: the direction is a uniform, and
-// the pass runs once horizontally and once vertically. The centre pixel is pre-seeded and
-// does not take part in the bilateral weight. Depth is POINT sampled: these passes
-// reconstruct view distances, and a bilinear tap straddling a silhouette returns a depth
-// belonging to neither surface.
+// the pass runs once horizontally and once vertically: a 9-tap box (filterSize 4) whose
+// centre is pre-seeded outside the bilateral weight and taken again by the loop. Depth is
+// POINT sampled: these passes reconstruct view distances, and a bilinear tap straddling a
+// silhouette returns a depth belonging to neither surface.
 import vtquad;
 #include "bindings.slang"
 
@@ -54,21 +54,13 @@ float4 blurFragment(QuadVarying input) : SV_Target0
     const float color = sourceTexture.Sample(uv).r;
     float sum = color * totalWeight;
 
-    // Gaussian sigma: filterSize / 3 gives ~99.7% of the bell within the kernel.
-    const float sigma = max(float(filterSize) / 3.0, 1.0);
-    const float invSigma2 = 1.0 / (2.0 * sigma * sigma);
-
+    // Uniform weights over 2 x filterSize + 1 taps, the centre taken again inside the loop
+    // (its bilateral weight is 1), so it counts twice.
     for (int i = -filterSize; i <= filterSize; i++) {
-        if (i == 0) {
-            continue;
-        }
-        const float weight = exp(-float(i * i) * invSigma2);
-        const float2 offset = direction * float(i) * sourceInvResolution;
-        const float2 position = uv + offset;
-
+        const float2 position = uv + direction * float(i) * sourceInvResolution;
         const float tapColor = sourceTexture.Sample(position).r;
         const float textureDepth = getLinearDepth(depthTexture.Sample(position), cameraNear, cameraFar);
-        const float bilateral = bilateralWeight(depth, textureDepth) * weight;
+        const float bilateral = bilateralWeight(depth, textureDepth);
         sum += tapColor * bilateral;
         totalWeight += bilateral;
     }

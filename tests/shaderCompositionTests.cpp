@@ -206,6 +206,33 @@ int main()
         a.setVertexColorGamma(false);
         check(ProgramLibraryTestAccess::key(msl, &a) == base, "and turning it off returns to the old key");
 
+        // The gloss and opacity maps are variants: a material without them carries neither read.
+        check(!base.features.test(ShaderFeature::GlossMap) && !base.features.test(ShaderFeature::OpacityMap),
+            "a material without gloss or opacity maps compiles neither read");
+        Texture mapTexture(device.get());
+        a.setGlossMap(&mapTexture);
+        check(ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::GlossMap),
+            "setGlossMap compiles VT_FEATURE_GLOSS_MAP");
+        a.setGlossMap(nullptr);
+        a.setOpacityMap(&mapTexture);
+        check(ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::OpacityMap),
+            "setOpacityMap compiles VT_FEATURE_OPACITY_MAP");
+        a.setOpacityMap(nullptr);
+        check(ProgramLibraryTestAccess::key(msl, &a) == base, "and clearing both returns to the old key");
+
+        // The scene atlas's encoding is a frame switch: one decode per variant.
+        check(!base.features.test(ShaderFeature::EnvAtlasRgbp) && !base.features.test(ShaderFeature::EnvAtlasRgbm),
+            "an sRGB (default) scene atlas compiles neither encoded decode");
+        msl.setEnvAtlasEncoding(EnvAtlasEncoding::Rgbp);
+        const auto rgbp = ProgramLibraryTestAccess::key(msl, &a);
+        check(rgbp.features.test(ShaderFeature::EnvAtlasRgbp) && !rgbp.features.test(ShaderFeature::EnvAtlasRgbm),
+            "an RGBP scene atlas compiles VT_FEATURE_ENV_ATLAS_RGBP");
+        msl.setEnvAtlasEncoding(EnvAtlasEncoding::Rgbm);
+        check(ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::EnvAtlasRgbm),
+            "an RGBM one VT_FEATURE_ENV_ATLAS_RGBM");
+        msl.setEnvAtlasEncoding(EnvAtlasEncoding::Srgb);
+        check(ProgramLibraryTestAccess::key(msl, &a) == base, "and an sRGB one neither again");
+
         Material generic;
         check(!ProgramLibraryTestAccess::key(msl, &generic).features.test(ShaderFeature::VertexColorGamma),
             "a generic material reads vertex colours as linear");

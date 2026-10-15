@@ -98,7 +98,11 @@
     X(Msdf,                      "VT_FEATURE_MSDF") \
     X(NoTonemap,                 "VT_FEATURE_NO_TONEMAP") \
     X(NoLights,                  "VT_FEATURE_NO_LIGHTS") \
-    X(VertexColorGamma,          "VT_FEATURE_VERTEX_COLOR_GAMMA")
+    X(VertexColorGamma,          "VT_FEATURE_VERTEX_COLOR_GAMMA") \
+    X(GlossMap,                  "VT_FEATURE_GLOSS_MAP") \
+    X(OpacityMap,                "VT_FEATURE_OPACITY_MAP") \
+    X(EnvAtlasRgbp,              "VT_FEATURE_ENV_ATLAS_RGBP") \
+    X(EnvAtlasRgbm,              "VT_FEATURE_ENV_ATLAS_RGBM")
 
 namespace visutwin::canvas
 {
@@ -161,6 +165,15 @@ namespace visutwin::canvas
                 if (!test(feature)) return false;
             }
             return true;
+        }
+
+        /// A whole word at once. The words are a program's specialization constants; a
+        /// program other than the forward and shadow ones (compose) may give the bits of a
+        /// word its own meaning, documented in that program.
+        constexpr ShaderFeatureSet& setWord(const size_t index, const uint32_t value)
+        {
+            _words[index] = value;
+            return *this;
         }
 
         [[nodiscard]] constexpr uint32_t word(const size_t index) const { return _words[index]; }

@@ -85,6 +85,9 @@ int main()
         check(withLocalShadows != nullptr && withLocalShadows != first, "which select another shader");
         library.setLocalShadowsEnabled(false);
         check(library.getForwardShader(&material, false) == first, "switched back, the first is selected again");
+        library.setEnvAtlasEncoding(EnvAtlasEncoding::Rgbp);
+        check(library.forwardFrameBits() != frameBits, "the scene atlas's encoding is a frame switch too");
+        library.setEnvAtlasEncoding(EnvAtlasEncoding::Srgb);
 
         // The chunk registry.
         // An override is compiled, so it is the chunk's own source with a change that alters

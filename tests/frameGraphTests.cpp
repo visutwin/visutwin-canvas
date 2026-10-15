@@ -79,12 +79,17 @@ int main()
     colourOptions.mipmaps = false;
     Texture colour(device.get(), colourOptions);
     const auto target = makeTarget(&colour);
+    // A pass on another target between two passes keeps them from MERGING, which would
+    // end the first with the second's stores: the store propagation cases use one.
+    Texture otherColour(device.get(), colourOptions);
+    const auto otherTarget = makeTarget(&otherColour);
+    const auto between = [&] { return pass(otherTarget, true); };
 
     std::cout << "store propagation\n";
     {
         auto a = pass(target, true);
         auto b = pass(target, false);
-        compile({a, b});
+        compile({a, between(), b});
         check(a->colorArrayOps()[0]->store, "a later pass that LOADS the target makes the earlier one store colour");
         check(a->depthStencilOps()->storeDepth, "and depth");
     }
@@ -98,7 +103,7 @@ int main()
     {
         auto a = pass(nullptr, true);
         auto b = pass(nullptr, false);
-        compile({a, b});
+        compile({a, between(), b});
         check(a->colorArrayOps()[0]->store && a->depthStencilOps()->storeDepth,
             "the back buffer (null target) takes part like any other target");
     }
@@ -119,6 +124,35 @@ int main()
         auto c = pass(target, true);
         compile({a, c});
         check(!a->skipEnd() && !c->skipStart(), "a clearing second pass does not, and last frame's merge is reset");
+    }
+    {
+        // A camera frame's compose and its after pass (the UI layer): both on the back
+        // buffer, the second loading.
+        auto compose = pass(nullptr, true);
+        auto ui = pass(nullptr, false);
+        compile({compose, ui});
+        check(compose->skipEnd() && ui->skipStart(), "two back-buffer passes merge (null is the back buffer)");
+        check(!compose->colorArrayOps()[0]->store && !compose->depthStencilOps()->storeDepth,
+            "the merged pass ends with the LAST pass's stores, not the one raised for the load it absorbed");
+        auto grab = std::make_shared<RenderPass>(device);   // no target: never merges
+        auto b = pass(nullptr, false);
+        compile({compose, grab, b});
+        check(!compose->skipEnd() && !grab->skipStart() && !grab->skipEnd() && !b->skipStart(),
+            "a pass with no target between them merges with neither");
+        check(compose->colorArrayOps()[0]->store, "and the store the next frame's adjacency needs is back");
+    }
+    {
+        // A chain of three takes the third pass's end, and a store the last pass needs
+        // (a later pass reads the target) reaches the first.
+        auto a = pass(target, true);
+        auto b = pass(target, false);
+        auto c = pass(target, false);
+        auto other = pass(nullptr, true);
+        auto reader = pass(target, false);
+        compile({a, b, c, other, reader});
+        check(a->skipEnd() && b->skipStart() && b->skipEnd() && c->skipStart(), "three adjacent passes chain");
+        check(a->colorArrayOps()[0]->store && a->depthStencilOps()->storeDepth,
+            "the chain ends storing what a later reader loads");
     }
     {
         auto child = pass(target, true);
@@ -142,12 +176,12 @@ int main()
         auto a = pass(target, true);
         auto b = pass(target, false);
         auto c = pass(target, true);
-        compile({a, b});
+        compile({a, between(), b});
         check(a->colorArrayOps()[0]->store, "frame 1: B loads the target, so A stores");
         compile({a, c});
         check(!a->colorArrayOps()[0]->store && !a->depthStencilOps()->storeDepth,
             "frame 2: C clears it, so A's store goes back to its own value");
-        compile({a, b});
+        compile({a, between(), b});
         check(a->colorArrayOps()[0]->store, "frame 3: B again, A stores again");
         a->depthStencilOps()->storeDepth = false;   // the pass changes its own flag...
         compile({a, c});
