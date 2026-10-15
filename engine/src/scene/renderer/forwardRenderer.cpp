@@ -8,6 +8,7 @@
 #include "framework/components/componentRegistry.h"
 
 #include <algorithm>
+#include <vector>
 #include <unordered_set>
 
 #include "framework/components/light/lightComponent.h"
@@ -159,15 +160,26 @@ namespace visutwin::canvas
             resolveAutoAspectRatio(cam);
         }
 
-        // A camera draws the scene's sky unless an active effect of its camera frame renders
-        // one in its place. Decided per frame, before the cull that drops the sky.
+        // What a camera frame's effects ask of their camera, decided per frame before the cull
+        // and before anything renders: the scene's sky is drawn unless an active effect renders
+        // one in its place, and the camera jitters as much as the most demanding active effect
+        // (TAA) needs; one that left its frame drops the jitter the frame gave it.
         for (Camera* cam : uniqueCameras(actions)) {
             cam->setSkyVisible(true);
         }
+        std::vector<CameraComponent*> throughFrame;
         for (const auto* action : actions) {
-            if (action && action->camera && action->camera->camera() && rendersThroughCameraFrame(*action) &&
-                action->camera->frameEffectRendersSky()) {
-                action->camera->camera()->setSkyVisible(false);
+            if (action && action->camera && action->camera->camera() && rendersThroughCameraFrame(*action)) {
+                throughFrame.push_back(action->camera);
+                if (action->camera->frameEffectRendersSky()) {
+                    action->camera->camera()->setSkyVisible(false);
+                }
+            }
+        }
+        for (const auto* action : actions) {
+            if (action && action->camera) {
+                action->camera->applyFrameEffectJitter(
+                    std::find(throughFrame.begin(), throughFrame.end(), action->camera) != throughFrame.end());
             }
         }
 

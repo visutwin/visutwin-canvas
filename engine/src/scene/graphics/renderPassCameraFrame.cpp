@@ -23,7 +23,7 @@
 #include "renderPassPrepass.h"
 #include "renderPassSsao.h"
 #include "renderPassVolumetricFog.h"
-#include "renderPassTAA.h"
+#include "taaEffect.h"
 #include "framework/components/componentSystem.h"
 #include "framework/engine.h"
 #include "scene/graphics/colorTarget.h"
@@ -117,7 +117,6 @@ namespace visutwin::canvas
         _depthGrabPass.reset();
         _scenePassTransparent.reset();
         _ssaoPass.reset();
-        _taaPass.reset();
         _scenePassHalf.reset();
         _bloomPass.reset();
         _dofPass.reset();
@@ -150,12 +149,13 @@ namespace visutwin::canvas
             return;
         }
 
-        const auto& taa = _cameraComponent->taa();
         const auto& dof = _cameraComponent->dof();
         const auto& ssao = _cameraComponent->ssao();
         const auto& rendering = _cameraComponent->rendering();
 
-        options.taaEnabled = taa.enabled;
+        // The built-in TAA effect's own switch: its depth and its rebuild are the frame's, not
+        // part of the registered effects' key below.
+        options.taaEnabled = _cameraComponent->taaEffect() && _cameraComponent->taaEffect()->active();
         options.dofEnabled = dof.enabled;
         options.dofNearBlur = dof.nearBlur;
         options.dofHighQuality = dof.highQuality;
@@ -296,7 +296,7 @@ namespace visutwin::canvas
         _afterPass.reset();
         _composePass.reset();
         _sceneTextureResolved = nullptr;
-        // Note: _ssaoPass, _taaPass, _scenePassHalf, _bloomPass, _dofPass and
+        // Note: _ssaoPass, _scenePassHalf, _bloomPass, _dofPass and
         // _colorGrabPass are NOT reset here — they persist across frames to avoid
         // per-frame GPU texture allocation (each creates Metal textures + render
         // targets in constructors). The grab pass has a second reason: the device
@@ -641,8 +641,9 @@ namespace visutwin::canvas
         passes.insert(passes.end(), {_scenePassTransparent, ssaoBeforeScene ? nullptr : _ssaoPass,
             _volumetricFogPass, _volumetricFogCombinePass});
         passes.insert(passes.end(), stages.postScene.begin(), stages.postScene.end());
-        passes.insert(passes.end(), {_taaPass, _scenePassHalf, _dofPass, _bloomPass});
-        passes.insert(passes.end(), stages.postTemporal.begin(), stages.postTemporal.end());
+        passes.insert(passes.end(), stages.resolve.begin(), stages.resolve.end());
+        passes.insert(passes.end(), {_scenePassHalf, _dofPass, _bloomPass});
+        passes.insert(passes.end(), stages.postResolve.begin(), stages.postResolve.end());
         passes.insert(passes.end(), {_composePass, _afterPass});
         return passes;
     }
@@ -653,7 +654,9 @@ namespace visutwin::canvas
         if (!_cameraComponent) {
             return;
         }
-        for (const auto& effect : _cameraComponent->frameEffects()) {
+        // The built-in TAA first, then the registered effects: the order the resolve stage
+        // hands the scene on in.
+        for (const auto& effect : _cameraComponent->allFrameEffects()) {
             if (!effect || !effect->active() || !effect->ownsPasses()) {
                 continue;
             }
@@ -661,6 +664,7 @@ namespace visutwin::canvas
             CameraFrameEffectResources resources;
             resources.device = device();
             resources.camera = _cameraComponent;
+            resources.sceneColor = _sceneTexture.get();
             for (const FrameResource resource : effect->requiredResources()) {
                 switch (resource) {
                 case FrameResource::Depth:
@@ -698,7 +702,8 @@ namespace visutwin::canvas
             append(_effectStagePasses.preScene, passes.preScene);
             append(_effectStagePasses.postOpaque, passes.postOpaque);
             append(_effectStagePasses.postScene, passes.postScene);
-            append(_effectStagePasses.postTemporal, passes.postTemporal);
+            append(_effectStagePasses.resolve, passes.resolve);
+            append(_effectStagePasses.postResolve, passes.postResolve);
         }
     }
 
@@ -720,8 +725,10 @@ namespace visutwin::canvas
         setupSsaoPass(options);
         const auto scenePassesInfo = setupScenePass(options);
         setupVolumetricFogPass(options);
-        auto* sceneTextureWithTaa = setupTaaPass(options);
-        setupSceneHalfPass(options, sceneTextureWithTaa);
+        // The half copy is sized from the scene: what it reads, the resolved scene, is handed
+        // to it every frame.
+        _sceneTextureResolved = _sceneTexture.get();
+        setupSceneHalfPass(options, _sceneTexture.get());
         setupBloomPass(options, options.bloomHighQuality ? _sceneTexture.get() : _sceneTextureHalf.get());
         setupDofPass(options, _sceneTexture.get(), _sceneTextureHalf.get());
         setupComposePass(options);
@@ -957,20 +964,6 @@ namespace visutwin::canvas
         _volumetricFogCombinePass->setFogTexture(_volumetricFogPass->fogTexture());
     }
 
-    Texture* RenderPassCameraFrame::setupTaaPass(const CameraFrameOptions& options)
-    {
-        _sceneTextureResolved = _sceneTexture.get();
-        if (options.taaEnabled && _sceneTexture) {
-            _taaPass = _cameraComponent->ensureTaaPass(device(), _sceneTexture.get());
-            if (_taaPass) {
-                _taaPass->setSourceTexture(_sceneTexture.get());
-                _taaPass->setDepthTexture(_sceneDepthTexture.get());
-                _sceneTextureResolved = _taaPass->historyTexture().get();
-            }
-        }
-        return _sceneTextureResolved;
-    }
-
     void RenderPassCameraFrame::setupSceneHalfPass(const CameraFrameOptions& options, Texture* sourceTexture)
     {
         (void)options;
@@ -1056,8 +1049,8 @@ namespace visutwin::canvas
         }
         // The TAA history is blended at the exposure compose displays it with; tone mapping
         // NONE applies no exposure.
-        if (_taaPass) {
-            _taaPass->setDisplayExposure(toneMapping == TONEMAP_NONE ? 1.0f : exposure);
+        if (_cameraComponent && _cameraComponent->taaEffect()) {
+            _cameraComponent->taaEffect()->setDisplayExposure(toneMapping == TONEMAP_NONE ? 1.0f : exposure);
         }
     }
 
@@ -1209,9 +1202,6 @@ namespace visutwin::canvas
                 "CameraFrame scene color/depth textures must stay dimension-matched.");
         }
 
-        if (_taaPass) {
-            _taaPass->setDepthTexture(_sceneDepthTexture.get());
-        }
         applyDisplaySettings();
 
         // The depth of field's focus and blur follow the camera every frame, as upstream's
@@ -1244,16 +1234,30 @@ namespace visutwin::canvas
             _sceneColorTargetHeight = static_cast<int>(_sceneTexture->height());
         }
 
-        if (_composePass) {
-            auto* resolvedTexture = _sceneTexture.get();
-            if (_taaPass) {
-                auto taaTexture = _taaPass->update();
-                resolvedTexture = _taaPass->historyValid()
-                    ? (taaTexture ? taaTexture.get() : _sceneTexture.get())
-                    : _sceneTexture.get();
+        // The active effects take this frame's settings (update()) before anything reads them.
+        if (_cameraComponent) {
+            for (const auto& effect : _cameraComponent->allFrameEffects()) {
+                if (effect && effect->active()) {
+                    effect->update();
+                }
             }
+        }
 
-            _sceneTextureResolved = resolvedTexture;
+        // The effects owning passes resolve the scene in turn, in registration order (the
+        // built-in TAA first), each reading what the ones before it resolved — the scene
+        // target's colour to begin with — and handing on what its passes render to this frame.
+        // Everything after reads the last of them, which under TAA alternates between its two
+        // history textures.
+        const int renderWidth = _sceneTexture ? static_cast<int>(_sceneTexture->width()) : 0;
+        const int renderHeight = _sceneTexture ? static_cast<int>(_sceneTexture->height()) : 0;
+        CameraFrameEffectScene scene{_sceneTexture.get(), renderWidth, renderHeight};
+        for (const auto& effect : _passEffects) {
+            effect->resolveScene(scene);
+        }
+        _sceneTextureResolved = scene.texture;
+
+        if (_composePass) {
+            auto* resolvedTexture = scene.texture;
             _composePass->setSceneTexture(resolvedTexture);
             if (_scenePassHalf) {
                 _scenePassHalf->setSourceTexture(resolvedTexture);
@@ -1270,9 +1274,9 @@ namespace visutwin::canvas
             }
         }
 
-        // The active effects get this frame's values once the TAA history is assigned, and
-        // before any of their passes renders (the frame graph updates a pass before its
-        // children) or the composition is built from them (the compose pass's prepareShaders).
+        // The active effects get this frame's values once the scene is resolved, and before
+        // any of their passes renders (the frame graph updates a pass before its children) or
+        // the composition is built from them (the compose pass's prepareShaders).
         // The world's time since this frame last rendered, taken whether or not an effect is
         // active now, so one added later does not get the whole time since the frame began.
         float frameDt = 0.0f;
@@ -1285,17 +1289,16 @@ namespace visutwin::canvas
             _lastUpdatedTime = now;
         }
 
-        if (_cameraComponent && !_cameraComponent->frameEffects().empty()) {
+        if (_cameraComponent) {
             CameraFrameEffectContext context;
             context.dt = frameDt;
-            context.sceneTexture = _sceneTextureResolved ? _sceneTextureResolved : _sceneTexture.get();
-            if (_sceneTexture) {
-                context.sceneWidth = static_cast<int>(_sceneTexture->width());
-                context.sceneHeight = static_cast<int>(_sceneTexture->height());
-            }
-            for (const auto& effect : _cameraComponent->frameEffects()) {
+            context.sceneTexture = scene.texture;
+            context.sceneWidth = scene.width;
+            context.sceneHeight = scene.height;
+            context.renderWidth = renderWidth;
+            context.renderHeight = renderHeight;
+            for (const auto& effect : _cameraComponent->allFrameEffects()) {
                 if (effect && effect->active()) {
-                    effect->update();
                     effect->frameUpdate(context);
                 }
             }

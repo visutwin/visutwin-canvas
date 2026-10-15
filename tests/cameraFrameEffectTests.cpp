@@ -27,12 +27,16 @@
 #include "framework/engine.h"
 #include "framework/entity.h"
 #include "platform/graphics/renderPass.h"
+#include "platform/graphics/texture.h"
+#include "scene/camera.h"
 #include "scene/graphics/cameraFrameEffect.h"
 #include "scene/graphics/renderPassCameraFrame.h"
 #include "scene/graphics/renderPassColorGrab.h"
 #include "scene/graphics/renderPassCompose.h"
 #include "scene/graphics/renderPassDownsample.h"
 #include "scene/graphics/renderPassPrepass.h"
+#include "scene/graphics/renderPassTAA.h"
+#include "scene/graphics/taaEffect.h"
 #include "scene/composition/layerComposition.h"
 #include "scene/constants.h"
 #include "scene/layer.h"
@@ -79,7 +83,8 @@ namespace
                 auto pass = std::make_shared<RecordingPass>(resources.device, id() + ":" + stage);
                 livePasses.push_back(pass);
                 auto& list = stage == "preScene" ? passes.preScene : stage == "postOpaque" ? passes.postOpaque
-                    : stage == "postScene" ? passes.postScene : passes.postTemporal;
+                    : stage == "postScene" ? passes.postScene : stage == "resolve" ? passes.resolve
+                    : passes.postResolve;
                 list.push_back(pass);
             }
         }
@@ -94,10 +99,21 @@ namespace
         void update() override { ++updates; }
         void frameUpdate(const CameraFrameEffectContext& context) override { lastContext = context; }
         bool rendersSky() const override { return sky; }
+        float cameraJitter() const override { return jitter; }
+        void resolveScene(CameraFrameEffectScene& scene) override
+        {
+            resolvedFrom = scene.texture;
+            if (resolveTo) {
+                scene.texture = resolveTo;
+            }
+        }
 
         std::vector<std::string> stages;
         std::string key;
         bool sky = false;
+        float jitter = 0.0f;
+        Texture* resolveTo = nullptr;
+        Texture* resolvedFrom = nullptr;
         int created = 0;
         int destroyed = 0;
         int updates = 0;
@@ -173,7 +189,7 @@ int main()
     std::cout << "registration\n";
     auto stages = std::make_shared<TestEffect>("stages",
         std::vector<FrameResource>{FrameResource::SceneColorGrab, FrameResource::SceneTarget, FrameResource::Depth},
-        std::vector<std::string>{"postTemporal", "postScene", "postOpaque", "preScene"});
+        std::vector<std::string>{"postResolve", "resolve", "postScene", "postOpaque", "preScene"});
     check(camera->onPostprocessing() == nullptr, "a camera with nothing to post-process renders without a frame");
     check(camera->addFrameEffect(stages), "an effect is registered");
     check(!camera->addFrameEffect(std::make_shared<TestEffect>("stages", std::vector<FrameResource>{},
@@ -194,7 +210,8 @@ int main()
         const int pre = indexOfLabel(passes, "stages:preScene");
         const int opaque = indexOfLabel(passes, "stages:postOpaque");
         const int scene = indexOfLabel(passes, "stages:postScene");
-        const int temporal = indexOfLabel(passes, "stages:postTemporal");
+        const int temporal = indexOfLabel(passes, "stages:postResolve");
+        const int resolve = indexOfLabel(passes, "stages:resolve");
         const int firstForward = indexOfType<RenderPassForward>(passes);
         const int grab = indexOfType<RenderPassColorGrab>(passes);
         const int transparent = firstForward >= 0 ? indexOfType<RenderPassForward>(passes, firstForward + 1) : -1;
@@ -203,12 +220,14 @@ int main()
         check(pre >= 0 && pre < firstForward, "preScene runs before the scene pass");
         check(grab > firstForward && opaque == grab + 1, "postOpaque runs right after the colour copy");
         check(transparent == opaque + 1, "and right before the transparent scene pass, which it split off");
-        check(scene > transparent && scene < temporal, "postScene runs after the whole scene, before postTemporal");
-        check(temporal >= 0 && temporal == compose - 1, "postTemporal runs right before the composition");
+        check(scene > transparent && resolve == scene + 1, "resolve runs right after postScene");
+        check(resolve < temporal, "postResolve runs after the resolve stage");
+        check(temporal >= 0 && temporal == compose - 1, "postResolve runs right before the composition");
         check(indexOfExecuted("stages:preScene") >= 0 &&
               indexOfExecuted("stages:preScene") < indexOfExecuted("stages:postOpaque") &&
               indexOfExecuted("stages:postOpaque") < indexOfExecuted("stages:postScene") &&
-              indexOfExecuted("stages:postScene") < indexOfExecuted("stages:postTemporal"),
+              indexOfExecuted("stages:postScene") < indexOfExecuted("stages:resolve") &&
+              indexOfExecuted("stages:resolve") < indexOfExecuted("stages:postResolve"),
             "the frame graph runs them in stage order");
     }
 
@@ -224,6 +243,10 @@ int main()
         check(r.sceneColorGrab() == device->sceneColorMap(), "the handle answers the copy the frame published");
         check(stages->lastContext.sceneWidth == 64 && stages->lastContext.sceneHeight == 48 &&
               stages->lastContext.sceneTexture != nullptr, "frameUpdate gets this frame's scene and its size");
+        check(stages->lastContext.renderWidth == 64 && stages->lastContext.renderHeight == 48,
+            "and the size the scene renders at");
+        check(r.sceneColor != nullptr && stages->resolvedFrom == r.sceneColor,
+            "the first resolving effect reads the scene render target's colour");
         check(indexOfType<RenderPassPrepass>(cameraFrame->beforePasses()) < 0,
             "the scene depth alone renders no prepass when single-sampled");
     }
@@ -248,7 +271,7 @@ int main()
         camera->setRendering(rendering);
         auto extra = std::make_shared<TestEffect>("extra",
             std::vector<FrameResource>{FrameResource::PrepassDepth, FrameResource::SceneColorHalf},
-            std::vector<std::string>{"postTemporal"});
+            std::vector<std::string>{"postResolve"});
         camera->addFrameEffect(extra);
         frame();
         cameraFrame = camera->cameraFrame();
@@ -256,7 +279,7 @@ int main()
         check(indexOfType<RenderPassPrepass>(passes) >= 0, "requiring the prepass depth renders the prepass");
         check(extra->lastResources.sceneColorHalf != nullptr && indexOfType<RenderPassDownsample>(passes) >= 0,
             "requiring the half-resolution scene makes the copy and hands it over");
-        check(indexOfLabel(passes, "extra:postTemporal") > indexOfLabel(passes, "stages:postTemporal"),
+        check(indexOfLabel(passes, "extra:postResolve") > indexOfLabel(passes, "stages:postResolve"),
             "passes of one stage keep their effects' registration order");
         check(stages->created == 3 && stages->destroyed == 2, "adding an effect rebuilds the others' passes");
 
@@ -270,7 +293,7 @@ int main()
         extra->setEnabled(false);
         frame();
         check(extra->destroyed == 1 && extra->livePasses.empty(), "a disabled effect's passes are let go of");
-        check(indexOfLabel(camera->cameraFrame()->beforePasses(), "extra:postTemporal") < 0,
+        check(indexOfLabel(camera->cameraFrame()->beforePasses(), "extra:postResolve") < 0,
             "and are gone from the frame");
         camera->removeFrameEffect(extra);
         camera->removeFrameEffect(stages);
@@ -339,6 +362,81 @@ int main()
         camera->removeFrameEffect(depthTint);
         camera->removeFrameEffect(tint);
         camera->removeFrameEffect(owner);
+        frame();
+    }
+
+    std::cout << "the resolve stage\n";
+    {
+        TextureOptions resolvedOptions;
+        resolvedOptions.width = 64;
+        resolvedOptions.height = 48;
+        resolvedOptions.name = "resolved";
+        auto resolvedTexture = std::make_shared<Texture>(device.get(), resolvedOptions);
+        auto first = std::make_shared<TestEffect>("first", std::vector<FrameResource>{},
+            std::vector<std::string>{"resolve"});
+        auto second = std::make_shared<TestEffect>("second", std::vector<FrameResource>{},
+            std::vector<std::string>{"resolve"});
+        first->resolveTo = resolvedTexture.get();
+        camera->addFrameEffect(first);
+        camera->addFrameEffect(second);
+        frame();
+        auto cameraFrameNow = camera->cameraFrame();
+        const auto& passes = cameraFrameNow->beforePasses();
+        check(indexOfLabel(passes, "first:resolve") >= 0 &&
+              indexOfLabel(passes, "first:resolve") < indexOfLabel(passes, "second:resolve"),
+            "resolving passes run in registration order");
+        check(second->resolvedFrom == resolvedTexture.get(), "an effect reads what the one before it resolved");
+        check(second->lastContext.sceneTexture == resolvedTexture.get(), "and the frame reads the last of them");
+        const auto* compose = dynamic_cast<RenderPassCompose*>(passes[indexOfType<RenderPassCompose>(passes)].get());
+        check(compose && compose->sceneTexture() == resolvedTexture.get(), "the composition reads the resolved scene");
+
+        std::cout << "camera jitter\n";
+        check(camera->camera()->jitter() == 0.0f, "no effect asks for jitter: the camera does not jitter");
+        second->jitter = 0.6f;
+        first->jitter = 0.25f;
+        frame();
+        check(near(camera->camera()->jitter(), 0.6f, 0.0f), "the camera jitters as much as the most demanding effect");
+        second->setEnabled(false);
+        frame();
+        check(near(camera->camera()->jitter(), 0.25f, 0.0f), "an inactive effect asks for nothing");
+        camera->removeFrameEffect(first);
+        camera->removeFrameEffect(second);
+        frame();
+        check(camera->camera()->jitter() == 0.0f, "nor does a removed one");
+
+        std::cout << "the built-in TAA\n";
+        auto keep = std::make_shared<TestEffect>("keep", std::vector<FrameResource>{},
+            std::vector<std::string>{"resolve"});
+        camera->addFrameEffect(keep);
+        auto taa = camera->taa();
+        taa.enabled = true;
+        taa.jitter = 0.8f;
+        camera->setTaa(taa);
+        frame();
+        frame();
+        const auto& taaPass = camera->taaEffect()->pass();
+        const auto& withTaa = camera->cameraFrame()->beforePasses();
+        int taaIndex = -1;
+        for (int i = 0; i < static_cast<int>(withTaa.size()); ++i) {
+            if (withTaa[i] == taaPass) {
+                taaIndex = i;
+            }
+        }
+        check(taaPass != nullptr && taaIndex >= 0, "TAA is a pass of the frame");
+        check(taaIndex >= 0 && taaIndex + 1 == indexOfLabel(withTaa, "keep:resolve"),
+            "at the resolve stage, ahead of the registered effects");
+        check(camera->frameEffects().size() == 1, "and not in the camera's effect list");
+        check(near(camera->camera()->jitter(), 0.8f, 0.0f), "the camera jitters by the TAA setting");
+        check(keep->resolvedFrom != nullptr && keep->resolvedFrom != keep->lastResources.sceneColor,
+            "the next effect reads TAA's history, not the scene");
+        keep->key = "rebuilt";
+        frame();
+        check(camera->taaEffect()->pass() == taaPass, "a rebuild keeps TAA's pass and its history");
+        taa.enabled = false;
+        camera->setTaa(taa);
+        frame();
+        check(camera->taaEffect()->pass() == nullptr, "turning TAA off releases them");
+        camera->removeFrameEffect(keep);
         frame();
     }
 

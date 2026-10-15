@@ -1569,11 +1569,15 @@ present, but the rule below never depends on reading it.
   whatever the scene format: at a 5% weight, a lower precision rounds the steps away and
   the history stops converging (`taa` 3.89 -> 2.39 against upstream). The mix is taken under
   the reversible tone mapping `c / (1 + max(c))` (`vttonemapreversible`, which compose's
-  sharpening shares) of the colours at the DISPLAY exposure — `RenderPassTAA::
+  sharpening shares) of the colours at the DISPLAY exposure — `TaaEffect::
   setDisplayExposure`, 1 under tone mapping NONE, which applies none — so a bright surface
   partly covering a pixel does not dominate it, and the weight rises from 5% toward 50% over
   32 history pixels of reprojection distance. The camera frame resolves tone mapping and
-  exposure EVERY frame (`applyDisplaySettings`), for compose and TAA alike.
+  exposure EVERY frame (`applyDisplaySettings`), for compose and TAA alike. TAA is the
+  camera's built-in effect at the camera frame's RESOLVE stage (`TaaEffect`, ARCHITECTURE.md,
+  camera frame effects): a pass that reads the scene after TAA must take the RESOLVED texture
+  the frame hands on each frame, never the scene target's colour or a history texture kept
+  from setup.
 - **Do not draw to the back buffer after `Engine::render()`** — `frameEnd`
   presents the drawable and a stale `_frameDrawable` reuse is a pointer-auth
   SIGSEGV. Use `Renderer::addAppendPass` to append app passes to the frame graph.

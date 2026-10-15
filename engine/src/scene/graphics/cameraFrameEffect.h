@@ -12,9 +12,13 @@
 //                materials read as they render;
 //   postOpaque   after the opaque layers, the skybox and the scene-colour copy, before
 //                the transparent layers: render into the scene under the transparents;
-//   postScene    after the whole scene (and the volumetric fog), before TAA;
-//   postTemporal after TAA, the half-resolution copy, depth of field and bloom, before
-//                the composition.
+//   postScene    after the whole scene (and the volumetric fog), before it is resolved;
+//   resolve      passes RESOLVING the scene: they read the scene colour and render a new
+//                one, which the rest of the frame reads in its place (resolveScene). The
+//                temporal anti-aliasing is one, the camera's built-in TaaEffect, and runs
+//                first;
+//   postResolve  after the resolved scene's half-resolution copy, depth of field and
+//                bloom, before the composition.
 // Passes of one stage run in the order their effects were registered, after the frame's
 // own passes at that point.
 //
@@ -74,7 +78,7 @@ namespace visutwin::canvas
         /// The same texture, guaranteed to hold the opaque depth BEFORE the scene renders:
         /// requiring it renders the depth prepass. What a preScene pass reads.
         PrepassDepth,
-        /// The scene colour at half resolution, after TAA. Valid at postTemporal.
+        /// The resolved scene colour at half resolution. Valid at postResolve.
         SceneColorHalf,
         /// The copy of the opaque scene colour (linear HDR) taken before the transparent
         /// layers. Valid from postOpaque on.
@@ -132,6 +136,11 @@ namespace visutwin::canvas
         /// SceneColorHalf.
         Texture* sceneColorHalf = nullptr;
 
+        /// The scene render target's colour, which the first resolving effect reads (always
+        /// set). What a resolving pass sizes itself from before its first frame; each frame
+        /// it gets the texture to read in resolveScene.
+        Texture* sceneColor = nullptr;
+
         /// SceneColorGrab: the copy's texture, asked for when the pass draws. The copy is
         /// reallocated when the scene resizes, so keep the function, not its answer.
         std::function<Texture*()> sceneColorGrab;
@@ -149,17 +158,36 @@ namespace visutwin::canvas
         std::vector<std::shared_ptr<RenderPass>> preScene;
         std::vector<std::shared_ptr<RenderPass>> postOpaque;
         std::vector<std::shared_ptr<RenderPass>> postScene;
-        std::vector<std::shared_ptr<RenderPass>> postTemporal;
+        std::vector<std::shared_ptr<RenderPass>> resolve;
+        std::vector<std::shared_ptr<RenderPass>> postResolve;
+    };
+
+    /// The scene being resolved, handed to each effect owning passes in turn (resolveScene):
+    /// the scene colour the effects before it resolved, which a resolving effect replaces with
+    /// what its passes render to this frame. Starts as the scene render target's colour.
+    struct CameraFrameEffectScene
+    {
+        Texture* texture = nullptr;
+        /// The scene colour's size this frame; its texture may still have last frame's size.
+        /// An effect resolving to another resolution sets these too.
+        int width = 0;
+        int height = 0;
     };
 
     /// Per-frame values an effect's frameUpdate() gets.
     struct CameraFrameEffectContext
     {
-        /// The scene colour this frame: TAA's resolved history under TAA.
+        /// The resolved scene colour this frame (TAA's history, which alternates between two
+        /// textures, under TAA).
         Texture* sceneTexture = nullptr;
-        /// The scene's size in pixels this frame.
+        /// The resolved scene's size in pixels this frame.
         int sceneWidth = 0;
         int sceneHeight = 0;
+        /// The size the scene renders at this frame: the scene render target's, which the
+        /// passes drawing into the scene have. Differs from the scene size only when a
+        /// resolving effect changes the resolution.
+        int renderWidth = 0;
+        int renderHeight = 0;
         /// The time the world advanced by since the camera frame last rendered, in seconds:
         /// the engine's update steps since (clamped and time-scaled, as scripts get them). 0
         /// for a frame rendered again without an update, while the world is paused, and on
@@ -217,7 +245,20 @@ namespace visutwin::canvas
         /// renders: where the effect's settings are handed to its passes.
         virtual void update() {}
 
-        /// Called every frame after update(), with the values of this frame.
+        /// Resolves the scene, for an effect with passes at the resolve stage: called every
+        /// frame while its passes take part, after update() and before any frameUpdate(), in
+        /// registration order (the built-in TAA first). Hand the passes `scene.texture` and
+        /// replace it with what they render to this frame; the effects after it, the
+        /// half-resolution copy, depth of field, bloom and the composition read that. The
+        /// default leaves the scene unchanged.
+        virtual void resolveScene(CameraFrameEffectScene& /*scene*/) {}
+
+        /// The camera jitter the effect needs while it is active, 0-1: the sub-pixel offset of
+        /// the projection, different every frame, that an effect accumulating frames relies on.
+        /// The camera takes the largest any active effect of its frame asks for.
+        [[nodiscard]] virtual float cameraJitter() const { return 0.0f; }
+
+        /// Called every frame after update() and the resolve, with the values of this frame.
         virtual void frameUpdate(const CameraFrameEffectContext& /*context*/) {}
 
         /// The compose slot, the chunk and its debug views (see the file comment).

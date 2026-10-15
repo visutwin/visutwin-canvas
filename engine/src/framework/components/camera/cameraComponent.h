@@ -23,7 +23,7 @@ namespace visutwin::canvas
 {
     class CameraFrameEffect;
     class RenderPassCameraFrame;
-    class RenderPassTAA;
+    class TaaEffect;
 
     struct CameraComponentData
     {
@@ -243,7 +243,9 @@ namespace visutwin::canvas
                 _camera->setJitter(_taa.enabled ? std::max(_taa.jitter, 0.0f) : 0.0f);
             }
         }
-        std::shared_ptr<RenderPassTAA> ensureTaaPass(const std::shared_ptr<GraphicsDevice>& device, Texture* sourceTexture);
+        /// The built-in temporal anti-aliasing effect, configured by taa(); not in
+        /// frameEffects().
+        [[nodiscard]] const std::shared_ptr<TaaEffect>& taaEffect() const { return _taaEffect; }
 
         const SsaoSettings& ssao() const { return _ssao; }
         SsaoSettings& ssao() { return _ssao; }
@@ -275,8 +277,17 @@ namespace visutwin::canvas
         [[nodiscard]] const std::vector<std::shared_ptr<CameraFrameEffect>>& frameEffects() const { return _frameEffects; }
         /// Whether any registered effect is active.
         [[nodiscard]] bool hasActiveFrameEffect() const;
+        /// The built-in effects (TAA) followed by the registered ones: every effect the camera
+        /// frame runs, in the order it runs them.
+        [[nodiscard]] const std::vector<std::shared_ptr<CameraFrameEffect>>& allFrameEffects() const { return _allFrameEffects; }
         /// Whether an active effect renders the sky in place of the scene's.
         [[nodiscard]] bool frameEffectRendersSky() const;
+        /// The largest camera jitter an active effect asks for (CameraFrameEffect::cameraJitter).
+        [[nodiscard]] float frameEffectJitter() const;
+        /// Set by the renderer every frame: the camera's jitter while it renders through a camera
+        /// frame is frameEffectJitter(); once it no longer does, a jitter the frame gave it is
+        /// dropped, while one set on the camera directly is left alone.
+        void applyFrameEffectJitter(bool rendersThroughFrame);
 
         // Persistent camera frame for postprocessing (TAA, DOF, etc.)
         std::shared_ptr<RenderPassCameraFrame> cameraFrame() const { return _cameraFrame; }
@@ -321,9 +332,12 @@ namespace visutwin::canvas
         RenderingSettings _rendering;
         std::shared_ptr<Texture> _dofSceneColorTexture;
         std::shared_ptr<RenderTarget> _dofSceneRenderTarget;
-        std::shared_ptr<RenderPassTAA> _taaPass;
+        std::shared_ptr<TaaEffect> _taaEffect;
         std::shared_ptr<RenderPassCameraFrame> _cameraFrame;
         std::vector<std::shared_ptr<CameraFrameEffect>> _frameEffects;
+        std::vector<std::shared_ptr<CameraFrameEffect>> _allFrameEffects;
+        bool _jitterFromFrame = false;
+        void rebuildAllFrameEffects();
         void ensureDofRenderTarget();
         bool requiresPostprocessRenderTarget() const { return _dof.enabled || _taa.enabled || _ssao.enabled; }
         void updatePostprocessRenderTargetBinding() const;

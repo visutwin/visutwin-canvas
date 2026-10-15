@@ -19,7 +19,7 @@
 #include "platform/graphics/graphicsDevice.h"
 #include "scene/graphics/cameraFrameEffect.h"
 #include "scene/graphics/renderPassCameraFrame.h"
-#include "scene/graphics/renderPassTAA.h"
+#include "scene/graphics/taaEffect.h"
 #include "scene/graphNode.h"
 
 namespace visutwin::canvas
@@ -27,6 +27,8 @@ namespace visutwin::canvas
     CameraComponent::CameraComponent(IComponentSystem* system, Entity* entity) : Component(system, entity)
     {
         listInstance(this);
+        _taaEffect = std::make_shared<TaaEffect>(this);
+        rebuildAllFrameEffects();
     }
 
     CameraComponent::~CameraComponent()
@@ -131,10 +133,6 @@ namespace visutwin::canvas
             _cameraFrame.reset();
         }
 
-        if (!enabled) {
-            _taaPass.reset();
-        }
-
         // DEVIATION: Do NOT call ensureDofRenderTarget() or updatePostprocessRenderTargetBinding()
         // here. CameraFrame owns its offscreen targets. See comment in setSsaoEnabled().
     }
@@ -221,22 +219,6 @@ namespace visutwin::canvas
         }
     }
 
-    std::shared_ptr<RenderPassTAA> CameraComponent::ensureTaaPass(const std::shared_ptr<GraphicsDevice>& device,
-        Texture* sourceTexture)
-    {
-        if (!device || !sourceTexture || !_taa.enabled) {
-            return nullptr;
-        }
-
-        if (!_taaPass) {
-            _taaPass = std::make_shared<RenderPassTAA>(device, sourceTexture, this);
-        } else {
-            _taaPass->setSourceTexture(sourceTexture);
-        }
-        _taaPass->setHighQuality(_taa.highQuality);
-        return _taaPass;
-    }
-
     void CameraComponent::cloneFrom(const Component* source)
     {
         const auto* src = dynamic_cast<const CameraComponent*>(source);
@@ -274,12 +256,21 @@ namespace visutwin::canvas
             return false;
         }
         _frameEffects.push_back(effect);
+        rebuildAllFrameEffects();
         return true;
     }
 
     void CameraComponent::removeFrameEffect(const std::shared_ptr<CameraFrameEffect>& effect)
     {
         std::erase(_frameEffects, effect);
+        rebuildAllFrameEffects();
+    }
+
+    void CameraComponent::rebuildAllFrameEffects()
+    {
+        _allFrameEffects.clear();
+        _allFrameEffects.push_back(_taaEffect);
+        _allFrameEffects.insert(_allFrameEffects.end(), _frameEffects.begin(), _frameEffects.end());
     }
 
     std::shared_ptr<CameraFrameEffect> CameraComponent::frameEffect(const std::string_view id) const
@@ -300,8 +291,33 @@ namespace visutwin::canvas
 
     bool CameraComponent::frameEffectRendersSky() const
     {
-        return std::any_of(_frameEffects.begin(), _frameEffects.end(),
+        return std::any_of(_allFrameEffects.begin(), _allFrameEffects.end(),
             [](const auto& effect) { return effect->active() && effect->rendersSky(); });
+    }
+
+    void CameraComponent::applyFrameEffectJitter(const bool rendersThroughFrame)
+    {
+        if (!_camera) {
+            return;
+        }
+        if (rendersThroughFrame) {
+            _camera->setJitter(frameEffectJitter());
+            _jitterFromFrame = true;
+        } else if (_jitterFromFrame) {
+            _camera->setJitter(0.0f);
+            _jitterFromFrame = false;
+        }
+    }
+
+    float CameraComponent::frameEffectJitter() const
+    {
+        float jitter = 0.0f;
+        for (const auto& effect : _allFrameEffects) {
+            if (effect->active()) {
+                jitter = std::max(jitter, effect->cameraJitter());
+            }
+        }
+        return jitter;
     }
 
     void CameraComponent::setPriority(const int value)

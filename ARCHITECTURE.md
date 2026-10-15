@@ -1415,11 +1415,11 @@ The cross-cutting traps stay in `AGENTS.md`.
 `CameraFrameEffect` (`scene/graphics/cameraFrameEffect.h`) is an application's extension
 of a camera frame: registered with `CameraComponent::addFrameEffect` (the camera co-owns
 it; ids are unique per camera; `removeFrameEffect`, `frameEffect(id)`), it adds render
-passes of its own at four stages and asks the frame for the resources they read. An
+passes of its own at five stages and asks the frame for the resources they read. An
 active effect makes the camera render through a frame (`onPostprocessing`). An effect can
 also add code to the compose pass at a slot (below). Port of upstream's API (its
 `postOpaque` stage included). DEVIATIONS: the built-in effects stay internal passes
-configured by `RenderingSettings`, an effect registers on the camera rather than on a
+configured by `RenderingSettings`, except TAA (below), an effect registers on the camera rather than on a
 CameraFrame object, and a compose chunk is Slang, declares no uniforms, cannot be
 overridden through ShaderChunks and takes no texture.
 
@@ -1427,8 +1427,30 @@ overridden through ShaderChunks and takes no texture.
   after the frame's own passes at that point, in registration order: `preScene` after the
   prepass (and lighting-mode SSAO), `postOpaque` after the colour and depth grabs and
   before the transparent scene pass — an effect pass here SPLITS the scene pass at the grab
-  layer as a grab does — `postScene` after the transparent pass and the fog, before TAA,
-  and `postTemporal` after TAA, the half copy, DOF and bloom, right before compose.
+  layer as a grab does — `postScene` after the transparent pass and the fog, `resolve`
+  right after it, and `postResolve` after the resolved scene's half copy, DOF and bloom,
+  right before compose.
+- **Resolving the scene** (`resolve` stage, `resolveScene(CameraFrameEffectScene&)`): every
+  frame, after the effects' `update()`, each effect owning passes is handed the scene colour
+  the effects before it resolved — the scene target's colour to begin with — and a resolving
+  one replaces it with what its passes render this frame (and the size, when it resolves to
+  another resolution). The half copy, high-quality bloom, the DOF far pass, compose and the
+  effects' context (`sceneTexture`, `sceneWidth/Height`; `renderWidth/Height` stay the scene
+  target's) read the last of them. `CameraFrameEffectResources::sceneColor` is the scene
+  target's colour, which a resolving pass sizes itself from. **TAA is the built-in resolving
+  effect** (`TaaEffect`, `scene/graphics/taaEffect.h`), owned by the camera
+  (`CameraComponent::taaEffect()`, not in `frameEffects()`; `allFrameEffects()` is it
+  followed by the registered ones, the order the frame runs them) and configured by
+  `CameraComponent::taa()`. DEVIATION: its depth and its rebuild come from the frame's own
+  `taaEnabled`, not the registered effects' key, so turning TAA on does not change what the
+  scene target stores or what compose binds; and its pass, with the history, survives a
+  rebuild of the frame's passes while TAA stays on (upstream rebuilds it, resetting the
+  history). Until the first resolve has rendered, the frame reads the scene itself.
+- **Camera jitter** (`cameraJitter()`): the renderer sets a camera that renders through a
+  frame to the largest jitter an active effect asks for (`CameraComponent::
+  applyFrameEffectJitter`, in `cullMeshInstancesForFrame`, before anything renders); a
+  camera that leaves its frame drops it, and one never in a frame keeps whatever it was set
+  to.
 - **Resources** (`FrameResource`, `requiredResources()`): `Depth` (the scene depth texture,
   device [0, 1] depth: `quadLinearDepth` in `vtquad` linearises it; it makes the frame a
   depth consumer, so the prepass renders under MSAA), `PrepassDepth` (the same texture,
