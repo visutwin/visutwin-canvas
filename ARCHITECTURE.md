@@ -1502,6 +1502,24 @@ overridden through ShaderChunks and takes no texture.
   without a prepass, say). A debug view never turns rendering on. An active effect with NO
   slot can still provide views: `buildComposeEffects(effects, debugView)` composes its chunk
   only while one of them is shown, so it costs the composition nothing otherwise.
+- **Auto exposure** (`AutoExposureEffect`, `scene/graphics/autoExposureEffect.h`, opt-in):
+  three passes of `programs/auto-exposure.slang` at postResolve over `SceneColorHalf` (meter:
+  the scene averaged into 128 x 64 blocks, each block's brightness stored as a 16-bit position
+  along the histogram's range in RGBA8; rows: each fragment GATHERS its row's 128 texels into
+  4 bins with tent weights and a centre weight; sum: the 64 rows into 64 bins, 16 RGBA texels).
+  DEVIATION: the counts are floats in RGBA32F targets (upstream's are 16.16 fixed point in
+  RGBA32U; the engine has no integer formats), exact up to the 8192 weights a bin can hold;
+  a device without float render targets gets no passes. The sum pass's `after()` queues a
+  `Texture::readAsync` (one in flight at a time); `measure` meters the part between
+  lowPercent and highPercent (`meterHistogram`, fractional at the two fractions), the first
+  measurement (and the first after `reset()`) is adapted to at once, later ones by
+  `1 - exp(-dt x speed)` with the context's `dt`, faster towards the light, within minEv /
+  maxEv, and `cameraExposureScale()` hands 2^EV to the frame. The histogram's range is
+  re-centred on the camera's own exposure every frame (4 EV of margin), and a histogram is
+  metered against the range IT was measured over. Inactive under tone mapping NONE (taken from
+  the effect's `camera()`, which `addFrameEffect` sets). Its debug view `autoexposure` is a
+  slot-less chunk reading 16 float4 uniforms of bars and one of markers. `auto-exposure` ports
+  upstream's example (flying, not walking; no sun boost).
 - **SMAA** (`SmaaEffect`, `scene/graphics/smaaEffect.h`, opt-in through `addFrameEffect`):
   SMAA 1x at the resolve stage, three passes of `programs/smaa.slang` (variants `edge` into
   RG8, `weights` into RGBA8 with the area and search lookups, `blend` into the scene format;

@@ -259,6 +259,15 @@ namespace visutwin::canvas
         /// default leaves the scene unchanged.
         virtual void resolveScene(CameraFrameEffectScene& /*scene*/) {}
 
+        /// The scale the effect applies to its camera's exposure this frame, for an effect
+        /// adapting the exposure to what the camera sees: read every frame after frameUpdate(),
+        /// and the camera renders with the product over its active effects (Camera::
+        /// exposureScale), back at its own exposure once none asks.
+        [[nodiscard]] virtual float cameraExposureScale() const { return 1.0f; }
+
+        /// The camera the effect is registered with (CameraComponent::addFrameEffect), or null.
+        [[nodiscard]] CameraComponent* camera() const { return _camera; }
+
         /// The camera jitter the effect needs while it is active, 0-1: the sub-pixel offset of
         /// the projection, different every frame, that an effect accumulating frames relies on.
         /// The camera takes the largest any active effect of its frame asks for.
@@ -299,7 +308,10 @@ namespace visutwin::canvas
         [[nodiscard]] uint64_t serial() const { return _serial; }
 
     private:
+        friend class CameraComponent;
         ComposeEffectUniform& uniformSlot(const std::string& name, int components);
+
+        CameraComponent* _camera = nullptr;
 
         std::string _id;
         std::vector<FrameResource> _requiredResources;

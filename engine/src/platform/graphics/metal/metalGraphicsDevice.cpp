@@ -304,6 +304,7 @@ namespace visutwin::canvas
             _preparedDrawable->release();
             _preparedDrawable = nullptr;
         }
+        dropReadbacks();
         if (_renderPassEncoder) {
             if (_encoderDebugGroupOpen) { _renderPassEncoder->popDebugGroup(); _encoderDebugGroupOpen = false; }
             _renderPassEncoder->endEncoding();
@@ -475,6 +476,7 @@ namespace visutwin::canvas
             waitServicingRunLoop([this] { _frameGate.waitForFrame(); });
         }
         _frameSlotTaken = false;
+        deliverReadbacks();
         _transformRing->beginFrame();
         _uniformRing->beginFrame();
         _paletteRing->beginFrame();
@@ -621,6 +623,8 @@ namespace visutwin::canvas
         // kMaxInflightFrames.
         auto* endBuffer = openCommandBuffer();
         if (endBuffer) {
+            // After everything the frame rendered.
+            encodeReadbacks(endBuffer);
             // The gate's slot comes back when the whole frame has completed on the GPU.
             _frameGate.releaseFrameOnCompletion(endBuffer);
 
@@ -1275,6 +1279,88 @@ namespace visutwin::canvas
         if (!_insideFrame && _envBatchDepth <= 0) {
             flushCommands();
         }
+    }
+
+    void MetalGraphicsDevice::queueReadback(MTL::Texture* texture, const gpu::TextureReadRegion& region,
+        const uint32_t bytesPerPixel, gpu::TextureReadCallback callback)
+    {
+        Readback readback;
+        readback.texture = texture->retain();
+        readback.region = region;
+        readback.bytesPerPixel = bytesPerPixel;
+        readback.callback = std::move(callback);
+        _readbacksQueued.push_back(std::move(readback));
+    }
+
+    void MetalGraphicsDevice::encodeReadbacks(MTL::CommandBuffer* commandBuffer)
+    {
+        if (_readbacksQueued.empty()) {
+            return;
+        }
+        MTL::BlitCommandEncoder* blit = commandBuffer->blitCommandEncoder();
+        if (!blit) {
+            spdlog::error("MetalGraphicsDevice: no blit encoder for {} texture readbacks", _readbacksQueued.size());
+            dropReadbacks();
+            return;
+        }
+        auto done = std::make_shared<std::atomic<bool>>(false);
+        for (auto& readback : _readbacksQueued) {
+            const auto& region = readback.region;
+            const size_t rowPitch = static_cast<size_t>(region.width) * readback.bytesPerPixel;
+            readback.buffer = _device->newBuffer(rowPitch * region.height, MTL::ResourceStorageModeShared);
+            if (readback.buffer) {
+                blit->copyFromTexture(readback.texture, region.face, region.mipLevel,
+                    MTL::Origin(region.x, region.y, 0), MTL::Size(region.width, region.height, 1),
+                    readback.buffer, 0, rowPitch, rowPitch * region.height);
+            }
+            readback.texture->release();
+            readback.texture = nullptr;
+            readback.done = done;
+            if (readback.buffer) {
+                _readbacksInFlight.push_back(std::move(readback));
+            }
+        }
+        blit->endEncoding();
+        _readbacksQueued.clear();
+        commandBuffer->addCompletedHandler([done](MTL::CommandBuffer*) { done->store(true); });
+    }
+
+    void MetalGraphicsDevice::deliverReadbacks()
+    {
+        // In order, and only the completed ones; a callback may queue the next read.
+        std::vector<Readback> completed;
+        for (auto it = _readbacksInFlight.begin(); it != _readbacksInFlight.end();) {
+            if (it->done && it->done->load()) {
+                completed.push_back(std::move(*it));
+                it = _readbacksInFlight.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        for (auto& readback : completed) {
+            const size_t size = static_cast<size_t>(readback.region.width) * readback.region.height *
+                readback.bytesPerPixel;
+            if (readback.callback) {
+                readback.callback(static_cast<const uint8_t*>(readback.buffer->contents()), size);
+            }
+            readback.buffer->release();
+        }
+    }
+
+    void MetalGraphicsDevice::dropReadbacks()
+    {
+        for (auto& readback : _readbacksQueued) {
+            if (readback.texture) {
+                readback.texture->release();
+            }
+        }
+        _readbacksQueued.clear();
+        for (auto& readback : _readbacksInFlight) {
+            if (readback.buffer) {
+                readback.buffer->release();
+            }
+        }
+        _readbacksInFlight.clear();
     }
 
     bool MetalGraphicsDevice::encodeTextureCopy(MTL::Texture* source, MTL::Texture* destination,

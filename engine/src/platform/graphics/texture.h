@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <cstddef>
 #include <vector>
 
@@ -116,6 +117,26 @@ namespace visutwin::canvas
         bool read(std::vector<uint8_t>& out, uint32_t x = 0, uint32_t y = 0,
             uint32_t width = 0, uint32_t height = 0, uint32_t mipLevel = 0,
             uint32_t face = 0);
+
+        /**
+         * The same read WITHOUT blocking: the region is copied into staging at the end of
+         * the current frame (or the next, between frames), after everything the frame renders,
+         * and `callback` gets the pixels on this thread at a later frame start, once the GPU
+         * has finished that frame (Metal: when the frame's command buffer completes; Vulkan:
+         * when its frame slot's fence is next waited on). A texture destroyed before its frame
+         * ends cancels the read on Vulkan (never called); Metal holds the GPU texture until the
+         * copy is encoded and still delivers it. Pending reads are dropped, uncalled, when the
+         * device goes away. Returns false, queuing nothing, for the same reasons read() does.
+         */
+        bool readAsync(gpu::TextureReadCallback callback, uint32_t x = 0, uint32_t y = 0,
+            uint32_t width = 0, uint32_t height = 0, uint32_t mipLevel = 0, uint32_t face = 0);
+
+    private:
+        /// The checked region of a read, or nothing (logged) when it cannot be read.
+        std::optional<gpu::TextureReadRegion> readRegion(const char* what, uint32_t x, uint32_t y,
+            uint32_t width, uint32_t height, uint32_t mipLevel, uint32_t face) const;
+
+    public:
 
         /**
          * Copy a block of `source` into this texture on the GPU: `source` must have this

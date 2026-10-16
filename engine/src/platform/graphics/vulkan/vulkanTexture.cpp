@@ -58,8 +58,9 @@ namespace visutwin::canvas::gpu
         }
 
         // Defer through the device: an in-flight frame's descriptors may still
-        // reference this image/view/sampler.
+        // reference this image/view/sampler. A read queued and not yet recorded goes too.
         if (_deviceRef) {
+            _deviceRef->cancelReadbacks(this);
             _deviceRef->deferDestroy(
                 [vkDevice = _vkDevice, allocator = _allocator, image = _image,
                  allocation = _allocation, view = _imageView, sampler = _sampler] {
@@ -796,6 +797,45 @@ namespace visutwin::canvas::gpu
         }
         vmaDestroyBuffer(vulkanDevice->vmaAllocator(), staging, allocation);
         return ok;
+    }
+
+    bool VulkanTexture::readAsync(GraphicsDevice* device, const TextureReadRegion& region,
+        TextureReadCallback callback)
+    {
+        auto* vulkanDevice = dynamic_cast<VulkanGraphicsDevice*>(device);
+        if (!vulkanDevice || _image == VK_NULL_HANDLE || pixelFormatBytesPerPixel(_owner->format()) == 0) {
+            return false;
+        }
+        vulkanDevice->queueReadback(this, region, std::move(callback));
+        return true;
+    }
+
+    PixelFormat VulkanTexture::ownerFormat() const
+    {
+        return _owner->format();
+    }
+
+    void VulkanTexture::recordCopyToBuffer(VkCommandBuffer cmd, const TextureReadRegion& region, VkBuffer buffer)
+    {
+        // The subresource is handed back in the layout it was found in, as read() does.
+        const VkImageLayout previous = layout(region.mipLevel, region.face);
+        transitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, region.mipLevel, 1, region.face, 1);
+
+        VkBufferImageCopy copy{};
+        copy.bufferRowLength = 0;
+        copy.bufferImageHeight = 0;
+        copy.imageSubresource.aspectMask = _aspect;
+        copy.imageSubresource.mipLevel = region.mipLevel;
+        copy.imageSubresource.baseArrayLayer = region.face;
+        copy.imageSubresource.layerCount = 1;
+        copy.imageOffset = {static_cast<int32_t>(region.x), static_cast<int32_t>(region.y), 0};
+        copy.imageExtent = {region.width, region.height, 1};
+        vkCmdCopyImageToBuffer(cmd, _image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, 1, &copy);
+        vulkanRecordCopyToHostBarrier(cmd);
+
+        if (previous != VK_IMAGE_LAYOUT_UNDEFINED && previous != VK_IMAGE_LAYOUT_PREINITIALIZED) {
+            transitionLayout(cmd, previous, region.mipLevel, 1, region.face, 1);
+        }
     }
 
     bool VulkanTexture::copyFrom(GraphicsDevice* device, HardwareTexture& source,

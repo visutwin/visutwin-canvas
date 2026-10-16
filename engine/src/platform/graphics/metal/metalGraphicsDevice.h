@@ -6,7 +6,9 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <unordered_map>
 #include <vector>
@@ -90,6 +92,12 @@ namespace visutwin::canvas
         // a render pass. Submitted with the frame or offline scope it is part of, alone otherwise.
         bool encodeTextureCopy(MTL::Texture* source, MTL::Texture* destination,
             const gpu::TextureCopyRegion& region);
+
+        // Texture::readAsync: the read is blitted into a shared buffer in the frame's last
+        // command buffer (encodeReadbacks, at frame end) and handed back at a frame start
+        // once that buffer has completed (deliverReadbacks).
+        void queueReadback(MTL::Texture* texture, const gpu::TextureReadRegion& region, uint32_t bytesPerPixel,
+            gpu::TextureReadCallback callback);
 
         /// Depth-stencil, for UI masks (metal::kBackBufferDepthFormat); a blit needs matching
         /// formats, so a depth grab from the back buffer allocates this.
@@ -366,6 +374,21 @@ namespace visutwin::canvas
 
         // Nesting depth of beginOfflineWork/endOfflineWork.
         int _envBatchDepth = 0;
+
+        struct Readback
+        {
+            MTL::Texture* texture = nullptr;   // retained until encoded
+            gpu::TextureReadRegion region;
+            uint32_t bytesPerPixel = 0;
+            gpu::TextureReadCallback callback;
+            MTL::Buffer* buffer = nullptr;     // shared staging, once encoded
+            std::shared_ptr<std::atomic<bool>> done;
+        };
+        void encodeReadbacks(MTL::CommandBuffer* commandBuffer);
+        void deliverReadbacks();
+        void dropReadbacks();
+        std::vector<Readback> _readbacksQueued;
+        std::vector<Readback> _readbacksInFlight;
 
         // openCommandBuffer(): retained while open, released when committed.
         MTL::CommandBuffer* _openCommandBuffer = nullptr;

@@ -530,6 +530,10 @@ namespace visutwin::canvas
         if (_device != VK_NULL_HANDLE)
             vkDeviceWaitIdle(_device);
         collectUploads(true);
+        // Pending reads are dropped, uncalled.
+        _readbacksQueued.clear();
+        dropReadbacks(_readbacksRecorded);
+        dropReadbacks(_readbacksInFlight);
 
         // GraphicsDevice owns shaders, buffers, textures, and render targets
         // whose destructors need a live VkDevice/VMA allocator. Release them

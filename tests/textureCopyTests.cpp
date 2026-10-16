@@ -228,6 +228,52 @@ int main()
             std::vector<uint8_t> actual;
             check(dest->read(actual) && actual == solid(kSize, kGrey), "a refused copy writes nothing");
         }
+
+        // ── A read that does not block (Texture::readAsync) ──────────────────
+        {
+            auto source = makeTexture(device.get(), "read-async", kSize, false);
+            fill(*source, pattern);
+            source->upload();
+            std::vector<uint8_t> whole;
+            std::vector<uint8_t> quarter;
+            int calls = 0;
+            bool dropped = false;
+            device->frameStart();
+            check(source->readAsync([&](const uint8_t* data, const size_t size) {
+                whole.assign(data, data + size);
+                ++calls;
+            }), "a read is queued inside a frame");
+            check(source->readAsync([&](const uint8_t* data, const size_t size) {
+                quarter.assign(data, data + size);
+                ++calls;
+            }, kSize / 2, 0, kSize / 2, kSize / 2), "and a sub-rectangle");
+            check(!source->readAsync([&](const uint8_t*, size_t) {}, kSize, 0, 1, 1),
+                "a region outside the level is refused");
+            {
+                auto shortLived = makeTexture(device.get(), "read-async-gone", kSize, false);
+                fill(*shortLived, pattern);
+                shortLived->upload();
+                shortLived->readAsync([&](const uint8_t*, size_t) { dropped = true; });
+            }
+            check(calls == 0, "nothing arrives inside the frame that queued it");
+            device->frameEnd();
+            for (int frame = 0; frame < 8 && calls < 2; ++frame) {
+                device->frameStart();
+                device->frameEnd();
+            }
+            check(calls == 2, "both reads arrive at a later frame start");
+            check(whole == pattern, "the whole level texel for texel");
+            std::vector<uint8_t> expected;
+            for (uint32_t y = 0; y < kSize / 2; ++y) {
+                for (uint32_t x = kSize / 2; x < kSize; ++x) {
+                    expected.insert(expected.end(), kGreen.begin(), kGreen.end());
+                }
+            }
+            check(quarter == expected, "the top-right quarter, tightly packed");
+            // Metal retains the GPU texture until the copy is encoded, so the read still arrives;
+            // Vulkan cancels it with the texture.
+            check(backend == Backend::Metal || !dropped, "a texture gone before its frame ends cancels its read");
+        }
     }
 
     if (renderer) {

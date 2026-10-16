@@ -1023,6 +1023,23 @@ present, but the rule below never depends on reading it.
   layout it borrowed. The Vulkan path refuses outright while a frame or an offline
   scope is recording: that work is not submitted, so a one-shot read would run
   ahead of the very commands whose output is being asked for.
+- **A read that must not stall goes through `Texture::readAsync(callback, region)`**: the
+  backend records the copy into staging at the END of the frame it is queued in (Metal blits
+  into a shared buffer in the frame's last command buffer, Vulkan records into the frame's
+  command buffer before submit) and calls back on the device's thread at a later frame START,
+  once that frame has finished (Metal: the buffer's completion; Vulkan: the frame slot's fence,
+  just waited on). It may be queued from anywhere in a frame, a pass's `after()` included,
+  because nothing is encoded then. A texture destroyed before its frame ends cancels the read on
+  Vulkan and still delivers on Metal (it retains the GPU texture); pending reads die uncalled
+  with the device. A callback owner that can go away first guards itself (the auto exposure
+  captures a `weak_ptr` token). `tests/textureCopyTests.cpp` (`gpu`) round-trips a level and a
+  sub-rectangle through it.
+- **A camera's exposure has a per-frame SCALE** (`Camera::exposureScale`, applied by
+  `Scene::exposureFor`): the camera frame sets it every frame to the product of its active
+  effects' `cameraExposureScale()` (the auto exposure) and re-resolves compose and TAA's
+  exposure when it changed; the renderer puts it back to 1 when the camera leaves its frame
+  (`applyFrameEffectJitter`). Read the camera's exposure through `exposureFor`, never
+  `Scene::exposure()` / `physicalExposure()` alone, or a pass misses the adaptation.
 - **A texture-to-texture copy goes through `Texture::copy(source, CopyOptions)`** (mip levels,
   one cube face, a source rectangle and where it lands; one format, uncompressed, two
   different textures), the GPU twin of `Texture::read`. Metal encodes the blit into the OPEN

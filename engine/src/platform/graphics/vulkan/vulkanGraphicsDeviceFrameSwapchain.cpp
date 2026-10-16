@@ -484,6 +484,7 @@ namespace visutwin::canvas
         // The fence wait proves frame (_frameNumber - kMaxFramesInFlight) has
         // completed on the GPU — release resources queued up to that frame.
         flushDeferredDestroys(false);
+        deliverReadbacks();
         collectRetiredSwapchains(false);
         if (_renderingDisabled) {
             return;
@@ -690,6 +691,10 @@ namespace visutwin::canvas
         if (screenshotPending()) {
             recordScreenshotCopy(cmd, screenshotBuffer, screenshotAllocation);
         }
+        // After everything the frame rendered. Reads recorded into a frame whose submission
+        // then failed never ran: drop them before recording this frame's.
+        dropReadbacks(_readbacksRecorded);
+        recordReadbacks(cmd);
         // Freed however this function exits — several submission-failure paths
         // return early.
         struct ScreenshotBufferGuard
@@ -777,6 +782,10 @@ namespace visutwin::canvas
             recoverFailedFrameSubmission(submitResult);
             return;
         }
+        for (auto& readback : _readbacksRecorded) {
+            _readbacksInFlight.push_back(std::move(readback));
+        }
+        _readbacksRecorded.clear();
 
         // Present
         VkPresentInfoKHR presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
@@ -1173,6 +1182,76 @@ namespace visutwin::canvas
     std::pair<int, int> VulkanGraphicsDevice::size() const
     {
         return {_width, _height};
+    }
+
+    void VulkanGraphicsDevice::queueReadback(gpu::VulkanTexture* texture, const gpu::TextureReadRegion& region,
+        gpu::TextureReadCallback callback)
+    {
+        Readback readback;
+        readback.texture = texture;
+        readback.region = region;
+        readback.callback = std::move(callback);
+        _readbacksQueued.push_back(std::move(readback));
+    }
+
+    void VulkanGraphicsDevice::cancelReadbacks(const gpu::VulkanTexture* texture)
+    {
+        std::erase_if(_readbacksQueued, [texture](const Readback& readback) { return readback.texture == texture; });
+    }
+
+    void VulkanGraphicsDevice::recordReadbacks(VkCommandBuffer cmd)
+    {
+        for (auto& readback : _readbacksQueued) {
+            const uint32_t bytesPerPixel = pixelFormatBytesPerPixel(readback.texture->ownerFormat());
+            readback.size = static_cast<size_t>(readback.region.width) * readback.region.height * bytesPerPixel;
+            VmaAllocationInfo mapped{};
+            if (readback.size == 0 || !vulkanCreateReadbackBuffer(_vmaAllocator, readback.size, readback.buffer,
+                    readback.allocation, &mapped) || !mapped.pMappedData) {
+                spdlog::error("VulkanGraphicsDevice: no {}-byte staging buffer for a texture readback", readback.size);
+                if (readback.buffer != VK_NULL_HANDLE) {
+                    vmaDestroyBuffer(_vmaAllocator, readback.buffer, readback.allocation);
+                }
+                continue;
+            }
+            readback.mapped = mapped.pMappedData;
+            readback.texture->recordCopyToBuffer(cmd, readback.region, readback.buffer);
+            readback.texture = nullptr;
+            readback.frameIndex = _frameIndex;
+            _readbacksRecorded.push_back(std::move(readback));
+        }
+        _readbacksQueued.clear();
+    }
+
+    void VulkanGraphicsDevice::deliverReadbacks()
+    {
+        // The reads submitted with this frame slot's fence, which the caller has just waited
+        // on; in order. A callback may queue the next read.
+        std::vector<Readback> completed;
+        for (auto it = _readbacksInFlight.begin(); it != _readbacksInFlight.end();) {
+            if (it->frameIndex == _frameIndex) {
+                completed.push_back(std::move(*it));
+                it = _readbacksInFlight.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        for (auto& readback : completed) {
+            vmaInvalidateAllocation(_vmaAllocator, readback.allocation, 0, VK_WHOLE_SIZE);
+            if (readback.callback) {
+                readback.callback(static_cast<const uint8_t*>(readback.mapped), readback.size);
+            }
+            vmaDestroyBuffer(_vmaAllocator, readback.buffer, readback.allocation);
+        }
+    }
+
+    void VulkanGraphicsDevice::dropReadbacks(std::vector<Readback>& readbacks)
+    {
+        for (auto& readback : readbacks) {
+            if (readback.buffer != VK_NULL_HANDLE) {
+                vmaDestroyBuffer(_vmaAllocator, readback.buffer, readback.allocation);
+            }
+        }
+        readbacks.clear();
     }
 }
 

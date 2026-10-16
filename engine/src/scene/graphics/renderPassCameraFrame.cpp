@@ -1299,10 +1299,19 @@ namespace visutwin::canvas
             context.renderWidth = renderWidth;
             context.renderHeight = renderHeight;
             context.displayExposure = _displayExposure;
+            float exposureScale = 1.0f;
             for (const auto& effect : _cameraComponent->allFrameEffects()) {
                 if (effect && effect->active()) {
                     effect->frameUpdate(context);
+                    exposureScale *= effect->cameraExposureScale();
                 }
+            }
+
+            // The camera renders this frame at the exposure its effects scale it to (the auto
+            // exposure), which compose and TAA then take up.
+            if (auto* camera = _cameraComponent->camera(); camera && camera->exposureScale() != exposureScale) {
+                camera->setExposureScale(exposureScale);
+                applyDisplaySettings();
             }
         }
     }

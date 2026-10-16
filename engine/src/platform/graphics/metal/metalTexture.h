@@ -56,6 +56,9 @@ namespace visutwin::canvas::gpu
         bool read(GraphicsDevice* device, const TextureReadRegion& region,
             uint8_t* out, size_t outSize) override;
 
+        bool readAsync(GraphicsDevice* device, const TextureReadRegion& region,
+            TextureReadCallback callback) override;
+
         bool copyFrom(GraphicsDevice* device, HardwareTexture& source,
             const TextureCopyRegion& region) override;
 

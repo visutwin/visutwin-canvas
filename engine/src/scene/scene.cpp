@@ -160,6 +160,7 @@ namespace visutwin::canvas
 
     float Scene::exposureFor(const Camera* camera) const
     {
-        return _physicalUnits && camera ? camera->physicalExposure() : _exposure;
+        const float base = _physicalUnits && camera ? camera->physicalExposure() : _exposure;
+        return camera ? base * camera->exposureScale() : base;
     }
 }

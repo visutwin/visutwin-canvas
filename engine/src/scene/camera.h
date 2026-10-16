@@ -211,6 +211,13 @@ namespace visutwin::canvas
         bool skyVisible() const { return _skyVisible; }
         void setSkyVisible(const bool value) { _skyVisible = value; }
 
+        /// What the camera's exposure (the scene's, or the physical camera's under physical
+        /// units) is multiplied by: set every frame by its camera frame, the product of what its
+        /// active effects ask for (CameraFrameEffect::cameraExposureScale, the auto exposure),
+        /// and 1 again once it renders through no frame. Scene::exposureFor applies it.
+        float exposureScale() const { return _exposureScale; }
+        void setExposureScale(const float value) { _exposureScale = value; }
+
         GraphNode* node() const { return _node; }
         // Non-owning: the node (typically an Entity) is owned elsewhere.
         void setNode(GraphNode* value);
@@ -234,6 +241,7 @@ namespace visutwin::canvas
             _projection = other._projection;
             _projectionOffset = other._projectionOffset;
             _cullingMask = other._cullingMask;
+            _exposureScale = other._exposureScale;
             _clearColor = other._clearColor;
             _clearColorBuffer = other._clearColorBuffer;
             _clearDepthBuffer = other._clearDepthBuffer;
@@ -329,6 +337,7 @@ namespace visutwin::canvas
 
         uint32_t _cullingMask = 0xFFFFFFFFu;
         bool _skyVisible = true;
+        float _exposureScale = 1.0f;
         float _orthoHeight = 10.0f;
 
         ProjectionType _projection = ProjectionType::Perspective;

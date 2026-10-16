@@ -25,11 +25,17 @@
 #include <vector>
 
 #include "platform/graphics/shaderDiskCache.h"
+#include "platform/graphics/gpu.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
 #include "vulkanGpuProfiler.h"
 #include "vulkanUniformLayouts.h"
 #include "vulkanUtils.h"
+
+namespace visutwin::canvas::gpu
+{
+    class VulkanTexture;
+}
 
 namespace visutwin::canvas
 {
@@ -343,6 +349,33 @@ namespace visutwin::canvas
         void recordScreenshotCopy(VkCommandBuffer cmd, VkBuffer& outBuffer,
             VmaAllocation& outAllocation);
         void writeScreenshotFromBuffer(VmaAllocation allocation);
+
+    public:
+        // Texture::readAsync: queued, recorded into the frame's command buffer at frame end
+        // (recordReadbacks), and handed back at a frame start once that frame slot's fence has
+        // been waited on (deliverReadbacks). A texture going away cancels its queued reads.
+        void queueReadback(gpu::VulkanTexture* texture, const gpu::TextureReadRegion& region,
+            gpu::TextureReadCallback callback);
+        void cancelReadbacks(const gpu::VulkanTexture* texture);
+
+    private:
+        struct Readback
+        {
+            gpu::VulkanTexture* texture = nullptr;   // until recorded
+            gpu::TextureReadRegion region;
+            gpu::TextureReadCallback callback;
+            VkBuffer buffer = VK_NULL_HANDLE;
+            VmaAllocation allocation = nullptr;
+            void* mapped = nullptr;
+            size_t size = 0;
+            uint32_t frameIndex = 0;
+        };
+        void recordReadbacks(VkCommandBuffer cmd);
+        void deliverReadbacks();
+        void dropReadbacks(std::vector<Readback>& readbacks);
+        std::vector<Readback> _readbacksQueued;
+        std::vector<Readback> _readbacksRecorded;   // in this frame's command buffer, not yet submitted
+        std::vector<Readback> _readbacksInFlight;
 
         void initialize(const GraphicsDeviceOptions& options);
         // Used only when initialize() throws. The most-derived destructor is

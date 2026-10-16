@@ -116,7 +116,8 @@ namespace visutwin::canvas
         float exposure() const { return _exposure; }
 
         /// The exposure a camera renders with (the `exposure` uniform): the
-        /// camera's physical exposure under physicalUnits, the scene exposure otherwise.
+        /// camera's physical exposure under physicalUnits, the scene exposure otherwise,
+        /// times the camera's exposureScale (what its frame's effects adapt it by).
         float exposureFor(const Camera* camera) const;
 
         void setSkyType(int value);

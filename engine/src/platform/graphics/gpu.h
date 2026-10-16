@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 
 namespace visutwin::canvas
 {
@@ -16,6 +17,10 @@ namespace visutwin::canvas
 
 namespace visutwin::canvas::gpu
 {
+    /// What a non-blocking readback hands back: the region's pixels, tightly packed, valid
+    /// during the call only.
+    using TextureReadCallback = std::function<void(const uint8_t* data, size_t size)>;
+
     /// The rectangle of one mip level and one face a readback covers.
     struct TextureReadRegion
     {
@@ -80,6 +85,18 @@ namespace visutwin::canvas::gpu
          * one on the GPU. Call it through `Texture::copy`, which validates the region.
          * Returns false when the backend cannot do it now.
          */
+        /**
+         * Queues a NON-blocking read of `region`: the backend copies it into staging at the end
+         * of the frame it is queued in, ordered after everything that frame rendered, and calls
+         * `callback` on the device's thread at a later frame start, once the GPU has finished
+         * that frame. Returns false when the backend cannot.
+         */
+        virtual bool readAsync(GraphicsDevice* /*device*/, const TextureReadRegion& /*region*/,
+            TextureReadCallback /*callback*/)
+        {
+            return false;
+        }
+
         virtual bool copyFrom(GraphicsDevice* /*device*/, HardwareTexture& /*source*/,
             const TextureCopyRegion& /*region*/)
         {

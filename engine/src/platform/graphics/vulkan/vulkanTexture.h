@@ -36,8 +36,15 @@ namespace visutwin::canvas::gpu
         void propertyChanged(uint32_t flag) override;
         bool read(GraphicsDevice* device, const TextureReadRegion& region,
             uint8_t* out, size_t outSize) override;
+        bool readAsync(GraphicsDevice* device, const TextureReadRegion& region,
+            TextureReadCallback callback) override;
         bool copyFrom(GraphicsDevice* device, HardwareTexture& source,
             const TextureCopyRegion& region) override;
+
+        /// Records `region` into `buffer` (tightly packed), handing the subresource back in the
+        /// layout it was found in: a non-blocking read's copy, at frame end.
+        void recordCopyToBuffer(VkCommandBuffer cmd, const TextureReadRegion& region, VkBuffer buffer);
+        [[nodiscard]] PixelFormat ownerFormat() const;
 
         [[nodiscard]] VkImage image() const { return _image; }
         [[nodiscard]] VkImageView imageView() const { return _imageView; }

@@ -279,22 +279,21 @@ namespace visutwin::canvas
         return _impl->copyFrom(_device, *source._impl, region);
     }
 
-    bool Texture::read(std::vector<uint8_t>& out, const uint32_t x, const uint32_t y,
-        uint32_t width, uint32_t height, const uint32_t mipLevel, const uint32_t face)
+    std::optional<gpu::TextureReadRegion> Texture::readRegion(const char* what, const uint32_t x, const uint32_t y,
+        uint32_t width, uint32_t height, const uint32_t mipLevel, const uint32_t face) const
     {
         if (!_impl || !_device) {
-            spdlog::warn("Texture::read({}): no GPU texture to read from", _name);
-            return false;
+            spdlog::warn("Texture::{}({}): no GPU texture to read from", what, _name);
+            return std::nullopt;
         }
 
         // A compressed format has no bytes-per-pixel, and pixelFormatBytesPerPixel
         // answers 0 for any enumerator missing from its table — sizing a buffer on
         // that would read the whole level into nothing.
-        const uint32_t bytesPerPixel = pixelFormatBytesPerPixel(_format);
-        if (bytesPerPixel == 0) {
-            spdlog::warn("Texture::read({}): format {} has no byte size", _name,
+        if (pixelFormatBytesPerPixel(_format) == 0) {
+            spdlog::warn("Texture::{}({}): format {} has no byte size", what, _name,
                 static_cast<int>(_format));
-            return false;
+            return std::nullopt;
         }
 
         const uint32_t levelWidth = std::max(_width >> mipLevel, 1u);
@@ -302,24 +301,43 @@ namespace visutwin::canvas
         if (width == 0) width = levelWidth > x ? levelWidth - x : 0;
         if (height == 0) height = levelHeight > y ? levelHeight - y : 0;
         if (width == 0 || height == 0 || x + width > levelWidth || y + height > levelHeight) {
-            spdlog::warn("Texture::read({}): region {}x{} at ({}, {}) is outside mip {} "
-                "({}x{})", _name, width, height, x, y, mipLevel, levelWidth, levelHeight);
-            return false;
+            spdlog::warn("Texture::{}({}): region {}x{} at ({}, {}) is outside mip {} "
+                "({}x{})", what, _name, width, height, x, y, mipLevel, levelWidth, levelHeight);
+            return std::nullopt;
         }
         if (mipLevel >= _numLevels || (_cubemap && face >= 6) || (!_cubemap && face > 0)) {
-            spdlog::warn("Texture::read({}): mip {} face {} does not exist", _name,
+            spdlog::warn("Texture::{}({}): mip {} face {} does not exist", what, _name,
                 mipLevel, face);
+            return std::nullopt;
+        }
+        return gpu::TextureReadRegion{x, y, width, height, mipLevel, face};
+    }
+
+    bool Texture::read(std::vector<uint8_t>& out, const uint32_t x, const uint32_t y,
+        const uint32_t width, const uint32_t height, const uint32_t mipLevel, const uint32_t face)
+    {
+        const auto region = readRegion("read", x, y, width, height, mipLevel, face);
+        if (!region) {
             return false;
         }
-
+        const uint32_t bytesPerPixel = pixelFormatBytesPerPixel(_format);
         std::vector<uint8_t> pixels(
-            static_cast<size_t>(width) * height * bytesPerPixel);
-        const gpu::TextureReadRegion region{x, y, width, height, mipLevel, face};
-        if (!_impl->read(_device, region, pixels.data(), pixels.size())) {
+            static_cast<size_t>(region->width) * region->height * bytesPerPixel);
+        if (!_impl->read(_device, *region, pixels.data(), pixels.size())) {
             return false;
         }
         out = std::move(pixels);
         return true;
+    }
+
+    bool Texture::readAsync(gpu::TextureReadCallback callback, const uint32_t x, const uint32_t y,
+        const uint32_t width, const uint32_t height, const uint32_t mipLevel, const uint32_t face)
+    {
+        if (!callback) {
+            return false;
+        }
+        const auto region = readRegion("readAsync", x, y, width, height, mipLevel, face);
+        return region && _impl->readAsync(_device, *region, std::move(callback));
     }
 
     size_t Texture::getLevelDataSize(uint32_t mipLevel, uint32_t face) const

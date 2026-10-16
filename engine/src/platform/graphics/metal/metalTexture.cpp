@@ -506,6 +506,18 @@ namespace visutwin::canvas::gpu
             out, outSize);
     }
 
+    bool MetalTexture::readAsync(GraphicsDevice* device, const TextureReadRegion& region,
+        TextureReadCallback callback)
+    {
+        auto* metalDevice = dynamic_cast<MetalGraphicsDevice*>(device);
+        const uint32_t bytesPerPixel = pixelFormatBytesPerPixel(_texture->format());
+        if (!metalDevice || !_metalTexture || bytesPerPixel == 0) {
+            return false;
+        }
+        metalDevice->queueReadback(_metalTexture, region, bytesPerPixel, std::move(callback));
+        return true;
+    }
+
     bool MetalTexture::copyFrom(GraphicsDevice* device, HardwareTexture& source,
         const TextureCopyRegion& region)
     {

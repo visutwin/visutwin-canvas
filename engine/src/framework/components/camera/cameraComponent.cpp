@@ -36,6 +36,11 @@ namespace visutwin::canvas
         ComponentRegistry* const registry = this->registry();
         unlistInstance();
 
+        // An application may keep an effect beyond its camera.
+        for (const auto& effect : _frameEffects) {
+            effect->_camera = nullptr;
+        }
+
         if (_cameraFrame) {
             _cameraFrame->destroy();
             _cameraFrame.reset();
@@ -256,13 +261,16 @@ namespace visutwin::canvas
             return false;
         }
         _frameEffects.push_back(effect);
+        effect->_camera = this;
         rebuildAllFrameEffects();
         return true;
     }
 
     void CameraComponent::removeFrameEffect(const std::shared_ptr<CameraFrameEffect>& effect)
     {
-        std::erase(_frameEffects, effect);
+        if (effect && std::erase(_frameEffects, effect) > 0) {
+            effect->_camera = nullptr;
+        }
         rebuildAllFrameEffects();
     }
 
@@ -304,7 +312,9 @@ namespace visutwin::canvas
             _camera->setJitter(frameEffectJitter());
             _jitterFromFrame = true;
         } else if (_jitterFromFrame) {
+            // Leaving its frame, the camera drops what the frame's effects set on it.
             _camera->setJitter(0.0f);
+            _camera->setExposureScale(1.0f);
             _jitterFromFrame = false;
         }
     }
