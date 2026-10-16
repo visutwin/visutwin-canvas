@@ -890,9 +890,10 @@ namespace visutwin::canvas
         // three clearcoat maps) read through the shared sampler at 24, so the
         // descriptor for each carries only the half it owns.
         constexpr int kExtraSampler = static_cast<int>(kMaterialExtraSamplerBinding);
+        const VkSampler extraSampler = quadRenderActive() ? _quadExtraSampler : _materialExtraSampler;
         for (size_t i = 0; i < imageInfos.size(); ++i) {
             const int slot = kMaterialTextureBindings[i];
-            imageInfos[i].sampler = (slot == kExtraSampler) ? _materialExtraSampler
+            imageInfos[i].sampler = (slot == kExtraSampler) ? extraSampler
                 : (vulkanMaterialBindingIsSeparateImage(static_cast<uint32_t>(slot)) ? VK_NULL_HANDLE : _defaultSampler);
             imageInfos[i].imageView =
                 (slot == kExtraSampler) ? VK_NULL_HANDLE : _whiteImageView;
@@ -954,10 +955,15 @@ namespace visutwin::canvas
         // too ("use of undeclared identifier _NSmplr"). Binding 17 is a SEPARATE image in this layout, so a quad
         // shader declares slot 6 as `texture2D` and samples it through the extra
         // sampler at binding 24; slot 7 (19) is an ordinary sampler2D.
-        const size_t quadSlots = std::min(imageInfos.size(), quadTextureBindings().size());
-        for (size_t slotIndex = 0; slotIndex < quadSlots; ++slotIndex) {
+        // Inputs 8 and up are the separate images VT_QUAD_EXTRA_INPUTS names
+        // (shaderBindings::quadInputDescriptorIndex).
+        for (size_t input = 0; input < quadTextureBindings().size(); ++input) {
+            const size_t slotIndex = shaderBindings::quadInputDescriptorIndex(input);
+            if (slotIndex >= imageInfos.size()) {
+                continue;
+            }
             const int binding = kMaterialTextureBindings[slotIndex];
-            Texture* quadTexture = quadTextureBinding(slotIndex);
+            Texture* quadTexture = quadTextureBinding(input);
             if (!quadTexture) {
                 continue;
             }

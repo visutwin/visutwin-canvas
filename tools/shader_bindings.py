@@ -65,6 +65,17 @@ def read_bindings(header: Path) -> tuple[list[BindingRow], list[BindingRow]]:
     return rows("VT_MATERIAL_TEXTURE_BINDINGS"), rows("VT_SCENE_TEXTURE_BINDINGS")
 
 
+def read_quad_extra_inputs(header: Path) -> list[str]:
+    """The material rows quad inputs 8 and up name (VT_QUAD_EXTRA_INPUTS), in input order."""
+    text = header.read_text()
+    start = text.index("#define VT_QUAD_EXTRA_INPUTS(X)")
+    line = text[start:text.index("\n", start)]
+    names = re.findall(r"X\((\w+)\)", line)
+    if not names:
+        raise RuntimeError(f"{header}: no rows found in VT_QUAD_EXTRA_INPUTS")
+    return names
+
+
 def expected_descriptors(header: Path) -> set[tuple[int, int, str]]:
     """The (set, binding, kind) triples the FORWARD FRAGMENT stage declares in sets 1 and 3.
 

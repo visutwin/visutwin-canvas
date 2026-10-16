@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "scene/graphics/cameraFrameEffect.h"
+#include "platform/graphics/shaderBindings.h"
 #include "scene/graphics/composeShaders.h"
 
 namespace visutwin::canvas
@@ -73,6 +74,7 @@ namespace visutwin::canvas
         ComposeEffectsBuild build;
         std::string declarations;
         int nextRow = 0;
+        int nextInput = kComposeFirstEffectInput;
         for (const auto& owned : effects) {
             const CameraFrameEffect* effect = owned.get();
             if (!effect || !effect->active()) {
@@ -99,6 +101,13 @@ namespace visutwin::canvas
                     " are left; left out");
                 continue;
             }
+            const int textures = static_cast<int>(effect->textureUniforms().size());
+            if (nextInput + textures > static_cast<int>(kQuadTextureInputs)) {
+                build.errors.push_back("compose effect '" + effect->id() + "' needs " + std::to_string(textures) +
+                    " texture inputs and " + std::to_string(static_cast<int>(kQuadTextureInputs) - nextInput) +
+                    " are left; left out");
+                continue;
+            }
 
             build.effects.push_back(effect);
             build.requiresDepth = build.requiresDepth || requiresDepth(*effect);
@@ -113,6 +122,12 @@ namespace visutwin::canvas
                 build.placements.push_back({effect, i, nextRow});
                 declarations += "#define " + uniforms[i].name + " " + accessor(uniforms[i], nextRow) + "\n";
                 nextRow += rowsOf(uniforms[i]);
+            }
+            const auto& textureUniforms = effect->textureUniforms();
+            for (size_t i = 0; i < textureUniforms.size(); ++i) {
+                build.texturePlacements.push_back({effect, i, nextInput});
+                declarations += "VT_DECLARE_QUAD_INPUT" + std::to_string(nextInput) + "(" + textureUniforms[i].first + ")\n";
+                ++nextInput;
             }
             declarations += effect->slang();
             declarations += "\n";

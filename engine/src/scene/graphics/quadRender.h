@@ -36,7 +36,7 @@ namespace visutwin::canvas
         explicit QuadRender(const std::shared_ptr<Shader>& shader);
         ~QuadRender() = default;
 
-        /// Input texture for fragment slot `slot` (0..7).
+        /// Input texture `slot` (0 .. kQuadTextureInputs - 1).
         void setTexture(size_t slot, Texture* texture);
 
         /// Uniform block for the draw. Bytes are copied.
@@ -49,11 +49,22 @@ namespace visutwin::canvas
             setUniformData(&block, sizeof(T));
         }
 
+        /// Draws `vertexCount` vertices of `vertexBuffer` as a triangle list in place of the
+        /// fullscreen triangle: a pass drawing geometry of its own (sprites) with the quad's
+        /// shader, inputs and uniform block. Null goes back to the fullscreen triangle.
+        void setGeometry(const std::shared_ptr<VertexBuffer>& vertexBuffer, int vertexCount)
+        {
+            _vertexBuffer = vertexBuffer;
+            _vertexCount = vertexCount;
+        }
+
         void render(const Vector4* viewport = nullptr, const Vector4* scissor = nullptr) const;
 
     private:
+        std::shared_ptr<VertexBuffer> _vertexBuffer;
+        int _vertexCount = 0;
         std::shared_ptr<Shader> _shader;
-        std::array<Texture*, 8> _textures{};
+        std::array<Texture*, kQuadTextureInputs> _textures{};
         std::vector<uint8_t> _uniformData;
     };
 }

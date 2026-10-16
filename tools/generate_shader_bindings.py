@@ -23,7 +23,7 @@ import argparse
 import re
 from pathlib import Path
 
-from shader_bindings import MATERIAL_SET, SCENE_SET, BindingRow, read_bindings
+from shader_bindings import MATERIAL_SET, SCENE_SET, BindingRow, read_bindings, read_quad_extra_inputs
 
 SLANG_TYPE = {
     "Tex2D": "Texture2D",
@@ -67,7 +67,7 @@ QUAD_POINT_SAMPLER_BASE = 11
 QUAD_POINT_INPUTS = 5
 
 
-def quad_inputs(material: list[BindingRow]) -> list[str]:
+def quad_inputs(material: list[BindingRow], extra: list[str]) -> list[str]:
     """VT_DECLARE_QUAD_INPUTn(name): a quad pass's input n. On Metal input n is texture n
     with a sampler slot of its own (see QUAD_LINEAR_SAMPLER_BASE); on Vulkan it is the n-th
     material binding, combined where the row is, else a separate image through the shared
@@ -100,6 +100,7 @@ def quad_inputs(material: list[BindingRow]) -> list[str]:
         if row.kind == "CombinedSampler":
             lines.append(f"#define VT_DECLARE_QUAD_INPUT{n}(name) {vk}Sampler2D name : register(t{n}) : register(s{linear});")
             lines.append(f"#define VT_DECLARE_QUAD_CUBE_INPUT{n}(name) {vk}SamplerCube name : register(t{n}) : register(s{linear});")
+            lines.append(f"#define VT_DECLARE_QUAD_ARRAY_INPUT{n}(name) {vk}Sampler2DArray name : register(t{n}) : register(s{linear});")
             if n < QUAD_POINT_INPUTS:
                 lines.append(f"#define VT_DECLARE_QUAD_DEPTH_INPUT{n}(name) {vk}Sampler2D<float> name : register(t{n}) : register(s{point});")
                 lines.append(f"#define VT_DECLARE_QUAD_POINT_INPUT{n}(name) {vk}Sampler2D name : register(t{n}) : register(s{point});")
@@ -117,6 +118,19 @@ def quad_inputs(material: list[BindingRow]) -> list[str]:
             other.append(f"#define VT_DECLARE_QUAD_TEXEL_INPUT{n}(name) {vk}Sampler2D name : register(t{n}) : register(s{linear});")
         elif row.kind == "SeparateImage":
             lines.append(f"#define VT_DECLARE_QUAD_INPUT{n}(name) {vk}Texture2D name : register(t{n});")
+            lines.append(f"#define VT_DECLARE_QUAD_ARRAY_INPUT{n}(name) {vk}Texture2DArray name : register(t{n});")
+    # Inputs 8 and up: separate images on both backends (Metal texture n, Vulkan the binding of
+    # the material row named), read through quadSampler.
+    lines.append("// Inputs 8 and up are images read through quadSampler (VT_DECLARE_QUAD_SAMPLER).")
+    by_name = {row.name: row for row in material}
+    for i, name in enumerate(extra):
+        n = 8 + i
+        row = by_name[name]
+        if row.kind != "SeparateImage":
+            raise RuntimeError(f"quad input {n} names {name}, which is not a separate image")
+        vk = f"[[vk::binding({row.vk_binding}, {MATERIAL_SET})]] "
+        lines.append(f"#define VT_DECLARE_QUAD_INPUT{n}(name) {vk}Texture2D name : register(t{n});")
+        lines.append(f"#define VT_DECLARE_QUAD_ARRAY_INPUT{n}(name) {vk}Texture2DArray name : register(t{n});")
     lines.append("")
     lines.append("// Per target: the bundle and the runtime compile define VT_TARGET_METAL for Metal.")
     lines.append("#if defined(VT_TARGET_METAL)")
@@ -215,7 +229,7 @@ def main() -> None:
             own_sampler_index += 1
             sampler_slot = own_sampler_index
         out += declaration(row, MATERIAL_SET, sampler_slot)
-    out += quad_inputs(material)
+    out += quad_inputs(material, read_quad_extra_inputs(args.bindings))
     out += ["", "// ---- Scene textures (Vulkan set 3) ----"]
     for row in scene:
         out += declaration(row, SCENE_SET, None)

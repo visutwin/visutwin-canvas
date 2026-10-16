@@ -249,6 +249,13 @@ namespace visutwin::canvas
             .maxAnisotropy = std::max(maxAnisotropy(), 1.0f),
         }, "material");
 
+        // The same binding for a quad draw, whose separate images (quad input 6, inputs 8 and
+        // up) Metal reads through its post sampler: linear, clamp to edge, linear mips, no
+        // anisotropy. Read through the repeating material sampler, an input wrapped at the
+        // screen's edge (a lens flare leaving the right edge came back in the left column).
+        _quadExtraSampler = createDeviceSampler(_device,
+            SamplerDesc{.addressMode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE}, "quad");
+
         // Shadow-map sampler: clamp-to-edge, NEAREST filter, no mips.  A plain
         // (non-comparison) sampler — the shader does the depth compare manually
         // and averages a 3×3 PCF kernel at discrete texel offsets, so no linear
@@ -410,7 +417,7 @@ namespace visutwin::canvas
         // samplers are released, so a new sampler that is not added here leaks
         // on every device teardown.
         for (VkSampler* sampler : {&_shadowSampler, &_envSampler,
-                 &_materialExtraSampler, &_defaultSampler}) {
+                 &_materialExtraSampler, &_quadExtraSampler, &_defaultSampler}) {
             if (*sampler != VK_NULL_HANDLE) {
                 vkDestroySampler(_device, *sampler, nullptr);
                 *sampler = VK_NULL_HANDLE;

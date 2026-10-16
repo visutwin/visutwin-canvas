@@ -86,6 +86,7 @@ namespace visutwin::canvas
         const Vector4* viewportPtr = _viewport ? &(*_viewport) : nullptr;
         const Vector4* scissorPtr = _scissor ? &(*_scissor) : nullptr;
         if (_quadRender) {
+            _quadRender->setGeometry(_geometry, _geometryVertexCount);
             _quadRender->render(viewportPtr, scissorPtr);
         }
     }

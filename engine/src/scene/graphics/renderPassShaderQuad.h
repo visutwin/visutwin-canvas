@@ -20,12 +20,14 @@
 #include "platform/graphics/constants.h"
 #include "platform/graphics/depthState.h"
 #include "platform/graphics/renderPass.h"
+#include "platform/graphics/shaderBindings.h"
 #include "platform/graphics/shaderFeatures.h"
 #include "platform/graphics/stencilParameters.h"
 
 namespace visutwin::canvas
 {
     class QuadRender;
+    class VertexBuffer;
     class Shader;
     class Texture;
 
@@ -64,6 +66,14 @@ namespace visutwin::canvas
         }
 
         void execute() override;
+
+        /// Draws `vertexCount` vertices of `vertexBuffer` (a triangle list) instead of the
+        /// fullscreen triangle; see QuadRender::setGeometry. Null for the fullscreen triangle.
+        void setGeometry(const std::shared_ptr<VertexBuffer>& vertexBuffer, int vertexCount)
+        {
+            _geometry = vertexBuffer;
+            _geometryVertexCount = vertexCount;
+        }
 
         CullMode cullMode() const { return _cullMode; }
 
@@ -126,6 +136,8 @@ namespace visutwin::canvas
         std::vector<uint8_t> _quadUniformData;
         std::shared_ptr<Shader> _shader = nullptr;
         std::shared_ptr<QuadRender> _quadRender = nullptr;
-        std::array<Texture*, 8> _quadTextureBindings{};
+        std::array<Texture*, kQuadTextureInputs> _quadTextureBindings{};
+        std::shared_ptr<VertexBuffer> _geometry;
+        int _geometryVertexCount = 0;
     };
 }

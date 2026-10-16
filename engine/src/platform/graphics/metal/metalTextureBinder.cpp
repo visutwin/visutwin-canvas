@@ -181,10 +181,13 @@ namespace visutwin::canvas
     }
 
     void MetalTextureBinder::bindQuadTextures(MTL::RenderCommandEncoder* encoder,
-        const std::array<Texture*, 8>& quadBindings)
+        const std::array<Texture*, kQuadTextureInputs>& quadBindings)
     {
-        for (int i = 0; i < 8; ++i) {
-            bindCached(encoder, i, quadBindings[i]);
+        for (size_t i = 0; i < quadBindings.size(); ++i) {
+            // Inputs past 7 are rarely bound; leave their slots to whatever the pass holds.
+            if (i < kQuadInputsFromRows || quadBindings[i]) {
+                bindCached(encoder, static_cast<int>(i), quadBindings[i]);
+            }
         }
     }
 

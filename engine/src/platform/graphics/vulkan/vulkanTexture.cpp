@@ -527,11 +527,12 @@ namespace visutwin::canvas::gpu
         VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
         viewInfo.image = _image;
         // A VIEW_TYPE_2D view may only cover one layer, so a multi-layer image
-        // needs the array view type to match layerCount below.
+        // needs the array view type to match layerCount below; an array texture of one
+        // layer takes it too, as a shader reading it declares an array.
         viewInfo.viewType = _owner->isCubemap()
             ? VK_IMAGE_VIEW_TYPE_CUBE
-            : (_arrayLayers > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY
-                                : VK_IMAGE_VIEW_TYPE_2D);
+            : (_arrayLayers > 1 || _owner->isArray() ? VK_IMAGE_VIEW_TYPE_2D_ARRAY
+                                                     : VK_IMAGE_VIEW_TYPE_2D);
         viewInfo.format = _format;
         // A sampled view may name ONE aspect: a depth-stencil texture samples its depth.
         // Render targets carve their own both-aspect view to attach it.

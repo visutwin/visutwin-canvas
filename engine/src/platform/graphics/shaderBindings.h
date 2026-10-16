@@ -101,6 +101,12 @@ namespace visutwin::canvas
     X(shadowMoments0,        Tex2D,      MetalOnly,       39, -1, 0, 0) \
     X(shadowMoments1,        Tex2D,      MetalOnly,       40, -1, 0, 0)
 
+    // Quad inputs 8 and up: fragment-only SEPARATE images, named by their material row. On Metal
+    // input n is texture n, on Vulkan the named row's binding; both read them through the quad
+    // sampler (VT_DECLARE_QUAD_SAMPLER). Rows only a material draw uses, so a quad pass that
+    // binds them takes nothing from a material.
+#define VT_QUAD_EXTRA_INPUTS(X) X(detailNormalMap) X(clearCoatMap) X(clearCoatGlossMap) X(clearCoatNormalMap)
+
     enum class ShaderBindingType : uint8_t { Tex2D, TexCube, Tex2DArray, Sampler };
     enum class ShaderBindingKind : uint8_t { CombinedSampler, SeparateImage, Sampler, MetalOnly };
 
@@ -281,6 +287,53 @@ namespace visutwin::canvas
             return -1;
         }
     }
+
+    /// The quad pass inputs: 0-7 are the first eight material rows, the rest the rows
+    /// VT_QUAD_EXTRA_INPUTS names.
+    inline constexpr size_t kQuadInputsFromRows = 8;
+#define VT_QUAD_EXTRA_INPUT_NAME(name) #name,
+    inline constexpr std::array kQuadExtraInputRows = {VT_QUAD_EXTRA_INPUTS(VT_QUAD_EXTRA_INPUT_NAME)};
+#undef VT_QUAD_EXTRA_INPUT_NAME
+    inline constexpr size_t kQuadTextureInputs = kQuadInputsFromRows + kQuadExtraInputRows.size();
+    static_assert(kQuadTextureInputs == 12);
+
+    namespace shaderBindings
+    {
+        /// The index in kMaterialTextureBindings (a Vulkan set-1 descriptor) of quad input `input`.
+        constexpr size_t quadInputDescriptorIndex(const size_t input)
+        {
+            if (input < kQuadInputsFromRows) {
+                return input;
+            }
+            size_t index = 0;
+            for (const auto& row : kMaterialBindingRows) {
+                if (!hasVkBinding(row)) {
+                    continue;
+                }
+                if (sameName(row.name, kQuadExtraInputRows[input - kQuadInputsFromRows])) {
+                    return index;
+                }
+                ++index;
+            }
+            return kMaterialTextureBindings.size();
+        }
+
+        constexpr bool quadExtraInputsAreSeparateImages()
+        {
+            for (size_t input = kQuadInputsFromRows; input < kQuadTextureInputs; ++input) {
+                const size_t index = quadInputDescriptorIndex(input);
+                if (index >= kMaterialTextureBindings.size() ||
+                    !vulkanMaterialBindingIsSeparateImage(kMaterialTextureBindings[index])) {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+    static_assert(shaderBindings::quadExtraInputsAreSeparateImages(),
+        "a quad input past 7 must be a separate image of the material set");
+    static_assert(kMaterialTextureBindings[shaderBindings::quadInputDescriptorIndex(8)] == 23 &&
+        kMaterialTextureBindings[shaderBindings::quadInputDescriptorIndex(11)] == 14);
 
     /// A Metal slot of 100 or more is a VERTEX-stage texture slot (slot - 100).
     inline constexpr int kMetalVertexTextureSlotBase = 100;

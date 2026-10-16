@@ -186,5 +186,38 @@ int main()
         check(contains(build.source, "#define m (u.effectData[0].x)"), "and do not count its rows");
     }
 
+    std::cout << "textures\n";
+    {
+        auto flare = effect("flare", ComposeSlot::Hdr, "float3 applyFlare(float3 c, float2 uv) { return c; }");
+        auto lut = effect("lut", ComposeSlot::Ldr, "float3 applyLut(float3 c, float2 uv) { return c; }");
+        Texture* const a = reinterpret_cast<Texture*>(0x10);
+        Texture* const b = reinterpret_cast<Texture*>(0x20);
+        flare->setTextureUniform("flareTexture", a);
+        lut->setTextureUniform("lutTexture", b);
+        lut->setTextureUniform("lutTexture2", nullptr);
+        const auto build = buildComposeEffects({flare, lut});
+        check(build.texturePlacements.size() == 3 && build.texturePlacements[0].input == kComposeFirstEffectInput &&
+              build.texturePlacements[1].input == kComposeFirstEffectInput + 1 &&
+              build.texturePlacements[2].input == kComposeFirstEffectInput + 2,
+            "the effects' textures take compose inputs 8 up, in registration order");
+        check(contains(build.source, "VT_DECLARE_QUAD_INPUT8(flareTexture)") &&
+              contains(build.source, "VT_DECLARE_QUAD_INPUT9(lutTexture)") &&
+              contains(build.source, "VT_DECLARE_QUAD_INPUT10(lutTexture2)"),
+            "each declared at its input under its name");
+        check(build.source.find("VT_DECLARE_QUAD_INPUT8(flareTexture)") < build.source.find("applyFlare"),
+            "before the chunk that reads it");
+        flare->setTextureUniform("flareTexture", b);
+        check(buildComposeEffects({flare, lut}).source == build.source, "another texture compiles nothing new");
+        check(flare->textureUniforms().size() == 1 && flare->textureUniforms()[0].second == b,
+            "setting a name again replaces its texture");
+
+        auto more = effect("more", ComposeSlot::Output, "float3 applyMore(float3 c, float2 uv) { return c; }");
+        more->setTextureUniform("t0", a);
+        more->setTextureUniform("t1", a);
+        const auto full = buildComposeEffects({flare, lut, more});
+        check(full.effects.size() == 2 && full.errors.size() == 1,
+            "an effect needing more texture inputs than are left is left out, with an error");
+    }
+
     return finish("compose effects");
 }

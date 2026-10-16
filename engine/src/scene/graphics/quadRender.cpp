@@ -68,7 +68,8 @@ namespace visutwin::canvas
                                   static_cast<int>(effectiveScissor.getZ()), static_cast<int>(effectiveScissor.getW()));
         }
 
-        rawDevice->setVertexBuffer(rawDevice->quadVertexBuffer());
+        const bool ownGeometry = _vertexBuffer && _vertexCount > 0;
+        rawDevice->setVertexBuffer(ownGeometry ? _vertexBuffer : rawDevice->quadVertexBuffer());
         rawDevice->setShader(_shader);
         for (size_t slot = 0; slot < _textures.size(); ++slot) {
             if (_textures[slot]) {
@@ -85,7 +86,7 @@ namespace visutwin::canvas
         quadPrimitive.type = PRIMITIVE_TRIANGLES;
         quadPrimitive.base = 0;
         quadPrimitive.baseVertex = 0;
-        quadPrimitive.count = 3;
+        quadPrimitive.count = ownGeometry ? _vertexCount : 3;
         quadPrimitive.indexed = false;
 
         rawDevice->draw(quadPrimitive, nullptr, 1, -1, true, true);

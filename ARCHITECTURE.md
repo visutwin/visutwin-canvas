@@ -1421,7 +1421,8 @@ also add code to the compose pass at a slot (below). Port of upstream's API (its
 `postOpaque` stage included). DEVIATIONS: the built-in effects stay internal passes
 configured by `RenderingSettings`, except TAA (below), an effect registers on the camera rather than on a
 CameraFrame object, and a compose chunk is Slang, declares no uniforms, cannot be
-overridden through ShaderChunks and takes no texture.
+overridden through ShaderChunks, and reads its textures (`setTextureUniform`, four inputs
+shared by a composition) as `Texture2D`s through `quadSampler`.
 
 - **Stages** (`CameraFrameEffectPasses`), placed in `RenderPassCameraFrame::collectPasses`
   after the frame's own passes at that point, in registration order: `preScene` after the
@@ -1532,6 +1533,28 @@ overridden through ShaderChunks and takes no texture.
   the effect's `camera()`, which `addFrameEffect` sets). Its debug view `autoexposure` is a
   slot-less chunk reading 16 float4 uniforms of bars and one of markers. `auto-exposure` ports
   upstream's example (flying, not walking; no sun boost).
+- **Lens flare** (`LensFlareEffect` / `LensFlare`, `scene/graphics/lensFlareEffect.h`, opt-in):
+  flares following lights (directional: a direction; omni and spot: a position, a spot fading
+  outside its cone), an entity, a position or a direction, each placing the shapes of its
+  `LensFlareLook` on the axis from its source through the screen centre. The shape library is
+  copied into an RGBA8 mipmapped texture ARRAY (a quad pass per layer rendering into the layer
+  through `RenderTargetOptions::face`, sRGB decoded with pow 2.2 and stored as a square root,
+  the last pass generating the mips), rebuilt when its size or layer count changes
+  (`buildKey`). Three passes of `programs/lens-flare.slang` at postResolve: `shape` (only after
+  the library changed), `occlusion` (24 depth taps per source into its texel of a 32 x 1 RGBA8
+  target, ping-ponged with the previous frame's, moved by at least 1/255 so a fade never
+  stalls) and `sprite` (added into an RGBA16F texture at `scale` of the scene). DEVIATION:
+  upstream reads the elements from a data texture and the flares from a uniform array in an
+  instanced vertex stage; neither fits here (no quad input reaches the vertex stage, and 32
+  flares' data exceed the 656-byte quad block), so the effect places the elements on the CPU
+  every frame (`setGeometry`), and the visibility fades them in the fragment stage. The sprite
+  shader samples the shapes at an explicit isotropic level from its own derivatives, since
+  Vulkan's samplers carry anisotropy that Metal's quad sampler (and upstream) do not: a long
+  thin streak otherwise stayed sharper on Vulkan. The occlusion fade runs on the effect's dt
+  (DEVIATION: upstream's wall clock). The composition adds the flare texture at the hdr slot
+  through a compose TEXTURE uniform (`setTextureUniform`: inputs 8-11, a `Texture2D` read
+  through `quadSampler`); debug view `lensflare`. `lens-flare` ports upstream's example;
+  Metal and Vulkan render its flare view bit-identically.
 - **SMAA** (`SmaaEffect`, `scene/graphics/smaaEffect.h`, opt-in through `addFrameEffect`):
   SMAA 1x at the resolve stage, three passes of `programs/smaa.slang` (variants `edge` into
   RG8, `weights` into RGBA8 with the area and search lookups, `blend` into the scene format;
@@ -1542,8 +1565,8 @@ overridden through ShaderChunks and takes no texture.
   tone mapping, both at `CameraFrameEffectContext::displayExposure` (1 under tone mapping
   NONE). Parameters are uniforms, so a preset change compiles nothing and rebuilds nothing.
   Its debug views `smaaedges` / `smaaweights`: DEVIATION, the blend pass writes the view into
-  its output while one is shown and the slot-less chunk shows the scene, since a compose
-  chunk here takes no texture. `anti-aliasing` compares it with TAA and MSAA
+  its output while one is shown and the slot-less chunk shows the scene (a compose chunk took
+  no texture when it was ported). `anti-aliasing` compares it with TAA and MSAA
   (`VISUTWIN_AA_METHOD` / `VISUTWIN_AA_DEBUG` pick the start for a capture).
 - **The colour-only alias follows the shared scene texture by hand**: its own `width()`
   reads the already-resized texture, so `resize` would do nothing, and Vulkan caches the

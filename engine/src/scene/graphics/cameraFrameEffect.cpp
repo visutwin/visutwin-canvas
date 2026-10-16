@@ -92,6 +92,17 @@ namespace visutwin::canvas
         uniformSlot(name, 1).value[0] = value;
     }
 
+    void CameraFrameEffect::setTextureUniform(const std::string& name, Texture* texture)
+    {
+        auto it = std::find_if(_textureUniforms.begin(), _textureUniforms.end(),
+            [&name](const auto& uniform) { return uniform.first == name; });
+        if (it == _textureUniforms.end()) {
+            _textureUniforms.emplace_back(name, texture);
+        } else {
+            it->second = texture;
+        }
+    }
+
     void CameraFrameEffect::setUniform(const std::string& name, const Vector2& value)
     {
         auto& slot = uniformSlot(name, 2);

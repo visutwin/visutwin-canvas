@@ -164,6 +164,7 @@ visutwin_add_unit_test(visutwin-camera-frame-stop-tests camera-frame-stop camera
 visutwin_add_unit_test(visutwin-camera-frame-effect-tests camera-frame-effect cameraFrameEffectTests.cpp)
 visutwin_add_unit_test(visutwin-auto-exposure-tests auto-exposure autoExposureTests.cpp)
 visutwin_add_unit_test(visutwin-compose-effects-tests compose-effects composeEffectsTests.cpp)
+visutwin_add_unit_test(visutwin-lens-flare-effect-tests lens-flare-effect lensFlareEffectTests.cpp)
 visutwin_add_unit_test(visutwin-cluster-grid-sharing-tests cluster-grid-sharing clusterGridSharingTests.cpp)
 visutwin_add_unit_test(visutwin-ktx2-target-tests ktx2-target ktx2TargetTests.cpp TINYGLTF DEFINITIONS VISUTWIN_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 visutwin_add_unit_test(visutwin-obj-stl-round-trip-tests obj-stl-round-trip objStlRoundTripTests.cpp)

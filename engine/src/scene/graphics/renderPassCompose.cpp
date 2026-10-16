@@ -14,6 +14,7 @@
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/shader.h"
 #include "platform/graphics/texture.h"
+#include "scene/graphics/cameraFrameEffect.h"
 #include "scene/graphics/composeShaders.h"
 #include "scene/shader-lib/slangShaders.h"
 
@@ -93,6 +94,15 @@ namespace visutwin::canvas
         setQuadTextureBinding(5, _color.colorLUT2);
         setQuadTextureBinding(6, _cocTexture);
         setQuadTextureBinding(7, _blurTexture);
+        for (size_t input = kComposeFirstEffectInput; input < kQuadTextureInputs; ++input) {
+            setQuadTextureBinding(input, nullptr);
+        }
+        for (const auto& placement : _effectsBuild.texturePlacements) {
+            const auto& textures = placement.effect->textureUniforms();
+            if (placement.uniform < textures.size()) {
+                setQuadTextureBinding(static_cast<size_t>(placement.input), textures[placement.uniform].second);
+            }
+        }
         setQuadUniforms(uniforms);
         RenderPassShaderQuad::execute();
     }

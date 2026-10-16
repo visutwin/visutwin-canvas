@@ -848,6 +848,9 @@ namespace visutwin::canvas
         // fragment stage, displacement in the vertex stage). Linear + repeat,
         // matching the Metal displacement sampler.
         VkSampler _materialExtraSampler = VK_NULL_HANDLE;
+        // What a QUAD draw's separate images read through at the same binding: Metal's post
+        // sampler (linear, clamp to edge, linear mips, no anisotropy).
+        VkSampler _quadExtraSampler = VK_NULL_HANDLE;
         VkImage _whiteImage = VK_NULL_HANDLE;
         VmaAllocation _whiteAllocation = VK_NULL_HANDLE;
         VkImageView _whiteImageView = VK_NULL_HANDLE;

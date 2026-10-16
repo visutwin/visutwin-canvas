@@ -110,9 +110,10 @@ namespace visutwin::canvas
             Texture* sceneColor = nullptr, Texture* reflectionProbeCube = nullptr,
             Texture* sceneDepthGrab = nullptr);
 
-        /// Bind quad render textures for all 8 slots.
+        /// Bind a quad draw's inputs: input n at fragment texture n (scene slots 8-11 are rebound
+        /// through the cache by the next forward draw).
         void bindQuadTextures(MTL::RenderCommandEncoder* encoder,
-            const std::array<Texture*, 8>& quadBindings);
+            const std::array<Texture*, kQuadTextureInputs>& quadBindings);
 
         /// Bind local shadow depth textures at slots 11 and 12 (spot lights, 2D).
         void bindLocalShadowTextures(MTL::RenderCommandEncoder* encoder,

@@ -26,6 +26,7 @@
 #include "indexBuffer.h"
 #include "renderPass.h"
 #include "renderTarget.h"
+#include "shaderBindings.h"
 #include "shader.h"
 #include "stencilParameters.h"
 #include "instanceCuller.h"
@@ -739,7 +740,7 @@ namespace visutwin::canvas
         {
             return slot < _quadTextureBindings.size() ? _quadTextureBindings[slot] : nullptr;
         }
-        const std::array<Texture*, 8>& quadTextureBindings() const { return _quadTextureBindings; }
+        const std::array<Texture*, kQuadTextureInputs>& quadTextureBindings() const { return _quadTextureBindings; }
 
         /**
          * Uniform block for the next quad draw.
@@ -1317,7 +1318,7 @@ namespace visutwin::canvas
         std::shared_ptr<RenderTarget> _backBuffer;
 
         std::shared_ptr<VertexBuffer> _quadVertexBuffer;
-        std::array<Texture*, 8> _quadTextureBindings{};
+        std::array<Texture*, kQuadTextureInputs> _quadTextureBindings{};
         std::vector<uint8_t> _quadUniformData;
         bool _quadRenderActive = false;
         bool _hdrPass = false;

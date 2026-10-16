@@ -11,6 +11,7 @@
 //
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -45,6 +46,15 @@ namespace visutwin::canvas
         };
         std::vector<Placement> placements;
 
+        /// The quad input each texture uniform is bound at (kComposeFirstEffectInput up).
+        struct TexturePlacement
+        {
+            const CameraFrameEffect* effect = nullptr;
+            size_t uniform = 0;   // index into effect->textureUniforms()
+            int input = 0;
+        };
+        std::vector<TexturePlacement> texturePlacements;
+
         /// Effects left out, and why (out of uniform rows, an empty chunk).
         std::vector<std::string> errors;
     };
@@ -54,6 +64,9 @@ namespace visutwin::canvas
     /// include `debugView`, the one shown (it is called at no slot).
     ComposeEffectsBuild buildComposeEffects(const std::vector<std::shared_ptr<CameraFrameEffect>>& effects,
         const std::string& debugView = {});
+
+    /// The compose pass's inputs the effects' textures take: 8 up to the last quad input.
+    inline constexpr int kComposeFirstEffectInput = 8;
 
     /// Writes the composed effects' current uniform values into `rows` (kComposeEffectDataRows
     /// float4s) at the build's placements.

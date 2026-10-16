@@ -891,7 +891,17 @@ device virtuals. Every engine quad pass is a Slang program
 `QuadVarying` from the `vtquad` module). A custom quad pass written as MSL + GLSL goes
 through `getOrCreateQuadShader` (`quadShader.h`) with the prelude and vertex stage from
 `quadShaderSource.h` (`useCachedShader`); nothing in the engine uses that route. A quad pass is otherwise a shader,
-up to 8 input textures on fragment slots 0-7, and one uniform block. The block rides the per-draw MATERIAL slot (Metal buffer 3 / Vulkan
+up to 12 input textures, and one uniform block. Inputs 0-7 are the first eight material rows;
+inputs 8-11 (`VT_QUAD_EXTRA_INPUTS` in `shaderBindings.h`, `kQuadTextureInputs`) are separate
+images on both backends, Metal texture 8-11 and the Vulkan bindings of the material rows named
+there, read through `quadSampler`; `VT_DECLARE_QUAD_ARRAY_INPUTn` declares any input as a
+texture array. **On Vulkan a quad draw's shared sampler (set 1 binding 24) is a clamp, linear-mip,
+non-anisotropic one (`_quadExtraSampler`), Metal's post sampler**; a material draw keeps the
+repeating, anisotropic material sampler there. Read through the material one, a quad input
+wrapped at the screen edge on Vulkan alone (a lens flare leaving one side came back on the
+other). A quad pass may draw a vertex buffer of its own instead of the fullscreen triangle
+(`RenderPassShaderQuad::setGeometry`, a triangle list in the standard 56-byte layout, written
+per frame into a ring of `maxFramesInFlight` buffers). The block rides the per-draw MATERIAL slot (Metal buffer 3 / Vulkan
 set 0 binding 0) via `GraphicsDevice::setQuadUniformData`; `kPerDrawUniformCapacity`
 (656; `MaterialUniforms` itself is 656 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
 allocation behind it. A smaller block is copied into the front of a full-size

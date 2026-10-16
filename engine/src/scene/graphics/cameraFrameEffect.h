@@ -34,7 +34,7 @@
 // registration order. The chunk reads `sceneTexture` (the scene, a Sampler2D),
 // `sceneTextureSize` (width, height, 1 / width, 1 / height), `getLinearScreenDepth(uv)` when
 // the effect requires FrameResource::Depth, and its uniforms by name. The frame declares
-// the uniforms (setUniform), so the chunk declares none; setDefine adds a #define, and
+// the uniforms (setUniform, setTextureUniform), so the chunk declares none; setDefine adds a #define, and
 // `<ID>` (the id in upper snake case) is defined while the effect is active. A view named in
 // `debugViews` is a `float3 debug<Name>()` in the chunk, shown through
 // RenderingSettings::composeDebug; it reads the pixel being shown as `composeDebugUv`. An
@@ -45,7 +45,7 @@
 // DEVIATIONS: an effect is registered on the camera component, which co-owns it, because
 // a camera frame here is created by the renderer for the camera rather than by the
 // application; the chunk is Slang, declares no uniforms, cannot be overridden through
-// ShaderChunks, and takes no texture uniform.
+// ShaderChunks, and reads its textures (setTextureUniform) through the quad sampler.
 //
 #pragma once
 
@@ -307,6 +307,17 @@ namespace visutwin::canvas
         void setUniform(const std::string& name, const Matrix4& value); // float4x4, as the engine's matrices
         [[nodiscard]] const std::vector<ComposeEffectUniform>& uniforms() const { return _uniforms; }
 
+        /// Sets a texture the chunk reads by `name`, a Texture2D sampled through `quadSampler`
+        /// (`name.SampleLevel(quadSampler, uv, 0.0)`); null unbinds it but keeps the name. The
+        /// effects of a composition share four texture inputs. The texture is borrowed: keep it
+        /// alive while the effect is composed, and set it again when it is replaced. A new name
+        /// compiles another compose shader, another texture does not.
+        void setTextureUniform(const std::string& name, Texture* texture);
+        [[nodiscard]] const std::vector<std::pair<std::string, Texture*>>& textureUniforms() const
+        {
+            return _textureUniforms;
+        }
+
         /// A process-wide serial: what the frame identifies an effect instance by, so that
         /// a new instance with the id of a removed one still rebuilds the passes.
         [[nodiscard]] uint64_t serial() const { return _serial; }
@@ -325,6 +336,7 @@ namespace visutwin::canvas
         std::string _entryPoint;
         std::vector<std::pair<std::string, std::string>> _defines;
         std::vector<ComposeEffectUniform> _uniforms;
+        std::vector<std::pair<std::string, Texture*>> _textureUniforms;
         bool _enabled = true;
         uint64_t _serial = 0;
     };
