@@ -52,6 +52,8 @@ namespace visutwin::canvas
         int lastSceneLayerId = LAYERID_IMMEDIATE;
         bool lastSceneLayerIsTransparent = true;
         bool taaEnabled = false;
+        // TAA accumulates the lower-resolution frames at the output resolution.
+        bool taaUpscale = false;
         // Supersampling factor for the scene render target: >1 renders the scene
         // larger than the camera's output and lets the compose blit filter it back
         // down (SSAA), <1 renders smaller and upscales. 1.0 is native.
@@ -216,6 +218,9 @@ namespace visutwin::canvas
         mutable double _lastUpdatedTime = -1.0;
         // What applyDisplaySettings last resolved: the exposure compose shows the scene with.
         mutable float _displayExposure = 1.0f;
+        // What the half copy is sized from: the scene, or the resolved scene once a resolve
+        // upscales it.
+        mutable Texture* _halfResizeSource = nullptr;
         std::shared_ptr<RenderPassDownsample> _scenePassHalf;
         std::shared_ptr<RenderPassBloom> _bloomPass;
         std::shared_ptr<RenderPassDof> _dofPass;

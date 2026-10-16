@@ -17,7 +17,10 @@ namespace visutwin::canvas
     class RenderPassTAA : public RenderPassShaderQuad
     {
     public:
-        RenderPassTAA(const std::shared_ptr<GraphicsDevice>& device, Texture* sourceTexture, CameraComponent* cameraComponent);
+        /// With `upscale` the history has the OUTPUT resolution (setOutputSize) rather than the
+        /// source's, and accumulates the jittered lower-resolution frames into it.
+        RenderPassTAA(const std::shared_ptr<GraphicsDevice>& device, Texture* sourceTexture, CameraComponent* cameraComponent,
+            bool upscale = false);
 
         void before() override;
         void execute() override;
@@ -30,6 +33,9 @@ namespace visutwin::canvas
         void setSourceTexture(Texture* sourceTexture) { _sourceTexture = sourceTexture; }
         void setDepthTexture(Texture* depthTexture) { _depthTexture = depthTexture; }
         void setHighQuality(const bool value) { _highQuality = value; }
+        [[nodiscard]] bool upscale() const { return _upscale; }
+        /// Upscaling: the size of what the frame composes into, which the history takes.
+        void setOutputSize(int width, int height);
         /// The exposure compose displays the resolved scene with (1 when it tone maps with
         /// NONE, which applies no exposure): the history is blended at that exposure.
         void setDisplayExposure(const float value) { _displayExposure = value; }
@@ -43,6 +49,7 @@ namespace visutwin::canvas
         CameraComponent* _cameraComponent = nullptr;
         bool _highQuality = true;
         bool _historyValid = false;
+        bool _upscale = false;
         float _displayExposure = 1.0f;
 
         std::array<std::shared_ptr<Texture>, 2> _historyTextures{};

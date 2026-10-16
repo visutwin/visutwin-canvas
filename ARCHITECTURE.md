@@ -1446,6 +1446,18 @@ overridden through ShaderChunks and takes no texture.
   scene target stores or what compose binds; and its pass, with the history, survives a
   rebuild of the frame's passes while TAA stays on (upstream rebuilds it, resetting the
   history). Until the first resolve has rendered, the frame reads the scene itself.
+  **TAA upscaling** (`TaaSettings::upscale`, with a `renderTargetScale` below 1) keeps the
+  history at the OUTPUT size (`CameraFrameEffectScene::outputWidth/Height`, the camera's
+  target or the back buffer) and resolves to it: each output pixel gathers the 3x3 render
+  texels around where it lands, minus the jitter, weighted by a gaussian of their distance in
+  output pixels, clamps the history to their range and blends in more of the current frame
+  the nearer its nearest sample (the `upscale` variant of `taa.slang`). Everything after the
+  resolve — the half copy (its resize source follows the resolved texture), bloom, DOF (its
+  blur radius scaled to the resolved size), compose and the effects — works at the full
+  size, while the scene and its depth consumers render at the scaled one. The jitter cycles
+  128 Halton (2, 3) offsets, enough to sample every output pixel a render pixel covers.
+  Upscaling off is bit-identical to the plain resolve. Moving objects blur or ghost more
+  while it upscales. `taa` (modes) and `anti-aliasing` (TAA - Upscale) show it.
 - **Camera jitter** (`cameraJitter()`): the renderer sets a camera that renders through a
   frame to the largest jitter an active effect asks for (`CameraComponent::
   applyFrameEffectJitter`, in `cullMeshInstancesForFrame`, before anything renders); a

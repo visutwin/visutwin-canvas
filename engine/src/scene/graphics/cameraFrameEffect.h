@@ -174,6 +174,10 @@ namespace visutwin::canvas
         /// An effect resolving to another resolution sets these too.
         int width = 0;
         int height = 0;
+        /// The size of what the frame composes into (the camera's render target, or the back
+        /// buffer): what an effect resolving to the full resolution (TAA upscaling) resolves to.
+        int outputWidth = 0;
+        int outputHeight = 0;
     };
 
     /// Per-frame values an effect's frameUpdate() gets.

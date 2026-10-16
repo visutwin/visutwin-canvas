@@ -24,6 +24,18 @@
 // round trip is an identity on the raw hardware depth, so the raw depth is used. The depth
 // holds (ndcZ_gl + 1) / 2 and is mapped back to GL NDC Z; the uv has v = 0 at the top while
 // the projection is GL's (+Y up), so ndcY = 1 - 2v.
+//
+// The `upscale` variant (temporal upscaling) writes a history at the OUTPUT resolution while
+// the current frame renders at a lower one. Each current texel holds the image at its centre
+// moved by the frame's jitter, so from frame to frame its sample lands at a different place
+// within the history's pixels: the current colour at a history pixel is rebuilt from the 3x3
+// texels around it, weighted by how close their samples are (a Gaussian in history pixels), the
+// history is clamped to those texels' range, and the nearest sample's weight decides how much
+// of the current frame the pixel takes (10% at most). Over the jitter sequence each history
+// pixel accumulates the samples landing on it.
+//
+// @variant resolve:
+// @variant upscale: TAA_UPSCALE=1
 import vtquad;
 import vttonemapreversible;
 #include "bindings.slang"
@@ -35,7 +47,8 @@ struct TaaUniforms
     float4 jitters;        // xy = current-frame NDC jitter, zw = previous frame's
     float4 texSizeFlags;   // xy = texture size, z = highQuality, w = historyValid
     float4 cameraParams;
-    float4 blendParams;    // x = the exposure the scene is displayed with
+    float4 blendParams;    // x = the exposure the scene is displayed with, yz = the size of the
+                           // history read (the output size when upscaling)
 };
 
 // The most of the current frame taken while the camera moves a pixel's surface across the
@@ -111,6 +124,56 @@ float3 colorClampPremul(float2 uv, float3 historyPremul, float2 texSize)
     return clamp(historyPremul, minPremul, maxPremul);
 }
 
+#if defined(TAA_UPSCALE)
+struct UpscaleSample
+{
+    float4 color;
+    float weight;
+    float3 minPremul;
+    float3 maxPremul;
+};
+
+UpscaleSample upscaleCurrent(float2 uv, float2 texSize, float2 historySize)
+{
+    // This pixel and the jitter, in texels of the current frame; the uv runs down, so the
+    // NDC jitter's y is negated.
+    const float2 position = uv * texSize;
+    const float2 jitter = float2(u.jitters.x, -u.jitters.y) * 0.5 * texSize;
+
+    // The texel whose sample is nearest to this pixel, and history pixels per current texel.
+    const float2 nearest = floor(position - jitter);
+    const float scale = historySize.x / texSize.x;
+
+    UpscaleSample result;
+    float4 sum = float4(0.0, 0.0, 0.0, 0.0);
+    float sumWeight = 0.0;
+    float4 nearestColor = float4(0.0, 0.0, 0.0, 0.0);
+    result.weight = 0.0;
+    result.minPremul = float3(9999.0, 9999.0, 9999.0);
+    result.maxPremul = float3(-9999.0, -9999.0, -9999.0);
+    for (int ix = -1; ix <= 1; ++ix) {
+        for (int iy = -1; iy <= 1; ++iy) {
+            const float2 texel = nearest + float2(float(ix), float(iy));
+            const float4 s = sourceTexture.SampleLevel((texel + 0.5) / texSize, 0.0);
+            const float3 premul = s.rgb * s.a;
+            result.minPremul = min(result.minPremul, premul);
+            result.maxPremul = max(result.maxPremul, premul);
+            if (ix == 0 && iy == 0) {
+                nearestColor = s;
+            }
+            // The distance of its sample to this pixel, in history pixels.
+            const float2 d = (texel + 0.5 + jitter - position) * scale;
+            const float w = exp(-2.29 * dot(d, d));
+            sum += s * w;
+            sumWeight += w;
+            result.weight = max(result.weight, w);
+        }
+    }
+    result.color = sumWeight > 1e-4 ? sum / max(sumWeight, 1e-6) : nearestColor;
+    return result;
+}
+#endif
+
 [shader("vertex")]
 QuadVarying taaVertex(QuadVertexIn input)
 {
@@ -121,9 +184,19 @@ QuadVarying taaVertex(QuadVertexIn input)
 float4 taaFragment(QuadVarying input) : SV_Target0
 {
     const float2 texSize = u.texSizeFlags.xy;
+#if defined(TAA_UPSCALE)
+    const float2 historySize = u.blendParams.yz;
+#else
+    const float2 historySize = texSize;   // the history is the render's size
+#endif
     const float2 uv = clamp(input.uv, float2(0.0, 0.0), float2(1.0, 1.0));
 
+#if defined(TAA_UPSCALE)
+    const UpscaleSample upscaled = upscaleCurrent(uv, texSize, historySize);
+    const float4 srcColor = upscaled.color;
+#else
     const float4 srcColor = sourceTexture.Sample(uv);
+#endif
     if (u.texSizeFlags.w < 0.5) {   // no valid history yet
         return srcColor;
     }
@@ -132,17 +205,24 @@ float4 taaFragment(QuadVarying input) : SV_Target0
     const float2 historyUv = reproject(uv, depth);
 
     const float4 historyColor = (u.texSizeFlags.z > 0.5)
-        ? sampleCatmullRom(historyUv, texSize)
+        ? sampleCatmullRom(historyUv, historySize)
         : historyTexture.Sample(historyUv);
 
     const float3 historyPremul = historyColor.rgb * historyColor.a;
     const float3 srcPremul = srcColor.rgb * srcColor.a;
+#if defined(TAA_UPSCALE)
+    // Clamped to the range of the texels around this pixel, taking more of the current frame the
+    // closer its nearest sample is to this pixel.
+    const float3 historyPremulClamped = clamp(historyPremul, upscaled.minPremul, upscaled.maxPremul);
+    const float baseBlend = 0.1 * upscaled.weight;
+#else
     const float3 historyPremulClamped = colorClampPremul(uv, historyPremul, texSize);
+    const float baseBlend = 0.05;
+#endif
 
     // The further the history was reprojected from, the further it has been resampled (which
     // blurs it) and the likelier it does not hold this surface at all.
-    const float baseBlend = 0.05;
-    const float motion = length((uv - historyUv) * texSize);
+    const float motion = length((uv - historyUv) * historySize);
     const float blend = lerp(baseBlend, max(baseBlend, kTaaMotionBlend),
                              clamp(motion / kTaaMotionPixels, 0.0, 1.0));
     const float mixFactor = (historyUv.x < 0.0 || historyUv.x > 1.0 ||

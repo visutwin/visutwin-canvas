@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <tuple>
 
 #include "renderPassBloom.h"
 #include "renderPassColorGrab.h"
@@ -124,6 +125,7 @@ namespace visutwin::canvas
         _afterPass.reset();
 
         _sceneTextureResolved = nullptr;
+        _halfResizeSource = nullptr;
         _ownedActions.clear();
     }
 
@@ -156,6 +158,7 @@ namespace visutwin::canvas
         // The built-in TAA effect's own switch: its depth and its rebuild are the frame's, not
         // part of the registered effects' key below.
         options.taaEnabled = _cameraComponent->taaEffect() && _cameraComponent->taaEffect()->active();
+        options.taaUpscale = options.taaEnabled && _cameraComponent->taa().upscale;
         options.dofEnabled = dof.enabled;
         options.dofNearBlur = dof.nearBlur;
         options.dofHighQuality = dof.highQuality;
@@ -238,6 +241,7 @@ namespace visutwin::canvas
         return options.ssaoType != current.ssaoType ||
             options.ssaoBlurEnabled != current.ssaoBlurEnabled ||
             options.taaEnabled != current.taaEnabled ||
+            options.taaUpscale != current.taaUpscale ||
             options.samples != current.samples ||
             options.renderTargetScale != current.renderTargetScale ||
             options.stencil != current.stencil ||
@@ -1252,16 +1256,36 @@ namespace visutwin::canvas
         const int renderWidth = _sceneTexture ? static_cast<int>(_sceneTexture->width()) : 0;
         const int renderHeight = _sceneTexture ? static_cast<int>(_sceneTexture->height()) : 0;
         CameraFrameEffectScene scene{_sceneTexture.get(), renderWidth, renderHeight};
+        std::tie(scene.outputWidth, scene.outputHeight) = outputSize();
         for (const auto& effect : _passEffects) {
             effect->resolveScene(scene);
         }
         _sceneTextureResolved = scene.texture;
+
+        // The single-pass depth of field steps in RESOLVED texels: an upscaling resolve gives
+        // the scene the output's resolution again.
+        if (_composePass && _cameraComponent && _cameraComponent->dof().enabled && renderWidth > 0) {
+            const float resolvedScale = _renderTargetScale * static_cast<float>(scene.width) / static_cast<float>(renderWidth);
+            _composePass->setDofBlurRadius(_cameraComponent->dof().blurRadius * resolvedScale);
+        }
 
         if (_composePass) {
             auto* resolvedTexture = scene.texture;
             _composePass->setSceneTexture(resolvedTexture);
             if (_scenePassHalf) {
                 _scenePassHalf->setSourceTexture(resolvedTexture);
+                // Half of the RESOLVED scene, which an upscaling resolve makes larger than the
+                // render; otherwise the half copy keeps its render-sized source.
+                Texture* halfSource = scene.width != renderWidth || scene.height != renderHeight
+                    ? resolvedTexture : _sceneTexture.get();
+                if (halfSource != _halfResizeSource) {
+                    _halfResizeSource = halfSource;
+                    auto halfOptions = std::make_shared<RenderPassOptions>();
+                    halfOptions->resizeSource = std::shared_ptr<Texture>(halfSource, [](Texture*) {});
+                    halfOptions->scaleX = 0.5f;
+                    halfOptions->scaleY = 0.5f;
+                    _scenePassHalf->setOptions(halfOptions);
+                }
             }
             // A high-quality bloom reads the full-resolution scene, which under TAA alternates
             // between the two history textures.

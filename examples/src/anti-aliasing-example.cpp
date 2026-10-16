@@ -12,8 +12,9 @@
 // SMAA (SmaaEffect) is registered on the camera and enabled when a method uses it.
 //
 // Keys stand in for upstream's controls panel, over the same parameters:
-//   M      the method, cycled: none, SMAA low / medium / high / ultra, TAA, MSAA 4x,
-//          MSAA 4x + SMAA high (starts at SMAA high)
+//   M      the method, cycled: none, SMAA low / medium / high / ultra, TAA, TAA upscale (from
+//          the render target scale to the full resolution), MSAA 4x, MSAA 4x + SMAA high
+//          (starts at SMAA high)
 //   D      the SMAA debug view, cycled: none, edges, weights (shown while SMAA is in use)
 //   - / =  render target scale -/+ 0.05, 0.25..1
 //   S      sharpness, cycled 0 / 0.25 / 0.5 / 0.75 / 1
@@ -22,7 +23,6 @@
 // lists, for a capture, which no key reaches.
 //
 // DEVIATIONS:
-// - upstream's "TAA - Upscale" method is left out: TAA upscaling is not ported.
 // - upstream's orbitCamera script is replaced by the examples' CameraControls in orbit mode,
 //   the start pose computed as frameOnStart does it (see taa-example.cpp). There is no inertia.
 //
@@ -65,18 +65,20 @@ namespace
         const char* name;
         int smaaPreset;   // -1: no SMAA
         bool taa;
+        bool upscale;
         int samples;
     };
 
-    constexpr std::array<Method, 8> kMethods = {{
-        {"None", -1, false, 1},
-        {"SMAA - Low", 0, false, 1},
-        {"SMAA - Medium", 1, false, 1},
-        {"SMAA - High", 2, false, 1},
-        {"SMAA - Ultra", 3, false, 1},
-        {"TAA", -1, true, 1},
-        {"MSAA 4x", -1, false, 4},
-        {"MSAA 4x + SMAA - High", 2, false, 4},
+    constexpr std::array<Method, 9> kMethods = {{
+        {"None", -1, false, false, 1},
+        {"SMAA - Low", 0, false, false, 1},
+        {"SMAA - Medium", 1, false, false, 1},
+        {"SMAA - High", 2, false, false, 1},
+        {"SMAA - Ultra", 3, false, false, 1},
+        {"TAA", -1, true, false, 1},
+        {"TAA - Upscale", -1, true, true, 1},
+        {"MSAA 4x", -1, false, false, 4},
+        {"MSAA 4x + SMAA - High", 2, false, false, 4},
     }};
 
     constexpr std::array<const char*, 3> kDebugViews = {"none", "edges", "weights"};
@@ -265,6 +267,7 @@ private:
 
         auto taa = _cameraComp->taa();
         taa.enabled = method.taa;
+        taa.upscale = method.upscale;
         _cameraComp->setTaa(taa);
 
         _smaa->setEnabled(smaa);

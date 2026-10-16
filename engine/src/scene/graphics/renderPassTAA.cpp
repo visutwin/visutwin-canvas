@@ -21,8 +21,9 @@
 namespace visutwin::canvas
 {
     RenderPassTAA::RenderPassTAA(const std::shared_ptr<GraphicsDevice>& device, Texture* sourceTexture,
-        CameraComponent* cameraComponent)
-        : RenderPassShaderQuad(device), _sourceTexture(sourceTexture), _cameraComponent(cameraComponent)
+        CameraComponent* cameraComponent, const bool upscale)
+        : RenderPassShaderQuad(device), _sourceTexture(sourceTexture), _cameraComponent(cameraComponent),
+          _upscale(upscale)
     {
         setup();
     }
@@ -55,16 +56,33 @@ namespace visutwin::canvas
 
         _historyTexture = _historyTextures[0];
 
-        auto options = std::make_shared<RenderPassOptions>();
-        if (_sourceTexture) {
-            options->resizeSource = std::shared_ptr<Texture>(_sourceTexture, [](Texture*) {});
+        // Upscaling, no options: with no resize source a pass follows the back buffer, which is
+        // not what a camera rendering into a texture of its own composes into.
+        std::shared_ptr<RenderPassOptions> options;
+        if (!_upscale) {
+            options = std::make_shared<RenderPassOptions>();
+            if (_sourceTexture) {
+                options->resizeSource = std::shared_ptr<Texture>(_sourceTexture, [](Texture*) {});
+            }
         }
         init(_historyRenderTargets[0], options);
     }
 
+    void RenderPassTAA::setOutputSize(const int width, const int height)
+    {
+        // Both histories: the one read this frame is resized too, a frame of history lost at a
+        // resize as the source-sized history loses it.
+        for (const auto& target : _historyRenderTargets) {
+            if (target && (static_cast<int>(target->width()) != width || static_cast<int>(target->height()) != height)) {
+                target->resize(std::max(width, 1), std::max(height, 1));
+            }
+        }
+    }
+
     void RenderPassTAA::before()
     {
-        if (!_sourceTexture) {
+        // Upscaling, the history follows the output size instead (setOutputSize).
+        if (!_sourceTexture || _upscale) {
             return;
         }
 
@@ -77,7 +95,7 @@ namespace visutwin::canvas
     void RenderPassTAA::prepareShaders()
     {
         if (!shader()) {
-            useSlangShader("taa");
+            useSlangShader("taa", _upscale ? "upscale" : "resolve");
         }
     }
 
@@ -130,6 +148,10 @@ namespace visutwin::canvas
         uniforms.texSizeFlags[2] = _highQuality ? 1.0f : 0.0f;
         uniforms.texSizeFlags[3] = _historyValid ? 1.0f : 0.0f;
         uniforms.blendParams[0] = _displayExposure;
+        // The size of the history read, which differs from the source's when upscaling (and
+        // from the one written on a frame that resizes it).
+        uniforms.blendParams[1] = history ? static_cast<float>(history->width()) : uniforms.texSizeFlags[0];
+        uniforms.blendParams[2] = history ? static_cast<float>(history->height()) : uniforms.texSizeFlags[1];
 
         setQuadTextureBinding(0, _sourceTexture);
         setQuadTextureBinding(1, history);
@@ -149,9 +171,12 @@ namespace visutwin::canvas
         _historyIndex = 1 - _historyIndex;
         _historyTexture = _historyTextures[_historyIndex];
 
-        auto options = std::make_shared<RenderPassOptions>();
-        if (_sourceTexture) {
-            options->resizeSource = std::shared_ptr<Texture>(_sourceTexture, [](Texture*) {});
+        std::shared_ptr<RenderPassOptions> options;
+        if (!_upscale) {
+            options = std::make_shared<RenderPassOptions>();
+            if (_sourceTexture) {
+                options->resizeSource = std::shared_ptr<Texture>(_sourceTexture, [](Texture*) {});
+            }
         }
         init(_historyRenderTargets[_historyIndex], options);
 

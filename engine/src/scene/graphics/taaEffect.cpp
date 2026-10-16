@@ -33,8 +33,9 @@ namespace visutwin::canvas
     {
         // The history outlives the frame's rebuilds: a pass kept from before takes the new
         // scene colour and depth, and accumulates on.
-        if (!_pass) {
-            _pass = std::make_shared<RenderPassTAA>(resources.device, resources.sceneColor, _camera);
+        const bool upscale = _camera && _camera->taa().upscale;
+        if (!_pass || _pass->upscale() != upscale) {
+            _pass = std::make_shared<RenderPassTAA>(resources.device, resources.sceneColor, _camera, upscale);
         } else {
             _pass->setSourceTexture(resources.sceneColor);
         }
@@ -68,9 +69,17 @@ namespace visutwin::canvas
         // and that is the resolved scene. Before the first resolve has rendered there is no
         // history to read, so the frame reads the scene itself.
         _pass->setSourceTexture(scene.texture);
+        // Upscaling, the history has the output's resolution, and so has the resolved scene.
+        if (_pass->upscale() && scene.outputWidth > 0 && scene.outputHeight > 0) {
+            _pass->setOutputSize(scene.outputWidth, scene.outputHeight);
+        }
         const auto history = _pass->update();
         if (_pass->historyValid() && history) {
             scene.texture = history.get();
+            if (_pass->upscale()) {
+                scene.width = static_cast<int>(history->width());
+                scene.height = static_cast<int>(history->height());
+            }
         }
     }
 

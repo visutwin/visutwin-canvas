@@ -415,7 +415,7 @@ int main()
         camera->setTaa(taa);
         frame();
         frame();
-        const auto& taaPass = camera->taaEffect()->pass();
+        const auto taaPass = camera->taaEffect()->pass();
         const auto& withTaa = camera->cameraFrame()->beforePasses();
         int taaIndex = -1;
         for (int i = 0; i < static_cast<int>(withTaa.size()); ++i) {
@@ -433,6 +433,53 @@ int main()
         keep->key = "rebuilt";
         frame();
         check(camera->taaEffect()->pass() == taaPass, "a rebuild keeps TAA's pass and its history");
+
+        std::cout << "TAA upscaling\n";
+        auto rendering = camera->rendering();
+        rendering.renderTargetScale = 0.5f;
+        camera->setRendering(rendering);
+        frame();
+        check(keep->lastContext.renderWidth == 32 && keep->lastContext.renderHeight == 24 &&
+              keep->lastContext.sceneWidth == 32, "without upscaling the scene resolves at the render size");
+        taa.upscale = true;
+        camera->setTaa(taa);
+        frame();
+        frame();
+        const auto upscalePass = camera->taaEffect()->pass();
+        check(upscalePass != nullptr && upscalePass != taaPass && upscalePass->upscale(),
+            "switching to upscaling builds an upscaling pass");
+        const auto history = upscalePass ? upscalePass->historyTexture() : nullptr;
+        check(history && history->width() == 64 && history->height() == 48,
+            "whose history has the output size");
+        check(keep->lastContext.renderWidth == 32 && keep->lastContext.renderHeight == 24,
+            "while the scene still renders at half of it");
+        check(keep->lastContext.sceneWidth == 64 && keep->lastContext.sceneHeight == 48 &&
+              keep->resolvedFrom == history.get(), "and the next effect reads the full-size history");
+        taa.upscale = false;
+        camera->setTaa(taa);
+        frame();
+        check(camera->taaEffect()->pass() && !camera->taaEffect()->pass()->upscale(),
+            "and back to a resolving pass without it");
+        rendering.renderTargetScale = 1.0f;
+        camera->setRendering(rendering);
+
+        std::cout << "the jitter sequence\n";
+        {
+            // Halton (2, 3), 128 offsets: frame 0 at (1/2, 1/3), offsets in pixels times the
+            // jitter, distinct until the sequence repeats.
+            const auto first = camera->camera()->jitterOffset(0, 64, 48);
+            check(near(first[0], 0.0f, 1e-7f) && near(first[1], 0.8f * (2.0f / 3.0f - 1.0f) / 48.0f, 1e-7f),
+                "the first offset is the sequence's first element");
+            bool distinct = true;
+            for (int i = 1; i < 128; ++i) {
+                const auto o = camera->camera()->jitterOffset(i, 64, 48);
+                distinct = distinct && (o[0] != first[0] || o[1] != first[1]);
+            }
+            check(distinct, "128 offsets before it repeats");
+            const auto again = camera->camera()->jitterOffset(128, 64, 48);
+            check(again[0] == first[0] && again[1] == first[1], "and then repeats");
+        }
+
         taa.enabled = false;
         camera->setTaa(taa);
         frame();

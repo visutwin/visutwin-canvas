@@ -14,25 +14,27 @@ namespace visutwin::canvas
 {
     namespace
     {
-        // Halton (2, 3) sample positions in [0, 1), one per frame, cycled.
-        constexpr std::array<std::array<float, 2>, 16> haltonSequence = {{
-            {0.5f, 0.333333f},
-            {0.25f, 0.666667f},
-            {0.75f, 0.111111f},
-            {0.125f, 0.444444f},
-            {0.625f, 0.777778f},
-            {0.375f, 0.222222f},
-            {0.875f, 0.555556f},
-            {0.0625f, 0.888889f},
-            {0.5625f, 0.037037f},
-            {0.3125f, 0.370370f},
-            {0.8125f, 0.703704f},
-            {0.1875f, 0.148148f},
-            {0.6875f, 0.481481f},
-            {0.4375f, 0.814815f},
-            {0.9375f, 0.259259f},
-            {0.03125f, 0.592593f}
-        }};
+        // The radical inverse of an index in a base: an element of the Halton sequence.
+        constexpr float halton(int index, const int base)
+        {
+            double result = 0.0;
+            double fraction = 1.0 / base;
+            for (; index > 0; index /= base) {
+                result += (index % base) * fraction;
+                fraction /= base;
+            }
+            return static_cast<float>(result);
+        }
+
+        // Halton (2, 3) sample positions in [0, 1), one per frame, cycled. Long enough for the
+        // temporal upscaling to place samples across every output pixel a render pixel covers.
+        constexpr auto haltonSequence = [] {
+            std::array<std::array<float, 2>, 128> sequence{};
+            for (int i = 0; i < static_cast<int>(sequence.size()); ++i) {
+                sequence[static_cast<size_t>(i)] = {halton(i + 1, 2), halton(i + 1, 3)};
+            }
+            return sequence;
+        }();
     }
 
     Camera::~Camera() = default;

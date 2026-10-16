@@ -1597,7 +1597,10 @@ present, but the rule below never depends on reading it.
   camera's built-in effect at the camera frame's RESOLVE stage (`TaaEffect`, ARCHITECTURE.md,
   camera frame effects): a pass that reads the scene after TAA must take the RESOLVED texture
   the frame hands on each frame, never the scene target's colour or a history texture kept
-  from setup.
+  from setup. Under TAA UPSCALING that texture is the OUTPUT size, larger than the scene
+  target: size a pass after the resolve from the resolved scene's size
+  (`CameraFrameEffectContext::sceneWidth/Height`), never `renderWidth/Height` or the scene
+  target's, and scale anything measured in scene pixels (the DOF radius) by the ratio.
 - **Do not draw to the back buffer after `Engine::render()`** — `frameEnd`
   presents the drawable and a stale `_frameDrawable` reuse is a pointer-auth
   SIGSEGV. Use `Renderer::addAppendPass` to append app passes to the frame graph.

@@ -46,6 +46,12 @@ namespace visutwin::canvas
         bool enabled = false;
         bool highQuality = true;
         float jitter = 1.0f;
+        /// Accumulate frames rendered at a lower resolution (RenderingSettings::
+        /// renderTargetScale) at the full one: the jitter places their samples at different
+        /// places within the full-resolution pixels, which recovers detail the lower resolution
+        /// loses. Moving objects can blur or ghost more than under TAA alone, the history being
+        /// relied on for longer.
+        bool upscale = false;
     };
 
     // SSAO settings

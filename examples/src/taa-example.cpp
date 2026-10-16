@@ -11,12 +11,20 @@
 // ACES tone mapping, bloom 0.02 and sharpness 1; an orbit camera frames the
 // house on start.
 //
+// The mode compares the full resolution with a lower one, set by the resolution, at which the
+// image is either upscaled with bilinear filtering or, with TAA upscaling, accumulated from the
+// jittered frames at the full resolution, sharpened or not: full, scaled, scaled + sharpen,
+// temporal, temporal + sharpen. The scaled modes remember their resolution (0.5 to begin with).
+//
 // Keys stand in for upstream's controls panel, over the same parameters:
+//   M      mode, cycled
+//   - / =  resolution -/+ 0.05, 0.25..1 (lowering it at the full resolution selects scaled)
 //   T      TAA enabled (like upstream, turning it on sets sharpness 1, off 0)
 //   [ / ]  TAA jitter -/+ 0.05, 0..1
-//   S      sharpness, cycled 0 / 0.25 / 0.5 / 0.75 / 1
+//   S      sharpness, cycled 0 / 0.25 / 0.5 / 0.75 / 1 (applied by the sharpening modes)
 //   B      bloom on (0.02) / off
-//   - / =  render target scale -/+ 0.1, 0.5..1
+// VISUTWIN_TAA_MODE=full|scaled|sharpen|temporal|temporalSharpen starts in that mode, for a
+// capture.
 //
 // DEVIATIONS:
 // - upstream's orbitCamera script (inertia 0.2, distanceMax 400, frameOnStart)
@@ -26,8 +34,11 @@
 //   1.5 * max half-extent / sin(fov / 2), clamped to 400. There is no inertia.
 //
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstdlib>
 #include <memory>
+#include <string_view>
 
 #include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
@@ -35,6 +46,13 @@
 #include "scene/constants.h"
 
 using namespace visutwin::canvas;
+
+namespace
+{
+    enum class Mode { Full, Scaled, Sharpen, Temporal, TemporalSharpen };
+    constexpr std::array<std::string_view, 5> kModeNames = {"full", "scaled", "sharpen", "temporal",
+        "temporalSharpen"};
+}
 
 class TaaExample final: public ExampleApp
 {
@@ -118,24 +136,22 @@ protected:
             root()->addChild(_cubeEntity);
         }
 
-        // Camera frame: ACES, bloom 0.02, then the initial control values
-        // (scale 1, bloom on, sharpness 1, TAA on with jitter 1).
-        if (_cameraComp) {
-            _cameraComp->setToneMapping(TONEMAP_ACES);
-
-            auto taa = _cameraComp->taa();
-            taa.enabled = true;
-            taa.jitter = 1.0f;
-            _cameraComp->setTaa(taa);
-
-            auto rendering = _cameraComp->rendering();
-            rendering.bloomIntensity = 0.02f;
-            rendering.sharpness = 1.0f;
-            rendering.renderTargetScale = 1.0f;
-            _cameraComp->setRendering(rendering);
+        // Camera frame: ACES, then the initial control values (full resolution, bloom on,
+        // sharpness 1, TAA on with jitter 1).
+        if (!_cameraComp) {
+            return false;
         }
+        _cameraComp->setToneMapping(TONEMAP_ACES);
+        if (const char* mode = std::getenv("VISUTWIN_TAA_MODE")) {
+            for (size_t i = 0; i < kModeNames.size(); ++i) {
+                if (kModeNames[i] == mode) {
+                    setMode(static_cast<Mode>(i));
+                }
+            }
+        }
+        applySettings();
 
-        spdlog::info("Controls: T TAA, [ ] jitter, S sharpness, B bloom, -/= resolution scale");
+        spdlog::info("Controls: M mode, -/= resolution, T TAA, [ ] jitter, S sharpness, B bloom");
         logState("init");
 
         return true;
@@ -147,43 +163,42 @@ protected:
             return false;
         }
 
-        auto taa = _cameraComp->taa();
-        auto rendering = _cameraComp->rendering();
-
         switch (event.key.key) {
-        case SDLK_T:
-            taa.enabled = !taa.enabled;
-            // TAA has been flipped, setup sharpening appropriately.
-            rendering.sharpness = taa.enabled ? 1.0f : 0.0f;
-            break;
-        case SDLK_LEFTBRACKET:
-            taa.jitter = std::max(0.0f, taa.jitter - 0.05f);
-            break;
-        case SDLK_RIGHTBRACKET:
-            taa.jitter = std::min(1.0f, taa.jitter + 0.05f);
-            break;
-        case SDLK_S:
-            if (rendering.sharpness < 0.125f) rendering.sharpness = 0.25f;
-            else if (rendering.sharpness < 0.375f) rendering.sharpness = 0.5f;
-            else if (rendering.sharpness < 0.625f) rendering.sharpness = 0.75f;
-            else if (rendering.sharpness < 0.875f) rendering.sharpness = 1.0f;
-            else rendering.sharpness = 0.0f;
-            break;
-        case SDLK_B:
-            rendering.bloomIntensity = rendering.bloomIntensity > 0.0f ? 0.0f : 0.02f;
+        case SDLK_M:
+            setMode(static_cast<Mode>((static_cast<int>(_mode) + 1) % static_cast<int>(kModeNames.size())));
             break;
         case SDLK_MINUS:
-            rendering.renderTargetScale = std::max(0.5f, rendering.renderTargetScale - 0.1f);
+            setScale(_scale - 0.05f);
             break;
         case SDLK_EQUALS:
-            rendering.renderTargetScale = std::min(1.0f, rendering.renderTargetScale + 0.1f);
+            setScale(_scale + 0.05f);
+            break;
+        case SDLK_T:
+            _taaEnabled = !_taaEnabled;
+            // TAA has been flipped, setup sharpening appropriately.
+            _sharpness = _taaEnabled ? 1.0f : 0.0f;
+            break;
+        case SDLK_LEFTBRACKET:
+            _jitter = std::max(0.0f, _jitter - 0.05f);
+            break;
+        case SDLK_RIGHTBRACKET:
+            _jitter = std::min(1.0f, _jitter + 0.05f);
+            break;
+        case SDLK_S:
+            if (_sharpness < 0.125f) _sharpness = 0.25f;
+            else if (_sharpness < 0.375f) _sharpness = 0.5f;
+            else if (_sharpness < 0.625f) _sharpness = 0.75f;
+            else if (_sharpness < 0.875f) _sharpness = 1.0f;
+            else _sharpness = 0.0f;
+            break;
+        case SDLK_B:
+            _bloom = !_bloom;
             break;
         default:
             return false;
         }
 
-        _cameraComp->setTaa(taa);
-        _cameraComp->setRendering(rendering);
+        applySettings();
         logState("changed");
         return true;
     }
@@ -198,13 +213,47 @@ protected:
     }
 
 private:
+    // The resolution follows the mode: 1 at the full one, the remembered one in the scaled modes.
+    void setMode(const Mode mode)
+    {
+        _mode = mode;
+        _scale = mode == Mode::Full ? 1.0f : _scaledResolution;
+    }
+
+    // Lowering the resolution while at the full one switches to the scaled mode.
+    void setScale(const float scale)
+    {
+        _scale = std::clamp(std::round(scale * 100.0f) / 100.0f, 0.25f, 1.0f);
+        if (_scale < 1.0f) {
+            _scaledResolution = _scale;
+            if (_mode == Mode::Full) {
+                _mode = Mode::Scaled;
+            }
+        }
+    }
+
+    void applySettings()
+    {
+        const bool sharpen = _mode == Mode::Full || _mode == Mode::Sharpen || _mode == Mode::TemporalSharpen;
+
+        auto taa = _cameraComp->taa();
+        taa.enabled = _taaEnabled;
+        taa.jitter = _jitter;
+        taa.upscale = _mode == Mode::Temporal || _mode == Mode::TemporalSharpen;
+        _cameraComp->setTaa(taa);
+
+        auto rendering = _cameraComp->rendering();
+        rendering.bloomIntensity = _bloom ? 0.02f : 0.0f;
+        rendering.renderTargetScale = _scale;
+        rendering.sharpness = sharpen ? _sharpness : 0.0f;
+        _cameraComp->setRendering(rendering);
+    }
+
     void logState(const char* reason) const
     {
-        const auto& taa = _cameraComp->taa();
-        const auto& rendering = _cameraComp->rendering();
-        spdlog::info("{}: taa={}, jitter={:.2f}, sharpness={:.2f}, bloom={:.2f}, scale={:.1f}",
-            reason, taa.enabled ? "ON" : "OFF", taa.jitter, rendering.sharpness,
-            rendering.bloomIntensity, rendering.renderTargetScale);
+        spdlog::info("{}: mode={}, resolution={:.2f}, taa={}, jitter={:.2f}, sharpness={:.2f}, bloom={}",
+            reason, kModeNames[static_cast<size_t>(_mode)], _scale, _taaEnabled ? "ON" : "OFF", _jitter,
+            _cameraComp->rendering().sharpness, _bloom ? "on" : "off");
     }
 
     std::unique_ptr<Asset> _envAtlas;
@@ -213,6 +262,14 @@ private:
 
     CameraComponent* _cameraComp = nullptr;
     Entity* _cubeEntity = nullptr;
+
+    Mode _mode = Mode::Full;
+    float _scale = 1.0f;
+    float _scaledResolution = 0.5f;
+    float _sharpness = 1.0f;
+    float _jitter = 1.0f;
+    bool _taaEnabled = true;
+    bool _bloom = true;
 
     float _time = 0.0f;
 };
