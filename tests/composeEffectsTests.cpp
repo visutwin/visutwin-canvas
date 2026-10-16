@@ -72,6 +72,27 @@ int main()
         check(build.source.empty() && build.errors.size() == 1, "a slot with no chunk is left out with an error");
     }
 
+    std::cout << "debug views of an effect with no slot\n";
+    {
+        auto viewsOnly = effect("viewer", ComposeSlot::None,
+            "float3 debugEdges() { return sceneTexture.SampleLevel(composeDebugUv, 0.0).rgb; }\n",
+            {"edges"});
+        check(buildComposeEffects({viewsOnly}).source.empty(), "joins nothing while no view is shown");
+        check(buildComposeEffects({viewsOnly}, "depth").source.empty(), "nor while another view is");
+        const auto build = buildComposeEffects({viewsOnly}, "edges");
+        check(build.debugViews == std::vector<std::string>{"edges"}, "joins while one of its views is shown");
+        check(composeDebugMode("edges", build) == compose_shaders::kComposeDebugFirstEffect, "as an effect view");
+        check(contains(build.source, "static float2 composeDebugUv;") &&
+              contains(build.source, "composeEffectDebug(uint view, float2 uv, float3 color)") &&
+              contains(build.source, "composeDebugUv = uv;"),
+            "the view reads the pixel it is shown for through composeDebugUv");
+        check(!contains(slotBody(build.source, "Output"), "applyViewer") &&
+              !contains(slotBody(build.source, "Hdr"), "applyViewer"),
+            "and is called at no slot");
+        viewsOnly->setEnabled(false);
+        check(buildComposeEffects({viewsOnly}, "edges").source.empty(), "an inactive one joins nothing");
+    }
+
     std::cout << "identifiers\n";
     {
         check(effect("colorEnhance", ComposeSlot::Hdr, "x")->defineName() == "COLOR_ENHANCE", "colorEnhance -> COLOR_ENHANCE");

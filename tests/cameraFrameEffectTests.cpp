@@ -36,6 +36,7 @@
 #include "scene/graphics/renderPassDownsample.h"
 #include "scene/graphics/renderPassPrepass.h"
 #include "scene/graphics/renderPassTAA.h"
+#include "scene/graphics/smaaEffect.h"
 #include "scene/graphics/taaEffect.h"
 #include "scene/composition/layerComposition.h"
 #include "scene/constants.h"
@@ -437,6 +438,49 @@ int main()
         frame();
         check(camera->taaEffect()->pass() == nullptr, "turning TAA off releases them");
         camera->removeFrameEffect(keep);
+        frame();
+
+        std::cout << "SMAA\n";
+        auto smaa = std::make_shared<SmaaEffect>();
+        camera->addFrameEffect(smaa);
+        frame();
+        const auto& withSmaa = camera->cameraFrame()->beforePasses();
+        const auto indexOfName = [&](const std::string& name) {
+            for (int i = 0; i < static_cast<int>(withSmaa.size()); ++i) {
+                if (withSmaa[i] && withSmaa[i]->name() == name) {
+                    return i;
+                }
+            }
+            return -1;
+        };
+        const int edge = indexOfName("RenderPassSmaa-edge");
+        const int weights = indexOfName("RenderPassSmaa-weights");
+        const int blend = indexOfName("RenderPassSmaa-blend");
+        check(edge >= 0 && weights == edge + 1 && blend == weights + 1, "three passes, in order");
+        check(blend >= 0 && blend < indexOfType<RenderPassCompose>(withSmaa), "at the resolve stage, before compose");
+        const auto* smaaCompose = dynamic_cast<RenderPassCompose*>(
+            withSmaa[indexOfType<RenderPassCompose>(withSmaa)].get());
+        check(smaaCompose && smaa->outputTexture() && smaaCompose->sceneTexture() == smaa->outputTexture(),
+            "the composition reads SMAA's output");
+        check(smaa->areaTexture() && smaa->areaTexture()->width() == 160 && smaa->areaTexture()->height() == 80 &&
+              smaa->areaTexture()->format() == PixelFormat::PIXELFORMAT_RG8, "the area lookup is 160 x 80 RG8");
+        check(smaa->searchTexture() && smaa->searchTexture()->width() == 64 &&
+              smaa->searchTexture()->height() == 16 && smaa->searchTexture()->format() == PixelFormat::PIXELFORMAT_R8,
+            "the search lookup is 64 x 16 R8");
+        check(smaa->edgesTexture() && smaa->edgesTexture()->width() == 64 && smaa->edgesTexture()->height() == 48 &&
+              smaa->outputTexture()->width() == 64, "its targets have the scene's size");
+        Texture* area = smaa->areaTexture();
+        smaa->threshold = 0.05f;
+        frame();
+        check(smaa->areaTexture() == area, "a parameter change rebuilds nothing");
+        auto keepFrame = camera->rendering();
+        keepFrame.bloomIntensity = 0.02f;   // keeps the frame when the effect goes
+        camera->setRendering(keepFrame);
+        camera->removeFrameEffect(smaa);
+        frame();
+        check(smaa->outputTexture() == nullptr, "removed, its passes are let go of at the next frame");
+        keepFrame.bloomIntensity = 0.0f;
+        camera->setRendering(keepFrame);
         frame();
     }
 

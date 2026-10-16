@@ -1497,9 +1497,24 @@ overridden through ShaderChunks and takes no texture.
   frame binds when an effect requires `Depth` (or the depth view asks) and the frame has one.
 - **Debug views** (`RenderingSettings::composeDebug`, a run-time mode, no variant):
   `scene`, `depth`, `bloom`, `ssao`, `dofcoc`, `dofblur`, `vignette`, or an effect's view
-  (`float3 debug<Name>()`), shown before gamma; black when nothing in the frame produces it
-  (the depth view of a multisampled frame without a prepass, say). A debug view never turns
-  rendering on.
+  (`float3 debug<Name>()`, which reads the pixel shown as `composeDebugUv`), shown before
+  gamma; black when nothing in the frame produces it (the depth view of a multisampled frame
+  without a prepass, say). A debug view never turns rendering on. An active effect with NO
+  slot can still provide views: `buildComposeEffects(effects, debugView)` composes its chunk
+  only while one of them is shown, so it costs the composition nothing otherwise.
+- **SMAA** (`SmaaEffect`, `scene/graphics/smaaEffect.h`, opt-in through `addFrameEffect`):
+  SMAA 1x at the resolve stage, three passes of `programs/smaa.slang` (variants `edge` into
+  RG8, `weights` into RGBA8 with the area and search lookups, `blend` into the scene format;
+  ONE fragment entry dispatching on the variant, because the bundle finds entries in the
+  source text before the preprocessor and three same-named entries collide on Vulkan). The
+  lookups are the reference implementation's tables, embedded (`smaaLookupData.inc`,
+  generated). Edges are found on the displayed luma and pixels blended under the reversible
+  tone mapping, both at `CameraFrameEffectContext::displayExposure` (1 under tone mapping
+  NONE). Parameters are uniforms, so a preset change compiles nothing and rebuilds nothing.
+  Its debug views `smaaedges` / `smaaweights`: DEVIATION, the blend pass writes the view into
+  its output while one is shown and the slot-less chunk shows the scene, since a compose
+  chunk here takes no texture. `anti-aliasing` compares it with TAA and MSAA
+  (`VISUTWIN_AA_METHOD` / `VISUTWIN_AA_DEBUG` pick the start for a capture).
 - **The colour-only alias follows the shared scene texture by hand**: its own `width()`
   reads the already-resized texture, so `resize` would do nothing, and Vulkan caches the
   image views at `createFrameBuffers`. `frameUpdate` compares the size the alias was built

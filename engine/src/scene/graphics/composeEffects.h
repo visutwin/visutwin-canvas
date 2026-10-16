@@ -50,8 +50,10 @@ namespace visutwin::canvas
     };
 
     /// The composition of `effects` (the camera's, in registration order): those that are
-    /// active and have a slot and a chunk.
-    ComposeEffectsBuild buildComposeEffects(const std::vector<std::shared_ptr<CameraFrameEffect>>& effects);
+    /// active and have a slot and a chunk, and an active effect with no slot whose debug views
+    /// include `debugView`, the one shown (it is called at no slot).
+    ComposeEffectsBuild buildComposeEffects(const std::vector<std::shared_ptr<CameraFrameEffect>>& effects,
+        const std::string& debugView = {});
 
     /// Writes the composed effects' current uniform values into `rows` (kComposeEffectDataRows
     /// float4s) at the build's placements.

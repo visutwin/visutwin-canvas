@@ -37,7 +37,9 @@
 // the uniforms (setUniform), so the chunk declares none; setDefine adds a #define, and
 // `<ID>` (the id in upper snake case) is defined while the effect is active. A view named in
 // `debugViews` is a `float3 debug<Name>()` in the chunk, shown through
-// RenderingSettings::composeDebug. The compose shader is compiled at run time for each
+// RenderingSettings::composeDebug; it reads the pixel being shown as `composeDebugUv`. An
+// effect with no slot may still provide debug views: its chunk joins the composition only
+// while one of them is shown. The compose shader is compiled at run time for each
 // distinct set of chunks, defines and uniform names (a uniform's VALUE costs nothing).
 //
 // DEVIATIONS: an effect is registered on the camera component, which co-owns it, because
@@ -188,6 +190,10 @@ namespace visutwin::canvas
         /// resolving effect changes the resolution.
         int renderWidth = 0;
         int renderHeight = 0;
+        /// The exposure the composition displays the scene with: the camera's, or 1 under tone
+        /// mapping NONE, which applies none. What a pass judging or blending the scene as it is
+        /// SEEN scales the linear scene by.
+        float displayExposure = 1.0f;
         /// The time the world advanced by since the camera frame last rendered, in seconds:
         /// the engine's update steps since (clamped and time-scaled, as scripts get them). 0
         /// for a frame rendered again without an update, while the world is paused, and on

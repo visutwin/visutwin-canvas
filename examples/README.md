@@ -166,6 +166,7 @@ The second column is the upstream example each one ports, as
 |---------|----------|-------------|
 | post-processing | camera-frame/post-processing | The camera frame's compose chain |
 | taa | camera-frame/taa | Temporal anti-aliasing over the PBR house |
+| anti-aliasing | camera-frame/anti-aliasing | SMAA (a resolve-stage CameraFrameEffect), TAA and MSAA compared over the PBR house and a sign of thin bars |
 | depth-of-field | camera-frame/depth-of-field | Bokeh depth of field over an apartment interior |
 | ambient-occlusion | camera-frame/ambient-occlusion | Screen-space ambient occlusion in the laboratory |
 | volumetric-fog-local-lights | camera-frame/volumetric-fog-local-lights | Height fog lit by shadowed spot and omni lights over a terrain |

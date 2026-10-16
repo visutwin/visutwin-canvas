@@ -46,6 +46,14 @@ stb_image (stb)
   Licensed under the MIT License / Public Domain
   https://github.com/nothings/stb
 
+SMAA (Subpixel Morphological Antialiasing) — the shader algorithm in
+engine/shaders/slang/programs/smaa.slang and the lookup tables in
+engine/src/scene/graphics/smaaLookupData.inc
+  Copyright (C) 2013 Jorge Jimenez, Jose I. Echevarria, Belen Masia,
+  Fernando Navarro, Diego Gutierrez
+  Licensed under the MIT License
+  http://www.iryoku.com/smaa/
+
 ================================================================================
 
 Test Assets (assets-private/ directory)

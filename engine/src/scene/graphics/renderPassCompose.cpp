@@ -25,7 +25,7 @@ namespace visutwin::canvas
         // and uniform names can change from frame to frame. The shader for the generated file
         // is cached on the device by its text, so an unchanged composition costs the
         // generation and a lookup.
-        _effectsBuild = buildComposeEffects(_effects);
+        _effectsBuild = buildComposeEffects(_effects, _debugView);
         std::string errors;
         for (const auto& error : _effectsBuild.errors) {
             errors += error + "\n";

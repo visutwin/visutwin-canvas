@@ -257,7 +257,10 @@ bindings like a program of the tree, so it needs the source tree at run time. Wh
   `ShaderMaterial(name, shader)` and reads its transforms through the `vtdraw` module.
 - **Variants are declared in the source**: one `// @variant <name>: DEFINE=value ...` line per
   variant, each compiled with those defines by the bundle and by the runtime path. Test them
-  with `#if defined(X)`; `#if X` on an undefined name is a Slang warning (E15205).
+  with `#if defined(X)`; `#if X` on an undefined name is a Slang warning (E15205). Entry
+  points are found in the source TEXT, before the preprocessor: give the variants ONE entry per
+  stage that dispatches on the define (`smaa.slang`), never same-named entries in `#if`
+  branches, which all get emitted and collide on Vulkan while Metal still builds.
 - **The build compiles every program** (`tools/generate_slang_bundle.py`, the vcpkg port's
   `slangc`) into `<build>/engine/generated/slang/slang_shader_bundle.h`: MSL source AND a
   precompiled metallib for Metal, SPIR-V per entry point for Vulkan, plus the

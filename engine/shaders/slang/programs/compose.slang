@@ -493,7 +493,7 @@ float3 composeDebugView(uint mode, float2 uv, float3 result)
         return float3(1.0, 1.0, 1.0) * (1.0 - u.vignetteIntensity * smoothstep(u.vignetteInner, u.vignetteOuter, edge));
     }
     if (mode >= 16u) {
-        return composeEffectDebug(mode - 16u, result);
+        return composeEffectDebug(mode - 16u, uv, result);
     }
     return float3(0.0, 0.0, 0.0);   // 8: asked for a view nothing in this frame produces
 }

@@ -28,7 +28,7 @@ float3 composeSlotOutput(float3 color, float2 uv)
     return color;
 }
 
-float3 composeEffectDebug(uint view, float3 color)
+float3 composeEffectDebug(uint view, float2 uv, float3 color)
 {
     return float3(0.0, 0.0, 0.0);
 }

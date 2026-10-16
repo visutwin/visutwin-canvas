@@ -1049,8 +1049,9 @@ namespace visutwin::canvas
         }
         // The TAA history is blended at the exposure compose displays it with; tone mapping
         // NONE applies no exposure.
+        _displayExposure = toneMapping == TONEMAP_NONE ? 1.0f : exposure;
         if (_cameraComponent && _cameraComponent->taaEffect()) {
-            _cameraComponent->taaEffect()->setDisplayExposure(toneMapping == TONEMAP_NONE ? 1.0f : exposure);
+            _cameraComponent->taaEffect()->setDisplayExposure(_displayExposure);
         }
     }
 
@@ -1297,6 +1298,7 @@ namespace visutwin::canvas
             context.sceneHeight = scene.height;
             context.renderWidth = renderWidth;
             context.renderHeight = renderHeight;
+            context.displayExposure = _displayExposure;
             for (const auto& effect : _cameraComponent->allFrameEffects()) {
                 if (effect && effect->active()) {
                     effect->frameUpdate(context);

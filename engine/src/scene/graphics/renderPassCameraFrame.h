@@ -214,6 +214,8 @@ namespace visutwin::canvas
         std::shared_ptr<RenderPassVolumetricFogCombine> _volumetricFogCombinePass;
         // The engine's updatedTime() when this frame last rendered; negative before the first.
         mutable double _lastUpdatedTime = -1.0;
+        // What applyDisplaySettings last resolved: the exposure compose shows the scene with.
+        mutable float _displayExposure = 1.0f;
         std::shared_ptr<RenderPassDownsample> _scenePassHalf;
         std::shared_ptr<RenderPassBloom> _bloomPass;
         std::shared_ptr<RenderPassDof> _dofPass;
