@@ -733,6 +733,20 @@ namespace visutwin::canvas
         void clearQuadTextureBindings()
         {
             _quadTextureBindings.fill(nullptr);
+            _quadTextureOwnSampler.fill(false);
+        }
+        /// Reads quad input `slot` through its texture's own sampler (wrap, filter) on Metal too,
+        /// where every input otherwise takes the post sampler (linear, clamp); a combined input on
+        /// Vulkan always does. For an input that must repeat, such as tiling noise.
+        void setQuadTextureOwnSampler(const size_t slot, const bool value)
+        {
+            if (slot < _quadTextureOwnSampler.size()) {
+                _quadTextureOwnSampler[slot] = value;
+            }
+        }
+        bool quadTextureOwnSampler(const size_t slot) const
+        {
+            return slot < _quadTextureOwnSampler.size() && _quadTextureOwnSampler[slot];
         }
         void setQuadRenderActive(const bool active) { _quadRenderActive = active; }
         bool quadRenderActive() const { return _quadRenderActive; }
@@ -1319,6 +1333,7 @@ namespace visutwin::canvas
 
         std::shared_ptr<VertexBuffer> _quadVertexBuffer;
         std::array<Texture*, kQuadTextureInputs> _quadTextureBindings{};
+        std::array<bool, kQuadTextureInputs> _quadTextureOwnSampler{};
         std::vector<uint8_t> _quadUniformData;
         bool _quadRenderActive = false;
         bool _hdrPass = false;

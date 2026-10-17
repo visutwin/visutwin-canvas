@@ -354,9 +354,15 @@ namespace visutwin::canvas
             return;
         }
 
+        // A cubemap's face, or an array texture's layer: both are stored as faces.
         if (_cubemap) {
             if (face >= 6) {
                 spdlog::warn("Texture::setLevelData face index {} out of range for cubemap", face);
+                return;
+            }
+        } else if (isArray()) {
+            if (face >= _arrayLength) {
+                spdlog::warn("Texture::setLevelData layer {} out of range for an array of {}", face, _arrayLength);
                 return;
             }
         } else {
@@ -400,8 +406,7 @@ namespace visutwin::canvas
         if (!isArray() || index >= _arrayLength) {
             return nullptr;
         }
-        // Note: Array texture implementation would be more complex
-        return getLevel(mipLevel);
+        return getLevel(mipLevel, index);
     }
 
     void Texture::resize(uint32_t width, uint32_t height, uint32_t depth)

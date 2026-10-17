@@ -520,6 +520,12 @@ namespace visutwin::canvas
             if ((meshInstance->mask() & cullingMask) == 0u) {
                 return Bucket::None;
             }
+            if (meshInstance->onlyCamera() && meshInstance->onlyCamera() != camera) {
+                return Bucket::None;
+            }
+            if (meshInstance->replacesSky() && (!camera || camera->skyVisible())) {
+                return Bucket::None;
+            }
 
             const Material* material = meshInstance->material()
                 ? meshInstance->material() : fallbackMaterial.get();

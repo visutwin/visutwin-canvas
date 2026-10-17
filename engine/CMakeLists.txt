@@ -287,6 +287,11 @@ endif()
 set_source_files_properties(
     "${VISUTWIN_ROOT_DIR}/engine/src/scene/gsplat/gsplatSortKeys.cpp"
     PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+# The dynamic sky's cloud noise reproduces upstream's JavaScript arithmetic byte for byte
+# (tests/dynamicSkyNoiseTests.cpp), which never fuses a multiply-add.
+set_source_files_properties(
+    "${VISUTWIN_ROOT_DIR}/engine/src/scene/graphics/dynamicSkyNoise.cpp"
+    PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 
 if(VISUTWIN_CANVAS_SHARED)
     set(_VISUTWIN_CANVAS_LIBRARY_TYPE SHARED)

@@ -1533,6 +1533,28 @@ shared by a composition) as `Texture2D`s through `quadSampler`.
   the effect's `camera()`, which `addFrameEffect` sets). Its debug view `autoexposure` is a
   slot-less chunk reading 16 float4 uniforms of bars and one of markers. `auto-exposure` ports
   upstream's example (flying, not walking; no sun boost).
+- **Dynamic sky** (`DynamicSkyEffect`, `scene/graphics/dynamicSkyEffect.h`, opt-in): takes over its
+  camera's sky (`rendersSky`): the Preetham day sky balanced against the sun (luminance x
+  sunIntensity x 0.05 / sin(elevation)), the night sky (stars, moon, twilight glow) and clouds,
+  flat or volumetric, drifting by the effect's dt. One program, `programs/dynamic-sky.slang`, a
+  variant per pass and cloud mode. The sky is the effect's own mesh instance on the Skybox layer
+  (`SkyMesh::createInfiniteSkyMesh`), drawn by its camera only (`MeshInstance::setOnlyCamera`)
+  and only while that camera hides the scene's sky (`setReplacesSky`: culled whenever
+  `Camera::skyVisible`), so the scene's sky comes back the frame the effect stops, whether or not
+  its passes are torn down. Its material reads the cloud textures on the material rows
+  (`VT_DECLARE_<row>_AS(type, name)`: the arrays on the normal and metal-rough rows). Volumetric
+  clouds of a perspective camera render to their own RGBA16F texture (RGBA8, range-compressed,
+  without half floats) at `cloudResolution` (preScene), and the sky reads it with a 3x3 blur.
+  The lighting is a targetless preScene pass generating the cube (a quad per face), its mips and
+  the atlas (`EnvLighting::generateAtlas`) in an offline scope, due when the sun or the moon
+  moved by `lightingThreshold`, a setting changed by 1%, the clouds drifted by
+  `lightingCloudThreshold` or `bakeLighting()`; interpolated, it bakes into an atlas of its own
+  and blends from a shader COPY of the atlas shown (a texture copy is refused mid-frame on
+  Vulkan), a jump (4 thresholds, 10%) at once. The cloud noise (`dynamicSkyNoise.h`) is generated
+  on the CPU byte for byte as upstream's (`tests/dynamicSkyNoiseTests.cpp` hashes it against
+  upstream's generator run under Node): its stable sort, float32 storage, integer hashes and
+  `Math.round`, compiled without FMA contraction. `dynamic-sky` ports upstream's example
+  without the water (not ported yet); its island's WebP textures are re-encoded PNG.
 - **Lens flare** (`LensFlareEffect` / `LensFlare`, `scene/graphics/lensFlareEffect.h`, opt-in):
   flares following lights (directional: a direction; omni and spot: a position, a spot fading
   outside its cone), an entity, a position or a direction, each placing the shapes of its

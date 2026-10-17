@@ -258,6 +258,11 @@ namespace visutwin::canvas
 
     std::shared_ptr<Mesh> SkyMesh::createInfiniteMesh(const std::shared_ptr<GraphicsDevice>& device) const
     {
+        return createInfiniteSkyMesh(device);
+    }
+
+    std::shared_ptr<Mesh> SkyMesh::createInfiniteSkyMesh(const std::shared_ptr<GraphicsDevice>& device)
+    {
         // DEVIATION: half-extent 1 where upstream uses the unit box. Only the direction to
         // each fragment reaches the screen, so the size changes no pixel; the larger box
         // is further from a camera's near plane, which a sky drawn around the camera must

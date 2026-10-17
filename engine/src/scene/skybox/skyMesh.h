@@ -36,6 +36,9 @@ namespace visutwin::canvas
         /// of the cleared far value; Sky passes its own setting on.
         void setDepthWrite(bool value);
 
+        /// The infinite sky's mesh: a box around the camera whose faces only give the direction.
+        static std::shared_ptr<Mesh> createInfiniteSkyMesh(const std::shared_ptr<GraphicsDevice>& device);
+
         /// Create a full UV sphere mesh (no flattening). Used for atmosphere sky.
         static std::shared_ptr<Mesh> createSphereMesh(const std::shared_ptr<GraphicsDevice>& device,
             int latBands = 64, int lonBands = 64);

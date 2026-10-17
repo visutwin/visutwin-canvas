@@ -49,6 +49,13 @@ namespace visutwin::canvas
             }
         }
         void clearQuadTextureBindings() { _quadTextureBindings.fill(nullptr); }
+        /// See GraphicsDevice::setQuadTextureOwnSampler.
+        void setQuadTextureOwnSampler(const size_t slot, const bool value)
+        {
+            if (slot < _quadTextureOwnSampler.size()) {
+                _quadTextureOwnSampler[slot] = value;
+            }
+        }
 
         /// Uniform block for the quad shader (see GraphicsDevice::setQuadUniformData).
         /// Bytes are copied; blocks must fit kPerDrawUniformCapacity.
@@ -137,6 +144,7 @@ namespace visutwin::canvas
         std::shared_ptr<Shader> _shader = nullptr;
         std::shared_ptr<QuadRender> _quadRender = nullptr;
         std::array<Texture*, kQuadTextureInputs> _quadTextureBindings{};
+        std::array<bool, kQuadTextureInputs> _quadTextureOwnSampler{};
         std::shared_ptr<VertexBuffer> _geometry;
         int _geometryVertexCount = 0;
     };

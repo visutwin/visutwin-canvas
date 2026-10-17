@@ -413,6 +413,17 @@ namespace visutwin::canvas
         bool visible() const { return _visible; }
         void setVisible(bool v) { _visible = v; }
 
+        /// Drawn by this camera only, culled for every other (null, the default: by any camera
+        /// that renders its layer). What an effect drawing a sky of its own for its camera uses.
+        const Camera* onlyCamera() const { return _onlyCamera; }
+        void setOnlyCamera(const Camera* camera) { _onlyCamera = camera; }
+
+        /// A sky drawn in place of the scene's: culled for a camera that draws the scene's sky
+        /// (Camera::skyVisible), so it shows exactly while an effect of the camera's frame renders
+        /// the sky, and the scene's sky comes back the frame the effect stops.
+        bool replacesSky() const { return _replacesSky; }
+        void setReplacesSky(const bool value) { _replacesSky = value; }
+
         // --- Dynamic batching support ---
 
         /** SkinBatchInstance pointer for dynamic batches (non-owning, owned by Batch). */
@@ -526,6 +537,8 @@ namespace visutwin::canvas
         // Batching
         int _batchGroupId = -1;   // BatchGroup::NOID
         bool _visible = true;     // Hidden when merged into a batch
+        const Camera* _onlyCamera = nullptr;
+        bool _replacesSky = false;
         bool _dynamicBatch = false;  // True when part of a dynamic batch
     };
 }

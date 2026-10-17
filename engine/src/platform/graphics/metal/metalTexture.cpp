@@ -298,7 +298,7 @@ namespace visutwin::canvas::gpu
                     {
                         if (auto* arraySource = _texture->getArrayData(mipLevel, index))
                         {
-                            const auto sourceSize = _texture->getLevelDataSize(mipLevel);
+                            const auto sourceSize = _texture->getLevelDataSize(mipLevel, index);
                             uploadRawImage(arraySource, sourceSize, mipLevel, index);
                             anyUploads = true;
                         }
@@ -394,8 +394,8 @@ namespace visutwin::canvas::gpu
         const auto mipHeight = std::max(1u, static_cast<uint32_t>(_descriptor->height()) >> mipLevel);
 
         const MTL::Region region = MTL::Region(0, 0, 0, mipWidth, mipHeight, 1);
-        // For cubemaps, 'index' is the face/slice index (0-5)
-        const NS::UInteger slice = _texture->isCubemap() ? index : 0;
+        // 'index' is a cubemap's face (0-5) or an array texture's layer: its slice either way.
+        const NS::UInteger slice = (_texture->isCubemap() || _texture->isArray()) ? index : 0;
 
         // Block-compressed upload: bytesPerRow spans one row of blocks.
         if (const uint32_t blockSize = compressedPixelFormatBlockSize(_texture->format());

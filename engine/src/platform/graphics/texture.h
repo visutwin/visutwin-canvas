@@ -93,9 +93,10 @@ namespace visutwin::canvas
         bool hasHostData() const;
         uint32_t getNumLevels() const { return _numLevels; }
         void* getLevel(uint32_t mipLevel) const;
-        // Face-aware variant for cubemaps (levels are stored per face).
+        // Face-aware variant: a cubemap's faces and an array texture's layers are stored per face.
         void* getLevel(uint32_t mipLevel, uint32_t face) const;
         size_t getLevelDataSize(uint32_t mipLevel, uint32_t face = 0) const;
+        /// The host data of a mip level of a cubemap face (0-5), an array layer, or the texture.
         void setLevelData(uint32_t mipLevel, const uint8_t* data, size_t dataSize, uint32_t face = 0);
 
         /**

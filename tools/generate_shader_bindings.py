@@ -51,6 +51,9 @@ def declaration(row: BindingRow, set_index: int, sampler_slot: int | None) -> li
     metal_slot = row.metal_slot - 100 if row.metal_slot >= 100 else row.metal_slot
     if sampler_slot is not None:
         lines.append(f"#define VT_DECLARE_{row.name} {vk}Sampler2D {row.name} : register(t{metal_slot}) : register(s{sampler_slot});")
+        # The same slot under a name and a combined type of the program's own (Sampler2D,
+        # Sampler2DArray): a custom material's textures, which ride the material rows.
+        lines.append(f"#define VT_DECLARE_{row.name}_AS(T, name) {vk}T name : register(t{metal_slot}) : register(s{sampler_slot});")
     else:
         lines.append(f"#define VT_DECLARE_{row.name} {vk}{SLANG_TYPE[row.type]} {row.name} : register(t{metal_slot});")
     return lines

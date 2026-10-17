@@ -5,6 +5,8 @@
 //
 #include <cmath>
 #include "metalGraphicsDevice.h"
+
+#include "platform/graphics/textureSamplerState.h"
 #include "platform/graphics/runLoopWait.h"
 #include <typeinfo>
 
@@ -1722,7 +1724,11 @@ namespace visutwin::canvas
             _textureBinder.bindSamplerCached(passEncoder, 1, _quadPointSampler);
             _textureBinder.bindSamplerCached(passEncoder, 2, _quadCompareSampler);
             for (int n = 0; n < MetalTextureBinder::kQuadInputCount; ++n) {
-                _textureBinder.bindSamplerCached(passEncoder, MetalTextureBinder::kQuadLinearSamplerBase + n, _postSampler);
+                Texture* input = quadTextureBinding(static_cast<size_t>(n));
+                MTL::SamplerState* sampler = input && quadTextureOwnSampler(static_cast<size_t>(n))
+                    ? _samplerCache.get(textureSamplerState(*input, maxAnisotropy())) : _postSampler;
+                _textureBinder.bindSamplerCached(passEncoder, MetalTextureBinder::kQuadLinearSamplerBase + n,
+                    sampler ? sampler : _postSampler);
             }
             for (int n = 0; n < MetalTextureBinder::kQuadPointInputs; ++n) {
                 _textureBinder.bindSamplerCached(passEncoder, MetalTextureBinder::kQuadPointSamplerBase + n, _quadPointSampler);

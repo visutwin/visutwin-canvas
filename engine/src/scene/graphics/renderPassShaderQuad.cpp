@@ -77,6 +77,7 @@ namespace visutwin::canvas
         gd->clearQuadTextureBindings();
         for (size_t i = 0; i < _quadTextureBindings.size(); ++i) {
             gd->setQuadTextureBinding(i, _quadTextureBindings[i]);
+            gd->setQuadTextureOwnSampler(i, _quadTextureOwnSampler[i]);
         }
 
         if (!_quadUniformData.empty()) {

@@ -899,7 +899,9 @@ texture array. **On Vulkan a quad draw's shared sampler (set 1 binding 24) is a 
 non-anisotropic one (`_quadExtraSampler`), Metal's post sampler**; a material draw keeps the
 repeating, anisotropic material sampler there. Read through the material one, a quad input
 wrapped at the screen edge on Vulkan alone (a lens flare leaving one side came back on the
-other). A quad pass may draw a vertex buffer of its own instead of the fullscreen triangle
+other). A quad input that must REPEAT (tiling noise) asks for its texture's own sampler
+(`setQuadTextureOwnSampler`): Metal then binds it at the input's linear slot instead of the post
+sampler. A quad pass may draw a vertex buffer of its own instead of the fullscreen triangle
 (`RenderPassShaderQuad::setGeometry`, a triangle list in the standard 56-byte layout, written
 per frame into a ring of `maxFramesInFlight` buffers). The block rides the per-draw MATERIAL slot (Metal buffer 3 / Vulkan
 set 0 binding 0) via `GraphicsDevice::setQuadUniformData`; `kPerDrawUniformCapacity`
@@ -2447,6 +2449,22 @@ present, but the rule below never depends on reading it.
   pins the bounds geometry and the cull decision, because NO example in the tree has a
   light off screen — every one of them keeps its lights in view, so a culled light is
   never exercised by a render at all.
+- **An array texture's layers are host data per FACE index** (`Texture::setLevelData(mip, data,
+  size, layer)`, as a cubemap's faces): both backends upload each layer to its own slice. Until
+  2026-10-17 the setter forced face 0 for anything but a cubemap and Metal uploaded level 0 into
+  every layer, so a CPU-filled array (the dynamic sky's 3D cloud noise) came out as one layer
+  repeated, with nothing logged.
+- **Initialize every `static` global in Slang that a branch may skip writing.** GLSL zeroes an
+  initialized global; Slang's `static float3 x;` is undefined on both targets, and garbage times
+  zero is still NaN or Inf. The dynamic sky's sun disc, written only by the day model, was read at
+  night: random blown-out pixels in different places on Metal and Vulkan, bloomed into blobs.
+- **Porting a JavaScript numeric generator byte for byte owes five things**, each met in the
+  dynamic sky's noise: `int + float` is a FLOAT in C++ (a double in JS), `Math.round` is not
+  `floor(x + 0.5)` just below a half, a Float32Array stores float32 while the values computed
+  beside it stay double, an out-of-range read (`array[-1]`) is `undefined` there, a NaN a typed
+  array stores as 0 and C++ reads out of bounds (the sanitizer build caught it; the bytes still
+  matched by luck), and the file needs `-ffp-contract=off`. Hold the port to
+  the original's bytes by running its own functions under Node and hashing the output.
 - **A morphed mesh's bounds grow by how far its targets REACH.** `Morph::aabb` is the
   union of every target's position-DELTA bounds and the origin (upstream `Morph.aabb`),
   and `MeshInstance::aabb` adds its min to the rest-pose min and its max to the max
@@ -3549,6 +3567,11 @@ What stays HERE is only what bites during UNRELATED work.
   `element-states`). (3) `.basis` files do not load (libktx reads KTX2 only; `texture-basis`
   ships KTX2 re-encodes). (4) A custom shader material gets no skin or morph variant
   (`shaders/shader-hatch`).
+- **A shadow pipeline of `dynamic-sky`'s island warns under Vulkan validation** that its vertex
+  stage writes location 5 and the fragment stage does not read it (a performance warning; no
+  other example shows it, `shadow-cascades` included). Some glTF material variant of the island
+  feeds the shared shadow program an output it leaves unread; find which before trusting the
+  shadow program's interface for other models.
 - **Queued — none a correctness bug:** the
   binding footprint exceeds WebGPU's defaults (Metal 43 texture slots, Vulkan 7 sets). The
   parsers derive tangents through one `generateTangents` / `tangentFromNormal`
