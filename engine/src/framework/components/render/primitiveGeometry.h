@@ -55,6 +55,11 @@ namespace visutwin::canvas
     PrimitiveGeometry createTorusGeometry();
     PrimitiveGeometry createTorusGeometry(float tubeRadius, float ringRadius, float sectorAngleDegrees,
                                           int segments, int sides);
+    /// A flat disc in the XZ plane facing +Y, of `sectors` divisions around and `rings`
+    /// concentric rings; `ringExponent` above 1 gathers the rings toward the centre (a large
+    /// water surface tessellated where the camera is). UVs map the bounding square, v = 0 at -Z.
+    PrimitiveGeometry createCircleGeometry(float radius = 0.5f, int sectors = 64, int rings = 8,
+                                           float ringExponent = 1.0f);
     /// Cone-base geometry: the cylinder, cone and capsule all come from it. A zero
     /// radius at either end is a tip; `roundedCaps` makes hemispheres of radius `peakRadius`.
     PrimitiveGeometry createConeBaseGeometry(float baseRadius, float peakRadius, float height, int heightSegments,

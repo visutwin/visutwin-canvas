@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cmath>
+#include <functional>
 #include <numbers>
 
 #include "constants.h"
@@ -104,6 +105,21 @@ namespace visutwin::canvas
          */
         const Vector2& projectionOffset() const { return _projectionOffset; }
         void setProjectionOffset(const Vector2& value) { _projectionOffset = value; _projMatDirty = true; }
+
+        /**
+         * A function that adjusts the projection matrix whenever it is asked for: it receives
+         * the matrix the camera built from its settings and may change it in place, as a planar
+         * reflection's oblique near plane does. While one is set the matrix is rebuilt on every
+         * request, because the function's own inputs can change without the camera knowing. The
+         * skybox projection is left as built. Null (the default) removes it.
+         */
+        using CalculateProjection = std::function<void(Matrix4& projection)>;
+        void setCalculateProjection(CalculateProjection value)
+        {
+            _calculateProjection = std::move(value);
+            _projMatDirty = true;
+        }
+        const CalculateProjection& calculateProjection() const { return _calculateProjection; }
 
         /// The fov is the WIDTH's angle rather than the
         /// height's, which keeps a scene's width in view on a portrait window.
@@ -240,6 +256,7 @@ namespace visutwin::canvas
             _orthoHeight = other._orthoHeight;
             _projection = other._projection;
             _projectionOffset = other._projectionOffset;
+            _calculateProjection = other._calculateProjection;
             _cullingMask = other._cullingMask;
             _exposureScale = other._exposureScale;
             _clearColor = other._clearColor;
@@ -346,6 +363,8 @@ namespace visutwin::canvas
         Vector2 _projectionOffset;
 
         bool _horizontalFov = false;
+
+        CalculateProjection _calculateProjection;
 
         Matrix4 _projMat;
         bool _projMatDirty = true;

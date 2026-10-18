@@ -60,6 +60,7 @@ namespace visutwin::canvas
         /// Pack environment uniforms (skybox, env atlas) into LightingUniforms.
         void setSkyboxRotation(const Quaternion& rotation);
         void setDitherJitter(const Vector4& jitter);
+        void setUserData(const float (&values)[16]);
         void setEnvironmentUniforms(Texture* envAtlas, float skyboxIntensity, float skyboxMip,
             const Vector3& skyDomeCenter, bool isDome, Texture* skyboxCubeMap);
 

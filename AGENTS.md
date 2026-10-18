@@ -325,7 +325,14 @@ bindings like a program of the tree, so it needs the source tree at run time. Wh
   does the job: `forward-vertex-local` is a hook every mesh entry calls in the mesh's own space
   (`forwardLocalVertex(position, normal, tangent, uv0, uv1)`, a no-op by default), which a
   deforming material replaces instead of the whole vertex chunk (visutwin-viz's Navier-Stokes
-  tubes do); the shadow program shares it, so the shadow follows.
+  tubes do); the shadow program shares it, so the shadow follows. The fragment twin is
+  `forward-fragment-user`: `forwardUserFogFactor` (after the fog curve) and
+  `forwardUserFragmentEnd` (the colour as written), both the identity by default, reading the
+  application's scene-wide values through `Scene::setUserShaderData` (`lighting.userData[0..3]`
+  and the scene texture `userMap`); the Water script's underwater fog and caustics are such an
+  override. Declare `linearClampSampler` / `nearestClampSampler` in a program of your own at
+  `register(s7)` / `register(s8)`, as the forward head does: the macros leave the Metal slot
+  to Slang, which picks one nothing binds.
 - **A stage that MAY discard must not exist in a variant that never does.** On Apple GPUs a
   fragment function containing a `discard` loses early depth testing whether or not the
   branch runs, so a discard gated only by a RUNTIME material flag costs every draw of the
@@ -439,7 +446,7 @@ a plain aggregate so `alignof` is 4, not 16 — the layout works because every `
 list lands 16-aligned by construction.
 
 **The LIGHTING block is ONE layout on both backends** (`platform/graphics/lightingBlock.h`,
-`LightingBlock` / `GpuLightBlock`, 2896 bytes, asserted there and in `vulkanRenderPipeline.cpp`,
+`LightingBlock` / `GpuLightBlock`, 2960 bytes, asserted there and in `vulkanRenderPipeline.cpp`,
 and held against the bundle's reflection by `tests/slangBundleTests.cpp`): Metal binds it at
 buffer 4, Vulkan at set 2 binding 0, and the Slang `LightingData`
 (`forward/forward-fragment-head.slang`) declares it field for field under the SAME names. The
@@ -518,7 +525,8 @@ reflected bindings fall outside the table. The rules the rows encode:
   a separate-image map keeps `defaultSampler` on both. Slots 0-40 and 42-45 are taken today
   (31-33 the gloss, thickness and refraction maps, 34 the opacity map, 42 the anisotropy map,
   which skips 41 for the displacement map's vertex slot below, 43-44 the specular colour and
-  specularity factor maps (Vulkan 36-37), 45 the material's own environment atlas (Vulkan 38);
+  specularity factor maps (Vulkan 36-37), 45 the material's own environment atlas (Vulkan 38), 46 the scene's user map (Vulkan set 3
+  binding 24, `Scene::setUserShaderData`);
   35 is the second
   directional shadow map, 36 the clustered cookie atlas, 37-38 the VSM spot moments and 39-40
   the two directional maps AGAIN as VSM moments, scene slots, not material ones: the Slang

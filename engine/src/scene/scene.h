@@ -105,6 +105,19 @@ namespace visutwin::canvas
         const Quaternion& skyboxRotation() const { return _skyboxRotation; }
         void setSkyboxRotation(const Quaternion& value) { _skyboxRotation = value; }
 
+        /// Values and a texture for an application's own forward chunk overrides, the
+        /// scene-wide uniforms such a chunk reads: vector `index` (0-3) is `lighting.userData[index]`,
+        /// the texture `userMap` (declared with VT_DECLARE_userMap, sampled through
+        /// `materialSampler`). The texture is borrowed; clear it before it goes away.
+        void setUserShaderData(const int index, const Vector4& value)
+        {
+            if (index >= 0 && index < UserShaderData::kVectors) {
+                value.store(&_userShaderData.values[index * 4]);
+            }
+        }
+        void setUserShaderTexture(Texture* texture) { _userShaderData.texture = texture; }
+        const UserShaderData& userShaderData() const { return _userShaderData; }
+
         /// Lights shine with their LUMINANCE (candela for spot and omni, lux for
         /// directional) instead of their intensity, and each camera's physical exposure
         /// (aperture, shutter, sensitivity: Camera::physicalExposure) replaces the scene
@@ -233,6 +246,7 @@ namespace visutwin::canvas
 
         float _skyboxIntensity = 1.0f;
         Quaternion _skyboxRotation = Quaternion(0.0f, 0.0f, 0.0f, 1.0f);
+        UserShaderData _userShaderData;
         float _exposure = 1.0f;
         bool _physicalUnits = false;
         int _skyType = SKYTYPE_INFINITE;

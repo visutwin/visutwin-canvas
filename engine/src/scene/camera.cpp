@@ -125,7 +125,7 @@ namespace visutwin::canvas
 
     void Camera::evaluateProjectionMatrix()
     {
-        if (_projMatDirty) {
+        if (_projMatDirty || _calculateProjection) {
             const float offsetX = _projectionOffset.x;
             const float offsetY = _projectionOffset.y;
 
@@ -152,6 +152,10 @@ namespace visutwin::canvas
                 _projMatSkybox = Matrix4::perspective(fov(), aspectRatio(), nearClip(), farClip());
                 _projMatSkybox.setElement(2, 0, offsetX);
                 _projMatSkybox.setElement(2, 1, offsetY);
+            }
+
+            if (_calculateProjection) {
+                _calculateProjection(_projMat);
             }
 
             _projMatDirty = false;

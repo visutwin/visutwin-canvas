@@ -67,6 +67,11 @@ namespace visutwin::canvas
             Texture* skyboxCubeMap = nullptr) override;
         void setSkyboxRotation(const Quaternion& rotation) override { _uniformBinder.setSkyboxRotation(rotation); }
         void setDitherJitter(const Vector4& jitter) override { _uniformBinder.setDitherJitter(jitter); }
+        void setUserShaderData(const UserShaderData& data) override
+        {
+            _uniformBinder.setUserData(data.values);
+            _userShaderTexture = data.texture;
+        }
 
         void setAreaLightLuts(Texture* lut1, Texture* lut2) override
         {
@@ -502,6 +507,7 @@ namespace visutwin::canvas
         Texture* _areaLightLut1 = nullptr;
         Texture* _areaLightLut2 = nullptr;
         Texture* _clusterShadowAtlas = nullptr;
+        Texture* _userShaderTexture = nullptr;     // UserShaderData::texture (slot 46)
         Texture* _clusterCookieAtlas = nullptr;   // clustered cookie atlas (slot 36)  // clustered spot-shadow depth array (slot 26)
 
         // Scene color grab target (dynamic refraction): full-mip copy of the scene

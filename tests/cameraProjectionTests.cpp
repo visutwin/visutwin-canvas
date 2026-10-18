@@ -233,12 +233,55 @@ namespace
 
         return true;
     }
+
+    // The projection hook (Camera::setCalculateProjection): it adjusts every request, sees its own
+    // inputs change without the camera being told, leaves the skybox projection alone, and
+    // goes away when cleared.
+    bool checkCalculateProjection()
+    {
+        Camera camera;
+        camera.setProjection(ProjectionType::Perspective);
+        camera.setFov(45.0f);
+        camera.setAspectRatio(1.0f);
+        camera.setNearClip(0.1f);
+        camera.setFarClip(100.0f);
+        const float plain = camera.projectionMatrix().getElement(0, 0);
+
+        float scale = 2.0f;
+        camera.setCalculateProjection([&scale](Matrix4& projection) {
+            projection.setElement(0, 0, projection.getElement(0, 0) * scale);
+        });
+        if (!nearlyEqual(camera.projectionMatrix().getElement(0, 0), plain * 2.0f)) {
+            std::cerr << "FAILED: the projection hook did not adjust the matrix\n";
+            return false;
+        }
+        // Asked twice, applied once: the hook gets the matrix the camera built, not its own result.
+        if (!nearlyEqual(camera.projectionMatrix().getElement(0, 0), plain * 2.0f)) {
+            std::cerr << "FAILED: the projection hook compounded across requests\n";
+            return false;
+        }
+        scale = 3.0f;
+        if (!nearlyEqual(camera.projectionMatrix().getElement(0, 0), plain * 3.0f)) {
+            std::cerr << "FAILED: a change of the hook's own inputs did not reach the matrix\n";
+            return false;
+        }
+        if (!nearlyEqual(camera.projectionMatrixSkybox().getElement(0, 0), plain)) {
+            std::cerr << "FAILED: the projection hook changed the skybox projection\n";
+            return false;
+        }
+        camera.setCalculateProjection(nullptr);
+        if (!nearlyEqual(camera.projectionMatrix().getElement(0, 0), plain)) {
+            std::cerr << "FAILED: clearing the projection hook did not restore the matrix\n";
+            return false;
+        }
+        return true;
+    }
 }
 
 int main()
 {
     if (!checkPerspective() || !checkOrthographic() || !checkFrustumCorners() ||
-        !checkProjectionInvalidation()) {
+        !checkProjectionInvalidation() || !checkCalculateProjection()) {
         return 1;
     }
 

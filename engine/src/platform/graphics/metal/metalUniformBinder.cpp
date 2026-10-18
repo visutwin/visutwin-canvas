@@ -195,6 +195,15 @@ namespace visutwin::canvas
         markLightingChanged();
     }
 
+    void MetalUniformBinder::setUserData(const float (&values)[16])
+    {
+        if (std::memcmp(values, _lightingUniforms.userData, sizeof(values)) == 0) {
+            return;
+        }
+        std::memcpy(_lightingUniforms.userData, values, sizeof(values));
+        markLightingChanged();
+    }
+
     void MetalUniformBinder::setEnvironmentUniforms(Texture* envAtlas, const float skyboxIntensity,
         const float skyboxMip, const Vector3& skyDomeCenter, const bool isDome,
         Texture* skyboxCubeMap)

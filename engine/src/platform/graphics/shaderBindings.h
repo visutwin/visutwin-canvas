@@ -70,7 +70,9 @@ namespace visutwin::canvas
     // Set 3 on Vulkan: the per-pass scene textures. The VSM moment maps are Metal-only
     // slots: the spot pair because Vulkan rebinds the spot slots 2 / 3 with the linear
     // sampler, the directional pair because one specialised Metal library cannot give slot
-    // 6 / 35 two types (Vulkan reads moments and depth from bindings 1 / 22).
+    // 6 / 35 two types (Vulkan reads moments and depth from bindings 1 / 22). The user map is
+    // the application's texture for its own chunk overrides (Scene::setUserShaderData), read
+    // through the material sampler, which repeats.
 #define VT_SCENE_TEXTURE_BINDINGS(X) \
     X(envAtlas,              Tex2D,      CombinedSampler, 2,  0,  0, 0) \
     X(shadowMap0,            Tex2D,      SeparateImage,   6,  1,  0, 0) \
@@ -99,7 +101,8 @@ namespace visutwin::canvas
     X(localVsmMap0,          Tex2D,      MetalOnly,       37, -1, 0, 0) \
     X(localVsmMap1,          Tex2D,      MetalOnly,       38, -1, 0, 0) \
     X(shadowMoments0,        Tex2D,      MetalOnly,       39, -1, 0, 0) \
-    X(shadowMoments1,        Tex2D,      MetalOnly,       40, -1, 0, 0)
+    X(shadowMoments1,        Tex2D,      MetalOnly,       40, -1, 0, 0) \
+    X(userMap,               Tex2D,      SeparateImage,   46, 24, 0, 0)
 
     // Quad inputs 8 and up: fragment-only SEPARATE images, named by their material row. On Metal
     // input n is texture n, on Vulkan the named row's binding; both read them through the quad
@@ -247,7 +250,7 @@ namespace visutwin::canvas
 
     /// Set 3 binding count: the highest scene binding plus one.
     inline constexpr uint32_t kSceneTextureBindingCount = static_cast<uint32_t>(shaderBindings::maxSceneVkBinding() + 1);
-    static_assert(kSceneTextureBindingCount == 24);
+    static_assert(kSceneTextureBindingCount == 25);
 
     /// True for a set-1 binding declared as a SEPARATE image (`texture2D`) that the
     /// shader combines with the sampler at kMaterialExtraSamplerBinding.
@@ -366,7 +369,7 @@ namespace visutwin::canvas
 
     /// Metal fragment texture slots: 0 .. kMetalMaxTextureSlots - 1.
     inline constexpr int kMetalMaxTextureSlots = shaderBindings::maxMetalTextureSlot() + 1;
-    static_assert(kMetalMaxTextureSlots == 46);
+    static_assert(kMetalMaxTextureSlots == 47);
 
     /// The Metal material slots the material binder owns (cleared when a material has no
     /// map there), in table order.

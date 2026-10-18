@@ -1648,6 +1648,8 @@ namespace visutwin::canvas
         if (_clusterCookieAtlas) {
             _textureBinder.bindCached(passEncoder, 36, _clusterCookieAtlas);
         }
+        // The application's texture for its chunk overrides (UserShaderData).
+        _textureBinder.bindCached(passEncoder, 46, _userShaderTexture);
     }
 
     void MetalGraphicsDevice::updateReflectionUniforms()

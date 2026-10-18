@@ -8,7 +8,10 @@
 // A dynamic sky over a day and night cycle, rendered by the DynamicSkyEffect of the camera frame:
 // an analytic atmosphere, stars, the moon and volumetric clouds drifting with the wind, lighting
 // the scene and driving the sun light. Two copies of the tropical island (the second turned 140
-// degrees and sunk a little); the sun a directional light with four cascades (bias 0.2, normal
+// degrees and sunk a little) in the sea of the Water script: a circle of radius 1200 at the
+// island's sea level of -0.62 on a layer of its own after the world's transparent sublayer, with
+// waves, tropical colours and a depth fade of 3, the island's materials taking its underwater fog
+// (EXP 0.068, its colour following the daylight) and caustics; the sun a directional light with four cascades (bias 0.2, normal
 // offset 0.05, distance 120, 2048); the camera (fov 60, far 3000) orbiting a point on the island;
 // neutral tone mapping, bloom 0.02 over 8 levels above a threshold of 5, and an auto exposure
 // (compensation 0.5) adapting from the day to the night. The sky's moon is dimmed to 0.4, its
@@ -34,9 +37,6 @@
 // that differs between backends).
 //
 // DEVIATIONS:
-// - upstream's water (its Water script: the reflections, refraction, caustics and waves of the
-//   sea around the islands, and the underwater fog) is not ported yet; the islands stand on
-//   their own, the beach's skirt sloping into the distance.
 // - the island's textures are the same pixels re-encoded from WebP to PNG
 //   (assets/models/tropical-island.credits.txt), which the image decoder here reads.
 // - upstream's CameraControls focus point and ranges are kept, through the examples' orbit
@@ -50,13 +50,25 @@
 
 #include "core/math/curve.h"
 #include "extras/script/cameraControls.h"
+#include "extras/script/water.h"
 #include "../exampleApp.h"
 #include "framework/assets/asset.h"
+#include "framework/components/render/primitiveGeometry.h"
+#include "scene/composition/layerComposition.h"
 #include "scene/constants.h"
+#include "scene/layer.h"
+#include "scene/materials/standardMaterial.h"
+#include "scene/meshInstance.h"
 #include "scene/graphics/autoExposureEffect.h"
 #include "scene/graphics/dynamicSkyEffect.h"
 
 using namespace visutwin::canvas;
+
+namespace
+{
+    // The layer of the water, which its internal cameras do not render.
+    constexpr int LAYERID_WATER = 100;
+}
 
 class DynamicSkyExample final: public ExampleApp
 {
@@ -67,11 +79,18 @@ protected:
     bool create() override
     {
         _island = std::make_unique<Asset>("island", AssetType::CONTAINER, assetPath("models/tropical-island.glb"));
+        _normal = std::make_unique<Asset>("normal", AssetType::TEXTURE, assetPath("textures/normal-map.png"));
+        _caustics = std::make_unique<Asset>("caustics", AssetType::TEXTURE, assetPath("textures/caustics.jpg"));
         ContainerResource* container = _island->resourceAs<ContainerResource>();
         if (!container) {
             spdlog::error("Failed to load the island");
             return false;
         }
+
+        // A layer for the water plane, so it can be left out of its reflection and refraction.
+        const auto layers = scene()->layers();
+        auto waterLayer = std::make_shared<Layer>("Water", LAYERID_WATER);
+        layers->insert(waterLayer, layers->getTransparentIndex(layers->getLayerById(LAYERID_WORLD)) + 1);
 
         // The tropical island, and a second copy close by, turned and sunk a bit deeper.
         Entity* island = container->instantiateRenderEntity();
@@ -89,6 +108,20 @@ protected:
                 render->setReceiveShadows(true);
             }
         }
+
+        // The water's underwater fog and caustics on the island (both copies share the materials).
+        for (auto* render : island->findComponents<RenderComponent>()) {
+            for (auto* meshInstance : render->meshInstances()) {
+                if (Material* material = meshInstance->material()) {
+                    Water::applyUnderwaterEffects(*material, true, true);
+                }
+            }
+        }
+
+        // The underwater fog, which the water's fog limits to the fragments below its level.
+        scene()->setFogEnabled(true);
+        scene()->setFogType(FogType::FOG_EXP);
+        scene()->setFogDensity(0.068f);
 
         // The sun: the dynamic sky sets its direction, colour and intensity by the time of day.
         // Four cascades keep the shadows sharp from close to the camera to the distance.
@@ -108,6 +141,7 @@ protected:
         if (!_cameraComp || !_cameraComp->camera()) {
             return false;
         }
+        _cameraComp->setLayers({LAYERID_WORLD, LAYERID_DEPTH, LAYERID_SKYBOX, LAYERID_WATER, LAYERID_UI});
         _cameraComp->camera()->setFov(60.0f);
         _cameraComp->camera()->setFarClip(3000.0f);
         if (auto* controls = addOrbitControls(camera, Vector3(4.6f, 2.11f, -5.85f))) {
@@ -139,6 +173,33 @@ protected:
         // The auto exposure, adapting from the day to the night.
         _autoExposure = std::make_shared<AutoExposureEffect>();
         _cameraComp->addFrameEffect(_autoExposure);
+
+        // The water: a tessellated circle, so the waves can displace it.
+        _waterMesh = createMeshFromGeometry(device(), createCircleGeometry(1200.0f, 180, 150, 2.6f));
+        _waterPlaceholder = std::make_shared<StandardMaterial>();
+        auto* water = new Entity();
+        water->setName("Water");
+        water->setEngine(engine());
+        if (auto* render = static_cast<RenderComponent*>(water->addComponent<RenderComponent>())) {
+            render->setLayers({LAYERID_WATER});
+            render->setCastShadows(false);
+            auto meshInstance = std::make_unique<MeshInstance>(_waterMesh.get(), _waterPlaceholder.get(), water);
+            meshInstance->setCastShadow(false);
+            render->addMeshInstance(std::move(meshInstance));
+        }
+        water->setLocalPosition(0.0f, -0.62f, 0.0f);
+        root()->addChild(water);
+        water->addComponent<ScriptComponent>();
+        if (auto* script = water->script()->create<Water>()) {
+            script->setCameraEntity(camera);
+            script->setLightEntity(_sun);
+            script->normalMap = _normal->resourceAs<Texture>();
+            script->causticsMap = _caustics->resourceAs<Texture>();
+            script->waves = true;
+            script->shallowColor = Color(0.6f, 0.9f, 0.85f, 1.0f);
+            script->deepColor = Color(0.03f, 0.16f, 0.24f, 1.0f);
+            script->depthFade = 3.0f;
+        }
 
         if (const char* hour = std::getenv("VISUTWIN_SKY_HOUR")) {
             _hour = static_cast<float>(std::atof(hour));
@@ -197,8 +258,14 @@ protected:
             }
         }
         // The sun, rising in the east and setting in the west.
-        _sky->elevation = _elevationCurve.value(_hour);
+        const float elevation = _elevationCurve.value(_hour);
+        _sky->elevation = elevation;
         _sky->azimuth = (_hour / 24.0f) * 360.0f;
+
+        // The underwater fog dims with the daylight, with a small floor for the moonlit night.
+        const float t = std::clamp((elevation + 2.0f) / 14.0f, 0.0f, 1.0f);
+        const float day = 0.05f + 0.95f * t * t * (3.0f - 2.0f * t);
+        scene()->setFogColor(Color(0.165f * day, 0.549f * day, 0.596f * day, 1.0f));
     }
 
 private:
@@ -224,6 +291,10 @@ private:
     }
 
     std::unique_ptr<Asset> _island;
+    std::unique_ptr<Asset> _normal;
+    std::unique_ptr<Asset> _caustics;
+    std::shared_ptr<Mesh> _waterMesh;
+    std::shared_ptr<StandardMaterial> _waterPlaceholder;
     Entity* _sun = nullptr;
     CameraComponent* _cameraComp = nullptr;
     std::shared_ptr<DynamicSkyEffect> _sky;

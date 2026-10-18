@@ -15,6 +15,7 @@
 #include <cstring>
 #include <limits>
 #include <map>
+#include <numbers>
 #include <string>
 #include <utility>
 
@@ -586,6 +587,52 @@ namespace visutwin::canvas
         {
             // Defaults: tube 0.2, ring 0.3, a full ring, 30 x 20.
             return createTorusGeometry(0.2f, 0.3f, 360.0f, 30, 20);
+        }
+
+        PrimitiveGeometry createCircleGeometry(const float radius, const int sectors, const int rings,
+            const float ringExponent)
+        {
+            // A flat disc in the XZ plane facing +Y: a centre vertex and `rings` concentric rings
+            // of `sectors` vertices each. Ring r sits at radius * (r / rings)^ringExponent, so an
+            // exponent above 1 gathers the rings toward the centre. The UVs map the bounding
+            // square planarly, v = 0 at -Z as on the plane, and UV1 is UV0.
+            PrimitiveGeometry geometry;
+            const int sectorCount = std::max(sectors, 3);
+            const int ringCount = std::max(rings, 1);
+            const auto uvOf = [radius](const float x, const float z) {
+                return std::array<float, 2>{0.5f + x / (2.0f * radius), 0.5f + z / (2.0f * radius)};
+            };
+            pushVertex(geometry, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.5f, 0.5f);
+            for (int r = 1; r <= ringCount; ++r) {
+                const float ringRadius = radius *
+                    static_cast<float>(std::pow(static_cast<double>(r) / ringCount, static_cast<double>(ringExponent)));
+                for (int j = 0; j < sectorCount; ++j) {
+                    const double angle = 2.0 * std::numbers::pi * j / sectorCount;
+                    const float x = ringRadius * static_cast<float>(std::cos(angle));
+                    const float z = ringRadius * static_cast<float>(std::sin(angle));
+                    const auto uv = uvOf(x, z);
+                    pushVertex(geometry, x, 0.0f, z, 0.0f, 1.0f, 0.0f, uv[0], uv[1]);
+                }
+            }
+
+            // The j-th vertex of ring r, wrapping around the seam.
+            const auto ringVertex = [sectorCount](const int r, const int j) {
+                return static_cast<uint32_t>(1 + (r - 1) * sectorCount + (j % sectorCount));
+            };
+            // A fan from the centre to the innermost ring, then a band of quads between rings.
+            for (int j = 0; j < sectorCount; ++j) {
+                geometry.indices.insert(geometry.indices.end(), {0u, ringVertex(1, j + 1), ringVertex(1, j)});
+            }
+            for (int r = 1; r < ringCount; ++r) {
+                for (int j = 0; j < sectorCount; ++j) {
+                    const uint32_t inner = ringVertex(r, j);
+                    const uint32_t innerNext = ringVertex(r, j + 1);
+                    const uint32_t outer = ringVertex(r + 1, j);
+                    const uint32_t outerNext = ringVertex(r + 1, j + 1);
+                    geometry.indices.insert(geometry.indices.end(), {inner, outerNext, outer, inner, innerNext, outerNext});
+                }
+            }
+            return withTangents(std::move(geometry));
         }
 
     namespace

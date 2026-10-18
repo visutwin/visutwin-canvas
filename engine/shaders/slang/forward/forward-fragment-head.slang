@@ -18,7 +18,7 @@
 
 VT_DECLARE_MATERIAL_DATA
 
-// ---- Per-pass lighting block (LightingBlock in platform/graphics/lightingBlock.h, 2896
+// ---- Per-pass lighting block (LightingBlock in platform/graphics/lightingBlock.h, 2960
 // bytes: Metal buffer 4, Vulkan set 2 binding 0). Field for field the C++ layout. ----
 struct Light
 {
@@ -97,6 +97,7 @@ struct LightingData
     float4 skyboxRotation[3];          // columns of Scene::skyboxRotation; [0].w flags one at all
     float4 cookieTransform2D[2];       // spot cookie 2x2 per slot, columns xy, zw
     float4 ditherJitter;
+    float4 userData[4];                // the application's (Scene::setUserShaderData), for its chunk overrides
 };
 
 [[vk::binding(0, 2)]] ConstantBuffer<LightingData> lighting : register(b4);

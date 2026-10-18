@@ -1647,6 +1647,56 @@ on screen and its reflections line up. Example: `procedural-sky`, upstream's sce
 laboratory in the dunes, PCSS sun, SSAO, the time-of-day curves); upstream skips most of
 the night too (20:00 wraps to 05:00).
 
+### Water
+
+`Water` (`extras/script/water.h`, a port of upstream's `water` script) turns the render
+component of its entity into a water surface: the `water` program (`programs/water.slang`) on a
+material of the script's, its parts chosen by feature word 0 (planar or sky reflection,
+refraction, depth effects, foam, waves) so one library serves every combination. Set the main
+camera (`setCameraEntity`), a directional light (`setLightEntity`), the ripple normal map and the
+caustics pattern, then the public settings, upstream's attributes, which are read every frame.
+The water belongs on a layer of its own after the world's transparent sublayer; the camera must
+render the Depth layer for the depth effects, whose scene depth grab the script requests.
+
+- **Planar textures**: two internal cameras, each with a `PlanarRenderer` script
+  (`extras/script/planarRenderer.h`, upstream's `planar-renderer`), render every layer of the
+  main camera but the water's, the UI and the Depth layer, at `textureScale` of its size, one
+  mirrored by the plane (the reflection) and one matching it (the refraction), both before the
+  main camera. Each is RGBA8 holding gamma-encoded output (DEVIATION: upstream's are sRGB
+  textures), decoded by the water program. **Oblique clipping** replaces each camera's near
+  plane by the water plane (Lengyel's oblique frustum) through `Camera::setCalculateProjection`,
+  a hook that adjusts the projection on every request and leaves the skybox projection alone;
+  with the main camera below the water the plane they get is flipped, so the reflection holds
+  the underwater scene and the refraction the world above. While the main camera renders
+  through a camera frame the internal cameras tone map LINEAR (the frame's tone mapping is the
+  camera's own here, where upstream's camera keeps linear beside its frame).
+- **Underwater effects on other materials**: `Water::applyUnderwaterEffects(material, heightFog,
+  caustics)` gives a material a chunk override of `forward-fragment-user`, the forward program's
+  two hooks: `forwardUserFogFactor` (the scene fog limited to fragments below the water level,
+  softly across the waterline) and `forwardUserFragmentEnd` (caustics multiplied onto the
+  written colour, fading in under the waterline and out with depth, on surfaces facing up).
+  DEVIATION: upstream installs global chunks a material opts into with a define. The values
+  they read are the scene's **user shader data** (`Scene::setUserShaderData`: four vec4s in the
+  lighting block's `userData`, read as `lighting.userData[i]`, and the scene texture `userMap`,
+  Metal 46 / Vulkan set 3 binding 24, sampled through `materialSampler`), which the script owns
+  while it lives: [0] the water level, the fog's gate level and the time, [1] the caustics'
+  tiling, speed, strength and fade depth, [2] their colour (the light's), the texture the
+  caustics pattern. The hooks are the identity by default, so a material without an override
+  renders bit-identically; any application may override them with values of its own.
+- **Geometry**: `createCircleGeometry(radius, sectors, rings, ringExponent)` (upstream's
+  `CircleGeometry`), a disc whose rings gather toward the centre, is the water mesh the examples
+  use.
+
+A Slang program declaring `linearClampSampler` / `nearestClampSampler` itself must give them the
+forward pass's Metal slots (`register(s7)` / `register(s8)`, as the forward head does): the
+table's rows have no Metal slot, and the macros leave the slot to Slang, which picks one nothing
+binds — on Metal the sampler then is not a clamping one (the water's depth taps past the bottom
+of the screen wrapped to the sky and speckled the last rows on Metal alone).
+
+Examples: `water` (upstream `graphics/water`, its controls on keys) and `dynamic-sky`.
+Metal and Vulkan agree to 0.004 counts mean on `water`, 0.003 under the water, and 0.05 on
+`dynamic-sky` at 10:00.
+
 ### Atmosphere (Nishita)
 `Sky::setDepthWrite` (upstream's `Sky.depthWrite`, default false) makes a dome or box sky
 write its REAL depth, for effects that need a finite depth where the sky is — DOF, fog,

@@ -1137,6 +1137,9 @@ namespace visutwin::canvas
         // attachment of the cookie pass or there is none.
         sceneInfos[23].imageView = isActiveColorAttachment(_clusterCookieAtlas)
             ? _whiteImageView : sceneTextureView(_clusterCookieAtlas);
+        // Binding 24: the application's texture for its chunk overrides (UserShaderData),
+        // read through the material sampler.
+        sceneInfos[24].imageView = sceneTextureView(_userShaderTexture);
         for (auto& sceneInfo : sceneInfos) {
             sceneInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         }
@@ -1677,6 +1680,15 @@ namespace visutwin::canvas
             std::memcpy(_lightingUbo.ditherJitter, value, sizeof(value));
             _lightingNeedsUpload = true;
         }
+    }
+
+    void VulkanGraphicsDevice::setUserShaderData(const UserShaderData& data)
+    {
+        if (std::memcmp(data.values, _lightingUbo.userData, sizeof(data.values)) != 0) {
+            std::memcpy(_lightingUbo.userData, data.values, sizeof(data.values));
+            _lightingNeedsUpload = true;
+        }
+        _userShaderTexture = data.texture;
     }
 
     void VulkanGraphicsDevice::setSkyboxRotation(const Quaternion& rotation)

@@ -395,5 +395,33 @@ int main()
             "a degenerate triangle contributes nothing, and gives no NaN");
     }
 
+    // The circle: a centre vertex and `rings` rings of `sectors` vertices, ring r at radius *
+    // (r / rings)^exponent, a fan and quad bands wound to face +Y, UVs over the bounding square.
+    {
+        const PrimitiveGeometry circle = createCircleGeometry(2.0f, 8, 3, 2.0f);
+        check(circle.positions.size() == (1 + 8 * 3) * 3, "a circle has a centre and rings x sectors vertices");
+        check(circle.indices.size() == 3 * (8 + 2 * 8 * 2), "a fan of sectors triangles and two per quad");
+        const auto radiusOf = [&](const size_t v) {
+            return std::hypot(circle.positions[v * 3], circle.positions[v * 3 + 2]);
+        };
+        check(std::abs(radiusOf(1) - 2.0f / 9.0f) < 1e-5f && std::abs(radiusOf(9) - 8.0f / 9.0f) < 1e-5f &&
+            std::abs(radiusOf(17) - 2.0f) < 1e-5f, "ring r sits at radius x (r / rings)^exponent");
+        bool up = true;
+        for (size_t t = 0; t < circle.indices.size(); t += 3) {
+            const auto p = [&](const size_t k) {
+                const size_t v = circle.indices[t + k];
+                return std::array<float, 3>{circle.positions[v * 3], circle.positions[v * 3 + 1], circle.positions[v * 3 + 2]};
+            };
+            const auto a = p(0), b = p(1), c = p(2);
+            const float ux = b[0] - a[0], uz = b[2] - a[2], vx = c[0] - a[0], vz = c[2] - a[2];
+            // y of (b - a) x (c - a): positive when the triangle faces +Y counter-clockwise.
+            up = up && (uz * vx - ux * vz) > 0.0f;
+        }
+        check(up, "every triangle of the circle faces +Y");
+        // Vertex 17 + 6 is at angle 3/4 turn: (0, -2), the -Z edge, v = 0 as on the plane.
+        check(std::abs(circle.uvs[(17 + 6) * 2] - 0.5f) < 1e-5f && std::abs(circle.uvs[(17 + 6) * 2 + 1]) < 1e-5f,
+            "UVs map the bounding square, v = 0 at -Z");
+    }
+
     return finish("primitive geometry");
 }

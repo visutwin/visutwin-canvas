@@ -197,7 +197,8 @@
             float d = depth * density;
             f = exp(-d * d);
         }
-        color = lerp(lighting.fogColorDensity.rgb, color, clamp(f, 0.0, 1.0));
+        f = forwardUserFogFactor(clamp(f, 0.0, 1.0), fragWorldPos);
+        color = lerp(lighting.fogColorDensity.rgb, color, f);
     }
 
     if (vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BAKE_BIT)) {
@@ -216,7 +217,7 @@
     // outputs linear HDR and the compose pass applies exposure, tonemapping and
     // gamma. Runtime check, not a shader variant.
     if ((lighting.flagsAndPad[0] & (1u << 5)) != 0u) {
-        outColor = float4(max(color, float3(0.0)), albedo.a);
+        outColor = float4(forwardUserFragmentEnd(max(color, float3(0.0)), fragWorldPos, N), albedo.a);
         return outColor;
     }
 
@@ -225,6 +226,6 @@
     color = applyToneMap(color);   // exposure + tonemap
     color = pow(max(color, float3(0.0)), float3(1.0 / 2.2));
 
-    outColor = float4(color, albedo.a);
+    outColor = float4(forwardUserFragmentEnd(color, fragWorldPos, N), albedo.a);
     return outColor;
 }

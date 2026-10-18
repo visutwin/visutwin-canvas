@@ -1555,6 +1555,7 @@ namespace visutwin::canvas
                 skyDomeCenter, isDome,
                 scene ? scene->skybox() : nullptr);
             device.setSkyboxRotation(scene ? scene->skyboxRotation() : Quaternion(0.0f, 0.0f, 0.0f, 1.0f));
+            device.setUserShaderData(scene ? scene->userShaderData() : UserShaderData{});
 
             // A dynamic probe captures the scene into the very cubemap the scene
             // samples for reflections, so during its own face passes the probe

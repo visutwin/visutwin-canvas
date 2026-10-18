@@ -238,6 +238,16 @@ namespace visutwin::canvas
         float density = 0.01f;
     };
 
+    /// Values and a texture an application hands its own forward chunk overrides, scene-wide:
+    /// a chunk reads `lighting.userData[i]` and samples `userMap` (VT_DECLARE_userMap, through
+    /// the repeating material sampler). Nothing in the engine reads either.
+    struct UserShaderData
+    {
+        static constexpr int kVectors = 4;
+        float values[kVectors * 4] = {};
+        Texture* texture = nullptr;
+    };
+
     struct ShadowParams
     {
         // True when at least one directional shadow slot is filled.
@@ -449,6 +459,11 @@ namespace visutwin::canvas
         /// The per-frame opacity-dither offset of the camera
         /// being drawn (zero unless it jitters for TAA). Set once per layer.
         virtual void setDitherJitter(const Vector4& jitter) { (void)jitter; }
+
+        /// The application's values and texture for its own forward chunk overrides
+        /// (Scene::setUserShaderData): the lighting block's userData and the scene texture
+        /// `userMap`. Set with the environment, once per layer.
+        virtual void setUserShaderData(const UserShaderData& data) { (void)data; }
 
         virtual void setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
             const Vector3& boxMax, bool boxProjection, float intensity, float maxLod)

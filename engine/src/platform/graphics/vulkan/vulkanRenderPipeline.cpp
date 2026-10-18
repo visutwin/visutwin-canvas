@@ -39,7 +39,7 @@ namespace visutwin::canvas
         /// validation reports only at draw time, or silently reads another binding.
         void validateForwardLayout()
         {
-            static_assert(sizeof(VulkanLightingUBO) == 2896);
+            static_assert(sizeof(VulkanLightingUBO) == 2960);
             static_assert(offsetof(MaterialUniforms, emissiveTransform1) + sizeof(float) * 4 == 224);
             // NOTE: the struct is a plain aggregate (no alignas), so alignof is 4. The
             // layout works because every vec4 in the field list lands on a 16-byte offset by

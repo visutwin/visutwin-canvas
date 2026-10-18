@@ -198,9 +198,12 @@ namespace visutwin::canvas
         // Blue-noise jitter: xy offset the opacity dither per frame while the camera
         // jitters (TAA), zero otherwise.
         float ditherJitter[4]                     = {0.0f, 0.0f, 0.0f, 0.0f};
+        // Four vec4s of the application's (UserShaderData, Scene::setUserShaderData), read
+        // only by its own forward chunk overrides as lighting.userData[i].
+        float userData[16]                        = {};
     };
     static_assert(sizeof(GpuLightBlock) == 112);
-    static_assert(sizeof(LightingBlock) == 2896, "the shaders of both backends declare this size");
+    static_assert(sizeof(LightingBlock) == 2960, "the shaders of both backends declare this size");
     static_assert(sizeof(LightingBlock) % 16 == 0);
 
     /// The six atmosphere vec4s as one span, for setAtmosphereUniforms: first member

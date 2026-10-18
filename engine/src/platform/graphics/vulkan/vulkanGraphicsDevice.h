@@ -9,6 +9,7 @@
 
 #ifdef VISUTWIN_HAS_VULKAN
 
+#include <algorithm>
 #include <array>
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
@@ -28,6 +29,7 @@
 #include "platform/graphics/gpu.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
+#include "platform/graphics/shaderBindings.h"
 #include "vulkanGpuProfiler.h"
 #include "vulkanUniformLayouts.h"
 #include "vulkanUtils.h"
@@ -65,6 +67,7 @@ namespace visutwin::canvas
             Texture* skyboxCubeMap = nullptr) override;
         void setSkyboxRotation(const Quaternion& rotation) override;
         void setDitherJitter(const Vector4& jitter) override;
+        void setUserShaderData(const UserShaderData& data) override;
         void setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
             const Vector3& boxMax, bool boxProjection, float intensity,
             float maxLod) override;
@@ -623,12 +626,12 @@ namespace visutwin::canvas
         static constexpr uint32_t kMaxFramesInFlight = 2;
 
         static constexpr uint32_t kInitialDescriptorSets = 256;
-        // Set 3 is the widest image set (15 images + 2 samplers). Must not be less
-        // than any set's binding count: getOrCreateImageDescriptorSet returns NULL
-        // past this, which silently skips the draw — with no error, so a too-small
-        // value looks like "the feature does nothing". Raise it whenever set 3
-        // grows; the only cost is descriptor-pool sizing and the cache key width.
-        static constexpr uint32_t kMaxCachedImageBindings = 24;
+        // The widest image set. Must not be less than any set's binding count:
+        // getOrCreateImageDescriptorSet returns NULL past this, which silently skips
+        // the draw — with no error, so a too-small value renders nothing at all. So it
+        // is derived from the binding table rather than written as a literal.
+        static constexpr uint32_t kMaxCachedImageBindings = std::max<uint32_t>(
+            kSceneTextureBindingCount, static_cast<uint32_t>(kMaterialTextureBindings.size()));
 
         struct ImageDescriptorKey {
             VkDescriptorSetLayout layout = VK_NULL_HANDLE;
@@ -997,6 +1000,7 @@ namespace visutwin::canvas
         // Clustered spot-shadow depth array (set 3 binding 14).
         Texture* _clusterShadowAtlas = nullptr;
         Texture* _clusterCookieAtlas = nullptr;
+        Texture* _userShaderTexture = nullptr;   // UserShaderData::texture, set 3 binding 24
 
         // Typed handle for the profiler the base class exposes as _gpuProfiler;
         // null when the device/queue has no timestamp support.
