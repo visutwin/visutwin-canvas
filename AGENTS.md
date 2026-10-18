@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 156 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 157 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -191,7 +191,11 @@ ctest --preset default
   that record when the path it names is gone, so detection runs again. A worktree checked
   out at an older commit lacks the guard: delete the file by hand. If the default build's
   cache comes back without the vcpkg toolchain's variables (spdlog "not found" with the
-  package installed), `cmake --preset default --fresh` rebuilds it.
+  package installed), `cmake --preset default --fresh` rebuilds it. After an Xcode update `xcrun metal`
+  can fail with "missing Metal Toolchain" although `xcodebuild -showComponent MetalToolchain`
+  says it is installed (2026-10-18, Metal 27.0 / 27A266a: the default lookup no longer matched
+  the registered toolchain); naming it works, so build with `TOOLCHAINS=<its Toolchain
+  Identifier>` (`com.apple.dt.toolchain.Metal.32023.921.5` then) in the environment.
 - `vcpkg.json` qualifies ImGui's `metal-binding` feature to `osx`. The port
   declares it macOS-only, and an unqualified feature makes the whole manifest
   unresolvable on Linux.
@@ -3602,11 +3606,11 @@ What stays HERE is only what bites during UNRELATED work.
   `element-states`). (3) `.basis` files do not load (libktx reads KTX2 only; `texture-basis`
   ships KTX2 re-encodes). (4) A custom shader material gets no skin or morph variant
   (`shaders/shader-hatch`).
-- **A shadow pipeline of `dynamic-sky`'s island warns under Vulkan validation** that its vertex
-  stage writes location 5 and the fragment stage does not read it (a performance warning; no
-  other example shows it, `shadow-cascades` included). Some glTF material variant of the island
-  feeds the shared shadow program an output it leaves unread; find which before trusting the
-  shadow program's interface for other models.
+- **A shadow pipeline whose fragment stage runs warns under Vulkan validation** that its vertex
+  stage writes location 5 and the fragment stage does not read it (a performance warning). It shows
+  where a caster gets a fragment stage that reads only some varyings: `dynamic-sky`'s island, a VSM
+  caster in `shadow-bounds`, the clipped casters of `clipping-planes`. Find which output before
+  trusting the shadow program's interface for other models.
 - **Queued — none a correctness bug:** the
   binding footprint exceeds WebGPU's defaults (Metal 43 texture slots, Vulkan 7 sets). The
   parsers derive tangents through one `generateTangents` / `tangentFromNormal`

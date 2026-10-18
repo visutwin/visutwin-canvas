@@ -1,0 +1,12 @@
+Model Information:
+* title:	Turbofan (cutaway demo model)
+* source:	upstream engine examples, examples/assets/models/turbofan.glb (added with the
+  clipping planes feature), copied unchanged (md5 3e45b0b00f0bc857b0975924f6e12d6c)
+
+Notes:
+* Generated for upstream's clipping-planes example: closed solids from revolved profiles and lofted
+  airfoils, Draco geometry, EXT_mesh_gpu_instancing blade rows and procedural KTX2 (Basis ETC1S and
+  UASTC) textures, vertex tangents for the anisotropic parts.
+* The studio environment it is shown in, assets/cubemaps/product-studio-env-atlas.png, is an RGBP
+  env atlas generated for the same example from a procedural HDR, also copied unchanged.
+* Both ship with upstream under its licence (MIT); attribution is in NOTICE.

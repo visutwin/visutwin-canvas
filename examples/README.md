@@ -110,6 +110,7 @@ The second column is the upstream example each one ports, as
 | shader-material | shaders/shader-material | A textured box through a Slang ShaderMaterial |
 | shader-wobble | shaders/shader-wobble | The statue wobbling in a custom vertex shader |
 | shader-burn | shaders/shader-burn | The statue burning away against a noise threshold |
+| clipping-planes | graphics/clipping-planes | A turbofan cut away by clipping planes, its section capped by red back faces |
 | mesh-decals | graphics/mesh-decals | Decals stamped by a bouncing ball |
 | material-physical | materials/material-physical | A 5x5 grid of spheres, metalness against gloss, with text labels |
 | material-translucent-specular | materials/material-translucent-specular | Blended spheres whose specular survives their opacity (opacityFadesSpecular off) |
