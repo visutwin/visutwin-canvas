@@ -149,6 +149,46 @@ if(VISUTWIN_BACKEND_METAL)
         endif()
     endif()
 
+    # After an Xcode update `xcrun metal` can fail with "missing Metal Toolchain" while
+    # `xcodebuild -showComponent MetalToolchain` reports it installed: the default lookup no
+    # longer matches the registered toolchain, but naming it (TOOLCHAINS=<its identifier>)
+    # works. Detect that here, so detection records the real compiler rather than Xcode's
+    # shim, and pass the name to the build steps that call xcrun (the shader bundle).
+    set(VISUTWIN_METAL_TOOLCHAIN "")
+    if(NOT DEFINED ENV{TOOLCHAINS})
+        execute_process(COMMAND xcrun -sdk macosx metal --version
+            RESULT_VARIABLE _vt_metal_result OUTPUT_QUIET ERROR_QUIET)
+        if(NOT _vt_metal_result EQUAL 0)
+            execute_process(COMMAND xcodebuild -showComponent MetalToolchain
+                OUTPUT_VARIABLE _vt_metal_component ERROR_QUIET)
+            string(REGEX MATCH "Toolchain Identifier: ([^\n]+)" _vt_metal_match "${_vt_metal_component}")
+            if(CMAKE_MATCH_1)
+                string(STRIP "${CMAKE_MATCH_1}" _vt_metal_identifier)
+                execute_process(
+                    COMMAND "${CMAKE_COMMAND}" -E env "TOOLCHAINS=${_vt_metal_identifier}"
+                        xcrun -sdk macosx metal --version
+                    RESULT_VARIABLE _vt_metal_result OUTPUT_QUIET ERROR_QUIET)
+                if(_vt_metal_result EQUAL 0)
+                    set(VISUTWIN_METAL_TOOLCHAIN "${_vt_metal_identifier}")
+                    set(ENV{TOOLCHAINS} "${VISUTWIN_METAL_TOOLCHAIN}")
+                    message(STATUS "xcrun does not find the Metal toolchain by default; "
+                        "naming it: TOOLCHAINS=${VISUTWIN_METAL_TOOLCHAIN}")
+                endif()
+            endif()
+        endif()
+    endif()
+    # A compiler recorded as Xcode's shim (by a configure before the above) keeps failing:
+    # forget it so detection finds the named toolchain's.
+    if(VISUTWIN_METAL_TOOLCHAIN AND EXISTS "${_vt_metal_compiler_file}")
+        file(STRINGS "${_vt_metal_compiler_file}" _vt_metal_compiler_line
+            REGEX "^set\\(CMAKE_Metal_COMPILER \"")
+        if(_vt_metal_compiler_line MATCHES "XcodeDefault\\.xctoolchain")
+            file(REMOVE "${_vt_metal_compiler_file}")
+            unset(CMAKE_Metal_COMPILER CACHE)
+            unset(CMAKE_Metal_COMPILER)
+        endif()
+    endif()
+
     enable_language(Metal)
 endif()
 
@@ -251,9 +291,15 @@ if(VISUTWIN_SHADER_SLANG)
         list(APPEND _SLANG_TARGETS spirv)
     endif()
     string(REPLACE ";" "," _SLANG_TARGETS_ARG "${_SLANG_TARGETS}")
+    # The bundle's metallib step calls xcrun, which needs the toolchain named when the
+    # default lookup fails (see the Metal setup above).
+    set(_SLANG_BUNDLE_ENV "")
+    if(VISUTWIN_METAL_TOOLCHAIN)
+        set(_SLANG_BUNDLE_ENV "${CMAKE_COMMAND}" -E env "TOOLCHAINS=${VISUTWIN_METAL_TOOLCHAIN}")
+    endif()
     add_custom_command(
         OUTPUT "${_SLANG_BUNDLE}"
-        COMMAND "${Python3_EXECUTABLE}"
+        COMMAND ${_SLANG_BUNDLE_ENV} "${Python3_EXECUTABLE}"
             "${VISUTWIN_ROOT_DIR}/tools/generate_slang_bundle.py"
             --slangc "${VISUTWIN_SLANGC_EXECUTABLE}"
             --source-dir "${_SLANG_SHADER_DIR}"

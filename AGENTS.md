@@ -194,8 +194,12 @@ ctest --preset default
   package installed), `cmake --preset default --fresh` rebuilds it. After an Xcode update `xcrun metal`
   can fail with "missing Metal Toolchain" although `xcodebuild -showComponent MetalToolchain`
   says it is installed (2026-10-18, Metal 27.0 / 27A266a: the default lookup no longer matched
-  the registered toolchain); naming it works, so build with `TOOLCHAINS=<its Toolchain
-  Identifier>` (`com.apple.dt.toolchain.Metal.32023.921.5` then) in the environment.
+  the registered toolchain), while naming it (`TOOLCHAINS=<its Toolchain Identifier>`) works.
+  `engine/CMakeLists.txt` handles it at configure time: when `xcrun metal` fails and
+  `TOOLCHAINS` is unset, it reads the identifier from `-showComponent`, configures with it
+  (so the real compiler is recorded, not Xcode's shim, and a recorded shim is forgotten), and
+  runs the shader bundle's xcrun steps with it (`VISUTWIN_METAL_TOOLCHAIN`). A tree whose
+  configure failed before the fix recovers on the next configure.
 - `vcpkg.json` qualifies ImGui's `metal-binding` feature to `osx`. The port
   declares it macOS-only, and an unqualified feature makes the whole manifest
   unresolvable on Linux.
