@@ -69,6 +69,10 @@ namespace visutwin::canvas
         /// REALTIME lights that light one of its layers.
         void cullShadowmaps(Camera* camera, const CameraComponent* cameraComponent = nullptr,
             bool designated = true);
+        /// Fits the directional shadows with shadow bounds (Light::setShadowBounds), once a
+        /// frame for every camera, and lists them under the null camera of the per-camera
+        /// shadow lights; their passes run before the frame's first camera draws.
+        void cullBoundedShadowmaps();
 
         /**
          * Clears Light::visibleThisFrame on every light. Call ONCE at the top of a

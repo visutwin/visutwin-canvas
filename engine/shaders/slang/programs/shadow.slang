@@ -14,5 +14,6 @@ import vtdraw;
 #include "forward/forward-fragment-head.slang"
 #include "forward/common-dither.slang"
 #include "forward/common-material-flags.slang"
+#include "forward/common-clip-planes.slang"
 #include "forward/forward-vertex.slang"
 #include "forward/shadow-fragment.slang"

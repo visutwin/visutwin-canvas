@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 10.10.2026
 //
-// Port of upstream graphics/clustered-area-lights.
+// Port of upstream lights-and-shadows/clustered-area-lights.
 //
 // A 9 x 9 grid of area lights, 5 units apart and 0.6 above a 45 x 45 seaside-rocks
 // ground plane (colour, normal and gloss maps tiled 17x; grey, gloss 0.8, metalness

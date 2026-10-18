@@ -84,11 +84,15 @@ namespace visutwin::canvas
     // switches the renderer sets before the draw loop.
     ProgramLibrary::ShaderVariantOptions ProgramLibrary::buildForwardVariantOptions(const Material* material,
         const bool transparentPass, const bool dynamicBatch, const bool skinning, const bool morphing,
-        const bool instancing, const bool instancingColor, const bool instanceLightmap, const bool screenSpace) const
+        const bool instancing, const bool instancingColor, const bool instanceLightmap, const bool screenSpace,
+        const uint32_t clipPlanes) const
     {
         ShaderVariantOptions options{};
         options.transparentPass = transparentPass;
         options.screenSpace = screenSpace;
+        options.clipPlanesMesh = (clipPlanes & CLIP_PLANES_MESH) != 0;
+        // The camera's planes do not clip screen-space elements.
+        options.clipPlanesCamera = (clipPlanes & CLIP_PLANES_CAMERA) != 0 && !screenSpace;
         options.skybox = material && material->isSkybox();
         options.skyDepth = options.skybox && material->depthState() && material->depthState()->depthWrite();
         options.alphaTest = material && material->alphaMode() == AlphaMode::MASK;
@@ -390,6 +394,8 @@ namespace visutwin::canvas
         set(ShaderFeature::PlanarReflectionDepthPass,
             options.planarReflectionDepthPass);
         set(ShaderFeature::ScreenSpace, options.screenSpace);
+        set(ShaderFeature::ClipPlanesMesh, options.clipPlanesMesh);
+        set(ShaderFeature::ClipPlanesCamera, options.clipPlanesCamera);
         set(ShaderFeature::Msdf, options.msdf);
         set(ShaderFeature::NoTonemap, options.noTonemap);
         set(ShaderFeature::LightmapBake, options.lightmapBake);
@@ -543,10 +549,11 @@ namespace visutwin::canvas
         definition.features = makeFeatureSet(options);
         definition.vshader = forwardVertexEntry(options);
         // The shadow pass's fragment stage: the moments writer for a VSM light, the opacity
-        // frontend otherwise. Vulkan runs no fragment stage at all for a caster that needs no
-        // frontend; Metal keeps the frontend there, which reads only its material's flags.
+        // frontend (and the clipping) otherwise. Vulkan runs no fragment stage at all for a
+        // caster that needs neither; Metal keeps the frontend there, which reads only its material's flags.
         const bool metal = _device->shaderLanguage() == ShaderLanguage::Msl;
-        const bool needsOpacity = options.alphaTest || options.shadowDither;
+        const bool needsOpacity = options.alphaTest || options.shadowDither || options.clipPlanesMesh ||
+            options.clipPlanesCamera;
         if (shadow) {
             definition.fshader = options.vsmShadows ? "shadowVsmFragment"
                 : (needsOpacity || metal) ? "shadowOpacityFragment" : "";
@@ -593,7 +600,7 @@ namespace visutwin::canvas
     {
         // The draw's flags take the low bits of a memo's state word, the frame
         // switches the rest.
-        constexpr unsigned kForwardDrawBitCount = 8;
+        constexpr unsigned kForwardDrawBitCount = 10;
     }
 
     uint64_t ProgramLibrary::forwardFrameBits() const
@@ -631,7 +638,7 @@ namespace visutwin::canvas
 
     uint64_t ProgramLibrary::forwardStateBits(const bool transparentPass, const bool dynamicBatch,
         const bool skinning, const bool morphing, const bool instancing, const bool instancingColor,
-        const bool instanceLightmap, const bool screenSpace) const
+        const bool instanceLightmap, const bool screenSpace, const uint32_t clipPlanes) const
     {
         uint64_t bits = 0;
         unsigned index = 0;
@@ -646,7 +653,9 @@ namespace visutwin::canvas
         add(instancingColor);
         add(instanceLightmap);
         add(screenSpace);
-        static_assert(kForwardDrawBitCount == 8, "one bit per draw flag above");
+        add((clipPlanes & CLIP_PLANES_MESH) != 0);
+        add((clipPlanes & CLIP_PLANES_CAMERA) != 0);
+        static_assert(kForwardDrawBitCount == 10, "one bit per draw flag above");
         return bits | (forwardFrameBits() << kForwardDrawBitCount);
     }
 
@@ -667,21 +676,22 @@ namespace visutwin::canvas
 
     std::shared_ptr<Shader> ProgramLibrary::getForwardShader(const Material* material, const bool transparentPass,
         const bool dynamicBatch, const bool skinning, const bool morphing,
-        const bool instancing, const bool instancingColor, const bool instanceLightmap, const bool screenSpace)
+        const bool instancing, const bool instancingColor, const bool instanceLightmap, const bool screenSpace,
+        const uint32_t clipPlanes)
     {
         if (!_device) {
             return nullptr;
         }
         if (!material) {
             return resolveForwardShader(material, transparentPass, dynamicBatch, skinning, morphing,
-                instancing, instancingColor, instanceLightmap, screenSpace);
+                instancing, instancingColor, instanceLightmap, screenSpace, clipPlanes);
         }
 
         // The resolution is a function of the material (as of its version), the draw's
         // flags, the frame switches and the chunk registry. With all four as they were
         // the last time, the answer is the one the material remembers.
         const uint64_t state = forwardStateBits(transparentPass, dynamicBatch, skinning, morphing,
-            instancing, instancingColor, instanceLightmap, screenSpace);
+            instancing, instancingColor, instanceLightmap, screenSpace, clipPlanes);
         const uint64_t version = material->uniformsVersion();
         const uint64_t chunksHash = _chunks.hash();
         for (const auto& memo : material->forwardShaderMemo()) {
@@ -693,7 +703,7 @@ namespace visutwin::canvas
                     // missing from the key: a material mutator that skipped
                     // markUniformsDirty(), or a frame switch not in forwardStateBits.
                     const auto resolved = resolveForwardShader(material, transparentPass, dynamicBatch,
-                        skinning, morphing, instancing, instancingColor, instanceLightmap, screenSpace);
+                        skinning, morphing, instancing, instancingColor, instanceLightmap, screenSpace, clipPlanes);
                     if (resolved != shader) {
                         spdlog::error("ProgramLibrary: the forward shader remembered for material '{}' is not "
                             "the one its state resolves to", material->name());
@@ -707,7 +717,7 @@ namespace visutwin::canvas
         }
 
         auto shader = resolveForwardShader(material, transparentPass, dynamicBatch, skinning, morphing,
-            instancing, instancingColor, instanceLightmap, screenSpace);
+            instancing, instancingColor, instanceLightmap, screenSpace, clipPlanes);
         if (shader) {
             auto& memo = material->nextForwardShaderMemo();
             memo.library = _serial;
@@ -721,10 +731,11 @@ namespace visutwin::canvas
 
     std::shared_ptr<Shader> ProgramLibrary::resolveForwardShader(const Material* material, const bool transparentPass,
         const bool dynamicBatch, const bool skinning, const bool morphing,
-        const bool instancing, const bool instancingColor, const bool instanceLightmap, const bool screenSpace)
+        const bool instancing, const bool instancingColor, const bool instanceLightmap, const bool screenSpace,
+        const uint32_t clipPlanes)
     {
         const ShaderVariantOptions options = buildForwardVariantOptions(material, transparentPass, dynamicBatch,
-            skinning, morphing, instancing, instancingColor, instanceLightmap, screenSpace);
+            skinning, morphing, instancing, instancingColor, instanceLightmap, screenSpace, clipPlanes);
         const std::string programName = resolveProgramName(options);
         // Registry override change: purge cached variants so recompiled programs
         // do not pile up next to stale ones (AGX compiled-variants footprint).
@@ -777,7 +788,8 @@ namespace visutwin::canvas
 
     std::shared_ptr<Shader> ProgramLibrary::getShadowShader(const Material* material,
         const bool dynamicBatch, const bool skinning,
-        const bool morphing, const bool instancing, const bool instancingColor, const bool vsm)
+        const bool morphing, const bool instancing, const bool instancingColor, const bool vsm,
+        const uint32_t clipPlanes)
     {
         if (!_device) {
             return nullptr;
@@ -818,6 +830,10 @@ namespace visutwin::canvas
         // and spot shadows and the depth prepass would get the moments variant under a
         // VSM key light.
         options.vsmShadows = vsm;
+        // The mesh instance's planes clip every pass; the camera's only the passes of the
+        // camera (the depth prepass), never a shadow, which renders from the light.
+        options.clipPlanesMesh = (clipPlanes & CLIP_PLANES_MESH) != 0;
+        options.clipPlanesCamera = (clipPlanes & CLIP_PLANES_CAMERA) != 0;
 
         const VariantKey key = makeVariantKey("shadow", options, material);
         const auto cached = _forwardShaderCache.find(key);
@@ -832,7 +848,8 @@ namespace visutwin::canvas
 
     void ProgramLibrary::bindMaterial(const std::shared_ptr<GraphicsDevice>& device, const Material* material,
         const bool transparentPass, const bool dynamicBatch, const bool skinning, const bool morphing,
-        const bool instancing, const bool instancingColor, const bool instanceLightmap, const bool screenSpace)
+        const bool instancing, const bool instancingColor, const bool instanceLightmap, const bool screenSpace,
+        const uint32_t clipPlanes)
     {
         if (!device) {
             return;
@@ -841,7 +858,7 @@ namespace visutwin::canvas
         auto shader = material ? material->shaderOverride() : nullptr;
         if (!shader) {
             shader = getForwardShader(material, transparentPass, dynamicBatch, skinning, morphing,
-                instancing, instancingColor, instanceLightmap, screenSpace);
+                instancing, instancingColor, instanceLightmap, screenSpace, clipPlanes);
         }
 
         auto blendState = material ? material->blendState() : nullptr;

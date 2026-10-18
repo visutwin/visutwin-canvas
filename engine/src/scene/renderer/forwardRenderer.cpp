@@ -335,6 +335,8 @@ namespace visutwin::canvas
         // rendered once, for it, and sampled by all); every other camera fits its own
         // realtime ones, rendered right before it draws (addRenderActionPasses).
         const auto& actions = layerComposition.renderActions();
+        // The shadows with shadow bounds: one fit for every camera.
+        cullBoundedShadowmaps();
         Camera* shadowFitCamera = selectShadowFitCamera(actions);
         const std::vector<Camera*> cameras = uniqueCameras(actions);
         for (Camera* cam : cameras) {
@@ -363,11 +365,17 @@ namespace visutwin::canvas
         bool newStart = true;
         RenderTarget* renderTarget = nullptr;
 
+        bool boundedShadowsAdded = false;
         for (int i = 0; i < actionCount; i++) {
             auto* renderAction = renderActions[i];
             // A camera's directional shadows render right before its first action: the
-            // light's one map is reused camera after camera, each with its own fit.
+            // light's one map is reused camera after camera, each with its own fit. The
+            // shadows with shadow bounds render once, before the frame's first camera.
             if (renderAction->firstCameraUse && renderAction->camera) {
+                if (!boundedShadowsAdded) {
+                    boundedShadowsAdded = true;
+                    addDirectionalShadowPasses(frameGraph, nullptr);
+                }
                 addDirectionalShadowPasses(frameGraph, renderAction->camera->camera());
             }
             if (renderAction->useCameraPasses) {

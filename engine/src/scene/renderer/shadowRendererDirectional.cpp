@@ -217,15 +217,26 @@ namespace visutwin::canvas
             }
         }
 
+        // The empty texels left around the shadow bounds in the shadow map: the receivers
+        // outside the bounds sample them, as the map is sampled clamped to its edge.
+        constexpr int kBoundsBorderTexels = 2;
+
+        /// The half extent of the projection of a box with half extents `h` on a unit axis.
+        float projectExtent(const Vector3& axis, const Vector3& h)
+        {
+            return std::abs(axis.getX()) * h.getX() + std::abs(axis.getY()) * h.getY() +
+                std::abs(axis.getZ()) * h.getZ();
+        }
+
         // The viewport-scaled shadow matrix for this cascade, stored in the light's
         // matrix palette (column-major, 16 floats per cascade):
         //   shadowMatrix = viewportMatrix × shadowCamProj × shadowCamView
-        void storeCascadeShadowMatrix(Light& light, const int cascade, const CascadeCamera& cascadeCam)
+        void storeCascadeShadowMatrix(Light& light, const int cascade, const CascadeCamera& cascadeCam,
+            const Vector4& vp)
         {
             const Matrix4 shadowView = cascadeCam.node->worldTransform().inverse();
             const Matrix4 shadowVP = cascadeCam.camera->projectionMatrix() * shadowView;
 
-            const Vector4& vp = light.cascadeViewports()[cascade];
             // Maps clip coords to the cascade's viewport
             // sub-region, with the Y scale negated for the top-left texture origin (the
             // translate is unchanged, since the viewport rect is already top-left) and
@@ -257,7 +268,7 @@ namespace visutwin::canvas
         const Matrix4 shadowRotMat = Matrix4::trs(Vector3(0.0f), shadowRotation, Vector3(1.0f));
         const Matrix4 cameraWorldMat = camera->node() ? camera->node()->worldTransform() : Matrix4::identity();
 
-        const int cascadeCount = std::min(light->numCascades(), 4);
+        const int cascadeCount = std::min(light->shadowCascadeCount(), 4);
         const float* distances = light->shadowCascadeDistances().data();
 
         // The scene's casters for this camera, collected ONCE for all the cascades, with
@@ -347,14 +358,109 @@ namespace visutwin::canvas
                 fitDepthRange(*cascadeCam, *fitAabb);
             }
             recordFittedCasters(*cascadeCam, casters, frame);
-            storeCascadeShadowMatrix(*light, cascade, *cascadeCam);
+            storeCascadeShadowMatrix(*light, cascade, *cascadeCam, light->cascadeViewports()[cascade]);
         }
+    }
+
+    void ShadowRendererDirectional::cullBounds(Light* light)
+    {
+        if (!light || !_shadowRenderer || light->type() != LightType::LIGHTTYPE_DIRECTIONAL ||
+            !light->shadowBounds()) {
+            return;
+        }
+        const auto cascadeCam = cascadeCamera(*_shadowRenderer, light, nullptr, 0);
+        if (!cascadeCam) {
+            return;
+        }
+        const BoundingBox& bounds = *light->shadowBounds();
+
+        // The light's axes: the shadow camera looks along the light, down its -Z.
+        const Quaternion rotation = shadowCameraRotation(*light);
+        const Matrix4 rotationMatrix = Matrix4::trs(Vector3(0.0f), rotation, Vector3(1.0f));
+        const Vector3 right(rotationMatrix.getColumn(0));
+        const Vector3 up(rotationMatrix.getColumn(1));
+        const Vector3 lightDir = Vector3(rotationMatrix.getColumn(2)) * -1.0f;
+
+        // The bounds in the light's frame, covered by a square for square texels.
+        const Vector3& halfExtents = bounds.halfExtents();
+        float halfSize = std::max({projectExtent(right, halfExtents), projectExtent(up, halfExtents), 1e-4f});
+        const float halfDepth = projectExtent(lightDir, halfExtents);
+        float x = bounds.center().dot(right);
+        float y = bounds.center().dot(up);
+        const float z = bounds.center().dot(lightDir);
+
+        // The bounds map inside a border of empty texels. A VSM blur spreads the casters over
+        // its radius, which the border has to be wider than.
+        const int resolution = std::max(light->shadowResolution(), 4);
+        const bool vsm = light->shadowType() == SHADOW_VSM_16F;
+        const int borderTexels = vsm ? std::max(kBoundsBorderTexels, (light->vsmBlurSize() >> 1) + 1)
+            : kBoundsBorderTexels;
+        const float border = static_cast<float>(borderTexels) / static_cast<float>(resolution);
+        const float size = 1.0f - 2.0f * border;
+        LightRenderData* renderData = cascadeCam->renderData;
+        renderData->shadowViewport = Vector4(border, border, size, size);
+        renderData->shadowScissor = renderData->shadowViewport;
+
+        // The centre snapped to whole texels, so a static caster's shadow does not shimmer
+        // while the bounds move; the extent grows by the texel the snap can move it.
+        const float texels = static_cast<float>(resolution) * size;
+        halfSize *= texels / (texels - 1.0f);
+        const float texelSize = 2.0f * halfSize / texels;
+        x = std::round(x / texelSize) * texelSize;
+        y = std::round(y / texelSize) * texelSize;
+        const Vector3 center = right * x + up * y + lightDir * z;
+
+        // Seen from far back along the light, so the cull keeps every caster toward it.
+        placeWideShadowCamera(*cascadeCam, rotation, center, halfSize);
+
+        static thread_local std::vector<MeshInstance*> casters;
+        casters.clear();
+        collectShadowCasters(casters, _shadowRenderer->componentRegistry(), nullptr);
+        const Frustum wideFrustum = buildCameraFrustum(cascadeCam->camera, cascadeCam->node);
+
+        // Only the casters that start before the far end of the bounds: the ones behind it
+        // cannot shadow it. The depth range reaches toward the light to the closest of them.
+        const float farDepth = z + halfDepth;
+        float nearDepth = z - halfDepth;
+        std::erase_if(casters, [&](MeshInstance* meshInstance) {
+            if (!meshInstance || !meshInstance->visible() ||
+                !shouldRenderShadowMeshInstanceIgnoringVisibility(meshInstance)) {
+                return true;
+            }
+            const BoundingBox aabb = meshInstance->aabb();
+            if (meshInstance->cull() && !isVisibleInFrustum(wideFrustum, aabb)) {
+                return true;
+            }
+            const float casterNear = aabb.center().dot(lightDir) - projectExtent(lightDir, aabb.halfExtents());
+            if (casterNear > farDepth) {
+                return true;
+            }
+            nearDepth = std::min(nearDepth, casterNear);
+            return false;
+        });
+
+        // The depth range, a little larger than the casters' so neither plane clips them.
+        cascadeCam->node->setPosition(center);
+        cascadeCam->node->translateLocal(0.0f, 0.0f, z - nearDepth + 0.1f);
+        cascadeCam->camera->setFarClip(farDepth - nearDepth + 0.2f);
+
+        recordFittedCasters(*cascadeCam, casters, _device ? _device->renderVersion() : -1);
+        storeCascadeShadowMatrix(*light, 0, *cascadeCam, renderData->shadowViewport);
+        // No shadow distance: the map covers the bounds wherever the camera is.
+        float* distances = light->shadowCascadeDistancesData();
+        for (int i = 0; i < 4; ++i) {
+            distances[i] = 1e30f;
+        }
+        // The world half size of the whole map, its border included, for PCSS.
+        renderData->projectionCompensation = halfSize / size;
     }
 
     std::shared_ptr<RenderPass> ShadowRendererDirectional::getLightRenderPass(Light* light, Camera* camera,
         const int face, const bool clearRenderTarget)
     {
-        if (!_shadowRenderer || !_device || !light || !camera || light->type() != LightType::LIGHTTYPE_DIRECTIONAL) {
+        // A light with shadow bounds renders one shadow for every camera, under no camera.
+        if (!_shadowRenderer || !_device || !light || (!camera && !light->shadowBounds()) ||
+            light->type() != LightType::LIGHTTYPE_DIRECTIONAL) {
             return nullptr;
         }
 
@@ -382,9 +488,6 @@ namespace visutwin::canvas
         }
 
         for (const auto& [camera, lights] : cameraDirShadowLights) {
-            if (!camera) {
-                continue;
-            }
             for (auto* light : lights) {
                 if (!light || light->type() != LightType::LIGHTTYPE_DIRECTIONAL) {
                     continue;
@@ -414,15 +517,15 @@ namespace visutwin::canvas
                         const int filterSize = std::max(1, (light->vsmBlurSize() - 1) / 2);
                         // Multi-cascade atlases pack 0.5x0.5 quadrants — the
                         // blur must not mix moments across cascade seams.
-                        const float tileSize = light->numCascades() > 1 ? 0.5f : 1.0f;
+                        const float tileSize = light->shadowCascadeCount() > 1 ? 0.5f : 1.0f;
                         // Pass 1 — horizontal: shadowTexture → blurTemp.
                         auto blurH = std::make_shared<RenderPassVsmBlur>(_device,
                             sm->shadowTexture(), sm->blurTempRenderTarget(),
-                            resolution, true, filterSize, tileSize);
+                            resolution, true, filterSize, tileSize, light->vsmBlurMode() == BLUR_BOX);
                         // Pass 2 — vertical: blurTemp → shadowTexture.
                         auto blurV = std::make_shared<RenderPassVsmBlur>(_device,
                             sm->blurTempTexture(), sm->renderTargets()[0],
-                            resolution, false, filterSize, tileSize);
+                            resolution, false, filterSize, tileSize, light->vsmBlurMode() == BLUR_BOX);
                         frameGraph->addRenderPass(blurH);
                         frameGraph->addRenderPass(blurV);
                     }

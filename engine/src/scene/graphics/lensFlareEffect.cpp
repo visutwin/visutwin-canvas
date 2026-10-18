@@ -17,7 +17,9 @@
 #include "core/math/matrix4.h"
 #include "core/math/vector4.h"
 #include "framework/components/camera/cameraComponent.h"
+#include "framework/components/componentSystem.h"
 #include "framework/components/light/lightComponent.h"
+#include "framework/engine.h"
 #include "framework/entity.h"
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/graphicsDevice.h"
@@ -28,6 +30,7 @@
 #include "renderPassShaderQuad.h"
 #include "scene/camera.h"
 #include "scene/constants.h"
+#include "scene/scene.h"
 
 namespace visutwin::canvas
 {
@@ -502,6 +505,8 @@ float3 debugLensflare()
         const Vector3 cameraPosition = world.getTranslation();
         const float farClip = cam->farClip();
         const bool orthographic = cam->projection() == ProjectionType::Orthographic;
+        const Engine* engine = cameraComponent->system() ? cameraComponent->system()->engine() : nullptr;
+        const bool physicalUnits = engine && engine->scene() && engine->scene()->physicalUnits();
 
         // The flare texture follows the scene at `scale`.
         const int renderWidth = context.renderWidth > 0 ? context.renderWidth : static_cast<int>(_depth->width());
@@ -616,9 +621,12 @@ float3 debugLensflare()
                     }
                 }
 
-                // The colour, tinted by the light's (linear).
-                Color color(flare.color.r * flare.intensity, flare.color.g * flare.intensity,
-                    flare.color.b * flare.intensity, 1.0f);
+                // The colour, tinted by the light's (linear) and scaled by its intensity.
+                float intensity = flare.intensity;
+                if (light && flare.useLightIntensity) {
+                    intensity *= light->renderIntensity(physicalUnits);
+                }
+                Color color(flare.color.r * intensity, flare.color.g * intensity, flare.color.b * intensity, 1.0f);
                 if (light && flare.useLightColor) {
                     const Color& lightColor = light->color();
                     color.r *= gammaToLinear(lightColor.r);

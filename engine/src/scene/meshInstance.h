@@ -8,10 +8,12 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 #include <core/shape/boundingBox.h>
 
+#include "clipPlanes.h"
 #include "graphNode.h"
 #include "mesh.h"
 #include "morphInstance.h"
@@ -145,13 +147,35 @@ namespace visutwin::canvas
         bool deleteParameter(const std::string& name);
         const Material::ParameterMap& parameters() const { return _parameters; }
 
-        /// The block a forward draw of this instance with `material` uploads: the material's
-        /// packed block with the overrides applied, rebuilt only when either changed. Null
-        /// when the instance overrides nothing (the material's own block is used).
-        const MaterialUniforms* overriddenUniforms(const Material* material) const;
+        /// The block a draw of this instance with `material` uploads: the material's packed
+        /// block with the overrides applied and the clipping planes written in (the
+        /// instance's own, and `cameraClip`, the planes of the camera the draw is for),
+        /// rebuilt only when any of them changed. Null when the instance overrides nothing
+        /// and nothing clips it (the material's own block is used).
+        const MaterialUniforms* overriddenUniforms(const Material* material,
+            const ClipPlanes* cameraClip = nullptr) const;
         /// Names the block overriddenUniforms() last returned: unique across all materials
         /// and instances, so a backend can key a per-frame reuse on (block, version).
         uint64_t overriddenUniformsVersion() const { return _overrideVersion; }
+
+        /**
+         * Planes that clip this mesh instance, in world space (copied, at most
+         * ClipPlanes::kMaxPlanes): a fragment behind any of them is discarded, or under
+         * clipIntersection only one behind all of them. They clip every pass — forward, depth
+         * prepass, picking and shadows — so what they clip neither renders, writes depth, gets
+         * picked nor casts a shadow. A render component replaces the planes of its mesh
+         * instances with its own whenever its planes change or it gets new instances. Moving
+         * the planes or changing their number compiles no new shader. A clipped mesh
+         * instance is never batched.
+         */
+        void setClippingPlanes(std::span<const Plane> planes);
+        const std::vector<Plane>& clippingPlanes() const { return _clip.planes(); }
+        void setClipIntersection(bool value);
+        bool clipIntersection() const { return _clip.intersection(); }
+        /// The planes and the mode together, as a render component hands them over.
+        void setClipping(const ClipPlanes& clip);
+        const ClipPlanes& clipping() const { return _clip; }
+        bool clipped() const { return !_clip.empty(); }
 
         bool cull() const { return _cull; }
         void setCull(const bool value) { _cull = value; }
@@ -521,6 +545,9 @@ namespace visutwin::canvas
         mutable const Material* _overrideMaterial = nullptr;
         mutable uint64_t _overrideMaterialVersion = 0;
         mutable uint64_t _overrideVersion = 0;
+        mutable uint64_t _overrideClipVersion = 0;
+        mutable uint64_t _overrideCameraClipVersion = 0;
+        ClipPlanes _clip;
         bool _cull = true;
         bool _screenSpace = false;
         bool _visibleThisFrame = false;

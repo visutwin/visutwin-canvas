@@ -13,6 +13,7 @@ namespace visutwin::canvas
 {
     class GraphicsDevice;
     class Camera;
+    class ClipPlanes;
     class MeshInstance;
     class ProgramLibrary;
     class Shader;
@@ -38,6 +39,9 @@ namespace visutwin::canvas
         std::shared_ptr<Shader> gsplat;
         // Every variant writes EVSM moments (a VSM light's shadow pass).
         bool vsm = false;
+        // The clipping planes of the camera the pass draws for, which clip its casters as
+        // well as their own planes do; null for a shadow pass, which draws from a light.
+        const ClipPlanes* cameraClip = nullptr;
     };
 
     /**

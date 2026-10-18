@@ -216,6 +216,13 @@ namespace visutwin::canvas
         ASPECT_MANUAL,  // Use the manual aspect ratio value
     };
 
+    /// How a VSM light's shadow map is blurred (Light::setVsmBlurMode).
+    enum BlurMode
+    {
+        BLUR_BOX = 0,        // every tap weighs the same
+        BLUR_GAUSSIAN = 1,   // taps weighted by a gaussian over the blur size
+    };
+
     enum ShadowType
     {
         /**

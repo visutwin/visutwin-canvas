@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 14.07.2026
 //
-// Port of upstream graphics/lights. A statue on a large grey metallic ground box, lit by
+// Port of upstream lights-and-shadows/lights. A statue on a large grey metallic ground box, lit by
 // animated lights of three types, one of each to begin with. Lighting is CLUSTERED (the
 // default) with cookies turned on, so every spot and omni light is shaded through the
 // cluster grid, its shadow comes from the clustered shadow atlas and its cookie from the

@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 10.10.2026
 //
-// Port of upstream graphics/light-physical-units.
+// Port of upstream lights-and-shadows/light-physical-units.
 //
 // Lights measured in physical units, seen through a physical camera. Two SheenChair.glb
 // chairs (scale 3) stand at (7, -1, 0) and (4, -1, 0), the second switched to its

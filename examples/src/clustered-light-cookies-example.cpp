@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 10.10.2026
 //
-// Port of upstream graphics/clustered-light-cookies.
+// Port of upstream lights-and-shadows/clustered-light-cookies.
 //
 // Dynamic cookie textures under clustered lighting. The chess board, at a quarter of
 // its authored size and neither casting nor receiving shadows, is lit only by four

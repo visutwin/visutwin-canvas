@@ -102,7 +102,9 @@
     X(GlossMap,                  "VT_FEATURE_GLOSS_MAP") \
     X(OpacityMap,                "VT_FEATURE_OPACITY_MAP") \
     X(EnvAtlasRgbp,              "VT_FEATURE_ENV_ATLAS_RGBP") \
-    X(EnvAtlasRgbm,              "VT_FEATURE_ENV_ATLAS_RGBM")
+    X(EnvAtlasRgbm,              "VT_FEATURE_ENV_ATLAS_RGBM") \
+    X(ClipPlanesMesh,            "VT_FEATURE_CLIP_PLANES_MESH") \
+    X(ClipPlanesCamera,          "VT_FEATURE_CLIP_PLANES_CAMERA")
 
 namespace visutwin::canvas
 {

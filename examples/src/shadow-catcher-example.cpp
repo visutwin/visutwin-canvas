@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 10.10.2026
 //
-// Port of upstream graphics/shadow-catcher.
+// Port of upstream lights-and-shadows/shadow-catcher.
 //
 // A marble statue, turned 140 degrees, stands under the St Peter's Square night HDRI, which
 // is shown as a projected sky dome (scale 200, centre (0, 0.05, 0), writing depth) and

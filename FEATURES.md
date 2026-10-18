@@ -7,6 +7,7 @@ the [README](README.md).
 ## Rendering & materials
 - **Forward PBR renderer** (metalness and specular workflows; normalised Blinn-Phong light specular by default, GGX on request) with multi-light support (directional, point, spot, rectangular/disk/spherical **area lights** via LTC) and a frame-graph pass scheduler
 - **StandardMaterial** with clearcoat, anisotropy, sheen, iridescence, transmission, **parallax occlusion mapping** (height base + self-shadowing), **spec-gloss** (KHR_materials_pbrSpecularGlossiness), **Oren-Nayar** diffuse, **detail normals** (reoriented blend), and vertex-stage **displacement mapping**; an **opacity map** with its own channel and UV transform, an **ambient tint**, and blended surfaces that keep their specular (`opacityFadesSpecular` off) under an extra alpha fade
+- **Clipping planes** on mesh instances, render components and cameras: up to eight world-space planes per set, clipping what is behind any of them or (intersection mode) only what is behind all, in every pass including picking; a mesh instance's planes clip its shadow too
 - **Per-mesh-instance material overrides** (`MeshInstance::setParameter`): instances sharing one material each override its colours and scalars, and follow its other changes
 - **Per-material environment atlases** with **box-projected reflections** (a room's probe reflected so it lines up with the walls) and a reflectivity factor; a dynamic **reflection probe** whose cube mips are averaged in linear space
 - **Packed (GGGR) normal maps**, as two-channel block-compressed normal maps store them, and **GPU texture copies** (`Texture::copy`: mip levels, cube faces, sub-rectangles)
@@ -20,8 +21,8 @@ the [README](README.md).
 - **MSAA** on the back buffer (4x, on by default, resolved per pass, colour and depth grabs included) and on the offscreen scene target, and **dual-source blending** (`BLENDMODE_SRC1_*`) for custom blend setups
 
 ## Lighting & shadows
-- **Cascaded shadow maps** (one cascade by default as upstream, up to four PSSM cascades with cross-cascade blending and distance fade); receivers beyond the caster-fitted range are shadowed, so a receive-only ground works
-- **PCF**, **EVSM_16F** (Exponential Variance Shadow Maps: separable Gaussian blur, Chebyshev sampling, caster-AABB depth tightening), and **PCSS** contact-hardening soft shadows for directional lights
+- **Cascaded shadow maps** (one cascade by default as upstream, up to four PSSM cascades with cross-cascade blending and distance fade); receivers beyond the caster-fitted range are shadowed, so a receive-only ground works; or **shadow bounds**: one directional shadow map fitted to a world box (a subject's), rendered once and shared by every camera, sharp at any camera distance
+- **PCF**, **EVSM_16F** (Exponential Variance Shadow Maps: separable Gaussian or box blur, Chebyshev sampling, caster-AABB depth tightening), and **PCSS** contact-hardening soft shadows for directional lights
 - **Spot/point** 2D depth maps and **omnidirectional cubemap** shadows, with PCSS also supported on spot/omni local lights
 - **Clustered lighting** for many-light scenes with a packed **shadow atlas** whose resolution can change at runtime, plus a **shadow catcher** material for compositing
 - **Physical light units** (photometric glTF light intensities, exposure from the camera's aperture, shutter and sensitivity) and **light masks** separating dynamic, lightmapped and bake-only lights

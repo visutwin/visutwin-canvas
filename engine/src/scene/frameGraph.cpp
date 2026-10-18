@@ -17,23 +17,25 @@ namespace visutwin::canvas
 
     void FrameGraph::addRenderPass(const std::shared_ptr<RenderPass>& renderPass)
     {
-        renderPass->frameUpdate();
-
-        auto& beforePasses = renderPass->beforePasses();
-        for (auto pass : beforePasses) {
-            if (pass->enabled()) {
-                addRenderPass(pass);
-            }
+        // A disabled pass is skipped with all its before and after passes, and is not updated.
+        if (!renderPass->enabled()) {
+            return;
         }
 
+        // Can add or remove before and after passes, and enable or disable them.
+        renderPass->frameUpdate();
+
+        for (const auto& pass : renderPass->beforePasses()) {
+            addRenderPass(pass);
+        }
+
+        // frameUpdate can disable the pass, which then stays out of the compile step.
         if (renderPass->enabled()) {
             _renderPasses.push_back(renderPass);
         }
 
-        for (auto pass : renderPass->afterPasses()) {
-            if (pass->enabled()) {
-                addRenderPass(pass);
-            }
+        for (const auto& pass : renderPass->afterPasses()) {
+            addRenderPass(pass);
         }
     }
 

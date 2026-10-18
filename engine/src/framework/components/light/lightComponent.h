@@ -14,6 +14,7 @@
 #include "core/math/color.h"
 #include "core/math/vector2.h"
 #include "core/math/vector3.h"
+#include "core/shape/boundingBox.h"
 #include "framework/components/component.h"
 #include "scene/constants.h"
 
@@ -154,6 +155,9 @@ namespace visutwin::canvas
         // Default 11 = filterSize 5.
         int vsmBlurSize() const { return _vsmBlurSize; }
         void setVsmBlurSize(const int value) { _vsmBlurSize = value < 3 ? 3 : value; }
+        /// How the VSM shadow map is blurred over vsmBlurSize taps: gaussian (the default) or box.
+        BlurMode vsmBlurMode() const { return _vsmBlurMode; }
+        void setVsmBlurMode(const BlurMode value) { _vsmBlurMode = value; }
 
         // VSM-only: bias scale for the Chebyshev minVariance floor. Larger
         // values clamp more variance noise → less flicker at thin edges, but
@@ -171,6 +175,12 @@ namespace visutwin::canvas
 
         int numCascades() const { return _numCascades; }
         void setNumCascades(const int value) { _numCascades = value; }
+
+        /// A directional light's shadow fitted to this world-space box (one map for every
+        /// camera) instead of cascades fitted to each camera; see Light::setShadowBounds.
+        /// The bounds are copied; nullopt for the cascades.
+        const std::optional<BoundingBox>& shadowBounds() const { return _shadowBounds; }
+        void setShadowBounds(const std::optional<BoundingBox>& value) { _shadowBounds = value; }
 
         float cascadeDistribution() const { return _cascadeDistribution; }
         void setCascadeDistribution(const float value) { _cascadeDistribution = value; }
@@ -273,10 +283,12 @@ namespace visutwin::canvas
         int _shadowResolution = 1024; // 2048 quadrupled every map
         ShadowType _shadowType = SHADOW_PCF3_32F;
         int _vsmBlurSize = 11;
+        BlurMode _vsmBlurMode = BLUR_GAUSSIAN;
         float _penumbraSize = 1.0f;
         float _penumbraFalloff = 1.0f;
         float _vsmBias = 0.0025f;
         int _numCascades = 1;                // see Light::_numCascades
+        std::optional<BoundingBox> _shadowBounds;
         float _cascadeDistribution = 0.5f;
         float _cascadeBlend = 0.0f;
         Texture* _cookie = nullptr;

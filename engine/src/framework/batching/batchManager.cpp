@@ -326,16 +326,22 @@ namespace visutwin::canvas
             // down by its 88-byte stride, but a MORPHED one carries the ordinary
             // packed layout with its deltas in a separate buffer — it would merge
             // cleanly and then simply stop moving, with nothing reporting why.
+            // A clipped mesh instance is excluded the same way: its planes are its own,
+            // and a batch draws its sources with one block.
             std::vector<bool> deforms;
             deforms.reserve(rc->meshInstances().size());
+            bool clipped = false;
             for (auto* mi : rc->meshInstances()) {
-                deforms.push_back(mi && (mi->skinInstance() || mi->morphInstance()));
+                deforms.push_back(mi && (mi->skinInstance() || mi->morphInstance() || mi->clipped()));
+                clipped = clipped || (mi && mi->clipped());
             }
             if (!entityIsBatchable(deforms)) {
-                spdlog::warn("[BatchManager] Skipping a render component in batch group {}: "
-                             "a skinned or morphed mesh instance cannot be merged, and "
-                             "excludes the whole entity when any of its "
-                             "instances deforms", groupId);
+                if (!clipped) {
+                    spdlog::warn("[BatchManager] Skipping a render component in batch group {}: "
+                                 "a skinned or morphed mesh instance cannot be merged, and "
+                                 "excludes the whole entity when any of its "
+                                 "instances deforms", groupId);
+                }
                 continue;
             }
 

@@ -327,6 +327,11 @@ namespace visutwin::canvas
             // which reports castShadows() == false by design (Light::castShadows excludes
             // MASK_BAKE and MASK_NONE), casts its shadow into the bake. Restored afterwards.
             _lightMaskBackup.emplace_back(lightComponent, lightComponent->mask());
+            // The bake fits its directional shadows to the bake cameras, not to bounds.
+            if (lightComponent->shadowBounds()) {
+                _lightShadowBoundsBackup.emplace_back(lightComponent, lightComponent->shadowBounds());
+                lightComponent->setShadowBounds(std::nullopt);
+            }
             if (bakes) {
                 lightComponent->setMask(MASK_AFFECT_LIGHTMAPPED);
             }
@@ -721,6 +726,13 @@ namespace visutwin::canvas
             }
         }
         _lightMaskBackup.clear();
+
+        for (auto& [lightComponent, bounds] : _lightShadowBoundsBackup) {
+            if (lightComponent) {
+                lightComponent->setShadowBounds(bounds);
+            }
+        }
+        _lightShadowBoundsBackup.clear();
 
         for (auto* cameraEntity : _cameras) {
             delete cameraEntity;   // detaches from the parent in ~GraphNode

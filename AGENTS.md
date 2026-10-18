@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 150 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 156 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -443,7 +443,9 @@ stage includes). **Adding a field is one line.** The bundle's reflected block si
 against `sizeof(MaterialUniforms)` (`tests/slangBundleTests.cpp`, and Vulkan's
 `validateForwardLayout`); the struct asserts that its size is a multiple of 16. The struct is
 a plain aggregate so `alignof` is 4, not 16 — the layout works because every `vec4` in the
-list lands 16-aligned by construction.
+list lands 16-aligned by construction. An array of eight `vec4` is the type `vec4x8`
+(`float[8][4]` in C++, `float4 name[8]` in Slang, stride 16 in std140 and Metal alike); the
+clipping planes are the two today.
 
 **The LIGHTING block is ONE layout on both backends** (`platform/graphics/lightingBlock.h`,
 `LightingBlock` / `GpuLightBlock`, 2960 bytes, asserted there and in `vulkanRenderPipeline.cpp`,
@@ -913,7 +915,7 @@ sampler. A quad pass may draw a vertex buffer of its own instead of the fullscre
 (`RenderPassShaderQuad::setGeometry`, a triangle list in the standard 56-byte layout, written
 per frame into a ring of `maxFramesInFlight` buffers). The block rides the per-draw MATERIAL slot (Metal buffer 3 / Vulkan
 set 0 binding 0) via `GraphicsDevice::setQuadUniformData`; `kPerDrawUniformCapacity`
-(656; `MaterialUniforms` itself is 656 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
+(928; `MaterialUniforms` itself is 928 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
 allocation behind it. A smaller block is copied into the front of a full-size
 allocation, so never shorten the allocation. Quad passes draw an oversized
 fullscreen TRIANGLE and, on Metal, bind `_postSampler` (linear, clamp, no anisotropy),
@@ -3265,6 +3267,27 @@ present, but the rule below never depends on reading it.
   The general rule: a setter that returns early on an unchanged value NEVER RUNS for the
   default, so anything it derives must also be derived at construction, from the same
   function; a dirty flag that starts false is the same trap.
+- **A directional light with SHADOW BOUNDS is fitted once a frame under the NULL camera**
+  (`Light::setShadowBounds`, `Renderer::cullBoundedShadowmaps`, `_cameraDirShadowLights[nullptr]`),
+  and every per-camera lookup of its fit (`directionalFitCamera`, `shadowMatrixPalette(camera)`,
+  `shadowCascadeDistances(camera)`) redirects there while the bounds are set. Its pass runs
+  before the frame's FIRST camera draws, and its face's viewport is an inset rect, not
+  `cascadeViewports()`: anything that reads a directional face's rect takes
+  `LightRenderData::shadowViewport`. Code that sizes or loops over a directional shadow's
+  cascades reads `shadowCascadeCount()` / `usesCascadeBlend()`, never `numCascades()` /
+  `cascadeBlend()` alone (one map, no blend, no distance under bounds). Detail in
+  ARCHITECTURE.md, directional shadows.
+- **Clipping planes ride in the mesh instance's copy of its material block, BOTH sets**
+  (`MeshInstance::overriddenUniforms(material, cameraClip)`), so only a draw with a material
+  of its own is clipped, and a pass that draws a clipped mesh must hand the device that copy
+  (`setInstanceMaterialUniforms`) and bind the material: the forward loop does, and
+  `drawDepthOnly` does for a clipped caster (which then needs a fragment stage: the shadow
+  variant's `needsOpacity` includes the clip features). The camera's planes reach the depth
+  prepass through `DepthOnlyShaders::cameraClip` and NEVER a shadow pass (null there), a
+  screen-space draw or the sky. The variant comes from the draw flag `clipPlanes`
+  (`ClipPlaneSets`, two bits of `forwardStateBits`), so a new path that resolves a forward or
+  shadow variant for a mesh instance passes it or the draw is not clipped. Detail in
+  ARCHITECTURE.md, material system.
 - **A REALTIME directional shadow is fitted and rendered PER CAMERA; a one-shot or
   static one has ONE fit.** Each light has one shadow atlas and one live palette, so
   `Renderer::cullShadowmaps` keeps every camera's palette and cascade distances in that
@@ -3424,6 +3447,10 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
     Retina at full density). An example that sets its own ratio (`screen-scaling`'s toggle)
     overrides it. `VISUTWIN_ANTIALIAS=0/1` turns the back buffer's MSAA off or on whatever
     the example asks (`ExampleOptions::antialias`), for a parity or cost comparison.
+16. `VISUTWIN_CLIP_PLANE=nx,ny,nz,d[,camera]` clips any example by one world-space plane
+    (`dot(n, p) + d < 0` is discarded): through every render component's mesh instances, or
+    with `camera` 1 through every camera. Mesh planes clip the shadows too, camera planes do
+    not; the two backends must agree on both frames.
 
 Animated examples cannot be screenshot-diffed across shader changes unless they run
 under `VISUTWIN_FIXED_DT`.

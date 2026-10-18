@@ -123,8 +123,11 @@ float sampleDirectionalShadow(int slot, float3 worldPos, float viewDepth, float3
     // ended inside it, a line that moved with the casters' bounds every frame.
     // Clamped to 1 it reads the cleared map (1.0) as lit and any caster in
     // front as shadowed. The UV test stays: outside the footprint there is no
-    // map to read.
-    coord.z = clamp(coord.z, 0.0, 1.0);
+    // map to read. PCSS is the exception: it needs the depth of a receiver beyond the far
+    // plane for its distance to the blockers, and clamps where it samples the map itself.
+    if (!vtFeatureEnabled(VT_FEATURE_PCSS_SHADOWS_BIT)) {
+        coord.z = clamp(coord.z, 0.0, 1.0);
+    }
     // No V flip: the cascade matrix bakes the Metal top-left atlas convention,
     // and the negative-height viewport used for every Vulkan pass (including
     // shadow renders) stores the map in exactly that orientation. A whole-atlas

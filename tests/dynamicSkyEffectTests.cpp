@@ -119,11 +119,11 @@ int main()
             "its +Y (its -Y shines) points at the sun");
         check(near(sun->intensity(), 2.0f, 1e-5f), "by day the sun's intensity, undimmed without clouds");
         check(near(sun->color().r, 1.0f, 1e-5f) && sun->color().b > 0.9f, "white above 23 degrees");
-        sky->clouds = true;
+        sky->cloudType = CloudType::Volumetric;
         sky->cloudCoverage = 0.5f;
         frame();
         check(near(sun->intensity(), 2.0f * (1.0f - 0.5f * 0.6f), 1e-5f), "dimmed by the clouds: coverage x sunDimming");
-        sky->clouds = false;
+        sky->cloudType = CloudType::None;
         sky->elevation = -10.0f;
         frame();
         check(near(sun->intensity(), sky->moonIntensity, 1e-5f), "at night the moon's");
@@ -138,7 +138,7 @@ int main()
 
     std::cout << "the clouds\n";
     {
-        sky->clouds = true;
+        sky->cloudType = CloudType::Volumetric;
         sky->cloudQuality = 0.25f;
         frame();
         const auto& b = sky->block();
@@ -157,12 +157,12 @@ int main()
         const auto& preScene = camera->cameraFrame()->effectPasses().preScene;
         check(preScene.size() == 2 && preScene[0]->name() == "DynamicSkyLighting" &&
               preScene[1]->name() == "RenderPassDynamicSkyClouds", "the lighting, then the cloud buffer, before the scene");
-        sky->cloudTechnique = CloudTechnique::Flat;
+        sky->cloudType = CloudType::Flat;
         frame();
         frame();
         check(sky->skyVariant() == "sky-flat" && camera->cameraFrame()->effectPasses().preScene.size() == 1,
             "flat clouds: drawn in the sky, no buffer");
-        sky->clouds = false;
+        sky->cloudType = CloudType::None;
         frame();
         check(sky->skyVariant() == "sky", "no clouds");
 

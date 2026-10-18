@@ -11,11 +11,13 @@
 #include <algorithm>
 #include <array>
 #include <memory>
+#include <optional>
 
 #include "camera.h"
 #include "constants.h"
 #include "core/math/vector2.h"
 #include "core/math/vector4.h"
+#include "core/shape/boundingBox.h"
 #include "core/shape/boundingSphere.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "renderer/shadowMap.h"
@@ -72,6 +74,11 @@ namespace visutwin::canvas
         std::array<float, 64> shadowMatrixPalette = {};
         std::array<float, 4> shadowCascadeDistances = {};
         bool hasDirectionalFit = false;
+
+        // DIRECTIONAL with shadow bounds: the world half size of the whole shadow map, its
+        // empty border included, which the bounds' inset viewport makes larger than the
+        // shadow camera's orthoHeight (PCSS converts between the map and the world by it).
+        float projectionCompensation = 0.0f;
     };
 
     /**
@@ -193,6 +200,23 @@ namespace visutwin::canvas
         int numCascades() const;
         void setNumCascades(int value);
 
+        /**
+         * The world-space box enclosing the shadow casters of a directional light. Set, the
+         * light renders ONE shadow map fitted to the box as seen from the light, rendered once a
+         * frame and sampled by every camera, instead of cascades fitted to each camera; it
+         * covers the box at any distance from the camera, so there is no shadow distance, fade
+         * or cascade blend. nullopt renders the cascades (numCascades is kept for that). Setting
+         * or clearing the bounds re-creates the shadow map, and moving them renders a cached
+         * shadow (SHADOWUPDATE_NONE) once more; equal bounds change nothing.
+         */
+        void setShadowBounds(const std::optional<BoundingBox>& bounds);
+        const std::optional<BoundingBox>& shadowBounds() const { return _shadowBounds; }
+        /// The cascades the directional shadow renders: one with shadow bounds, else numCascades.
+        int shadowCascadeCount() const { return _shadowBounds ? 1 : _numCascades; }
+        /// Whether the directional shadow blends between cascades and fades at the shadow
+        /// distance: never with shadow bounds.
+        bool usesCascadeBlend() const { return _cascadeBlend > 0.0f && !_shadowBounds; }
+
         float cascadeDistribution() const { return _cascadeDistribution; }
         void setCascadeDistribution(const float value) { _cascadeDistribution = value; }
 
@@ -257,6 +281,8 @@ namespace visutwin::canvas
         // VSM-only: separable gaussian blur kernel size (total taps; must be odd).
         int vsmBlurSize() const { return _vsmBlurSize; }
         void setVsmBlurSize(const int value) { _vsmBlurSize = value < 3 ? 3 : value; }
+        BlurMode vsmBlurMode() const { return _vsmBlurMode; }
+        void setVsmBlurMode(const BlurMode value) { _vsmBlurMode = value; }
 
         // VSM-only: bias scale used for the minVariance floor in Chebyshev's
         // inequality (depth ambiguity at thin / silhouette edges). Default
@@ -368,6 +394,7 @@ namespace visutwin::canvas
         // scene into near cascades whose maps were fitted once to the empty near slices
         // of the original view.
         int _numCascades = 1;
+        std::optional<BoundingBox> _shadowBounds;
         float _cascadeDistribution = 0.5f;   // 0=linear splits, 1=logarithmic, 0.5=practical blend
         float _cascadeBlend = 0.0f;          // fraction: 0 = off, else dither + far fade
 
@@ -403,6 +430,7 @@ namespace visutwin::canvas
 
         int _shadowResolution = 1024;
         int _vsmBlurSize = 11;
+        BlurMode _vsmBlurMode = BLUR_GAUSSIAN;
         float _vsmBias = 0.0025f;
         float _penumbraSize = 1.0f;
         float _penumbraFalloff = 1.0f;

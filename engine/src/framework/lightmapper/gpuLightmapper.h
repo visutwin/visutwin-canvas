@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -16,6 +17,7 @@
 
 #include "core/math/color.h"
 #include "core/math/vector3.h"
+#include "core/shape/boundingBox.h"
 
 namespace visutwin::canvas
 {
@@ -207,6 +209,8 @@ namespace visutwin::canvas
         std::vector<uint32_t> _originalMasks;
         std::vector<std::pair<LightComponent*, std::vector<int>>> _lightLayerBackup;
         std::vector<std::pair<LightComponent*, uint32_t>> _lightMaskBackup;
+        // The lights' shadow bounds, cleared for the bake (it fits its own shadows).
+        std::vector<std::pair<LightComponent*, std::optional<BoundingBox>>> _lightShadowBoundsBackup;
         // Each scene light's own enabled flag, which every phase starts from and the end of
         // the bake restores — a light the app switched off stays off — and whether its
         // authored mask has MASK_BAKE (the bake rewrites the mask, so it is decided up front).

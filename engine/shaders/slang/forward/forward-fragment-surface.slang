@@ -17,6 +17,9 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
     float4 fragWorldTangent = input.worldTangent;
     float fragViewDepth = input.viewDepth;
     float4 fragColor = input.color;
+    // What the clipping planes clip is not there in any pass: before the alpha test, the
+    // pick output and everything else.
+    applyClipPlanes(fragWorldPos);
     // Skybox: sample the environment along the view direction and output it
     // directly — no surface lighting. The sky vertex stage carries the pre-transform
     // vertex position in the normal varying, which IS the view ray: the world position

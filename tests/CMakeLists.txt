@@ -200,3 +200,5 @@ visutwin_add_unit_test(visutwin-engine-update-tests engine-update engineUpdateTe
 visutwin_add_unit_test(visutwin-texture-outlives-device-tests texture-outlives-device textureOutlivesDeviceTests.cpp)
 visutwin_add_unit_test(visutwin-resources-outlive-device-tests resources-outlive-device resourcesOutliveDeviceTests.cpp)
 visutwin_add_unit_test(visutwin-sky-material-tests sky-material skyMaterialTests.cpp)
+visutwin_add_unit_test(visutwin-clip-planes-tests clip-planes clipPlanesTests.cpp)
+visutwin_add_unit_test(visutwin-directional-shadow-bounds-tests directional-shadow-bounds directionalShadowBoundsTests.cpp)

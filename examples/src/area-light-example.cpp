@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 12.07.2026
 //
-// Port of upstream graphics/area-lights: three animated lights with an area SHAPE — a
+// Port of upstream lights-and-shadows/area-lights: three animated lights with an area SHAPE — a
 // white rect on a shadowed spot, a yellow sphere on an omni and a blue "sky" disk on a
 // shadowed directional light, held 5000 units from the camera along its direction —
 // illuminate the statue.glb hero standing on a seaside-rocks textured floor, lit by the

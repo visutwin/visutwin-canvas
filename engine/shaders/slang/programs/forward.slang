@@ -19,6 +19,7 @@ import vtdraw;
 #include "forward/common-utils.slang"
 #include "forward/common-tonemap.slang"
 #include "forward/common-material-flags.slang"
+#include "forward/common-clip-planes.slang"
 #include "forward/common-ltc.slang"
 #include "forward/common-brdf.slang"
 #include "forward/common-sheen.slang"

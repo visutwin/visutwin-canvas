@@ -30,8 +30,17 @@ namespace visutwin::canvas
         // lines 72-201.
         void cull(Light* light, Camera* camera);
 
+        /// Fits the shadow camera of a directional light with shadow bounds to the bounds, and
+        /// culls its casters: a square map covering the bounds as seen from the light (inside a
+        /// border of empty texels), its depth range reaching toward the light to the nearest
+        /// caster. Receivers beyond the bounds along the light sample the far end of the range,
+        /// so the casters within shadow them too. One fit for every camera, under no camera.
+        void cullBounds(Light* light);
+
         std::shared_ptr<RenderPass> getLightRenderPass(Light* light, Camera* camera, int face, bool clearRenderTarget);
 
+        /// `cameraDirShadowLights` keyed by camera; the null camera holds the lights with
+        /// shadow bounds, whose one shadow every camera samples.
         void buildNonClusteredRenderPasses(FrameGraph* frameGraph,
             const std::unordered_map<Camera*, std::vector<Light*>>& cameraDirShadowLights);
 

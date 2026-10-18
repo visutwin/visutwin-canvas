@@ -663,6 +663,11 @@ namespace visutwin::canvas
             if (!sceneLight) {
                 continue;
             }
+            // A shadow with shadow bounds is fitted once for every camera
+            // (cullBoundedShadowmaps).
+            if (sceneLight->shadowBounds()) {
+                continue;
+            }
             if (!designated) {
                 if (sceneLight->shadowUpdateMode() != ShadowUpdateType::SHADOWUPDATE_REALTIME) {
                     continue;
@@ -706,6 +711,40 @@ namespace visutwin::canvas
 
         if (!dirShadowLights.empty()) {
             _cameraDirShadowLights[camera] = std::move(dirShadowLights);
+        }
+    }
+
+    void Renderer::cullBoundedShadowmaps()
+    {
+        _cameraDirShadowLights.erase(nullptr);
+        if (!_shadowRendererDirectional) {
+            return;
+        }
+        std::vector<Light*> lights;
+        for (auto* lightComponent : instancesOf<LightComponent>(componentRegistry())) {
+            if (!lightComponent || !lightComponent->active() ||
+                lightComponent->type() != LightType::LIGHTTYPE_DIRECTIONAL || !lightComponent->castShadows()) {
+                continue;
+            }
+            Light* sceneLight = lightComponent->light();
+            if (!sceneLight || !sceneLight->shadowBounds()) {
+                continue;
+            }
+            if (!sceneLight->shadowMap()) {
+                sceneLight->setShadowMap(ShadowMap::create(_device.get(), sceneLight));
+            }
+            if (!sceneLight->shadowMap()) {
+                continue;
+            }
+            // A cached shadow keeps the fit it was rendered with (see cullShadowmaps).
+            if (sceneLight->shadowUpdateMode() != ShadowUpdateType::SHADOWUPDATE_NONE) {
+                _shadowRendererDirectional->cullBounds(sceneLight);
+                sceneLight->storeDirectionalFit(nullptr);
+            }
+            lights.push_back(sceneLight);
+        }
+        if (!lights.empty()) {
+            _cameraDirShadowLights[nullptr] = std::move(lights);
         }
     }
 
@@ -1275,8 +1314,9 @@ namespace visutwin::canvas
             }
 
             // CSM: copy the full matrix palette and cascade distances.
-            dir.numCascades = sceneLight->numCascades();
-            dir.cascadeBlend = sceneLight->cascadeBlend();
+            // A shadow with shadow bounds is one map with no cascades, blend or distance.
+            dir.numCascades = sceneLight->shadowCascadeCount();
+            dir.cascadeBlend = sceneLight->usesCascadeBlend() ? sceneLight->cascadeBlend() : 0.0f;
             std::memcpy(dir.shadowMatrixPalette, sceneLight->shadowMatrixPalette(fitCamera).data(),
                         sizeof(dir.shadowMatrixPalette));
             std::memcpy(dir.shadowCascadeDistances, sceneLight->shadowCascadeDistances(fitCamera).data(),
@@ -1313,8 +1353,11 @@ namespace visutwin::canvas
                 for (int cascade = 0; cascade < dir.numCascades && cascade < 4; ++cascade) {
                     LightRenderData* cascadeData = sceneLight->getRenderData(fitCamera, cascade);
                     if (cascadeData && cascadeData->shadowCamera) {
-                        dir.pcssCascadeRadii[cascade] =
-                            std::max(cascadeData->shadowCamera->orthoHeight(), 1e-4f);
+                        // Under shadow bounds the map is wider than the camera's view by its
+                        // border: the world half size of the whole map.
+                        const float radius = cascadeData->projectionCompensation > 0.0f
+                            ? cascadeData->projectionCompensation : cascadeData->shadowCamera->orthoHeight();
+                        dir.pcssCascadeRadii[cascade] = std::max(radius, 1e-4f);
                         dir.pcssCascadeDepthRanges[cascade] = std::max(
                             cascadeData->shadowCamera->farClip() - cascadeData->shadowCamera->nearClip(), 1e-4f);
                     }
@@ -1734,15 +1777,23 @@ namespace visutwin::canvas
             bool instanceColor = false;
             bool instanceLightMap = false;
             bool screenSpace = false;
+            uint32_t clipPlanes = CLIP_PLANES_NONE;
 
             bool operator==(const ShaderVariantInputs&) const = default;
         };
 
-        /// What a draw contributes to its shader variant, read off its mesh instance.
-        ShaderVariantInputs shaderVariantInputs(const MeshInstance* meshInstance, const Material* boundMaterial)
+        /// What a draw contributes to its shader variant, read off its mesh instance;
+        /// `cameraClipped`: the camera the draw is for has clipping planes.
+        ShaderVariantInputs shaderVariantInputs(const MeshInstance* meshInstance, const Material* boundMaterial,
+            const bool cameraClipped)
         {
             ShaderVariantInputs variant;
             variant.material = boundMaterial;
+            // The camera's planes clip through the mesh instance's copy of the material
+            // block, which a draw without its own material does not get.
+            if (cameraClipped && meshInstance && meshInstance->material() && !meshInstance->material()->isSkybox()) {
+                variant.clipPlanes |= CLIP_PLANES_CAMERA;
+            }
             if (!meshInstance) {
                 return variant;
             }
@@ -1763,6 +1814,9 @@ namespace visutwin::canvas
             // lightmap variant whatever the material says.
             variant.instanceLightMap = meshInstance->lightMap() != nullptr;
             variant.screenSpace = meshInstance->screenSpace();
+            if (meshInstance->clipped() && meshInstance->material()) {
+                variant.clipPlanes |= CLIP_PLANES_MESH;
+            }
             return variant;
         }
 
@@ -1778,7 +1832,8 @@ namespace visutwin::canvas
         /// already be set on the library (configureForwardShaderFeatures).
         template <typename Draws, typename MeshInstanceOf, typename MaterialOf>
         void resolveNewForwardShaders(ProgramLibrary& programLibrary, const Material* defaultMaterial,
-            const bool transparent, const Draws& draws, MeshInstanceOf&& meshInstanceOf, MaterialOf&& materialOf)
+            const bool transparent, const bool cameraClipped, const Draws& draws, MeshInstanceOf&& meshInstanceOf,
+            MaterialOf&& materialOf)
         {
             const uint64_t frameBits = programLibrary.forwardFrameBits();
             const Material* lastMaterial = nullptr;
@@ -1794,10 +1849,10 @@ namespace visutwin::canvas
                     programLibrary.forwardShaderResolved(material, frameBits)) {
                     continue;
                 }
-                const ShaderVariantInputs variant = shaderVariantInputs(meshInstanceOf(draw), material);
+                const ShaderVariantInputs variant = shaderVariantInputs(meshInstanceOf(draw), material, cameraClipped);
                 (void)programLibrary.getForwardShader(material, transparent, variant.dynamicBatch,
                     variant.skinned, variant.morphed, variant.instanced, variant.instanceColor,
-                    variant.instanceLightMap, variant.screenSpace);
+                    variant.instanceLightMap, variant.screenSpace, variant.clipPlanes);
             }
         }
 
@@ -2029,7 +2084,9 @@ namespace visutwin::canvas
             // frame graph did this for the whole frame before any pass ran
             // (prepareForwardShaders); this is the exact one, with the frame switches as
             // they are now, for whatever that could not foresee.
-            resolveNewForwardShaders(ctx.programLibrary, ctx.defaultMaterial, ctx.transparent, entries,
+            const ClipPlanes& cameraClip = camera.clipping();
+            resolveNewForwardShaders(ctx.programLibrary, ctx.defaultMaterial, ctx.transparent, !cameraClip.empty(),
+                entries,
                 [](const ForwardDrawEntry* entry) { return entry->meshInstance; },
                 [](const ForwardDrawEntry* entry) { return entry->material; });
 
@@ -2058,12 +2115,16 @@ namespace visutwin::canvas
                 // device over the material's lightmap slot.
                 Texture* instanceLightMap = meshInstance ? meshInstance->lightMap().get() : nullptr;
 
-                const ShaderVariantInputs variant = shaderVariantInputs(meshInstance, boundMaterial);
+                const ShaderVariantInputs variant = shaderVariantInputs(meshInstance, boundMaterial,
+                    !cameraClip.empty());
 
                 device.setInstanceLightMap(instanceLightMap);
-                // The instance's parameter overrides, applied over the bound material's block.
-                const MaterialUniforms* instanceUniforms =
-                    meshInstance && entry->material ? meshInstance->overriddenUniforms(boundMaterial) : nullptr;
+                // The instance's parameter overrides, applied over the bound material's block,
+                // and the clipping planes of the instance and of the camera written in.
+                const MaterialUniforms* instanceUniforms = meshInstance && entry->material
+                    ? meshInstance->overriddenUniforms(boundMaterial,
+                        (variant.clipPlanes & CLIP_PLANES_CAMERA) ? &cameraClip : nullptr)
+                    : nullptr;
                 device.setInstanceMaterialUniforms(instanceUniforms,
                     instanceUniforms ? meshInstance->overriddenUniformsVersion() : 0);
                 // Per-draw stencil (UI masks); null leaves the stencil off.
@@ -2076,7 +2137,7 @@ namespace visutwin::canvas
                 if (variant != boundVariant) {
                     ctx.programLibrary.bindMaterial(ctx.device, boundMaterial, ctx.transparent,
                         variant.dynamicBatch, variant.skinned, variant.morphed, variant.instanced,
-                        variant.instanceColor, variant.instanceLightMap, variant.screenSpace);
+                        variant.instanceColor, variant.instanceLightMap, variant.screenSpace, variant.clipPlanes);
                     boundVariant = variant;
                 }
 
@@ -2274,7 +2335,7 @@ namespace visutwin::canvas
         configureForwardShaderFeatures(*programLibrary, *camera, _scene && _scene->clusteredLightingEnabled());
         const CulledInstances& visible = culledInstances(camera, camera->node(), layer);
         const auto defaultMaterial = getDefaultMaterial(_device);
-        resolveNewForwardShaders(*programLibrary, defaultMaterial.get(), transparent,
+        resolveNewForwardShaders(*programLibrary, defaultMaterial.get(), transparent, !camera->clipping().empty(),
             transparent ? visible.transparent : visible.opaque,
             [](const MeshInstance* meshInstance) { return meshInstance; },
             [](const MeshInstance* meshInstance) { return meshInstance ? meshInstance->material() : nullptr; });

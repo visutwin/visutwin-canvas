@@ -281,7 +281,7 @@ namespace visutwin::canvas
     {
         const CameraComponent* cameraComponent = camera();
         const Camera* cam = cameraComponent ? cameraComponent->camera() : nullptr;
-        return clouds && cloudTechnique == CloudTechnique::Volumetric && cam &&
+        return cloudType == CloudType::Volumetric && cam &&
             cam->projection() == ProjectionType::Perspective;
     }
 
@@ -469,7 +469,7 @@ namespace visutwin::canvas
         // The sun fades out below the horizon while the moon fades in; clouds dim the light below.
         const float sunPart = sunIntensity * saturate(y / 0.1f);
         const float moonPart = moonIntensity * nightFactor;
-        const float dimming = clouds ? cloudCoverage * cloudSunDimming : 0.0f;
+        const float dimming = hasClouds() ? cloudCoverage * cloudSunDimming : 0.0f;
         _light->setIntensity((sunPart + moonPart) * (1.0f - dimming));
     }
 
@@ -493,7 +493,7 @@ namespace visutwin::canvas
 
     void DynamicSkyEffect::updateClouds()
     {
-        _block.cloudParams[0] = clouds ? saturate(cloudCoverage) : 0.0f;
+        _block.cloudParams[0] = hasClouds() ? saturate(cloudCoverage) : 0.0f;
         _block.cloudParams[1] = std::max(cloudSoftness, 0.01f);
         _block.cloudParams[2] = 1000.0f / std::max(cloudSize, 1.0f);
         _block.cloudParams[3] = cloudHeight / 1000.0f;
@@ -511,8 +511,8 @@ namespace visutwin::canvas
     {
         out = {rayleigh, turbidity, mieCoefficient, mieDirectionalG, luminance,
             static_cast<float>(lightingResolution), static_cast<float>(atlasSize), nightColor.r, nightColor.g,
-            nightColor.b, nightBrightness, twilightGlow, clouds ? 1.0f : 0.0f,
-            cloudTechnique == CloudTechnique::Volumetric ? 1.0f : 0.0f, cloudCoverage, cloudSoftness, cloudOpacity,
+            nightColor.b, nightBrightness, twilightGlow, cloudType == CloudType::Flat ? 1.0f : 0.0f,
+            cloudType == CloudType::Volumetric ? 1.0f : 0.0f, cloudCoverage, cloudSoftness, cloudOpacity,
             cloudBrightness, cloudNightBrightness, cloudSize, cloudHeight, cloudThickness, cloudQuality, sunIntensity,
             moonColor.r, moonColor.g, moonColor.b};
     }
@@ -546,13 +546,13 @@ namespace visutwin::canvas
             const bool buffered = _cloudPass != nullptr;
             std::string variant = "sky";
             std::array<Texture*, 5> textures{};
-            if (clouds && cloudTechnique == CloudTechnique::Flat) {
+            if (cloudType == CloudType::Flat) {
                 variant = "sky-flat";
                 textures[0] = _noise->cloudMap();
-            } else if (clouds && buffered) {
+            } else if (cloudType == CloudType::Volumetric && buffered) {
                 variant = _cloudEncoded ? "sky-buffer-encoded" : "sky-buffer";
                 textures[4] = _cloudTexture.get();
-            } else if (clouds) {
+            } else if (cloudType == CloudType::Volumetric) {
                 variant = "sky-volumetric";
                 textures = {_noise->cloudMap(), _noise->shapeMap(), _noise->detailMap(), _noise->blueNoise(), nullptr};
             }
@@ -594,7 +594,7 @@ namespace visutwin::canvas
         // The clouds drift with the wind, in pattern repeats of sky space (X flipped). The shapes
         // wrap after four repeats, the weather's; the detail drifts a little faster and in a
         // slightly different direction, so the clouds evolve as they move.
-        if (clouds && context.dt > 0.0f) {
+        if (hasClouds() && context.dt > 0.0f) {
             const float angle = windDirection * kDegToRad;
             const float step = (windSpeed * context.dt) / std::max(cloudSize, 1.0f);
             _block.cloudOffset[0] = wrap(_block.cloudOffset[0] + std::cos(angle) * step, 4.0f);
@@ -656,7 +656,7 @@ namespace visutwin::canvas
         // the frames after while it is interpolated.
         _timeSinceBake += context.dt;
         _frameDt = context.dt;
-        const bool drift = clouds && lightingCloudThreshold > 0.0f && _driftSinceBake >= lightingCloudThreshold;
+        const bool drift = hasClouds() && lightingCloudThreshold > 0.0f && _driftSinceBake >= lightingCloudThreshold;
         _bakePending = lighting && (_bakeRequested || _bakeDue || drift);
 
         if (_material) {
@@ -827,10 +827,10 @@ namespace visutwin::canvas
         Texture* atlas = interpolated ? _atlasLatest.get() : _envAtlas.get();
 
         // The sky into the cube's faces, then its mips and the atlas.
-        const char* variant = !clouds ? "bake"
-            : (cloudTechnique == CloudTechnique::Flat ? "bake-flat" : "bake-volumetric");
-        const std::array<Texture*, 4> inputs = !clouds ? std::array<Texture*, 4>{}
-            : (cloudTechnique == CloudTechnique::Flat
+        const char* variant = !hasClouds() ? "bake"
+            : (cloudType == CloudType::Flat ? "bake-flat" : "bake-volumetric");
+        const std::array<Texture*, 4> inputs = !hasClouds() ? std::array<Texture*, 4>{}
+            : (cloudType == CloudType::Flat
                 ? std::array<Texture*, 4>{_noise->cloudMap(), nullptr, nullptr, nullptr}
                 : std::array<Texture*, 4>{_noise->cloudMap(), _noise->shapeMap(), _noise->detailMap(), _noise->blueNoise()});
         const float savedFace = _block.cloudLightDir[3];

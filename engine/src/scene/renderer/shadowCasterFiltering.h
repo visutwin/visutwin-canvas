@@ -97,9 +97,10 @@ namespace visutwin::canvas
     // The shadow program for one caster. `frontendMaterial` is what
     // shadowFrontendMaterial returned; `cached` is the pass's lazily built variant
     // for this vertex stage and is used — and filled — only for a caster that needs
-    // no frontend, so the common caster still costs one library call per pass.
+    // no frontend and is not clipped, so the common caster still costs one library call
+    // per pass. `clipPlanes`: the ClipPlaneSets that clip the caster.
     std::shared_ptr<Shader> shadowCasterShader(ProgramLibrary* programLibrary,
         const Material* frontendMaterial, std::shared_ptr<Shader>& cached,
         bool dynamicBatch = false, bool skinning = false, bool morphing = false,
-        bool instancing = false, bool instancingColor = false, bool vsm = false);
+        bool instancing = false, bool instancingColor = false, bool vsm = false, uint32_t clipPlanes = 0);
 }

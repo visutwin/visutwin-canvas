@@ -147,6 +147,31 @@ int main()
             "given the old material back, it is merged with box 1 again");
     }
 
+    std::cout << "\nclipping a batched source\n";
+    {
+        // Boxes 1 and 3 share a batch. A clipped mesh instance keeps its own planes, so its
+        // entity leaves the batch at once and is drawn on its own, and comes back unclipped.
+        auto* render = boxes[1]->findComponent<RenderComponent>();
+        const std::vector<Plane> plane{Plane(Vector3(1.0f, 0.0f, 0.0f), 0.0f)};
+        render->setClippingPlanes(plane);
+        check(!contains(sourcesInGroup(batcher, kGroup), meshes[1]), "giving it planes takes it out at once");
+        batcher.updateAll();
+        check(sourcesInGroup(batcher, kGroup).empty(), "and the rebuild leaves it out");
+        render->setClippingPlanes({});
+        batcher.updateAll();
+        check(sourcesInGroup(batcher, kGroup).size() == 2, "without planes it is merged again");
+        // A disabled component given a group stays out of its batch, clipped or not.
+        render->setEnabled(false);
+        render->setBatchGroupId(BatchGroup::NOID);
+        render->setBatchGroupId(kGroup);
+        batcher.updateAll();
+        check(!contains(sourcesInGroup(batcher, kGroup), meshes[1]),
+            "a disabled component given its group again stays out of the batch");
+        render->setEnabled(true);
+        batcher.updateAll();
+        check(sourcesInGroup(batcher, kGroup).size() == 2, "and joins it once enabled");
+    }
+
     std::cout << "\na dynamic batch whose first source has no vertex data\n";
     {
         // The merge skips a source whose vertex buffer holds no bytes (an empty mesh: zero

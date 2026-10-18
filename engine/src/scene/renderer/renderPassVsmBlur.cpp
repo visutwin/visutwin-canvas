@@ -31,7 +31,7 @@ namespace visutwin::canvas
         struct VsmBlurUniforms
         {
             float invResolutionAndDirection[4];  // xy = 1/resolution, zw = blur direction
-            float params[4];                     // x = filterSize, y = cascade tile size
+            float params[4];                     // x = filterSize, y = cascade tile size, z = 1 for a box blur
         };
 
         std::shared_ptr<Shader> vsmBlurShader(GraphicsDevice* device)
@@ -46,13 +46,15 @@ namespace visutwin::canvas
         const int shadowResolution,
         const bool horizontal,
         const int filterSize,
-        const float cascadeTileSize)
+        const float cascadeTileSize,
+        const bool box)
         : RenderPass(device),
           _sourceTexture(sourceTexture),
           _shadowResolution(shadowResolution),
           _horizontal(horizontal),
           _filterSize(filterSize),
-          _cascadeTileSize(cascadeTileSize)
+          _cascadeTileSize(cascadeTileSize),
+          _box(box)
     {
         _requiresCubemaps = false;
         _name = horizontal ? "RenderPassVsmBlurH" : "RenderPassVsmBlurV";
@@ -95,6 +97,7 @@ namespace visutwin::canvas
         uniforms.invResolutionAndDirection[3] = _horizontal ? 0.0f : 1.0f;
         uniforms.params[0] = static_cast<float>(_filterSize);
         uniforms.params[1] = _cascadeTileSize;
+        uniforms.params[2] = _box ? 1.0f : 0.0f;
 
         // The blur runs right after the shadow draws and inherits nothing from them: their
         // depth test and write would act on the temp target, which has no depth attachment,

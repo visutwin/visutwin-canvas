@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 14.07.2026
 //
-// Port of upstream's graphics/lights-baked-a-o: the house.glb scene
+// Port of upstream's lights-and-shadows/lights-baked-a-o: the house.glb scene
 // — which ships with a generated UV1 channel unwrapped for lightmapping and
 // stripped textures — is lit by a directional sun, a yellow omni and a red spot and
 // baked on the GPU (GpuLightmapper, a UV-space render) into per-mesh

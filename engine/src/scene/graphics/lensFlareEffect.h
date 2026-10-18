@@ -113,6 +113,9 @@ namespace visutwin::canvas
         float scale = 1.0f;
         /// The light's colour tints the flare too.
         bool useLightColor = true;
+        /// The light's intensity scales the flare, so it dims and brightens with its light and
+        /// disappears at 0; under physical units the light's luminance, as it scales the lighting.
+        bool useLightIntensity = true;
         /// The radius around the source the scene depth is tested in, as a fraction of the screen
         /// height: the flare fades with the fraction of it the scene covers.
         float occlusionRadius = 0.02f;

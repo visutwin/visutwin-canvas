@@ -57,6 +57,28 @@ namespace
         graph.compile();
     }
 
+    // A pass that records each frameUpdate in `log` under its name: the order the graph
+    // schedules passes in, and which ones it skipped.
+    class LoggingPass : public RenderPass
+    {
+    public:
+        LoggingPass(const std::shared_ptr<GraphicsDevice>& graphicsDevice, const std::string& name, std::vector<std::string>& log)
+            : RenderPass(graphicsDevice), _name(name), _log(log) {}
+        void frameUpdate() const override { _log.push_back(_name); }
+    private:
+        std::string _name;
+        std::vector<std::string>& _log;
+    };
+
+    std::string joined(const std::vector<std::string>& log)
+    {
+        std::string out;
+        for (const auto& name : log) {
+            out += (out.empty() ? "" : " ") + name;
+        }
+        return out;
+    }
+
     std::shared_ptr<RenderTarget> makeTarget(Texture* colour, const int face = 0)
     {
         RenderTargetOptions options;
@@ -169,6 +191,78 @@ int main()
         parent2->addBeforePass(disabled);
         compile({parent2});
         check(!disabled->colorArrayOps()[0]->store, "a disabled before-pass is left out");
+    }
+
+    std::cout << "\nscheduling and disabled passes\n";
+    {
+        std::vector<std::string> log;
+        auto main = std::make_shared<LoggingPass>(device, "main", log);
+        auto before = std::make_shared<LoggingPass>(device, "before", log);
+        auto after = std::make_shared<LoggingPass>(device, "after", log);
+        main->addBeforePass(before);
+        main->addAfterPass(after);
+        compile({main});
+        check(joined(log) == "main before after", "a pass is updated, then its before-passes and after-passes in order");
+
+        log.clear();
+        main->setEnabled(false);
+        compile({main});
+        check(log.empty(), "a disabled pass is skipped with its before and after passes, and not updated");
+        main->setEnabled(true);
+
+        log.clear();
+        auto parent = std::make_shared<LoggingPass>(device, "parent", log);
+        auto child = std::make_shared<LoggingPass>(device, "child", log);
+        auto grandBefore = std::make_shared<LoggingPass>(device, "grandBefore", log);
+        auto grandAfter = std::make_shared<LoggingPass>(device, "grandAfter", log);
+        child->addBeforePass(grandBefore);
+        child->addAfterPass(grandAfter);
+        child->setEnabled(false);
+        parent->addBeforePass(child);
+        compile({parent});
+        check(joined(log) == "parent", "a disabled child is skipped together with its own before and after passes");
+    }
+    {
+        auto a = pass(target, true);
+        auto b = pass(otherTarget, false);
+        compile({a, b});
+        check(!a->skipEnd() && !b->skipStart(), "passes on different targets do not merge");
+
+        auto c = pass(target, true);
+        auto depthClear = pass(target, false);
+        depthClear->depthStencilOps()->clearDepth = true;
+        compile({c, depthClear});
+        check(!c->skipEnd() && !depthClear->skipStart(), "a second pass clearing only depth does not merge");
+        auto stencilClear = pass(target, false);
+        stencilClear->depthStencilOps()->clearStencil = true;
+        compile({c, stencilClear});
+        check(!c->skipEnd() && !stencilClear->skipStart(), "nor one clearing only stencil");
+
+        auto owner = pass(target, true);
+        auto ownAfter = pass(target, false);
+        owner->addAfterPass(ownAfter);
+        compile({owner});
+        check(!owner->skipEnd() && !ownAfter->skipStart(), "a pass does not merge with its own after-pass");
+        auto ownBefore = pass(target, true);
+        auto owner2 = pass(target, false);
+        owner2->addBeforePass(ownBefore);
+        compile({owner2});
+        check(!ownBefore->skipEnd() && !owner2->skipStart(), "nor with its own before-pass");
+    }
+    {
+        // Each attachment's store follows whether the next pass on the target LOADS it.
+        auto a = pass(target, true);
+        auto b = pass(target, true);
+        b->depthStencilOps()->clearDepth = false;   // loads depth, clears colour
+        compile({a, between(), b});
+        check(!a->colorArrayOps()[0]->store && a->depthStencilOps()->storeDepth,
+            "a later pass loading only depth makes the earlier one store depth alone");
+        auto c = pass(target, true);
+        auto d = pass(target, true);
+        d->colorArrayOps()[0]->clear = false;   // loads colour, clears depth
+        compile({c, between(), d});
+        check(c->colorArrayOps()[0]->store && !c->depthStencilOps()->storeDepth,
+            "and one loading only colour, colour alone");
     }
 
     std::cout << "\nN13: the graph's edits last one frame\n";

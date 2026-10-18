@@ -50,26 +50,59 @@ namespace visutwin::canvas
         return true;
     }
 
-    const MaterialUniforms* MeshInstance::overriddenUniforms(const Material* material) const
+    const MaterialUniforms* MeshInstance::overriddenUniforms(const Material* material,
+        const ClipPlanes* cameraClip) const
     {
-        if (_parameters.empty() || !material) {
+        if (cameraClip && cameraClip->empty()) {
+            cameraClip = nullptr;
+        }
+        if ((_parameters.empty() && _clip.empty() && !cameraClip) || !material) {
             return nullptr;
         }
+        const uint64_t clipVersion = _clip.version();
+        const uint64_t cameraClipVersion = cameraClip ? cameraClip->version() : 0;
         // packedUniforms() first: it can move the material's version.
         const MaterialUniforms& base = material->packedUniforms();
         if (!_overrideBlock || _parametersChanged || material != _overrideMaterial ||
-            material->uniformsVersion() != _overrideMaterialVersion) {
+            material->uniformsVersion() != _overrideMaterialVersion || clipVersion != _overrideClipVersion ||
+            cameraClipVersion != _overrideCameraClipVersion) {
             if (!_overrideBlock) {
                 _overrideBlock = std::make_unique<MaterialUniforms>();
             }
             *_overrideBlock = base;
             Material::applyParameterOverrides(_parameters, *_overrideBlock);
+            _clip.packPlanes(_overrideBlock->clipPlanes);
+            _overrideBlock->clipParams[0] = static_cast<float>(_clip.planes().size());
+            _overrideBlock->clipParams[1] = _clip.intersection() ? 1.0f : 0.0f;
+            if (cameraClip) {
+                cameraClip->packPlanes(_overrideBlock->cameraClipPlanes);
+                _overrideBlock->clipParams[2] = static_cast<float>(cameraClip->planes().size());
+                _overrideBlock->clipParams[3] = cameraClip->intersection() ? 1.0f : 0.0f;
+            }
             _overrideMaterial = material;
             _overrideMaterialVersion = material->uniformsVersion();
+            _overrideClipVersion = clipVersion;
+            _overrideCameraClipVersion = cameraClipVersion;
             _overrideVersion = Material::nextUniformsVersion();
             const_cast<MeshInstance*>(this)->_parametersChanged = false;
         }
         return _overrideBlock.get();
+    }
+
+    void MeshInstance::setClippingPlanes(const std::span<const Plane> planes)
+    {
+        _clip.setPlanes(planes);
+    }
+
+    void MeshInstance::setClipIntersection(const bool value)
+    {
+        _clip.setIntersection(value);
+    }
+
+    void MeshInstance::setClipping(const ClipPlanes& clip)
+    {
+        _clip.setPlanes(clip.planes());
+        _clip.setIntersection(clip.intersection());
     }
 
     std::unique_ptr<MeshInstance> MeshInstance::cloneFor(GraphNode* node) const
@@ -87,6 +120,7 @@ namespace visutwin::canvas
         clone->_calculateSortDistance = _calculateSortDistance;
         clone->_batchGroupId = _batchGroupId;
         clone->_parameters = _parameters;
+        clone->_clip = _clip;
         clone->_parametersChanged = !_parameters.empty();
 
         // A morph and a skin are per-instance STATE over shared data: the clone gets

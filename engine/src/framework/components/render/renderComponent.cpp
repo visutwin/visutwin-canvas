@@ -722,6 +722,8 @@ namespace visutwin::canvas
         }
 
         auto* meshInstanceRaw = meshInstance.get();
+        // The component's clipping replaces the instance's own, also when there is none.
+        meshInstanceRaw->setClipping(_clip);
         _meshInstances.push_back(std::move(meshInstance));
         _meshInstanceViewDirty = true;
         // A new source for the group.
@@ -853,6 +855,38 @@ namespace visutwin::canvas
         }
     }
 
+    void RenderComponent::setClippingPlanes(const std::span<const Plane> planes)
+    {
+        _clip.setPlanes(planes);
+        applyClipping();
+    }
+
+    void RenderComponent::setClipIntersection(const bool value)
+    {
+        if (_clip.intersection() != value) {
+            _clip.setIntersection(value);
+            applyClipping();
+        }
+    }
+
+    void RenderComponent::applyClipping()
+    {
+        bool wasClipped = false;
+        for (const auto& mi : _meshInstances) {
+            wasClipped = wasClipped || (mi && mi->clipped());
+        }
+        // A batch keeps raw pointers to its sources and draws them with one block, so a
+        // source that becomes clipped leaves its batch, and one no longer clipped joins.
+        if (auto* batches = batcher(); batches && active() && wasClipped != !_clip.empty()) {
+            batches->sourcesLeaving(_batchGroupId);
+        }
+        for (const auto& mi : _meshInstances) {
+            if (mi) {
+                mi->setClipping(_clip);
+            }
+        }
+    }
+
     void RenderComponent::cloneFrom(const Component* source)
     {
         const auto* src = dynamic_cast<const RenderComponent*>(source);
@@ -868,6 +902,7 @@ namespace visutwin::canvas
         _receiveShadows = src->_receiveShadows;
         _castShadows = src->_castShadows;
         _batchGroupId = src->_batchGroupId;
+        _clip = src->_clip;
         setEnabled(src->enabled());
 
         // The mesh instances share the source's meshes and materials. A primitive's mesh is owned

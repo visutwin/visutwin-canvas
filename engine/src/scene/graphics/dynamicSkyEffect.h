@@ -56,8 +56,11 @@ namespace visutwin::canvas
     class RenderTarget;
     class Scene;
 
-    enum class CloudTechnique
+    /// The clouds of a dynamic sky: none, a single flat layer of noise, or volumetric clouds ray
+    /// marched through a layer of 3D noise.
+    enum class CloudType
     {
+        None,
         Flat,
         Volumetric,
     };
@@ -100,8 +103,8 @@ namespace visutwin::canvas
         float twilightGlow = 0.52f;
 
         // ---- the clouds
-        bool clouds = false;
-        CloudTechnique cloudTechnique = CloudTechnique::Volumetric;
+        /// The clouds of the sky; none by default.
+        CloudType cloudType = CloudType::None;
         /// The volumetric march's steps, 0-1: fewer cheaper, more smoother.
         float cloudQuality = 0.5f;
         /// The resolution the volumetric clouds render at, relative to the scene's, 0.25-1.
@@ -157,6 +160,7 @@ namespace visutwin::canvas
         /// How many times the lighting was generated, and the blend toward the latest (1: done).
         [[nodiscard]] int bakeCount() const { return _bakeCount; }
         [[nodiscard]] float blendWeight() const { return _blendWeight; }
+        [[nodiscard]] bool hasClouds() const { return cloudType != CloudType::None; }
         /// Whether the volumetric clouds render to a texture of their own (a perspective camera).
         [[nodiscard]] bool cloudsBuffered() const;
         /// The sky's mesh instance (null without passes).

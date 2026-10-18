@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 21.03.2026
 //
-// Port of upstream graphics/shadow-cascades.
+// Port of upstream lights-and-shadows/shadow-cascades.
 //
 // A low-poly terrain (scaled 30x) under the helipad environment, lit by one white
 // directional light casting four cascaded PCF shadow maps over a 1000-unit shadow

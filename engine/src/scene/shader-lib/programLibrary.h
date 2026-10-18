@@ -6,6 +6,7 @@
 #pragma once
 
 #include "shaderChunks.h"
+#include "scene/clipPlanes.h"
 #include <array>
 #include <unordered_map>
 #include <string>
@@ -51,7 +52,7 @@ namespace visutwin::canvas
                                                     bool dynamicBatch = false, bool skinning = false,
                                                     bool morphing = false, bool instancing = false,
                                                     bool instancingColor = false, bool instanceLightmap = false,
-                                                    bool screenSpace = false);
+                                                    bool screenSpace = false, uint32_t clipPlanes = 0);
         /// The frame switches (setEnvAtlasEnabled ... setAreaLightsEnabled) as one word.
         uint64_t forwardFrameBits() const;
         /// Whether this library has already resolved a forward shader for the material
@@ -74,7 +75,8 @@ namespace visutwin::canvas
         std::shared_ptr<Shader> getShadowShader(const Material* material = nullptr,
                                                 bool dynamicBatch = false, bool skinning = false,
                                                 bool morphing = false, bool instancing = false,
-                                                bool instancingColor = false, bool vsm = false);
+                                                bool instancingColor = false, bool vsm = false,
+                                                uint32_t clipPlanes = 0);
 
         /// Creates the two depth-only programs every depth-only pass binds before its
         /// loop — getShadowShader(nullptr) plain and dynamic-batch, for `vsm` — unless
@@ -90,7 +92,7 @@ namespace visutwin::canvas
         void bindMaterial(const std::shared_ptr<GraphicsDevice>& device, const Material* material, bool transparentPass,
                           bool dynamicBatch = false, bool skinning = false, bool morphing = false,
                           bool instancing = false, bool instancingColor = false, bool instanceLightmap = false,
-                          bool screenSpace = false);
+                          bool screenSpace = false, uint32_t clipPlanes = 0);
 
         // set whether a skybox cubemap is available.
         // When true, skybox materials compile with VT_FEATURE_SKY_CUBEMAP.
@@ -255,6 +257,8 @@ namespace visutwin::canvas
             bool planarReflection = false;  // Planar reflection — screen-space UV sampling + Fresnel blend
             bool planarReflectionDepthPass = false;  // Depth pass: output distance-from-plane instead of PBR
             bool screenSpace = false;       // the world position IS the clip position (screen-space UI)
+            bool clipPlanesMesh = false;    // the mesh instance's clipping planes discard fragments
+            bool clipPlanesCamera = false;  // the camera's clipping planes discard fragments
             bool lightmapBake = false;      // UV-space lightmap bake: rasterize the unwrap, output diffuse light
             bool lightmapBakeAccum = false; // Accumulating bake pass: direct light only, ambient already baked
             bool debugPass = false;         // Debug surface-quantity output (mode chosen at runtime)
@@ -314,7 +318,7 @@ namespace visutwin::canvas
                                                          bool morphing = false, bool instancing = false,
                                                          bool instancingColor = false,
                                                          bool instanceLightmap = false,
-                                                         bool screenSpace = false) const;
+                                                         bool screenSpace = false, uint32_t clipPlanes = 0) const;
         // buildForwardVariantOptions' sources, in the order it applies them.
         void applyStandardMaterialOptions(ShaderVariantOptions& options, const StandardMaterial& stdMat) const;
         /// A non-StandardMaterial: its parameters, then its shaderVariantKey bits.
@@ -351,14 +355,14 @@ namespace visutwin::canvas
         /// switches, then the variant cache, building the variant on a miss.
         std::shared_ptr<Shader> resolveForwardShader(const Material* material, bool transparentPass,
             bool dynamicBatch, bool skinning, bool morphing, bool instancing, bool instancingColor,
-            bool instanceLightmap, bool screenSpace);
+            bool instanceLightmap, bool screenSpace, uint32_t clipPlanes);
         /// Every input of that resolution that is not the material: the draw's flags in
         /// the low bits, forwardFrameBits() above them. The switches are READ on every
         /// call rather than kept in step by their setters, so a new switch has to be
         /// added to forwardFrameBits to affect a variant at all — the Debug check in
         /// getForwardShader fails if one is left out.
         uint64_t forwardStateBits(bool transparentPass, bool dynamicBatch, bool skinning, bool morphing,
-            bool instancing, bool instancingColor, bool instanceLightmap, bool screenSpace) const;
+            bool instancing, bool instancingColor, bool instanceLightmap, bool screenSpace, uint32_t clipPlanes) const;
 
         std::shared_ptr<GraphicsDevice> _device;
         // Names this library in a material's ForwardShaderMemo; process-wide and never

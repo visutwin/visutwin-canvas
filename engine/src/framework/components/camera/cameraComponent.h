@@ -184,6 +184,13 @@ namespace visutwin::canvas
         int toneMapping() const { return _camera->toneMapping(); }
         void setToneMapping(const int value) { _camera->setToneMapping(value); }
 
+        /// Planes that clip everything the camera renders, in world space; see
+        /// Camera::setClippingPlanes. A clone copies them.
+        void setClippingPlanes(const std::span<const Plane> planes) { _camera->setClippingPlanes(planes); }
+        const std::vector<Plane>& clippingPlanes() const { return _camera->clippingPlanes(); }
+        void setClipIntersection(const bool value) { _camera->setClipIntersection(value); }
+        bool clipIntersection() const { return _camera->clipIntersection(); }
+
         void initializeComponentData() override;
 
         void cloneFrom(const Component* source) override;

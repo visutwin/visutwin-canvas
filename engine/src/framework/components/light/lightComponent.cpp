@@ -76,10 +76,12 @@ namespace visutwin::canvas
         _light->setShadowResolution(_shadowResolution);
         _light->setShadowType(_shadowType);
         _light->setVsmBlurSize(_vsmBlurSize);
+        _light->setVsmBlurMode(_vsmBlurMode);
         _light->setVsmBias(_vsmBias);
         _light->setPenumbraSize(_penumbraSize);
         _light->setPenumbraFalloff(_penumbraFalloff);
         _light->setNumCascades(_numCascades);
+        _light->setShadowBounds(_shadowBounds);
         _light->setCascadeDistribution(_cascadeDistribution);
         _light->setCascadeBlend(_cascadeBlend);
         _light->setShadowBias(toLightShadowBias(_shadowBias));
@@ -184,8 +186,10 @@ namespace visutwin::canvas
         _shadowUpdateModePending = true;
         _shadowType = src->_shadowType;
         _vsmBlurSize = src->_vsmBlurSize;
+        _vsmBlurMode = src->_vsmBlurMode;
         _vsmBias = src->_vsmBias;
         _numCascades = src->_numCascades;
+        _shadowBounds = src->_shadowBounds;
         _cascadeDistribution = src->_cascadeDistribution;
         _cascadeBlend = src->_cascadeBlend;
         _cookie = src->_cookie;

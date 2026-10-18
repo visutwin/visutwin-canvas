@@ -139,6 +139,8 @@ namespace visutwin::canvas
         DepthOnlyShaders shaders;
         shaders.plain = programLibrary->getShadowShader(nullptr, false);
         shaders.dynamicBatch = programLibrary->getShadowShader(nullptr, true);
+        // The camera's clipping planes clip the depth the scene pass is paired with.
+        shaders.cameraClip = &camera->clipping();
         if (!shaders.plain) {
             static bool warned = false;
             if (!warned) {

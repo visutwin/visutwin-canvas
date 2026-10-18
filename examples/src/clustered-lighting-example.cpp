@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 14.07.2026
 //
-// Clustered lighting example — port of upstream graphics/clustered-lighting.
+// Clustered lighting example — port of upstream lights-and-shadows/clustered-lighting.
 //
 // A high-polycount cylinder stands on a large normal-mapped ground plane. 30 omni
 // lights ride a sine wave around the cylinder and 16 spot lights orbit at its base,

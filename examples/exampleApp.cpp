@@ -45,6 +45,7 @@
 #include "framework/handlers/fontResource.h"
 #include "core/log.h"
 #include "framework/components/componentRegistry.h"
+#include "framework/components/render/renderComponent.h"
 
 namespace visutwin::canvas
 {
@@ -226,6 +227,39 @@ namespace visutwin::canvas
                 spdlog::info("Debug shader pass {} on {} camera(s) from VISUTWIN_DEBUG_PASS", value, cameras);
             } else {
                 spdlog::warn("VISUTWIN_DEBUG_PASS='{}' is not a DebugShaderPass value; ignored", pass);
+            }
+        }
+
+        // VISUTWIN_CLIP_PLANE=nx,ny,nz,d[,camera] clips the scene by one world-space plane
+        // (what is behind it, dot(n, p) + d < 0, is discarded): through every render
+        // component's mesh instances, or with camera = 1 through every camera. The frame
+        // with it against one without is the clipping alone; shadows follow the mesh planes
+        // but not the camera's.
+        if (const char* clip = std::getenv("VISUTWIN_CLIP_PLANE"); clip && *clip) {
+            float nx = 0.0f, ny = 0.0f, nz = 0.0f, d = 0.0f;
+            int onCamera = 0;
+            if (std::sscanf(clip, "%f,%f,%f,%f,%d", &nx, &ny, &nz, &d, &onCamera) >= 4) {
+                const std::vector<Plane> planes{Plane(Vector3(nx, ny, nz), d)};
+                int count = 0;
+                if (onCamera) {
+                    for (auto* camera : _engine->components().instances<CameraComponent>()) {
+                        if (camera) {
+                            camera->setClippingPlanes(planes);
+                            ++count;
+                        }
+                    }
+                } else {
+                    for (auto* render : _engine->components().instances<RenderComponent>()) {
+                        if (render) {
+                            render->setClippingPlanes(planes);
+                            ++count;
+                        }
+                    }
+                }
+                spdlog::info("Clipping plane ({}, {}, {}, {}) on {} {} from VISUTWIN_CLIP_PLANE", nx, ny, nz, d,
+                    count, onCamera ? "camera(s)" : "render component(s)");
+            } else {
+                spdlog::warn("VISUTWIN_CLIP_PLANE='{}' is not nx,ny,nz,d[,camera]; ignored", clip);
             }
         }
 

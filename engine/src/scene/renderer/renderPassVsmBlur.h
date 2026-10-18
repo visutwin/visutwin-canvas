@@ -27,7 +27,8 @@ namespace visutwin::canvas
             int shadowResolution,
             bool horizontal,
             int filterSize = 5,
-            float cascadeTileSize = 1.0f);
+            float cascadeTileSize = 1.0f,
+            bool box = false);
 
         void execute() override;
         void prepareShaders() override;
@@ -38,5 +39,7 @@ namespace visutwin::canvas
         bool _horizontal;
         int _filterSize;
         float _cascadeTileSize = 1.0f;
+        // Every tap weighs the same (BLUR_BOX), instead of the gaussian.
+        bool _box = false;
     };
 }

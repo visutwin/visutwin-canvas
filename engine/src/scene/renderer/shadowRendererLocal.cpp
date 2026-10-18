@@ -94,9 +94,11 @@ namespace visutwin::canvas
                         const int resolution = light->shadowResolution();
                         const int filterSize = std::max(1, (light->vsmBlurSize() - 1) / 2);
                         frameGraph->addRenderPass(std::make_shared<RenderPassVsmBlur>(_device,
-                            sm->shadowTexture(), sm->blurTempRenderTarget(), resolution, true, filterSize));
+                            sm->shadowTexture(), sm->blurTempRenderTarget(), resolution, true, filterSize, 1.0f,
+                            light->vsmBlurMode() == BLUR_BOX));
                         frameGraph->addRenderPass(std::make_shared<RenderPassVsmBlur>(_device,
-                            sm->blurTempTexture(), sm->renderTargets()[0], resolution, false, filterSize));
+                            sm->blurTempTexture(), sm->renderTargets()[0], resolution, false, filterSize, 1.0f,
+                            light->vsmBlurMode() == BLUR_BOX));
                     }
                 }
             }

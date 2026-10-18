@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 13.10.2026
 //
-// Port of upstream graphics/lights-baked.
+// Port of upstream lights-and-shadows/lights-baked.
 //
 // A lightmapped 20 x 20 ground plane and an 8 x 8 grid (spacing 1) of half-scale
 // primitives at height 1.5, cycling box, cone, cylinder, sphere, capsule, torus by grid

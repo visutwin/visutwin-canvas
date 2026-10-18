@@ -256,13 +256,15 @@ namespace visutwin::canvas
                 for (int i = 0; i < 4; ++i) {
                     params.shadowCascadeDistances[i] = distances[i];
                 }
-                params.shadowCascadeCount = static_cast<float>(std::max(sceneLight->numCascades(), 1));
+                params.shadowCascadeCount = static_cast<float>(std::max(sceneLight->shadowCascadeCount(), 1));
                 // NOT sceneLight->shadowBias(): that value (typically 0.05) is the world-space
                 // normal-bias scale. The depth comparison against the [0,1] cascade depth uses a
                 // much smaller constant - renderer.cpp uses 0.0001 for the forward PCF path, and
                 // the fog march has to match or every sample tests as lit.
                 params.shadowBias = 0.0001f;
-                params.shadowDistance = sceneLight->shadowDistance();
+                // A shadow with shadow bounds covers them at any distance (its split distances
+                // are 1e30 too).
+                params.shadowDistance = sceneLight->shadowBounds() ? 1e30f : sceneLight->shadowDistance();
             }
         }
 

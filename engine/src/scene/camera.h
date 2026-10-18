@@ -10,6 +10,7 @@
 #include <functional>
 #include <numbers>
 
+#include "clipPlanes.h"
 #include "constants.h"
 #include "core/math/matrix4.h"
 #include "core/math/vector2.h"
@@ -234,6 +235,20 @@ namespace visutwin::canvas
         float exposureScale() const { return _exposureScale; }
         void setExposureScale(const float value) { _exposureScale = value; }
 
+        /**
+         * Planes that clip what the camera renders, in world space (copied, at most
+         * ClipPlanes::kMaxPlanes): in every pass of the camera, the depth prepass and picking
+         * included, a fragment behind any of them is discarded, or under clipIntersection only
+         * one behind all of them. Shadows render from their light and are not clipped, nor are
+         * screen-space elements. A mesh instance with planes of its own is clipped by both
+         * sets. Only the first plane compiles new shader variants.
+         */
+        void setClippingPlanes(std::span<const Plane> planes) { _clip.setPlanes(planes); }
+        const std::vector<Plane>& clippingPlanes() const { return _clip.planes(); }
+        void setClipIntersection(const bool value) { _clip.setIntersection(value); }
+        bool clipIntersection() const { return _clip.intersection(); }
+        const ClipPlanes& clipping() const { return _clip; }
+
         GraphNode* node() const { return _node; }
         // Non-owning: the node (typically an Entity) is owned elsewhere.
         void setNode(GraphNode* value);
@@ -241,7 +256,7 @@ namespace visutwin::canvas
         // exists only for this camera.
         void setOwnedNode(std::unique_ptr<GraphNode> value);
 
-        /// Copy every SETTING of `other`: projection, clip
+        /// Copy every SETTING of `other`: projection, near and far planes, clipping
         /// planes, clears, rects, render target, tone mapping, culling mask, jitter
         /// debug pass and the physical exposure settings. Not copied: the node, the grab passes and render passes
         /// (per-camera objects its component rebuilds) and the per-frame matrices.
@@ -273,6 +288,9 @@ namespace visutwin::canvas
             _aperture = other._aperture;
             _shutter = other._shutter;
             _sensitivity = other._sensitivity;
+            if (!(_clip == other._clip)) {
+                _clip = other._clip;
+            }
             _projMatDirty = true;
         }
 
@@ -351,6 +369,7 @@ namespace visutwin::canvas
         float _aperture = 16.0f;
         float _shutter = 1.0f / 1000.0f;
         float _sensitivity = 1000.0f;
+        ClipPlanes _clip;
 
         uint32_t _cullingMask = 0xFFFFFFFFu;
         bool _skyVisible = true;

@@ -125,22 +125,23 @@ The second column is the upstream example each one ports, as
 
 | Example | Upstream | Description |
 |---------|----------|-------------|
-| lights | graphics/lights | Spot, omni and directional lights with cookies and shadows |
-| area-light | graphics/area-lights | LTC area lights (rect / sphere / disk) |
-| shadow-cascades | graphics/shadow-cascades | Cascaded shadow maps over a low-poly terrain |
-| clustered-lighting | graphics/clustered-lighting | 46 local lights via the 3D cluster grid |
-| clustered-spot-shadows | graphics/clustered-spot-shadows | Ten shadow-casting cookie spots through the shadow atlas |
-| clustered-light-cookies | graphics/clustered-light-cookies | Four spot lights with animated cookies through the clustered cookie atlas |
-| clustered-omni-shadows | graphics/clustered-omni-shadows | Shadowed omni lights with cubemap cookies in the shadow atlas |
-| clustered-area-lights | graphics/clustered-area-lights | Rect, disk and sphere area lights through the cluster grid |
-| lights-non-clustered | graphics/lights-non-clustered | Spot, omni and directional lights without clustering |
-| light-physical-units | graphics/light-physical-units | glTF punctual lights in physical units, with exposure |
-| shadow-catcher | graphics/shadow-catcher | A statue under an HDR sky, its shadow caught on an invisible ground |
-| shadow-soft | graphics/shadow-soft | PCSS soft directional shadows over a terrain with drifting clouds |
-| lights-baked | graphics/lights-baked | Baked omni, spot and directional lights over a grid of primitives |
+| lights | lights-and-shadows/lights | Spot, omni and directional lights with cookies and shadows |
+| area-light | lights-and-shadows/area-lights | LTC area lights (rect / sphere / disk) |
+| shadow-cascades | lights-and-shadows/shadow-cascades | Cascaded shadow maps over a low-poly terrain |
+| clustered-lighting | lights-and-shadows/clustered-lighting | 46 local lights via the 3D cluster grid |
+| clustered-spot-shadows | lights-and-shadows/clustered-spot-shadows | Ten shadow-casting cookie spots through the shadow atlas |
+| clustered-light-cookies | lights-and-shadows/clustered-light-cookies | Four spot lights with animated cookies through the clustered cookie atlas |
+| clustered-omni-shadows | lights-and-shadows/clustered-omni-shadows | Shadowed omni lights with cubemap cookies in the shadow atlas |
+| clustered-area-lights | lights-and-shadows/clustered-area-lights | Rect, disk and sphere area lights through the cluster grid |
+| lights-non-clustered | lights-and-shadows/lights-non-clustered | Spot, omni and directional lights without clustering |
+| light-physical-units | lights-and-shadows/light-physical-units | glTF punctual lights in physical units, with exposure |
+| shadow-catcher | lights-and-shadows/shadow-catcher | A statue under an HDR sky, its shadow caught on an invisible ground |
+| shadow-soft | lights-and-shadows/shadow-soft | PCSS soft directional shadows over a terrain with drifting clouds |
+| shadow-bounds | lights-and-shadows/shadow-bounds | A directional shadow fitted to a box around a bouncing sphere, against one fitted to the camera frustum |
+| lights-baked | lights-and-shadows/lights-baked | Baked omni, spot and directional lights over a grid of primitives |
 | pcss-dither | graphics/dithered-transparency | Blend and dither strengths decoupled, dithered shadows |
 | pcss-local | test/contact-hardening-shadows | PCSS contact-hardening shadows from local lights |
-| lightmap-bake | graphics/lights-baked-a-o | CPU-baked lightmaps with shadows and AO |
+| lightmap-bake | lights-and-shadows/lights-baked-a-o | CPU-baked lightmaps with shadows and AO |
 | lightmap-sources | test/lightmap-sources | A material lightmap vs a mesh instance's own bake, and which wins |
 | two-sided-lighting | test/two-sided-lighting | Back faces of double-sided materials lit from the viewer's side |
 | light-masks | test/light-masks | Which lights reach lightmapped, dynamic and baked-only geometry |

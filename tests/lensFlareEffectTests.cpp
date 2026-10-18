@@ -168,6 +168,21 @@ int main()
         spot->setEnabled(true);
     }
 
+    std::cout << "the light's intensity\n";
+    {
+        spot->setIntensity(2.5f);
+        frame();
+        check(states.size() == 6 && near(states[5].color.r, 2.5f, 1e-5f), "scales the flare");
+        spot->setIntensity(0.0f);
+        frame();
+        check(states.size() == 6 && states[5].color.r == 0.0f, "and at 0 removes it");
+        spotFlare->useLightIntensity = false;
+        frame();
+        check(states.size() == 6 && near(states[5].color.r, 1.0f, 1e-5f), "unless the flare ignores it");
+        spotFlare->useLightIntensity = true;
+        spot->setIntensity(1.0f);
+    }
+
     std::cout << "changes\n";
     {
         lensFlare->remove(behind);

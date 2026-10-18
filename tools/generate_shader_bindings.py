@@ -159,8 +159,9 @@ def quad_inputs(material: list[BindingRow], extra: list[str]) -> list[str]:
     return lines
 
 
-MATERIAL_FIELD_RE = re.compile(r'X\(\s*(vec4|float|uint)\s*,\s*(\w+)\s*,')
-SLANG_TYPE_OF_FIELD = {"vec4": "float4", "float": "float", "uint": "uint"}
+MATERIAL_FIELD_RE = re.compile(r'X\(\s*(vec4x8|vec4|float|uint)\s*,\s*(\w+)\s*,')
+SLANG_TYPE_OF_FIELD = {"vec4": "float4", "vec4x8": "float4", "float": "float", "uint": "uint"}
+ARRAY_OF_FIELD = {"vec4x8": "[8]"}
 
 
 def material_block(fields_header: Path) -> list[str]:
@@ -174,7 +175,7 @@ def material_block(fields_header: Path) -> list[str]:
     lines = ["", f"// ---- The per-draw material block ({fields_header.name}, {len(fields)} fields) ----",
              "struct MaterialData", "{"]
     for shader_type, name in fields:
-        lines.append(f"    {SLANG_TYPE_OF_FIELD[shader_type]} {name};")
+        lines.append(f"    {SLANG_TYPE_OF_FIELD[shader_type]} {name}{ARRAY_OF_FIELD.get(shader_type, '')};")
     lines += ["};",
               "#define VT_DECLARE_MATERIAL_DATA [[vk::binding(0, 0)]] ConstantBuffer<MaterialData> material : register(b3);"]
     return lines

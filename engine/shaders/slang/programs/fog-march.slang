@@ -55,7 +55,8 @@ float sampleFogShadow(float3 worldPos, float viewDepth)
     if (any(coord.xy < float2(0.0, 0.0)) || any(coord.xy > float2(1.0, 1.0))) {
         return 1.0;
     }
-    return VT_SHADOW_COMPARE(shadowTexture, coord.xy, coord.z - u.shadowParams.y, u.cameraParams.w);
+    // Clamped after the bias, so fog beyond the shadow's far plane stays lit.
+    return VT_SHADOW_COMPARE(shadowTexture, coord.xy, min(coord.z - u.shadowParams.y, 0.9999), u.cameraParams.w);
 }
 
 [shader("vertex")]

@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 05.09.2026
 //
-// Port of upstream graphics/clustered-spot-shadows.
+// Port of upstream lights-and-shadows/clustered-spot-shadows.
 //
 // Ten cookie-projecting spot lights circle a field of tumbled cubes, every one of
 // them casting a real shadow. Without clustered lighting the engine can only carry

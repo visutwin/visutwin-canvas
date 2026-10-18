@@ -146,30 +146,31 @@ protected:
 
         // The looks: the elements each kind of light places along the axis from the light through
         // the centre of the screen. Offsets of 0 sit on the light, 1 at the centre, 2 mirrored
-        // across it; sizes are fractions of the screen height.
+        // across it; sizes are fractions of the screen height, and intensities are relative to the
+        // light, as a flare is scaled by the intensity of its light.
         auto sunLook = std::make_shared<LensFlareLook>();
         {
             auto& e = sunLook->elements;
-            e.push_back(element("glow_soft", 0.4f, Color(1.0f, 0.85f, 0.65f, 1.0f), 3.0f));
-            e.push_back(element("burst_star", 0.8f, Color(1.0f, 0.95f, 0.85f, 1.0f), 3.5f));
-            e.push_back(element("anamorphic_streak", 0.08f, Color(1.0f, 1.0f, 1.0f, 1.0f), 1.5f));
+            e.push_back(element("glow_soft", 0.4f, Color(1.0f, 0.85f, 0.65f, 1.0f), 1.2f));
+            e.push_back(element("burst_star", 0.8f, Color(1.0f, 0.95f, 0.85f, 1.0f), 1.4f));
+            e.push_back(element("anamorphic_streak", 0.08f, Color(1.0f, 1.0f, 1.0f, 1.0f), 0.6f));
             e.back().aspect = 18.0f;
-            e.push_back(element("halo", 0.5f, Color(1.0f, 0.9f, 0.8f, 1.0f), 0.5f));
-            e.push_back(element("iris_hexagon", 0.05f, Color(0.5f, 0.8f, 1.0f, 1.0f), 0.35f));
+            e.push_back(element("halo", 0.5f, Color(1.0f, 0.9f, 0.8f, 1.0f), 0.2f));
+            e.push_back(element("iris_hexagon", 0.05f, Color(0.5f, 0.8f, 1.0f, 1.0f), 0.14f));
             e.back().offset = 0.45f;
             e.back().count = 3;
             e.back().spread = 0.35f;
-            e.push_back(element("spectrum_arc", 0.6f, Color(1.0f, 1.0f, 1.0f, 1.0f), 0.5f));
+            e.push_back(element("spectrum_arc", 0.6f, Color(1.0f, 1.0f, 1.0f, 1.0f), 0.2f));
             e.back().offset = 1.1f;
             e.back().rotation = 180.0f;
             e.back().autoRotate = true;
-            e.push_back(element("iris_round", 0.2f, Color(1.0f, 0.6f, 0.35f, 1.0f), 0.4f));
+            e.push_back(element("iris_round", 0.2f, Color(1.0f, 0.6f, 0.35f, 1.0f), 0.16f));
             e.back().offset = 1.35f;
-            e.push_back(element("iris_pentagon", 0.1f, Color(0.6f, 1.0f, 0.6f, 1.0f), 0.6f));
+            e.push_back(element("iris_pentagon", 0.1f, Color(0.6f, 1.0f, 0.6f, 1.0f), 0.24f));
             e.back().offset = 1.75f;
-            e.push_back(element("glow_rim", 0.28f, Color(1.0f, 0.5f, 0.8f, 1.0f), 0.3f));
+            e.push_back(element("glow_rim", 0.28f, Color(1.0f, 0.5f, 0.8f, 1.0f), 0.12f));
             e.back().offset = 2.2f;
-            e.push_back(element("spectrum_smudge", 0.1f, Color(1.0f, 1.0f, 1.0f, 1.0f), 0.6f));
+            e.push_back(element("spectrum_smudge", 0.1f, Color(1.0f, 1.0f, 1.0f, 1.0f), 0.24f));
             e.back().offset = 2.6f;
             e.back().aspect = 2.5f;
             e.back().autoRotate = true;
@@ -177,26 +178,26 @@ protected:
         auto lampLook = std::make_shared<LensFlareLook>();
         {
             auto& e = lampLook->elements;
-            e.push_back(element("glow_disc", 0.14f, Color(1.0f, 1.0f, 1.0f, 1.0f), 0.8f));
-            e.push_back(element("spike_6", 0.4f));
-            e.push_back(element("iris_round", 0.035f, Color(1.0f, 1.0f, 1.0f, 1.0f), 0.3f));
+            e.push_back(element("glow_disc", 0.14f, Color(1.0f, 1.0f, 1.0f, 1.0f), 0.4f));
+            e.push_back(element("spike_6", 0.4f, Color(1.0f, 1.0f, 1.0f, 1.0f), 0.5f));
+            e.push_back(element("iris_round", 0.035f, Color(1.0f, 1.0f, 1.0f, 1.0f), 0.15f));
             e.back().offset = 0.65f;
             e.back().count = 2;
             e.back().spread = 0.25f;
-            e.push_back(element("iris_hexagon", 0.06f, Color(1.0f, 1.0f, 1.0f, 1.0f), 0.3f));
+            e.push_back(element("iris_hexagon", 0.06f, Color(1.0f, 1.0f, 1.0f, 1.0f), 0.15f));
             e.back().offset = 1.5f;
         }
         auto spotLook = std::make_shared<LensFlareLook>();
         {
             auto& e = spotLook->elements;
-            e.push_back(element("anamorphic_glow", 0.35f, Color(1.0f, 1.0f, 1.0f, 1.0f), 1.2f));
+            e.push_back(element("anamorphic_glow", 0.35f, Color(1.0f, 1.0f, 1.0f, 1.0f), 0.2f));
             e.back().aspect = 2.5f;
-            e.push_back(element("anamorphic_streak", 0.06f));
+            e.push_back(element("anamorphic_streak", 0.06f, Color(1.0f, 1.0f, 1.0f, 1.0f), 0.17f));
             e.back().aspect = 22.0f;
-            e.push_back(element("anamorphic_streak", 0.22f, Color(1.0f, 1.0f, 1.0f, 1.0f), 1.5f));
+            e.push_back(element("anamorphic_streak", 0.22f, Color(1.0f, 1.0f, 1.0f, 1.0f), 0.25f));
             e.back().aspect = 7.0f;
-            e.push_back(element("glint", 0.5f, Color(1.0f, 1.0f, 1.0f, 1.0f), 0.4f));
-            e.push_back(element("iris_triangle", 0.14f, Color(1.0f, 1.0f, 1.0f, 1.0f), 0.3f));
+            e.push_back(element("glint", 0.5f, Color(1.0f, 1.0f, 1.0f, 1.0f), 0.07f));
+            e.push_back(element("iris_triangle", 0.14f, Color(1.0f, 1.0f, 1.0f, 1.0f), 0.05f));
             e.back().offset = 1.6f;
         }
 

@@ -12,8 +12,8 @@
 // bindings.slang from it at build time (the shader bundle's reflected block size is
 // asserted against the struct's).
 //
-// Field types are SHADER types (vec4 / float / uint); the C++ side maps vec4 to
-// float[4] and uint to uint32_t. Scalars pack at 4-byte offsets in both MSL and
+// Field types are SHADER types (vec4 / float / uint, and vec4x8 for an array of eight
+// vec4); the C++ side maps vec4 to float[4], vec4x8 to float[8][4] and uint to uint32_t. Scalars pack at 4-byte offsets in both MSL and
 // std140, and every vec4 here is already 16-byte aligned by construction, so one
 // layout serves both targets.
 //
@@ -24,9 +24,11 @@
 // Shader type -> C++ storage. A vec4 is four floats (element type + dimension,
 // since the dimension has to follow the member name in C++); scalars map directly.
 #define VT_MATERIAL_CPP_vec4  float
+#define VT_MATERIAL_CPP_vec4x8 float
 #define VT_MATERIAL_CPP_float float
 #define VT_MATERIAL_CPP_uint  uint32_t
 #define VT_MATERIAL_DIM_vec4  [4]
+#define VT_MATERIAL_DIM_vec4x8 [8][4]
 #define VT_MATERIAL_DIM_float
 #define VT_MATERIAL_DIM_uint
 
@@ -151,4 +153,13 @@
     /* (0 = gamma, 1 = RGBP, 2 = RGBM, 3 = linear); envBoxMax: xyz the maximum, w the */ \
     /* reflectivity, which scales the environment reflection. */ \
     X(vec4, envBoxMin, {0, 0, 0, 1}) \
-    X(vec4, envBoxMax, {0, 0, 0, 1})
+    X(vec4, envBoxMax, {0, 0, 0, 1}) \
+    /* --- Clipping planes, read only under VT_FEATURE_CLIP_PLANES_MESH / _CAMERA --- */ \
+    /* World space, (normal, distance) each; a point is clipped by a plane when */ \
+    /* dot(normal, p) + distance < 0. A material packs none: the mesh instance's planes */ \
+    /* and its camera's are written into its own copy of the block (overriddenUniforms). */ \
+    X(vec4x8, clipPlanes, {}) \
+    X(vec4x8, cameraClipPlanes, {}) \
+    /* x = the number of mesh planes, y = 1 when they clip by intersection, */ \
+    /* z, w = the same for the camera's planes. */ \
+    X(vec4, clipParams, {0, 0, 0, 0})

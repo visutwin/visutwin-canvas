@@ -81,7 +81,7 @@ namespace visutwin::canvas
     int Light::numShadowFaces() const
     {
         if (_type == LightType::LIGHTTYPE_DIRECTIONAL) {
-            return numCascades();
+            return shadowCascadeCount();
         }
         if (_type == LightType::LIGHTTYPE_OMNI) {
             return 6;
@@ -111,6 +111,33 @@ namespace visutwin::canvas
 
         // Destroy existing shadow map to force re-allocation with correct cascade count
         destroyShadowMap();
+    }
+
+    void Light::setShadowBounds(const std::optional<BoundingBox>& bounds)
+    {
+        if (bounds.has_value() != _shadowBounds.has_value()) {
+            // A single map in place of the cascades, or the cascades back.
+            _shadowBounds = bounds;
+            _shadowMatrixPalette.fill(0.0f);
+            _shadowCascadeDistances.fill(0.0f);
+            destroyShadowMap();
+            return;
+        }
+        if (!bounds) {
+            return;
+        }
+        const auto equal = [](const Vector3& a, const Vector3& b) {
+            return a.getX() == b.getX() && a.getY() == b.getY() && a.getZ() == b.getZ();
+        };
+        const bool same = equal(bounds->center(), _shadowBounds->center()) &&
+            equal(bounds->halfExtents(), _shadowBounds->halfExtents());
+        if (!same) {
+            _shadowBounds = bounds;
+            // A cached shadow renders once for the new bounds.
+            if (_shadowUpdateMode == ShadowUpdateType::SHADOWUPDATE_NONE) {
+                _shadowUpdateMode = ShadowUpdateType::SHADOWUPDATE_THISFRAME;
+            }
+        }
     }
 
     void Light::setShadowResolution(int value)
@@ -249,6 +276,10 @@ namespace visutwin::canvas
 
     Camera* Light::directionalFitCamera(Camera* camera) const
     {
+        // A shadow with shadow bounds is fitted once for all cameras, under no camera.
+        if (_shadowBounds) {
+            return nullptr;
+        }
         const LightRenderData* rd = findRenderData(camera, 0);
         if ((rd && rd->hasDirectionalFit) || !_latestDirectionalFitCamera) {
             return camera;
@@ -258,6 +289,9 @@ namespace visutwin::canvas
 
     const std::array<float, 64>& Light::shadowMatrixPalette(const Camera* camera) const
     {
+        if (_shadowBounds) {
+            camera = nullptr;
+        }
         const LightRenderData* rd = findRenderData(camera, 0);
         if (rd && rd->hasDirectionalFit) {
             return rd->shadowMatrixPalette;
@@ -268,6 +302,9 @@ namespace visutwin::canvas
 
     const std::array<float, 4>& Light::shadowCascadeDistances(const Camera* camera) const
     {
+        if (_shadowBounds) {
+            camera = nullptr;
+        }
         const LightRenderData* rd = findRenderData(camera, 0);
         if (rd && rd->hasDirectionalFit) {
             return rd->shadowCascadeDistances;

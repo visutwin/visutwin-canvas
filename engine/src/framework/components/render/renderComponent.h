@@ -68,6 +68,20 @@ namespace visutwin::canvas
         void cloneFrom(const Component* source) override;
         void resolveClonedReferences(const Component* source, const CloneNodeMap& map) override;
 
+        /**
+         * Planes that clip this entity's mesh instances, in world space (copied, at most
+         * ClipPlanes::kMaxPlanes), and whether they clip by intersection; see
+         * MeshInstance::setClippingPlanes. Every change, and every mesh instance the component
+         * gets, hands the instances the component's planes and mode together, replacing any
+         * they were given directly, also when the component has none. A clipped instance is
+         * not batched: the batch group is rebuilt when the instances' clipping comes or goes.
+         * A clone copies the planes.
+         */
+        void setClippingPlanes(std::span<const Plane> planes);
+        const std::vector<Plane>& clippingPlanes() const { return _clip.planes(); }
+        void setClipIntersection(bool value);
+        bool clipIntersection() const { return _clip.intersection(); }
+
         //batchGroupId getter/setter.
         // Propagates to all MeshInstances.
         int batchGroupId() const { return _batchGroupId; }
@@ -83,6 +97,9 @@ namespace visutwin::canvas
         void rebuildPrimitiveMesh();
         BatchManager* batcher() const;
         void rebuildMeshInstanceView() const;
+        /// Hands every mesh instance the component's clipping, rebuilding the batch group
+        /// when that changes whether any of them is clipped.
+        void applyClipping();
 
 
         std::vector<std::unique_ptr<MeshInstance>> _meshInstances;
@@ -95,6 +112,7 @@ namespace visutwin::canvas
         bool _receiveShadows = true;
         bool _castShadows = true;
         int _batchGroupId = -1;  // BatchGroup::NOID
+        ClipPlanes _clip;
 
         // RenderComponent defaults to WORLD layer membership.
         // Intentional temporary deviation: WORLD layer id is currently 1 in this C++ bootstrap.

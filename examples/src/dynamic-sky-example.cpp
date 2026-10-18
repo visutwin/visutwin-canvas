@@ -24,8 +24,7 @@
 // Keys stand in for upstream's controls panel:
 //   Space  the time running on / off
 //   [ / ]  the hour -/+ 0.5
-//   C      clouds on / off
-//   F      the cloud technique: volumetric / flat
+//   C      the cloud type, cycled none / flat / volumetric
 //   - / =  the cloud coverage -/+ 0.05
 //   Q      the cloud quality, cycled 0 / 0.5 / 1
 //   R      the cloud resolution, cycled 0.25 / 0.5 / 1
@@ -161,8 +160,7 @@ protected:
         _sky = std::make_shared<DynamicSkyEffect>();
         _sky->setLight(sunLight);
         _sky->moonIntensity = 0.4f;
-        _sky->clouds = true;
-        _sky->cloudTechnique = CloudTechnique::Volumetric;
+        _sky->cloudType = CloudType::Volumetric;
         _sky->cloudSize = 9000.0f;
         _sky->cloudHeight = 1800.0f;
         // The time of day animates, so the lighting blends between its updates instead of
@@ -215,7 +213,7 @@ protected:
         _elevationCurve.type = CURVE_SMOOTHSTEP;
         applySettings();
 
-        spdlog::info("Controls: Space time, [ ] hour, C clouds, F technique, -/= coverage, Q quality, "
+        spdlog::info("Controls: Space time, [ ] hour, C cloud type, -/= coverage, Q quality, "
                      "R resolution, B bloom, E auto exposure, T TAA");
         return true;
     }
@@ -229,8 +227,10 @@ protected:
         case SDLK_SPACE: _animate = !_animate; break;
         case SDLK_LEFTBRACKET: _hour = std::fmod(_hour + 23.5f, 24.0f); break;
         case SDLK_RIGHTBRACKET: _hour = std::fmod(_hour + 0.5f, 24.0f); break;
-        case SDLK_C: _clouds = !_clouds; break;
-        case SDLK_F: _volumetric = !_volumetric; break;
+        case SDLK_C:
+            _cloudType = _cloudType == CloudType::None ? CloudType::Flat
+                : (_cloudType == CloudType::Flat ? CloudType::Volumetric : CloudType::None);
+            break;
         case SDLK_MINUS: _coverage = std::max(0.0f, _coverage - 0.05f); break;
         case SDLK_EQUALS: _coverage = std::min(1.0f, _coverage + 0.05f); break;
         case SDLK_Q: _quality = _quality < 0.25f ? 0.5f : (_quality < 0.75f ? 1.0f : 0.0f); break;
@@ -241,9 +241,10 @@ protected:
         default: return false;
         }
         applySettings();
-        spdlog::info("hour {:.1f} ({}), clouds {} {}, coverage {:.2f}, quality {:.2f}, resolution {:.2f}, bloom {}, "
-                     "auto exposure {}, taa {}", _hour, _animate ? "running" : "stopped", _clouds ? "on" : "off",
-            _volumetric ? "volumetric" : "flat", _coverage, _quality, _resolution, _bloom ? "on" : "off",
+        spdlog::info("hour {:.1f} ({}), clouds {}, coverage {:.2f}, quality {:.2f}, resolution {:.2f}, bloom {}, "
+                     "auto exposure {}, taa {}", _hour, _animate ? "running" : "stopped",
+            _cloudType == CloudType::None ? "none" : (_cloudType == CloudType::Flat ? "flat" : "volumetric"),
+            _coverage, _quality, _resolution, _bloom ? "on" : "off",
             _autoExposure->enabled() ? "on" : "off", _taa ? "on" : "off");
         return true;
     }
@@ -271,8 +272,7 @@ protected:
 private:
     void applySettings()
     {
-        _sky->clouds = _clouds;
-        _sky->cloudTechnique = _volumetric ? CloudTechnique::Volumetric : CloudTechnique::Flat;
+        _sky->cloudType = _cloudType;
         _sky->cloudCoverage = _coverage;
         _sky->cloudQuality = _quality;
         _sky->cloudResolution = _resolution;
@@ -303,8 +303,7 @@ private:
 
     float _hour = 5.5f;
     bool _animate = true;
-    bool _clouds = true;
-    bool _volumetric = true;
+    CloudType _cloudType = CloudType::Volumetric;
     float _coverage = 0.42f;
     float _quality = 0.5f;
     float _resolution = 1.0f;

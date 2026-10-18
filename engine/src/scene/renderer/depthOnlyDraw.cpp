@@ -11,6 +11,7 @@
 #include "platform/graphics/vertexBuffer.h"
 #include "platform/graphics/vertexFormat.h"
 #include "scene/camera.h"
+#include "scene/clipPlanes.h"
 #include "scene/graphNode.h"
 #include "scene/gsplat/gsplatInstance.h"
 #include "scene/gsplat/gsplatResource.h"
@@ -111,7 +112,20 @@ namespace visutwin::canvas
         // can run the opacity frontend before writing depth. Every other caster binds
         // nothing, exactly as the depth-only passes always did.
         const Material* frontendMaterial = shadowFrontendMaterial(meshInstance);
-        device->setMaterial(frontendMaterial);
+
+        // A clipped caster discards what its planes, and the pass camera's, clip. The
+        // planes ride in the instance's copy of its material's block, so the material is
+        // bound for it whether or not its opacity decides the depth.
+        Material* material = meshInstance->material();
+        const ClipPlanes* cameraClip = shaders.cameraClip && !shaders.cameraClip->empty() ? shaders.cameraClip : nullptr;
+        uint32_t clip = CLIP_PLANES_NONE;
+        if (material) {
+            clip |= meshInstance->clipped() ? CLIP_PLANES_MESH : 0u;
+            clip |= cameraClip ? CLIP_PLANES_CAMERA : 0u;
+        }
+        device->setMaterial(clip ? material : frontendMaterial);
+        const MaterialUniforms* clipUniforms = clip ? meshInstance->overriddenUniforms(material, cameraClip) : nullptr;
+        device->setInstanceMaterialUniforms(clipUniforms, clipUniforms ? meshInstance->overriddenUniformsVersion() : 0);
 
         const auto* mesh = meshInstance->mesh();
         const auto& instancing = meshInstance->instancingData();
@@ -126,7 +140,7 @@ namespace visutwin::canvas
                 instancing.vertexBuffer->format()->hasInstanceColor();
             auto& cachedVariant = instanceColor ? shaders.instancedColor : shaders.instanced;
             if (const auto variant = shadowCasterShader(programLibrary, frontendMaterial,
-                    cachedVariant, false, false, false, true, instanceColor, shaders.vsm)) {
+                    cachedVariant, false, false, false, true, instanceColor, shaders.vsm, clip)) {
                 device->setShader(variant);
             }
             device->setVertexBuffer(instancing.vertexBuffer, 5);
@@ -141,7 +155,7 @@ namespace visutwin::canvas
             device->setShader(shaders.plain);
         } else if (meshInstance->isDynamicBatch()) {
             if (const auto variant = shadowCasterShader(programLibrary, frontendMaterial,
-                    shaders.dynamicBatch, true, false, false, false, false, shaders.vsm)) {
+                    shaders.dynamicBatch, true, false, false, false, false, shaders.vsm, clip)) {
                 device->setShader(variant);
             }
             if (auto* sbi = meshInstance->skinBatchInstance()) {
@@ -160,7 +174,7 @@ namespace visutwin::canvas
                 ? (morphed ? shaders.skinnedMorphed : shaders.skinned)
                 : shaders.morphed;
             if (const auto variant = shadowCasterShader(programLibrary, frontendMaterial,
-                    cachedVariant, false, skinned, morphed, false, false, shaders.vsm)) {
+                    cachedVariant, false, skinned, morphed, false, false, shaders.vsm, clip)) {
                 device->setShader(variant);
             }
             if (skinned) {
@@ -193,9 +207,9 @@ namespace visutwin::canvas
         } else {
             // The pass-wide shader is already bound; a caster with an opacity frontend
             // swaps in its own variant and puts the plain one back, as above.
-            if (frontendMaterial) {
+            if (frontendMaterial || clip) {
                 if (const auto variant = programLibrary->getShadowShader(frontendMaterial,
-                        false, false, false, false, false, shaders.vsm)) {
+                        false, false, false, false, false, shaders.vsm, clip)) {
                     device->setShader(variant);
                 }
             }
@@ -203,9 +217,12 @@ namespace visutwin::canvas
                 ? meshInstance->node()->worldTransform() : Matrix4::identity();
             device->setTransformUniforms(viewProjection, modelMatrix);
             device->draw(mesh->getPrimitive(), mesh->getIndexBuffer(), 1, -1, true, true);
-            if (frontendMaterial) {
+            if (frontendMaterial || clip) {
                 device->setShader(shaders.plain);
             }
+        }
+        if (clipUniforms) {
+            device->setInstanceMaterialUniforms(nullptr, 0);
         }
         return true;
     }

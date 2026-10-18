@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 10.10.2026
 //
-// Port of upstream graphics/clustered-omni-shadows.
+// Port of upstream lights-and-shadows/clustered-omni-shadows.
 //
 // A closed 800 x 400 x 800 room (floor, ceiling and four walls built from boxes) holds
 // seven towers of eight randomly tumbled 25-unit cubes, on two alternating radii. Ten

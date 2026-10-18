@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 13.10.2026
 //
-// Port of upstream graphics/shadow-soft.
+// Port of upstream lights-and-shadows/shadow-soft.
 //
 // The low-poly terrain (scaled 30) under the helipad sky (mip 3, turned -70 degrees about
 // the vertical), with a large orange box pillar (10 x 130 x 10 at (180, 50, 110)). The

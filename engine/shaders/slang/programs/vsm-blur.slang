@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 07.10.2026
 //
-// The separable Gaussian blur of a VSM shadow map's moments. Taps are clamped to the
+// The separable Gaussian (or box) blur of a VSM shadow map's moments. Taps are clamped to the
 // fragment's cascade tile so the kernel cannot mix moments across the seams of a
 // multi-cascade (quadrant) atlas. Alpha is written 1, the "rendered" flag, so a blurred
 // texel is not mistaken for a cleared, synthetically lit one.
@@ -15,7 +15,7 @@ import vtquad;
 struct VsmBlurUniforms
 {
     float4 invResolutionAndDirection;   // xy = 1/resolution, zw = blur direction
-    float4 params;                      // x = filterSize, y = cascade tile size
+    float4 params;                      // x = filterSize, y = cascade tile size, z = 1 for a box blur
 };
 VT_DECLARE_QUAD_UNIFORMS(VsmBlurUniforms, uniforms)
 VT_DECLARE_QUAD_INPUT0(sourceTexture)
@@ -33,7 +33,8 @@ float4 vsmBlurFragment(QuadVarying input) : SV_Target0
     const float2 direction = uniforms.invResolutionAndDirection.zw;
     const int filterSize = clamp(int(uniforms.params.x), 1, MAX_TAPS / 2);
     const float sigma = max(float(filterSize) / 3.0, 1.0);
-    const float invSigma2 = 1.0 / (2.0 * sigma * sigma);
+    // A box blur weighs every tap the same: a zero exponent.
+    const float invSigma2 = uniforms.params.z > 0.5 ? 0.0 : 1.0 / (2.0 * sigma * sigma);
 
     const float tile = clamp(uniforms.params.y <= 0.0 ? 1.0 : uniforms.params.y, 0.0, 1.0);
     const float2 halfTexel = 0.5 * invResolution;

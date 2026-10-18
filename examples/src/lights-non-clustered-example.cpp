@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 10.10.2026
 //
-// Port of upstream graphics/lights-non-clustered. The lights example with clustered
+// Port of upstream lights-and-shadows/lights-non-clustered. The lights example with clustered
 // lighting OFF, so every light, omni and spot included, goes through the forward light
 // array with its own uniforms, shadow map and cookie slot instead of the cluster grid.
 // A statue on a large grey metallic ground box, lit by animated lights of three types,

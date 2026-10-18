@@ -109,7 +109,7 @@ namespace visutwin::canvas::compose_shaders
     // Scalars, then a float4 array: packs identically under MSL and std140, so the program
     // declares this same field list.
     static_assert(offsetof(ComposeUniforms, effectData) == 208, "compose.slang places effectData at 208");
-    static_assert(sizeof(ComposeUniforms) <= 656, "must fit kPerDrawUniformCapacity");
+    static_assert(sizeof(ComposeUniforms) <= 656, "kept within the per-draw block's former size");
 
     /// The compose program's SWITCHES: which stages this frame runs, given to the program as
     /// feature word 0 (a Metal function constant, a Vulkan specialization constant), so each
