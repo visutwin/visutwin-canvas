@@ -107,6 +107,11 @@ namespace visutwin::canvas
         _iridescenceIntensity = 0.0f;
         _iridescenceIOR = 1.3f;
         _iridescenceThicknessMax = 0.0f;
+        _iridescenceThicknessMin = 0.0f;
+        _iridescenceMap = nullptr;
+        _iridescenceMapUv = 0;
+        _iridescenceThicknessMap = nullptr;
+        _iridescenceThicknessMapUv = 0;
         _specGlossMap = nullptr;
         _detailNormalScale = 1.0f;
         _detailNormalMap = nullptr;
@@ -423,10 +428,11 @@ namespace visutwin::canvas
         // iridescence (KHR_materials_iridescence).
         uniforms.iridescenceParams[0] = _iridescenceIntensity;
         uniforms.iridescenceParams[1] = _iridescenceIOR;
-        // z (minimum thickness) is unused: only a thickness map would interpolate towards
-        // it, and there is no iridescence thickness map.
-        uniforms.iridescenceParams[2] = 0.0f;
+        // z, the minimum thickness, is read only with a thickness map.
+        uniforms.iridescenceParams[2] = _iridescenceThicknessMin;
         uniforms.iridescenceParams[3] = _iridescenceThicknessMax;
+        uniforms.iridescenceMapParams[0] = _iridescenceMapUv == 1 ? 1.0f : 0.0f;
+        uniforms.iridescenceMapParams[1] = _iridescenceThicknessMapUv == 1 ? 1.0f : 0.0f;
 
         // detail normals + displacement.
         uniforms.detailDisplacementParams[0] = _detailNormalScale;
@@ -527,6 +533,8 @@ namespace visutwin::canvas
         overrideSlot(43, _specularColorMap);
         overrideSlot(44, _specularityFactorMap);
         overrideSlot(45, _envAtlas);
+        overrideSlot(47, _iridescenceMap);
+        overrideSlot(48, _iridescenceThicknessMap);
         // Vertex displacement map: a VERTEX-stage texture (the binding table's slot,
         // MetalTextureBinder::bindMaterialTextures).
         overrideSlot(kDisplacementMapMetalSlot, _displacementMap);

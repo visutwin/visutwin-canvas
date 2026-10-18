@@ -39,9 +39,6 @@
 //   the examples' CameraControls in orbit mode with the same focus, pitch and zoom; there is
 //   no fly mode to size, and upstream's portrait-screen horizontal FOV is not needed in a
 //   landscape window (fov 40).
-// - the heat-tinted exhaust parts ('heat', KHR_materials_iridescence) take the extension's
-//   factors only: iridescence textures are not supported, so the tint reads teal where
-//   upstream's thickness map makes it gold.
 //
 #include <algorithm>
 #include <array>

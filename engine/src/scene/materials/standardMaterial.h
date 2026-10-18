@@ -532,6 +532,21 @@ namespace visutwin::canvas
         void setIridescenceIOR(const float value) { _iridescenceIOR = value; markUniformsDirty(); }
         float iridescenceThicknessMax() const { return _iridescenceThicknessMax; }
         void setIridescenceThicknessMax(const float value) { _iridescenceThicknessMax = value; markUniformsDirty(); }
+        /// The thickness (nm) a thickness map's 0 stands for; without a map the film is
+        /// iridescenceThicknessMax thick everywhere.
+        float iridescenceThicknessMin() const { return _iridescenceThicknessMin; }
+        void setIridescenceThicknessMin(const float value) { _iridescenceThicknessMin = value; markUniformsDirty(); }
+        /// The intensity map (its r channel scales the intensity) and the thickness map (its g
+        /// channel blends from the minimum to the maximum thickness), each read on UV set 0 or 1,
+        /// with no transform of its own.
+        Texture* iridescenceMap() const { return _iridescenceMap; }
+        void setIridescenceMap(Texture* texture) { _iridescenceMap = texture; markUniformsDirty(); }
+        int iridescenceMapUv() const { return _iridescenceMapUv; }
+        void setIridescenceMapUv(const int uv) { _iridescenceMapUv = uv; markUniformsDirty(); }
+        Texture* iridescenceThicknessMap() const { return _iridescenceThicknessMap; }
+        void setIridescenceThicknessMap(Texture* texture) { _iridescenceThicknessMap = texture; markUniformsDirty(); }
+        int iridescenceThicknessMapUv() const { return _iridescenceThicknessMapUv; }
+        void setIridescenceThicknessMapUv(const int uv) { _iridescenceThicknessMapUv = uv; markUniformsDirty(); }
         // --- Spec-Gloss map (KHR_materials_pbrSpecularGlossiness) ---
         // The specular workflow itself is specular() + gloss() with useMetalness
         // false; this map adds rgb = specular colour (sRGB), a = gloss.
@@ -706,6 +721,11 @@ namespace visutwin::canvas
         float _iridescenceIntensity = 0.0f;
         float _iridescenceIOR = 1.3f;
         float _iridescenceThicknessMax = 0.0f;
+        float _iridescenceThicknessMin = 0.0f;
+        Texture* _iridescenceMap = nullptr;
+        int _iridescenceMapUv = 0;
+        Texture* _iridescenceThicknessMap = nullptr;
+        int _iridescenceThicknessMapUv = 0;
 
         // spec-gloss properties (KHR_materials_pbrSpecularGlossiness).
         Texture* _specGlossMap = nullptr;

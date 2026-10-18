@@ -18,6 +18,7 @@
 #include <memory>
 #include <string>
 
+#include "platform/graphics/shader.h"
 #include "platform/graphics/texture.h"
 #include "scene/materials/standardMaterial.h"
 #include "scene/shader-lib/programLibrary.h"
@@ -142,6 +143,31 @@ int main()
         check(held.expired(), "which goes away with the library, memo or no memo");
         ProgramLibrary next(device);
         check(next.getForwardShader(&lone, false) != nullptr, "a later library resolves the material afresh");
+    }
+
+    std::cout << "\nthe iridescence maps are features of an iridescent variant\n";
+    {
+        StandardMaterial iridescent;
+        iridescent.setIridescenceIntensity(1.0f);
+        const auto plain = library.getForwardShader(&iridescent, false);
+        iridescent.setIridescenceMap(&texture);
+        const auto intensityMap = library.getForwardShader(&iridescent, false);
+        iridescent.setIridescenceThicknessMap(&texture);
+        const auto bothMaps = library.getForwardShader(&iridescent, false);
+        check(plain && !plain->features().test(ShaderFeature::IridescenceMap) &&
+                  !plain->features().test(ShaderFeature::IridescenceThicknessMap),
+            "no maps: neither feature");
+        check(intensityMap && intensityMap->features().test(ShaderFeature::IridescenceMap) &&
+                  !intensityMap->features().test(ShaderFeature::IridescenceThicknessMap),
+            "the intensity map");
+        check(bothMaps && bothMaps->features().test(ShaderFeature::IridescenceMap) &&
+                  bothMaps->features().test(ShaderFeature::IridescenceThicknessMap),
+            "both maps");
+        iridescent.setIridescenceIntensity(0.0f);
+        const auto off = library.getForwardShader(&iridescent, false);
+        check(off && !off->features().test(ShaderFeature::IridescenceMap) &&
+                  !off->features().test(ShaderFeature::IridescenceThicknessMap),
+            "maps on a material without iridescence are not read");
     }
 
     return finish("forward shader memo");

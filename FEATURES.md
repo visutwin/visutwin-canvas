@@ -53,7 +53,7 @@ the [README](README.md).
 
 ## Foundation
 - **Scene graph** with an entity-component system (18 component types), entity cloning that remaps references inside the cloned subtree, and a fixed-timestep `fixedUpdate` phase with a time scale and layer composition with render-action scheduling
-- **GLB/glTF loading** with Draco decompression, mesh quantization, Basis/WebP/AVIF textures, cameras and `KHR_lights_punctual`, `KHR_materials_variants`, `EXT_mesh_gpu_instancing` and `KHR_gaussian_splatting` (sheen and iridescence as factors only; specular with its colour and factor maps; anisotropy with its direction texture), plus OBJ/STL/Assimp parsers
+- **GLB/glTF loading** with Draco decompression, mesh quantization, Basis/WebP/AVIF textures, cameras and `KHR_lights_punctual`, `KHR_materials_variants`, `EXT_mesh_gpu_instancing` and `KHR_gaussian_splatting` (sheen as factors only; iridescence with its intensity and thickness maps; specular with its colour and factor maps; anisotropy with its direction texture), plus OBJ/STL/Assimp parsers
 - **Screen-space and world-space UI** with anchored elements, image and MSDF text elements, buttons with tint and sprite states, nested stencil masks (rectangles and sprite shapes), layout groups, scrollbars and sliders, draggable elements, scroll views with momentum and bounce, and mouse and touch input events (hover, press, click, bubbling, hit padding)
 - **Input devices**: keyboard, mouse, touch and gamepads, fed from the application's event loop, with press and release edges that survive a press and release inside one frame
 - **Picking** through an id buffer, with the world-space point under the cursor read back from depth

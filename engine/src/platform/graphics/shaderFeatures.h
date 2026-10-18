@@ -104,7 +104,9 @@
     X(EnvAtlasRgbp,              "VT_FEATURE_ENV_ATLAS_RGBP") \
     X(EnvAtlasRgbm,              "VT_FEATURE_ENV_ATLAS_RGBM") \
     X(ClipPlanesMesh,            "VT_FEATURE_CLIP_PLANES_MESH") \
-    X(ClipPlanesCamera,          "VT_FEATURE_CLIP_PLANES_CAMERA")
+    X(ClipPlanesCamera,          "VT_FEATURE_CLIP_PLANES_CAMERA") \
+    X(IridescenceMap,            "VT_FEATURE_IRIDESCENCE_MAP") \
+    X(IridescenceThicknessMap,   "VT_FEATURE_IRIDESCENCE_THICKNESS_MAP")
 
 namespace visutwin::canvas
 {

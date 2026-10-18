@@ -156,6 +156,8 @@ namespace visutwin::canvas
         }
         options.sheen = stdMat.sheenRoughness() > 0.0f || stdMat.sheenColor() != Color(0.0f, 0.0f, 0.0f, 1.0f);
         options.iridescence = stdMat.iridescenceIntensity() > 0.0f;
+        options.iridescenceMap = options.iridescence && stdMat.iridescenceMap() != nullptr;
+        options.iridescenceThicknessMap = options.iridescence && stdMat.iridescenceThicknessMap() != nullptr;
         options.transmission = stdMat.transmissionFactor() > 0.0f;
         // Dynamic grab-pass refraction: an opt-in that requires transmission.
         options.dynamicRefraction = options.transmission && stdMat.useDynamicRefraction();
@@ -373,6 +375,8 @@ namespace visutwin::canvas
         set(ShaderFeature::SpecularityFactorMap, options.specularityFactorMap);
         set(ShaderFeature::Sheen, options.sheen);
         set(ShaderFeature::Iridescence, options.iridescence);
+        set(ShaderFeature::IridescenceMap, options.iridescenceMap);
+        set(ShaderFeature::IridescenceThicknessMap, options.iridescenceThicknessMap);
         set(ShaderFeature::Transmission, options.transmission);
         set(ShaderFeature::LightClustering, options.lightClustering);
         set(ShaderFeature::Ssao, options.ssao);

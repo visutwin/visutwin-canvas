@@ -566,9 +566,22 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
     float iridIntensity = 0.0;
     float3 iridFresnel = F0;
     if (vtFeatureEnabled(VT_FEATURE_IRIDESCENCE_BIT)) {
-        iridIntensity = clamp(material.iridescenceParams.x, 0.0, 1.0);
-        iridFresnel = getIridescence(max(dot(N, V), 0.001), F0,
-            material.iridescenceParams.w, max(material.iridescenceParams.y, 1.001));
+        float iridIntensityFactor = material.iridescenceParams.x;
+        if (vtFeatureEnabled(VT_FEATURE_IRIDESCENCE_MAP_BIT)) {
+            const float2 uvIrid = material.iridescenceMapParams.x > 0.5 ? fragUV1 : fragUV0;
+            iridIntensityFactor *= iridescenceMap.Sample(materialSampler, uvIrid).r;
+        }
+        iridIntensity = clamp(iridIntensityFactor, 0.0, 1.0);
+        // The film's thickness: the maximum, or with a thickness map its g channel's blend
+        // from the minimum to the maximum.
+        float iridThickness = material.iridescenceParams.w;
+        if (vtFeatureEnabled(VT_FEATURE_IRIDESCENCE_THICKNESS_MAP_BIT)) {
+            const float2 uvThickness = material.iridescenceMapParams.y > 0.5 ? fragUV1 : fragUV0;
+            iridThickness = lerp(material.iridescenceParams.z, material.iridescenceParams.w,
+                iridescenceThicknessMap.Sample(materialSampler, uvThickness).g);
+        }
+        iridFresnel = getIridescence(max(dot(N, V), 0.001), F0, iridThickness,
+            max(material.iridescenceParams.y, 1.001));
     }
 
     // Sheen (Charlie + Ashikhmin). The colour is authored in gamma space like every

@@ -1944,7 +1944,8 @@ namespace visutwin::canvas
      * here, see StandardMaterial) and its thickness. Without a thickness texture the
      * spec's film is the MAXIMUM thickness; the minimum only matters to the texture.
      */
-    static void applyIridescence(const tinygltf::Material& srcMaterial, StandardMaterial* material)
+    static void applyIridescence(const tinygltf::Material& srcMaterial, StandardMaterial* material,
+        const std::function<std::shared_ptr<Texture>(int)>& getOrCreateTexture)
     {
         const auto* ext = materialExtension(srcMaterial, "KHR_materials_iridescence");
         if (!ext) {
@@ -1952,8 +1953,28 @@ namespace visutwin::canvas
         }
         material->setIridescenceIntensity(extensionNumber(*ext, "iridescenceFactor", 0.0f));
         material->setIridescenceIOR(extensionNumber(*ext, "iridescenceIor", 1.3f));
+        material->setIridescenceThicknessMin(extensionNumber(*ext, "iridescenceThicknessMinimum", 100.0f));
         material->setIridescenceThicknessMax(extensionNumber(*ext, "iridescenceThicknessMaximum", 400.0f));
-        warnIgnoredExtensionTextures(*ext, "KHR_materials_iridescence", {"iridescenceTexture", "iridescenceThicknessTexture"});
+        // The maps, each on the texture coordinate set the file names: the intensity in r, the
+        // thickness in g (both channels as the extension defines them).
+        const auto textureOf = [&](const char* name, int& texCoord) -> std::shared_ptr<Texture> {
+            if (!ext->Has(name)) {
+                return nullptr;
+            }
+            const auto info = ext->Get(name);
+            const int index = info.IsObject() && info.Has("index") ? info.Get("index").GetNumberAsInt() : -1;
+            texCoord = info.IsObject() && info.Has("texCoord") ? info.Get("texCoord").GetNumberAsInt() : 0;
+            return index >= 0 ? getOrCreateTexture(index) : nullptr;
+        };
+        int texCoord = 0;
+        if (const auto texture = textureOf("iridescenceTexture", texCoord)) {
+            material->setIridescenceMap(texture.get());
+            material->setIridescenceMapUv(texCoord == 1 ? 1 : 0);
+        }
+        if (const auto texture = textureOf("iridescenceThicknessTexture", texCoord)) {
+            material->setIridescenceThicknessMap(texture.get());
+            material->setIridescenceThicknessMapUv(texCoord == 1 ? 1 : 0);
+        }
     }
 
     /**
@@ -2155,7 +2176,7 @@ namespace visutwin::canvas
         applyClearcoat(srcMaterial, material.get(), getOrCreateTexture);
         applySheen(srcMaterial, material.get());
         applySpecularExtension(srcMaterial, material.get(), getOrCreateTexture);
-        applyIridescence(srcMaterial, material.get());
+        applyIridescence(srcMaterial, material.get(), getOrCreateTexture);
         applyAnisotropyExtension(srcMaterial, material.get(), getOrCreateTexture);
         applyEmissiveStrength(srcMaterial, material.get());
         applyTextureTransforms(srcMaterial, material.get());

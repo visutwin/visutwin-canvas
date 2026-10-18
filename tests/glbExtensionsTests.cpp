@@ -77,7 +77,10 @@ namespace
         base.extensions["KHR_materials_iridescence"] = object({
             {"iridescenceFactor", number(0.8)},
             {"iridescenceIor", number(1.4)},
-            {"iridescenceThicknessMaximum", number(500.0)}});
+            {"iridescenceThicknessMinimum", number(50.0)},
+            {"iridescenceThicknessMaximum", number(500.0)},
+            {"iridescenceTexture", object({{"index", Value(0)}})},
+            {"iridescenceThicknessTexture", object({{"index", Value(0)}, {"texCoord", Value(1)}})}});
         base.extensions["KHR_materials_anisotropy"] = object({
             {"anisotropyStrength", number(0.6)},
             {"anisotropyRotation", number(kPi / 6.0)},
@@ -202,6 +205,14 @@ namespace
                   nearStrict(material->iridescenceIOR(), 1.4f, kTolerance) &&
                   nearStrict(material->iridescenceThicknessMax(), 500.0f, kTolerance),
                 "iridescence: factor, IOR, maximum thickness");
+            check(nearStrict(material->iridescenceThicknessMin(), 50.0f, kTolerance) &&
+                      material->iridescenceMap() != nullptr && material->iridescenceMapUv() == 0 &&
+                      material->iridescenceThicknessMap() != nullptr && material->iridescenceThicknessMapUv() == 1,
+                "iridescence: the minimum thickness, and both textures, each on the UV set it names");
+            const auto& packed = material->packedUniforms();
+            check(nearStrict(packed.iridescenceParams[2], 50.0f, kTolerance) &&
+                      packed.iridescenceMapParams[0] == 0.0f && packed.iridescenceMapParams[1] == 1.0f,
+                "the minimum and the maps' UV sets pack for the shader");
             check(nearStrict(material->anisotropy(), 0.6f, kTolerance) &&
                   nearStrict(material->anisotropyRotation(), 30.0f, kTolerance),
                 "anisotropy: strength, rotation in degrees");

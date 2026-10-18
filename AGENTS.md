@@ -528,11 +528,12 @@ reflected bindings fall outside the table. The rules the rows encode:
   `textureSamplerState`, the same mapping Vulkan's per-texture samplers use) — exactly the
   maps Vulkan binds as combined samplers. A new map Vulkan binds as a combined sampler needs
   `ownSampler` and a Metal sampler slot within the budget comment in `metalTextureBinder.h`;
-  a separate-image map keeps `defaultSampler` on both. Slots 0-40 and 42-45 are taken today
+  a separate-image map keeps `defaultSampler` on both. Slots 0-40 and 42-48 are taken today
   (31-33 the gloss, thickness and refraction maps, 34 the opacity map, 42 the anisotropy map,
   which skips 41 for the displacement map's vertex slot below, 43-44 the specular colour and
   specularity factor maps (Vulkan 36-37), 45 the material's own environment atlas (Vulkan 38), 46 the scene's user map (Vulkan set 3
-  binding 24, `Scene::setUserShaderData`);
+  binding 24, `Scene::setUserShaderData`), 47-48 the iridescence intensity and thickness maps
+  (Vulkan 39-40);
   35 is the second
   directional shadow map, 36 the clustered cookie atlas, 37-38 the VSM spot moments and 39-40
   the two directional maps AGAIN as VSM moments, scene slots, not material ones: the Slang
@@ -919,7 +920,7 @@ sampler. A quad pass may draw a vertex buffer of its own instead of the fullscre
 (`RenderPassShaderQuad::setGeometry`, a triangle list in the standard 56-byte layout, written
 per frame into a ring of `maxFramesInFlight` buffers). The block rides the per-draw MATERIAL slot (Metal buffer 3 / Vulkan
 set 0 binding 0) via `GraphicsDevice::setQuadUniformData`; `kPerDrawUniformCapacity`
-(928; `MaterialUniforms` itself is 928 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
+(944; `MaterialUniforms` itself is 944 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
 allocation behind it. A smaller block is copied into the front of a full-size
 allocation, so never shorten the allocation. Quad passes draw an oversized
 fullscreen TRIANGLE and, on Metal, bind `_postSampler` (linear, clamp, no anisotropy),
@@ -1955,10 +1956,15 @@ present, but the rule below never depends on reading it.
   LUMINANCE on the scene yet: that example applies its numbers by hand. Anything that reads a light's strength for rendering goes
   through `LightComponent::renderIntensity(physicalUnits)`, not `intensity()`.
   `tests/glbCameraLightTests.cpp` checks both load paths.
-- **Two glTF extensions are FACTORS-ONLY where they touch materials.**
-  `KHR_materials_sheen` and `_iridescence` apply their factors (`applySheen` and siblings in
-  `glbParser.cpp`, beside `applyClearcoat`) and IGNORE their textures with one warning per
-  extension — there are no sheen or iridescence maps. `KHR_materials_specular` reads both
+- **One glTF extension is FACTORS-ONLY where it touches materials.**
+  `KHR_materials_sheen` applies its factors (`applySheen` in `glbParser.cpp`, beside
+  `applyClearcoat`) and IGNORES its textures with one warning — there are no sheen maps.
+  `KHR_materials_iridescence` reads both of its textures (`setIridescenceMap` /
+  `setIridescenceThicknessMap`, SEPARATE images at Metal 47 / 48, Vulkan 39 / 40, each on the
+  UV set the file names, `iridescenceMapParams.xy`, no transform of their own): the intensity
+  map's r scales the factor and the thickness map's g blends from `iridescenceThicknessMinimum`
+  to the maximum (without one the film is the maximum everywhere), each under its own feature
+  (`VT_FEATURE_IRIDESCENCE_MAP` / `_THICKNESS_MAP`) on an iridescent variant only. `KHR_materials_specular` reads both
   of its textures (`setSpecularColorMap` / `setSpecularityFactorMap`, SEPARATE images at Metal
   43 / 44, Vulkan 36 / 37, each on the UV set the file names): the colour map's rgb (sRGB) and
   the factor map's ALPHA scale the metalness workflow's non-metal F0; the colour map applies

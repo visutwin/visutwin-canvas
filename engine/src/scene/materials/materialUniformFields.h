@@ -162,4 +162,8 @@
     X(vec4x8, cameraClipPlanes, {}) \
     /* x = the number of mesh planes, y = 1 when they clip by intersection, */ \
     /* z, w = the same for the camera's planes. */ \
-    X(vec4, clipParams, {0, 0, 0, 0})
+    X(vec4, clipParams, {0, 0, 0, 0}) \
+    /* --- Iridescence maps, read only under VT_FEATURE_IRIDESCENCE_MAP / _THICKNESS_MAP --- */ \
+    /* x = the UV set of the intensity map (r scales the intensity), y = of the thickness map */ \
+    /* (g blends from iridescenceParams.z, the minimum, to .w, the maximum), zw = pad. */ \
+    X(vec4, iridescenceMapParams, {0, 0, 0, 0})
