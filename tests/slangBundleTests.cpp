@@ -15,6 +15,7 @@
 // only shifts everything after it, which no render shows as an error.
 #include <cstdint>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -22,6 +23,7 @@
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/lightingBlock.h"
 #include "platform/graphics/shader.h"
+#include "platform/graphics/spirvReflect.h"
 #include "scene/graphics/composeShaders.h"
 #include "scene/gsplat/gsplatInstance.h"
 #include "scene/materials/material.h"
@@ -138,6 +140,32 @@ int main()
         check(!spirvFragmentWritesNoOutput(fragmentOf("shadow-vsm")), "the splat VSM fragment writes its moments");
         check(!spirvFragmentWritesNoOutput(fragmentOf("color")), "the splat colour fragment writes its colour");
         check(!spirvFragmentWritesNoOutput({}), "no code is not a depth-only stage");
+    }
+
+    // A Vulkan pipeline declares only the vertex attributes its vertex entry reads. The
+    // locations: 0 position, 1 normal, 2 uv0, 3 tangent, 4 uv1.
+    {
+        const auto inputsOf = [](const char* program, const char* entry) -> std::optional<uint64_t> {
+            SlangBundledProgram found;
+            if (!findBundledSlangProgram(program, found)) {
+                return std::nullopt;
+            }
+            for (const auto& e : found.entries) {
+                if (e.name == entry && e.spirv) {
+                    return spirvInputLocations(e.spirv, e.spirvWords);
+                }
+            }
+            return std::nullopt;
+        };
+        const auto forward = inputsOf("forward", "forwardVertex");
+        const auto shadow = inputsOf("shadow", "forwardVertex");
+        check(forward && (*forward & 0x1Fu) == 0x1Fu,
+            "the forward vertex entry reads position, normal, uv0, tangent and uv1");
+        check(shadow && (*shadow & 0x1Fu) == 0x17u,
+            "the shadow vertex entry reads position, normal, uv0 and uv1, not the tangent");
+        const uint32_t notSpirv[6] = {1, 2, 3, 4, 5, 6};
+        check(!spirvInputLocations(notSpirv, 6) && !spirvInputLocations(nullptr, 0),
+            "words that are not SPIR-V give no answer");
     }
     checkBlock("procedural-sky", "proceduralSkyFragment", "sky", sizeof(ProceduralSkyBlock));
     checkBlock("procedural-sky-cube", "proceduralSkyCubeFragment", "sky", sizeof(ProceduralSkyBlock));

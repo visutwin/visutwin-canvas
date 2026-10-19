@@ -8,6 +8,7 @@
 
 #include "vulkanShader.h"
 #include "vulkanGraphicsDevice.h"
+#include "platform/graphics/spirvReflect.h"
 
 #include "spdlog/spdlog.h"
 
@@ -35,25 +36,25 @@ namespace visutwin::canvas
         _specializeFeatures = specializeFeatures;
 
         if (vertSpirv && vertWordCount > 0)
-            _vertexModule = createModule(vertSpirv, vertWordCount);
+            _vertexModule = createVertexModule(vertSpirv, vertWordCount);
         if (fragSpirv && fragWordCount > 0)
             _fragmentModule = createModule(fragSpirv, fragWordCount);
         if (instancedVertSpirv && instancedVertWordCount > 0)
-            _instancedVertexModule = createModule(instancedVertSpirv, instancedVertWordCount);
+            _instancedVertexModule = createVertexModule(instancedVertSpirv, instancedVertWordCount);
         if (skyVertSpirv && skyVertWordCount > 0)
-            _skyVertexModule = createModule(skyVertSpirv, skyVertWordCount);
+            _skyVertexModule = createVertexModule(skyVertSpirv, skyVertWordCount);
         if (colorVertSpirv && colorVertWordCount > 0)
-            _colorVertexModule = createModule(colorVertSpirv, colorVertWordCount);
+            _colorVertexModule = createVertexModule(colorVertSpirv, colorVertWordCount);
         if (pointVertSpirv && pointVertWordCount > 0)
-            _pointVertexModule = createModule(pointVertSpirv, pointVertWordCount);
+            _pointVertexModule = createVertexModule(pointVertSpirv, pointVertWordCount);
         if (dynamicBatchVertSpirv && dynamicBatchVertWordCount > 0)
-            _dynamicBatchVertexModule = createModule(dynamicBatchVertSpirv, dynamicBatchVertWordCount);
+            _dynamicBatchVertexModule = createVertexModule(dynamicBatchVertSpirv, dynamicBatchVertWordCount);
         if (skinnedVertSpirv && skinnedVertWordCount > 0)
-            _skinnedVertexModule = createModule(skinnedVertSpirv, skinnedVertWordCount);
+            _skinnedVertexModule = createVertexModule(skinnedVertSpirv, skinnedVertWordCount);
         if (morphedVertSpirv && morphedVertWordCount > 0)
-            _morphedVertexModule = createModule(morphedVertSpirv, morphedVertWordCount);
+            _morphedVertexModule = createVertexModule(morphedVertSpirv, morphedVertWordCount);
         if (skinnedMorphedVertSpirv && skinnedMorphedVertWordCount > 0)
-            _skinnedMorphedVertexModule = createModule(
+            _skinnedMorphedVertexModule = createVertexModule(
                 skinnedMorphedVertSpirv, skinnedMorphedVertWordCount);
         if (computeSpirv && computeWordCount > 0)
             _computeModule = createModule(computeSpirv, computeWordCount);
@@ -101,6 +102,25 @@ namespace visutwin::canvas
             if (_computeModule != VK_NULL_HANDLE)
                 vkDestroyShaderModule(_vkDevice, _computeModule, nullptr);
         }
+    }
+
+    VkShaderModule VulkanShader::createVertexModule(const uint32_t* spirv, size_t wordCount)
+    {
+        const VkShaderModule module = createModule(spirv, wordCount);
+        if (module != VK_NULL_HANDLE) {
+            _vertexInputLocations.emplace_back(module, spirvInputLocations(spirv, wordCount));
+        }
+        return module;
+    }
+
+    std::optional<uint64_t> VulkanShader::vertexInputLocations(const VkShaderModule module) const
+    {
+        for (const auto& [candidate, locations] : _vertexInputLocations) {
+            if (candidate == module) {
+                return locations;
+            }
+        }
+        return std::nullopt;
     }
 
     VkShaderModule VulkanShader::createModule(const uint32_t* spirv, size_t wordCount)

@@ -419,7 +419,10 @@ reflections, shadow catcher, atmosphere, opacity dither, debug passes,
 dual-source blending, compute/particles/culling, post-processing, async uploads,
 MSAA, GPU profiling. Every engine program is SPIR-V from the Slang bundle, one module per
 entry point, with its reflected layout checked against the descriptor contract when the
-pipeline layer is built (`validateForwardLayout`). Feature flags arrive as
+pipeline layer is built (`validateForwardLayout`). A pipeline declares only the vertex
+attributes its vertex module reads (`VulkanShader::vertexInputLocations`, read from the
+SPIR-V by `spirvInputLocations`), so a mesh format richer than the entry raises no validation
+warning. Feature flags arrive as
 **specialization constants**, not runtime branches, in BOTH stages. A custom shader may
 still be GLSL source, compiled at run time through shaderc.
 
@@ -2111,7 +2114,9 @@ present, but the rule below never depends on reading it.
   ALONE rather than falling back to a mode nobody asked for.
 - **A layer's depth clear happens INSIDE the forward pass when the layer is not the
   pass's first action.** Render actions of one camera and target share a
-  `RenderPassForward`, whose load action clears only for its first action; a later layer
+  `RenderPassForward` (ONE camera per pass: a camera change always ends the block, and the
+  pass refuses another camera's action, so a second camera's own clears open its pass), whose
+  load action clears only for its first action; a later layer
   with `clearDepthBuffer` (the gizmo layer, `layers`' front layer) is cleared mid-pass by
   `clearDepthInPass` (a depth-1 triangle under ALWAYS, colour writes off, current
   viewport), as upstream's in-pass `renderer.clear`. Without it such a layer is silently

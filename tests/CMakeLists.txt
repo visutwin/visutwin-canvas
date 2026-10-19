@@ -163,6 +163,7 @@ visutwin_add_unit_test(visutwin-frame-graph-tests frame-graph frameGraphTests.cp
 visutwin_add_unit_test(visutwin-shader-composition-tests shader-composition shaderCompositionTests.cpp)
 visutwin_add_unit_test(visutwin-camera-frame-stop-tests camera-frame-stop cameraFrameStopTests.cpp)
 visutwin_add_unit_test(visutwin-camera-frame-effect-tests camera-frame-effect cameraFrameEffectTests.cpp)
+visutwin_add_unit_test(visutwin-forward-pass-camera-tests forward-pass-camera forwardPassCameraTests.cpp)
 visutwin_add_unit_test(visutwin-auto-exposure-tests auto-exposure autoExposureTests.cpp)
 visutwin_add_unit_test(visutwin-compose-effects-tests compose-effects composeEffectsTests.cpp)
 visutwin_add_unit_test(visutwin-lens-flare-effect-tests lens-flare-effect lensFlareEffectTests.cpp)

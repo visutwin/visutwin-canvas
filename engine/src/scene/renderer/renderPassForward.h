@@ -10,21 +10,27 @@
 
 namespace visutwin::canvas
 {
+    class CameraComponent;
     class LayerComposition;
     class Scene;
     class Renderer;
 
     /**
-     * A render pass used to render a set of layers using a camera.
-     *
+     * A render pass rendering a set of layers with ONE camera. Every render action added
+     * must use that camera: the pass clears for its first action only, so a second camera
+     * sharing it would lose its clears, and a camera's directional shadows render before its
+     * first pass, so a pass reaching into another camera's actions would draw them with the
+     * wrong shadow fit.
      */
     class RenderPassForward final : public RenderPass
     {
     public:
         RenderPassForward(const std::shared_ptr<GraphicsDevice>& device,
-            LayerComposition* layerComposition, Scene* scene, Renderer* renderer);
+            LayerComposition* layerComposition, Scene* scene, Renderer* renderer, CameraComponent* camera);
 
+        /// Adds a render action of the pass's camera; one of another camera is refused.
         void addRenderAction(RenderAction* renderAction);
+        [[nodiscard]] CameraComponent* camera() const { return _camera; }
         const std::vector<RenderAction*>& renderActions() const { return _renderActions; }
 
         // when true, the ProgramLibrary will generate forward shaders
@@ -45,6 +51,7 @@ namespace visutwin::canvas
         LayerComposition* _layerComposition = nullptr;
         Scene* _scene = nullptr;
         Renderer* _renderer = nullptr;
+        CameraComponent* _camera = nullptr;
         std::vector<RenderAction*> _renderActions;
 
         bool _hdrPass = false;

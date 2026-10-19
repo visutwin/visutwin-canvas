@@ -441,6 +441,12 @@ namespace visutwin::canvas
         // break the current block — otherwise the camera-frame postprocessing pass ends
         // up missing the opaque world layer that precedes the depth layer, causing the
         // scene to render black when TAA/DOF is enabled.
+        // A pass renders one camera: it clears only for its first action, so a second
+        // camera sharing it would lose its own clears.
+        if (next->camera != action.camera) {
+            return true;
+        }
+
         const bool nextIsNonGrabDepth = isNextLayerDepth && !isNextLayerGrabPass;
         if (next->renderTarget.get() != blockTarget && !nextIsNonGrabDepth) {
             return true;
@@ -549,8 +555,9 @@ namespace visutwin::canvas
             passTarget = firstRenderAction->camera->camera() ? firstRenderAction->camera->camera()->renderTarget() : nullptr;
         }
 
+        // A block holds the actions of one camera (endsRenderActionBlock splits on a change).
         auto mainPass = std::make_shared<RenderPassForward>(
-            _device, layerComposition, _scene.get(), this
+            _device, layerComposition, _scene.get(), this, firstRenderAction->camera
         );
         mainPass->init(passTarget);
 

@@ -30,6 +30,9 @@ namespace visutwin::canvas
         // Render all passes in the frame graph
         void render(GraphicsDevice* device);
 
+        // The passes added this frame, in the order they were added
+        const std::vector<std::shared_ptr<RenderPass>>& renderPasses() const { return _renderPasses; }
+
     private:
         std::vector<std::shared_ptr<RenderPass>> _renderPasses;
 

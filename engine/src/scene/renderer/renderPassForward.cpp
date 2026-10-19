@@ -19,17 +19,24 @@
 namespace visutwin::canvas
 {
     RenderPassForward::RenderPassForward(const std::shared_ptr<GraphicsDevice>& device,
-        LayerComposition* layerComposition, Scene* scene, Renderer* renderer)
-        : RenderPass(device), _layerComposition(layerComposition), _scene(scene), _renderer(renderer)
+        LayerComposition* layerComposition, Scene* scene, Renderer* renderer, CameraComponent* camera)
+        : RenderPass(device), _layerComposition(layerComposition), _scene(scene), _renderer(renderer),
+          _camera(camera)
     {
         _name = "RenderPassForward";
     }
 
     void RenderPassForward::addRenderAction(RenderAction* renderAction)
     {
-        if (renderAction) {
-            _renderActions.push_back(renderAction);
+        if (!renderAction) {
+            return;
         }
+        if (renderAction->camera != _camera) {
+            assert(false && "RenderPassForward: a render action of another camera");
+            spdlog::error("RenderPassForward: refused a render action of another camera");
+            return;
+        }
+        _renderActions.push_back(renderAction);
     }
 
     void RenderPassForward::updateClears()

@@ -809,7 +809,7 @@ namespace visutwin::canvas
             return info;
         }
 
-        _scenePass = std::make_shared<RenderPassForward>(device(), _layerComposition, _scene, _renderer);
+        _scenePass = std::make_shared<RenderPassForward>(device(), _layerComposition, _scene, _renderer, _cameraComponent);
         _scenePass->setHdrPass(true);
         _scenePass->init(_sceneRenderTarget, _sceneOptions);
 
@@ -876,7 +876,7 @@ namespace visutwin::canvas
                 transparentEndIndex = lastActionIndex;
             }
 
-            _scenePassTransparent = std::make_shared<RenderPassForward>(device(), _layerComposition, _scene, _renderer);
+            _scenePassTransparent = std::make_shared<RenderPassForward>(device(), _layerComposition, _scene, _renderer, _cameraComponent);
             _scenePassTransparent->setHdrPass(true);
             _scenePassTransparent->init(_sceneRenderTarget);
             const int appended = appendActionsToPass(_scenePassTransparent, transparentFromIndex, transparentEndIndex,
@@ -1132,7 +1132,7 @@ namespace visutwin::canvas
             return;
         }
 
-        _afterPass = std::make_shared<RenderPassForward>(device(), _layerComposition, _scene, _renderer);
+        _afterPass = std::make_shared<RenderPassForward>(device(), _layerComposition, _scene, _renderer, _cameraComponent);
         _afterPass->init(_targetRenderTarget);
 
         // the after-pass renders on top of the compose output

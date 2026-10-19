@@ -9,7 +9,10 @@
 
 #ifdef VISUTWIN_HAS_VULKAN
 
+#include <cstdint>
 #include <memory>
+#include <optional>
+#include <utility>
 #include <vector>
 #include <vulkan/vulkan.h>
 
@@ -65,8 +68,16 @@ namespace visutwin::canvas
         [[nodiscard]] bool depthOnlyFragment() const { return _depthOnlyFragment; }
         void setDepthOnlyFragment(const bool value) { _depthOnlyFragment = value; }
 
+        // The input locations a vertex module declares, one bit per location; empty for a
+        // module this shader did not create or whose SPIR-V could not be read, in which case
+        // the pipeline declares every attribute of the vertex format.
+        [[nodiscard]] std::optional<uint64_t> vertexInputLocations(VkShaderModule module) const;
+
     private:
         VkShaderModule createModule(const uint32_t* spirv, size_t wordCount);
+        VkShaderModule createVertexModule(const uint32_t* spirv, size_t wordCount);
+
+        std::vector<std::pair<VkShaderModule, std::optional<uint64_t>>> _vertexInputLocations;
 
         VkDevice _vkDevice = VK_NULL_HANDLE;
         // Expired => the device (and all its child objects) is already gone;

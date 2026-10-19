@@ -639,6 +639,10 @@ namespace visutwin::canvas
         // --- Vertex input ---
         std::vector<VkVertexInputBindingDescription> bindings;
         std::vector<VkVertexInputAttributeDescription> attributes;
+        // Only the locations the chosen vertex module reads: an attribute the stage never
+        // declares is a validation warning (the shadow program's entries read the position and
+        // UVs of a format that also carries the normal and tangent). Unknown: declare them all.
+        const std::optional<uint64_t> consumedLocations = shader->vertexInputLocations(vertModule);
         auto appendFormat = [&](const std::shared_ptr<VertexFormat>& format,
                                 const uint32_t binding,
                                 const VkVertexInputRate inputRate) {
@@ -660,6 +664,9 @@ namespace visutwin::canvas
                         static_cast<int>(element.dataType),
                         element.componentCount);
                     return false;
+                }
+                if (consumedLocations && location < 64 && !(*consumedLocations & (uint64_t{1} << location))) {
+                    continue;
                 }
                 attributes.push_back({
                     static_cast<uint32_t>(location), binding, vkFormat, element.offset});

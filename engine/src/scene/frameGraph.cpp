@@ -7,6 +7,7 @@
 #include "frameGraph.h"
 
 #include <algorithm>
+#include <cassert>
 
 namespace visutwin::canvas
 {
@@ -22,14 +23,19 @@ namespace visutwin::canvas
             return;
         }
 
-        // Can add or remove before and after passes, and enable or disable them.
+        // Can add or remove before and after passes, and enable or disable them, but not
+        // disable the pass itself.
         renderPass->frameUpdate();
 
         for (const auto& pass : renderPass->beforePasses()) {
             addRenderPass(pass);
         }
 
-        // frameUpdate can disable the pass, which then stays out of the compile step.
+        // A pass disabled while it is scheduled, by its frameUpdate or a before-pass's, is not
+        // supported: a forward pass carrying its camera's first or last render action would
+        // drop that camera's prerender or postrender. Disable a pass before the frame is
+        // built, or skip only its execution. Release builds still leave it out.
+        assert(renderPass->enabled() && "a frame pass was disabled while it was added to the frame");
         if (renderPass->enabled()) {
             _renderPasses.push_back(renderPass);
         }
