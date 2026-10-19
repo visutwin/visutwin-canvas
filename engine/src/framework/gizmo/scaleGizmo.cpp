@@ -54,11 +54,11 @@ namespace visutwin::canvas
 
         on(EVENT_TRANSFORMMOVE, [this](const Vector3& point) {
             // calculate scale delta and update node scales
-            Vector3 scaleDelta = point - _selectionStartPoint;
+            // Normalised by the gizmo's scale BEFORE snapping, so the snap is in scale units.
+            Vector3 scaleDelta = (point - _selectionStartPoint) * (1.0f / _scale);
             if (snap) {
                 scaleDelta = roundVector(scaleDelta * (1.0f / snapIncrement)) * snapIncrement;
             }
-            scaleDelta = scaleDelta * (1.0f / _scale);
             setNodeScales(scaleDelta + Vector3(1.0f));
         });
 
@@ -168,7 +168,7 @@ namespace visutwin::canvas
             // project to diagonal line
             const int index = gizmoAxisIndex(axis);
             const Vector3 diagonal = withGizmoComponent(Vector3(1.0f), index, 0.0f);
-            hit = withGizmoComponent(diagonal * diagonal.dot(hit), index, 0.0f);
+            hit = withGizmoComponent(diagonal * (diagonal.dot(hit) / diagonal.lengthSquared()), index, 0.0f);
         }
 
         _point = hit;

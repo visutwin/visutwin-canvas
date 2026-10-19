@@ -13,6 +13,7 @@
     { "name": "tinyobjloader"                         },
     { "name": "tinygltf"                              },
     { "name": "draco"                                 },
+    { "name": "meshoptimizer"                         },
     { "name": "assimp"                                },
     { "name": "boost-core"                            },
     { "name": "imgui",          "features": ["sdl3-binding", { "name": "metal-binding", "platform": "osx" }, "docking-experimental"] },

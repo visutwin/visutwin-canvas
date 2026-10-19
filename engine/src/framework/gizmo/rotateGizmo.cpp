@@ -10,6 +10,7 @@
 #include "core/math/defines.h"
 #include "framework/components/camera/cameraComponent.h"
 #include "framework/entity.h"
+#include "framework/components/render/renderComponent.h"
 #include "framework/gizmo/meshLine.h"
 #include "framework/gizmo/shape/shapes.h"
 #include "scene/camera.h"
@@ -159,6 +160,21 @@ namespace visutwin::canvas
             a->setTolerance(value);
         }
         _face->setTolerance(value);
+    }
+
+    void RotateGizmo::setLayer(const std::shared_ptr<Layer>& layer)
+    {
+        TransformGizmo::setLayer(layer);
+        if (!layer) {
+            return;
+        }
+        for (const auto& line : _guideAngleLines) {
+            if (Entity* entity = line ? line->entity() : nullptr) {
+                if (auto* render = entity->findComponent<RenderComponent>()) {
+                    render->setLayers({layer->id()});
+                }
+            }
+        }
     }
 
     float RotateGizmo::angleGuideThickness() const

@@ -53,7 +53,7 @@ the [README](README.md).
 
 ## Foundation
 - **Scene graph** with an entity-component system (18 component types), entity cloning that remaps references inside the cloned subtree, and a fixed-timestep `fixedUpdate` phase with a time scale and layer composition with render-action scheduling
-- **GLB/glTF loading** with Draco decompression, mesh quantization, Basis/WebP/AVIF textures, cameras and `KHR_lights_punctual`, `KHR_materials_variants`, `EXT_mesh_gpu_instancing` and `KHR_gaussian_splatting` (sheen as factors only; iridescence with its intensity and thickness maps; specular with its colour and factor maps; anisotropy with its direction texture), plus OBJ/STL/Assimp parsers
+- **GLB/glTF loading** with Draco and meshopt (`EXT_` / `KHR_meshopt_compression`) decompression, mesh quantization, Basis/WebP/AVIF textures, cameras and `KHR_lights_punctual`, `KHR_materials_variants`, `EXT_mesh_gpu_instancing` and `KHR_gaussian_splatting` (sheen as factors only; iridescence with its intensity and thickness maps; specular with its colour and factor maps; anisotropy with its direction texture), plus OBJ/STL/Assimp parsers
 - **Screen-space and world-space UI** with anchored elements, image and MSDF text elements, buttons with tint and sprite states, nested stencil masks (rectangles and sprite shapes), layout groups, scrollbars and sliders, draggable elements, scroll views with momentum and bounce, and mouse and touch input events (hover, press, click, bubbling, hit padding)
 - **Input devices**: keyboard, mouse, touch and gamepads, fed from the application's event loop, with press and release edges that survive a press and release inside one frame
 - **Picking** through an id buffer, with the world-space point under the cursor read back from depth
@@ -88,7 +88,7 @@ Known Limitations, and `AGENTS.md` records the remaining parity items.
 | Framework / Components | 18 types: Camera, Render, Light, Script, Animation, Anim (state graph), Screen, Element, Button, LayoutGroup, LayoutChild, Scrollbar, ScrollView, Collision, RigidBody, Joint, GSplat, ParticleSystem |
 | Framework / Animation | GPU skinning, morph targets/weights, clips/evaluator/binder with path resolution, state graphs, transitions, blend trees, weighted layer composition |
 | Framework / Gizmo | Upstream's transform gizmos: translate (arrows, plane handles, centre), rotate (half/full arc rings, view ring, orbit sphere, angle guides), scale (box-lines, planes, uniform centre); triangle picking, hover themes, snapping, drag modes, span guide lines, constant screen size |
-| Framework / Assets | Async container/texture/font loading; GLB/glTF (+Draco, quantised attributes, texture transform, node identity for unnamed nodes), OBJ/STL/Assimp; KTX2/Basis transcoding to ASTC or BC |
+| Framework / Assets | Async container/texture/font loading; GLB/glTF (+Draco, meshopt, quantised attributes, texture transform, node identity for unnamed nodes), OBJ/STL/Assimp; KTX2/Basis transcoding to ASTC or BC |
 | Framework / Lightmapper | CPU ray-traced baker and GPU UV-space baker |
 | Overlay | Metal-only ImGui/ImPlot HUD integration, input capture, digital-twin theme, 3D-anchored labels/panels |
 

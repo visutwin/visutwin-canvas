@@ -336,7 +336,7 @@ namespace visutwin::canvas
         spdlog::info("ContainerResourceHandler: read {} bytes from '{}'", result->bytes.size(), url);
 
         // ── Pre-parse GLB on the background thread ──────────────────────
-        // tinygltf::LoadBinaryFromMemory parses the JSON and resolves the buffer
+        // GlbParser::loadModel parses the JSON and resolves the buffer
         // views; the images stay encoded until prepareFromModel (below) decodes them,
         // all at once. With both run here, on the I/O thread, only the fast GPU
         // resource creation remains for the main-thread callback.
@@ -345,32 +345,14 @@ namespace visutwin::canvas
 
         if ((isGlb || isGltf) && !result->bytes.empty()) {
             auto model = std::make_shared<tinygltf::Model>();
-            tinygltf::TinyGLTF loader;
-            loader.SetImageLoader(GlbParser::loadImageData, nullptr);
             std::string warn, err;
-
-            bool ok = false;
-            if (isGlb) {
-                ok = loader.LoadBinaryFromMemory(
-                    model.get(), &err, &warn,
-                    result->bytes.data(),
-                    static_cast<unsigned int>(result->bytes.size()));
-            } else {
-                // GLTF is JSON text — parse from the byte buffer as a string.
-                const std::string gltfString(
-                    reinterpret_cast<const char*>(result->bytes.data()),
-                    result->bytes.size());
-                // Base dir for resolving relative URIs (external .bin/.png).
-                std::string baseDir;
-                if (auto pos = url.find_last_of("/\\"); pos != std::string::npos) {
-                    baseDir = url.substr(0, pos + 1);
-                }
-                ok = loader.LoadASCIIFromString(
-                    model.get(), &err, &warn,
-                    gltfString.c_str(),
-                    static_cast<unsigned int>(gltfString.size()),
-                    baseDir);
+            // Base dir for resolving relative URIs (external .bin/.png).
+            std::string baseDir;
+            if (auto pos = url.find_last_of("/\\"); pos != std::string::npos) {
+                baseDir = url.substr(0, pos + 1);
             }
+            const bool ok = GlbParser::loadModel(*model, result->bytes.data(), result->bytes.size(), isGlb,
+                baseDir, err, warn);
 
             if (!warn.empty()) {
                 spdlog::warn("ContainerResourceHandler: tinygltf warning [{}]: {}", url, warn);

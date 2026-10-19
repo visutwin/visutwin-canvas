@@ -14,6 +14,7 @@
 #include "framework/components/camera/cameraComponent.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
+#include "framework/components/render/renderComponent.h"
 #include "framework/gizmo/shape/shape.h"
 #include "platform/input/inputConstants.h"
 #include "platform/input/mouse.h"
@@ -210,8 +211,11 @@ namespace visutwin::canvas
         if (!_camera || !_layer) {
             return;
         }
+        // One reference only: other gizmos on this camera may share the layer.
         std::vector<int> ids = explicitCameraLayers(_camera);
-        std::erase(ids, _layer->id());
+        if (const auto it = std::find(ids.begin(), ids.end(), _layer->id()); it != ids.end()) {
+            ids.erase(it);
+        }
         _camera->setLayers(ids);
     }
 
@@ -222,6 +226,7 @@ namespace visutwin::canvas
 
     void Gizmo::setEnabled(const bool state)
     {
+        _enabledRequested = state;
         if (!_root) {
             return;
         }
@@ -241,7 +246,15 @@ namespace visutwin::canvas
         removeLayerFromCamera();
         _layer = layer;
         addLayerToCamera();
-        setEnabled(true);
+
+        // The gizmo's meshes move to the new layer.
+        if (_root && _layer) {
+            const std::vector<int> ids{_layer->id()};
+            for (auto* render : _root->findComponents<RenderComponent>()) {
+                render->setLayers(ids);
+            }
+        }
+        setEnabled(_enabledRequested);
     }
 
     void Gizmo::setCamera(CameraComponent* camera)
@@ -256,7 +269,7 @@ namespace visutwin::canvas
         if (_camera && _camera->entity()) {
             _cameraDestroyed.watch(_camera->entity(), [this] { _camera = nullptr; });
         }
-        setEnabled(true);
+        setEnabled(_enabledRequested);
     }
 
     void Gizmo::setCoordSpace(const GizmoSpace value)
@@ -373,13 +386,13 @@ namespace visutwin::canvas
 
     void Gizmo::pointerUp(const float x, const float y, const int button)
     {
-        if (!enabled() || (_engine && _engine->mouse() && _engine->mouse()->relativeMode())) {
-            return;
-        }
         if (button < 0 || button > 2 || !_mouseButtons[static_cast<size_t>(button)]) {
             return;
         }
-        MeshInstance* selection = getSelection(x, y);
+        // A drag always ends, even when the gizmo was disabled or the mouse went relative
+        // mid-drag; only the selection needs an active gizmo.
+        const bool active = enabled() && !(_engine && _engine->mouse() && _engine->mouse()->relativeMode());
+        MeshInstance* selection = active ? getSelection(x, y) : nullptr;
 
         if (_captured) {
             SDL_CaptureMouse(false);

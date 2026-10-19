@@ -61,6 +61,8 @@ namespace visutwin::canvas
 
         void prerender() override;
         void destroy() override;
+        /// The angle guide lines are not under the gizmo root, so they move to the layer here.
+        void setLayer(const std::shared_ptr<Layer>& layer) override;
 
     protected:
         Vector3 screenToPoint(float x, float y) override;

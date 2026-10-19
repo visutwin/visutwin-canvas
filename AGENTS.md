@@ -206,7 +206,7 @@ ctest --preset default
 
 ## Dependencies (vcpkg)
 
-**Core:** SDL3 (3.4+), spdlog (1.17+, bundled fmt, `default-features: false`), tinyobjloader, tinygltf (header-only, use `find_path`), draco, assimp, basisu (`basisu::basisu_encoder` — transcoder + encoder + CLI tool), boost-core, imgui (SDL3+Metal+docking), implot
+**Core:** SDL3 (3.4+), spdlog (1.17+, bundled fmt, `default-features: false`), tinyobjloader, tinygltf (header-only, use `find_path`), draco, meshoptimizer (glTF meshopt decoding only), assimp, basisu (`basisu::basisu_encoder` — transcoder + encoder + CLI tool), boost-core, imgui (SDL3+Metal+docking), implot
 
 **Vendored:** metal-cpp, stb
 
@@ -1930,7 +1930,14 @@ present, but the rule below never depends on reading it.
   copy drifts, and no example loads asynchronously, so a drifted async path goes
   unseen. `tests/glbMaterialPathsTests.cpp` and
   `tests/glbPointCloudTests.cpp` build models in memory and check both halves. A new
-  glTF feature goes into the shared step, never into one entry point.
+  glTF feature goes into the shared step, never into one entry point. READING the file is
+  shared too: every entry point (and the background container loader) goes through
+  `GlbParser::loadModel`, never tinygltf's `Load*` directly, because a meshopt FALLBACK
+  buffer (`EXT_` / `KHR_meshopt_compression`, `fallback: true`) must be swapped for an
+  empty one in the JSON before tinygltf reads it: in a GLB it has no data and tinygltf
+  refuses the file when its size exceeds the binary chunk, in a glTF it names a file that
+  need not exist. `prepareFromModel` then decodes every compressed view (meshoptimizer) into
+  a buffer of its own before anything reads a view; `tests/glbMeshoptTests.cpp`.
 - **A glTF's images are decoded in `prepareFromModel`, all at once, one per thread; the
   tinygltf callback decodes nothing.** `GlbParser::loadImageData` keeps each image's
   encoded bytes and marks it `as_is` (KTX2 payloads are recognised by their magic);

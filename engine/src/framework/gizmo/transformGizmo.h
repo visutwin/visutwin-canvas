@@ -70,6 +70,8 @@ namespace visutwin::canvas
         const std::vector<std::pair<Vector3, Vector3>>& guideLines() const { return _frameGuideLines; }
 
         void prerender() override;
+        /// The occluded guide lines draw on the gizmo layer and move with it.
+        void setLayer(const std::shared_ptr<Layer>& layer) override;
         void destroy() override;
 
     protected:

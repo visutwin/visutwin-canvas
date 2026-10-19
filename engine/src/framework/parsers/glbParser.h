@@ -122,6 +122,22 @@ namespace visutwin::canvas
             const std::string& debugName = "memory");
 
         /**
+         * Read a glTF (JSON text) or GLB file held in memory into a tinygltf model: the one
+         * reading step every load path shares (parse(), parseFromMemory() and the
+         * background container loader). A buffer marked as the uncompressed FALLBACK of
+         * meshopt compressed buffer views (EXT_ / KHR_meshopt_compression,
+         * `fallback: true`) is not read: in a GLB it has no data, and in a glTF it names a
+         * file that need not exist. prepareFromModel decodes the views it backs from their
+         * compressed data instead.
+         *
+         * @param binary   True for a GLB container, false for glTF JSON text.
+         * @param baseDir  Directory relative URIs resolve against (may be empty).
+         * @return False with `err` filled when tinygltf refuses the file.
+         */
+        static bool loadModel(tinygltf::Model& model, const std::uint8_t* data, std::size_t length,
+            bool binary, const std::string& baseDir, std::string& err, std::string& warn);
+
+        /**
          * Create GPU resources from a pre-parsed tinygltf model: prepareFromModel()
          * followed by createFromPrepared(), both on the calling thread. parse() and
          * parseFromMemory() end here too, so every load path builds its container

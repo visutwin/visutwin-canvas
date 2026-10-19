@@ -83,7 +83,9 @@ namespace visutwin::canvas
         std::array<bool, 3>& mouseButtons() { return _mouseButtons; }
 
         const std::shared_ptr<Layer>& layer() const { return _layer; }
-        void setLayer(const std::shared_ptr<Layer>& layer);
+        /// Draws the gizmo on `layer`, its meshes moved there; the camera keeps the old layer
+        /// only for the other gizmos that share it.
+        virtual void setLayer(const std::shared_ptr<Layer>& layer);
 
         CameraComponent* camera() const { return _camera; }
         void setCamera(CameraComponent* camera);
@@ -172,5 +174,7 @@ namespace visutwin::canvas
         DestroyWatch _cameraDestroyed;
         bool _destroyed = false;
         bool _captured = false;
+        // The enabled state last asked for; a layer or camera change keeps it.
+        bool _enabledRequested = true;
     };
 }

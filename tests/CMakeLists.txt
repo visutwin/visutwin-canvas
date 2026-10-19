@@ -157,6 +157,7 @@ visutwin_add_unit_test(visutwin-entity-clone-tests entity-clone entityCloneTests
 visutwin_add_unit_test(visutwin-glb-camera-light-tests glb-camera-light glbCameraLightTests.cpp TINYGLTF)
 visutwin_add_unit_test(visutwin-glb-extensions-tests glb-extensions glbExtensionsTests.cpp TINYGLTF)
 visutwin_add_unit_test(visutwin-glb-vertex-attribute-tests glb-vertex-attributes glbVertexAttributeTests.cpp TINYGLTF)
+visutwin_add_unit_test(visutwin-glb-meshopt-tests glb-meshopt glbMeshoptTests.cpp TINYGLTF)
 visutwin_add_unit_test(visutwin-triage-contracts-tests triage-contracts triageContractsTests.cpp TINYGLTF)
 visutwin_add_unit_test(visutwin-frame-graph-tests frame-graph frameGraphTests.cpp)
 visutwin_add_unit_test(visutwin-shader-composition-tests shader-composition shaderCompositionTests.cpp)

@@ -18,6 +18,7 @@
 // - Lifetime: an engine destroyed before the gizmo, and an attached node destroyed
 //   under it (run it under the sanitize preset).
 //
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <memory>
@@ -375,6 +376,104 @@ namespace
         gizmo->pointerUp(to.getX(), to.getY(), 0);
     }
 
+    // The drag, snapping, layer and enabled-state behaviours a single drag of each gizmo
+    // does not show.
+    void hardening()
+    {
+        std::cout << "hardening\n";
+        {
+            // a drag ends whatever happened to the gizmo in between
+            GizmoScene scene = makeScene();
+            Entity* box = addEntity(*scene.engine);
+            auto gizmo = std::make_unique<ScaleGizmo>(scene.camera, scene.layer);
+            gizmo->attach(box);
+            gizmo->prerender();
+            const float s = gizmo->worldScale();
+            const Vector3 head = screenOf(scene.camera, Vector3(0.56f * s, 0.0f, 0.0f));
+            gizmo->pointerDown(head.getX(), head.getY(), 0);
+            check(gizmo->selectedAxis() == GizmoAxis::X, "a drag starts on the X box");
+            gizmo->setEnabled(false);
+            gizmo->pointerUp(head.getX(), head.getY(), 0);
+            check(gizmo->selectedAxis() == GizmoAxis::None, "and ends on release though the gizmo was disabled meanwhile");
+        }
+        {
+            // the snap is in scale units: the delta is normalised by the gizmo's scale first
+            GizmoScene scene = makeScene();
+            Entity* box = addEntity(*scene.engine);
+            auto gizmo = std::make_unique<ScaleGizmo>(scene.camera, scene.layer);
+            gizmo->snap = true;
+            gizmo->snapIncrement = 0.25f;
+            gizmo->attach(box);
+            gizmo->prerender();
+            const float s = gizmo->worldScale();
+            const Vector3 head = screenOf(scene.camera, Vector3(0.56f * s, 0.0f, 0.0f));
+            gizmo->pointerDown(head.getX(), head.getY(), 0);
+            const Vector3 to = screenOf(scene.camera, Vector3(1.16f * s, 0.0f, 0.0f));
+            gizmo->pointerMove(to.getX(), to.getY());
+            check(near(box->localScale(), Vector3(1.5f, 1.0f, 1.0f), 2e-3f),
+                "0.6 of the gizmo scale snaps to 0.5 at an increment of 0.25: " + str(box->localScale()));
+            gizmo->pointerUp(to.getX(), to.getY(), 0);
+        }
+        {
+            // a uniform plane drag projects onto its diagonal, normalised
+            GizmoScene scene = makeScene();
+            Entity* box = addEntity(*scene.engine);
+            auto gizmo = std::make_unique<ScaleGizmo>(scene.camera, scene.layer);
+            gizmo->setUniform(true);
+            gizmo->attach(box);
+            gizmo->prerender();
+            const float s = gizmo->worldScale();
+            const float offset = (gizmo->axisPlaneSize() / 2.0f + gizmo->axisPlaneGap()) * s;
+            const Vector3 plane = screenOf(scene.camera, Vector3(offset, offset, 0.0f));
+            gizmo->pointerDown(plane.getX(), plane.getY(), 0);
+            check(gizmo->selectedAxis() == GizmoAxis::Z && gizmo->selectedIsPlane(), "the XY plane is picked");
+            const float a = 0.2f * s;
+            const Vector3 to = screenOf(scene.camera, Vector3(offset + a, offset + a, 0.0f));
+            gizmo->pointerMove(to.getX(), to.getY());
+            const float expected = 1.0f + a / s;
+            check(near(box->localScale().getX(), expected, 2e-3f) && near(box->localScale().getY(), expected, 2e-3f),
+                "a diagonal move of (a, a) scales X and Y by 1 + a / scale: " + str(box->localScale()));
+            gizmo->pointerUp(to.getX(), to.getY(), 0);
+        }
+        {
+            // two gizmos on one camera share the layer; one going does not take it away
+            GizmoScene scene = makeScene();
+            auto first = std::make_unique<TranslateGizmo>(scene.camera, scene.layer);
+            auto second = std::make_unique<RotateGizmo>(scene.camera, scene.layer);
+            const auto has = [&] {
+                const auto& ids = scene.camera->layers();
+                return std::find(ids.begin(), ids.end(), scene.layer->id()) != ids.end();
+            };
+            first->destroy();
+            check(has(), "the camera keeps a shared layer while a gizmo still uses it");
+            second->destroy();
+            check(!has(), "and drops it with the last");
+        }
+        {
+            // a layer or camera change keeps a disabled gizmo disabled, and moves its meshes
+            GizmoScene scene = makeScene();
+            Entity* box = addEntity(*scene.engine);
+            auto gizmo = std::make_unique<RotateGizmo>(scene.camera, scene.layer);
+            gizmo->attach(box);
+            gizmo->setEnabled(false);
+            const auto other = Gizmo::createLayer(scene.engine.get(), "other");
+            gizmo->setLayer(other);
+            check(!gizmo->enabled(), "a layer change keeps the gizmo disabled");
+            bool moved = true;
+            for (auto* render : gizmo->root()->findComponents<RenderComponent>()) {
+                moved = moved && render->layers() == std::vector<int>{other->id()};
+            }
+            check(moved, "and moves every mesh of the gizmo to the new layer");
+            Entity* cameraEntity = addEntity(*scene.engine);
+            cameraEntity->setLocalPosition(0.0f, 5.0f, 10.0f);   // not on the gizmo, which hides it
+            auto* camera2 = static_cast<CameraComponent*>(cameraEntity->addComponent<CameraComponent>());
+            gizmo->setCamera(camera2);
+            check(!gizmo->enabled(), "so does a camera change");
+            gizmo->setEnabled(true);
+            check(gizmo->enabled(), "and it enables again on request");
+        }
+    }
+
     void lifetime()
     {
         std::cout << "lifetime\n";
@@ -415,6 +514,7 @@ int main()
     translateDrags();
     rotateDrag();
     scaleDrags();
+    hardening();
     lifetime();
 
     return finish("gizmo");

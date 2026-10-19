@@ -379,6 +379,14 @@ namespace visutwin::canvas
         }
     }
 
+    void TransformGizmo::setLayer(const std::shared_ptr<Layer>& layer)
+    {
+        Gizmo::setLayer(layer);
+        if (_occludedRenderer && layer) {
+            _occludedRenderer->setLayers({layer->id()});
+        }
+    }
+
     void TransformGizmo::flushGuideLines()
     {
         if (!_engine || !_engine->graphicsDevice() || !_layer) {
@@ -499,9 +507,9 @@ namespace visutwin::canvas
         // disabled
         copyIfSet(_theme.disabled, partial.disabled);
 
-        // update shapes (every shape takes the hover state of ANY hovered axis)
+        // update shapes: each keeps its own hover state
         for (auto& [key, s] : _shapes) {
-            s->hover(_hoverAxis != GizmoAxis::None);
+            s->hover(std::find(_hovering.begin(), _hovering.end(), key) != _hovering.end());
         }
     }
 
