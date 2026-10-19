@@ -35,7 +35,7 @@ the [README](README.md).
 - **Morph-weight animation** from glTF `weights` channels
 
 ## Gaussian splatting & particles
-- **Gaussian splatting** (classic path): 3DGS PLY loading, CPU-precomputed covariance, background depth sorter, EWA screen-space projection — with **view-dependent spherical harmonics** (bands 1–3), the SuperSplat **`.compressed.ply`** quantized format, and **shadow casting** (alpha-clipped footprints into directional, spot and omni shadow maps, PCF / PCSS / VSM)
+- **Gaussian splatting** (classic path): 3DGS PLY loading, CPU-precomputed covariance, background depth sorter, EWA screen-space projection — with **view-dependent spherical harmonics** (bands 1–4), the SuperSplat **`.compressed.ply`** quantized format, and **shadow casting** (alpha-clipped footprints into directional, spot and omni shadow maps, PCF / PCSS / VSM)
 - **GPU particle system**: compute-simulated pool, curve-driven size/color/alpha over life, local and world velocity graphs, rotation speed graph, bursts, pre-warm, align-to-motion and stretch, box/sphere emitters with an initial speed along the spawn direction, sprite-sheet animation (one row per emitter or a random row per particle), additive/normal/premultiplied blending, screen-space particles drawn in the UI's order
 
 ## Post-processing & tooling
@@ -81,7 +81,7 @@ Known Limitations, and `AGENTS.md` records the remaining parity items.
 | Scene / Shadows | CSM (1 cascade default, up to 4, PSSM + blending), PCF/EVSM_16F/PCSS for directional, spot/point depth maps + omni cubemaps, PCSS on local lights, saturated receiver depth |
 | Scene / Shader-lib | Single-source Slang shaders: 31 programs compiled at build time to MSL + metallib and SPIR-V (with reflected layouts checked against the engine), 23 overridable forward chunks compiled at run time when overridden, 68 shared feature flags as Metal function constants / Vulkan specialization constants, a local-space vertex hook, cache-invalidation hashing |
 | Scene / Graphics | Camera-frame/post stack with MSAA, bloom, SSAO, TAA, multi-pass DOF, volumetric fog, compose, colour and depth grabs under both paths, environment atlas/convolution over QuadRender, HDR cubemaps, spherical harmonics |
-| Scene / GSplat | Classic 3DGS path, background depth sorting, view-dependent SH bands 1-3 on both backends, uncompressed/compressed SuperSplat PLY |
+| Scene / GSplat | Classic 3DGS path, background depth sorting, view-dependent SH bands 1-4 on both backends, uncompressed/compressed SuperSplat PLY |
 | Graphics / Metal | Buffers/textures/pipelines, ASTC/BC formats, compute, particles/culling, post-processing, volumetric fog, environment baking, GSplat, texture streaming, GPU timestamp profiling |
 | Graphics / Vulkan | Vulkan 1.3 dynamic rendering/synchronization2, MRT, PBR draw binding, PCSS/VSM shadows + clustered shadow atlas, SSR, dynamic refraction, planar reflections, shadow catcher, atmosphere, opacity dither, debug passes, dual-source blending, compute/particles/culling, post-processing, async uploads, GPU profiling, persistent shader cache (run-time SPIR-V and the pipeline cache kept between runs), validation smoke test |
 | Framework / ECS | Engine, Entity, component-system registry, scripts, hierarchy, lifecycle/event integration |

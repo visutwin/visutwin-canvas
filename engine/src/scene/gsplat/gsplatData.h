@@ -37,15 +37,15 @@ namespace visutwin::canvas
      * Two PLY layouts are auto-detected:
      *  - **Uncompressed** (`binary_little_endian` float `vertex` element): x/y/z,
      *    f_dc_0..2, opacity, scale_0..2, rot_0..3, and optional f_rest_* SH bands
-     *    (9/24/45 coefficients → SH bands 1/2/3).
+     *    (9/24/45/72 coefficients → SH bands 1/2/3/4).
      *  - **Compressed** (SuperSplat `.compressed.ply`): a `chunk` element (per-256
      *    min/max bounds) + a uint `vertex` element (packed 11-10-11 position/scale,
      *    2-10-10-10 rotation, 8888 color) + an optional uchar `sh` element.
      *
-     * Higher-order SH coefficients (bands 1-3) are dequantized into `shCoeffs()`
+     * Higher-order SH coefficients (bands 1-4) are dequantized into `shCoeffs()`
      * laid out coefficient-major interleaved: `[c0.r,c0.g,c0.b, c1.r,...]`, 15
-     * coefficients × 3 channels = 45 floats per splat, zero-padded above the
-     * present band. The gsplat vertex shader evaluates them per frame by view
+     * coefficients × 3 channels = 45 floats per splat for bands 1-3, zero-padded above
+     * the present band, and 24 × 3 = 72 for band 4 (`shFloatsPerSplat`). The gsplat vertex shader evaluates them per frame by view
      * direction. DEVIATION: upstream quantizes SH to 11-10-11 in a texture; this
      * port stores raw floats in a storage buffer.
      */
@@ -77,8 +77,12 @@ namespace visutwin::canvas
         const BoundingBox& aabb() const { return _aabb; }
 
         int shBands() const { return _shBands; }   // 0 = SH0 only (no view-dependent color)
-        // 45 floats per splat (coefficient-major interleaved), empty when shBands == 0.
+        /// shFloatsPerSplat(shBands()) floats per splat (coefficient-major interleaved),
+        /// empty when shBands == 0.
         const std::vector<float>& shCoeffs() const { return _shCoeffs; }
+        /// The SH floats one splat takes for `bands`: 45 for bands 1-3 (15 coefficients,
+        /// zero-padded), 72 for band 4 (24 coefficients). The shader strides the same way.
+        static constexpr int shFloatsPerSplat(const int bands) { return bands > 3 ? 72 : 45; }
 
     private:
         struct BoundsAccumulator
@@ -91,8 +95,8 @@ namespace visutwin::canvas
         void finishBounds(const BoundsAccumulator& bounds, const std::string& source);
         /// Sets the SH band count and reserves room for `count` splats.
         void reserveSplats(size_t count, int shBands);
-        /// Appends one splat's 45 SH floats (15 coefficients x RGB).
-        void appendShRow(const float* sh45);
+        /// Appends one splat's shFloatsPerSplat(shBands()) SH floats.
+        void appendShRow(const float* row);
 
         std::vector<GpuSplat> _splats;
         std::vector<float> _centers;

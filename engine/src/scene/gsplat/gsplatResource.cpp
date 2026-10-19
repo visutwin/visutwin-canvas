@@ -39,7 +39,8 @@ namespace visutwin::canvas
         }
 
         // ── SH coefficient buffer (vertex slot 12) ───────────────────────
-        // 45 floats/splat (coefficient-major interleaved) when shBands > 0; a
+        // GSplatData::shFloatsPerSplat floats/splat (coefficient-major interleaved: 45 for
+        // bands 1-3, 72 for band 4) when shBands > 0; a
         // 1-float dummy otherwise so slot 12 is always bound (the shader only
         // reads it under the runtime shBands branch).
         {

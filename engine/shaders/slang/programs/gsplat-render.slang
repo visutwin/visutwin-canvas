@@ -34,7 +34,7 @@ struct GSplatParams
     float4x4 projection;    // GL-style clip (z in [-w,w]); remapped below
     float4 viewport;        // width, height, 1/width, 1/height
     uint splatCount;
-    uint shBands;           // 0 = SH0 only; 1-3 = view-dependent SH color
+    uint shBands;           // 0 = SH0 only; 1-4 = view-dependent SH color
     uint cameraOrtho;       // 1: SH along the camera forward
     uint padding;
     float4 fogColor;        // linear rgb
@@ -109,7 +109,7 @@ float3 shCoefficient(uint base, uint coefficient)
     return float3(shCoefficients[offset], shCoefficients[offset + 1u], shCoefficients[offset + 2u]);
 }
 
-// The view-dependent colour of bands 1-3, added to the DC term in gamma space. The
+// The view-dependent colour of bands 1-4, added to the DC term in gamma space. The
 // coefficients are interleaved per coefficient (rgb of coefficient k at base + 3k).
 float3 evaluateSH(uint base, uint bands, float3 d)
 {
@@ -133,6 +133,20 @@ float3 evaluateSH(uint base, uint bands, float3 d)
             + shCoefficient(base, 12) * (-0.4570457994644658 * x * (4.0 * zz - xx - yy))
             + shCoefficient(base, 13) * (1.445305721320277 * z * (xx - yy))
             + shCoefficient(base, 14) * (-0.5900435899266435 * x * (xx - 3.0 * yy));
+    }
+    if (bands > 3u) {
+        // The direction is unit length, so the basis's r^2 factors are dropped.
+        const float xx = x * x, yy = y * y, zz = z * z;
+        const float xy = x * y, yz = y * z, xz = x * z;
+        result += shCoefficient(base, 15) * (2.5033429417967046 * xy * (xx - yy))
+            + shCoefficient(base, 16) * (-1.7701307697799304 * yz * (3.0 * xx - yy))
+            + shCoefficient(base, 17) * (0.9461746957575601 * xy * (7.0 * zz - 1.0))
+            + shCoefficient(base, 18) * (-0.6690465435572892 * yz * (7.0 * zz - 3.0))
+            + shCoefficient(base, 19) * (0.10578554691520431 * (zz * (35.0 * zz - 30.0) + 3.0))
+            + shCoefficient(base, 20) * (-0.6690465435572892 * xz * (7.0 * zz - 3.0))
+            + shCoefficient(base, 21) * (0.47308734787878004 * (xx - yy) * (7.0 * zz - 1.0))
+            + shCoefficient(base, 22) * (-1.7701307697799304 * xz * (xx - 3.0 * yy))
+            + shCoefficient(base, 23) * (0.6258357354491761 * (xx * (xx - 3.0 * yy) - yy * (3.0 * xx - yy)));
     }
     return result;
 }
@@ -266,7 +280,9 @@ GSplatVaryings gsplatVS(uint vid : SV_VulkanVertexID, uint iid : SV_VulkanInstan
         // forward, (0, 0, -1) in view space, not from its position to the splat.
         const float3 viewDir = params.cameraOrtho != 0u ? float3(0.0, 0.0, -1.0) : view.xyz;
         const float3 direction = normalize(mul(viewDir, transpose((float3x3)params.modelView)));
-        displayColor += evaluateSH(splatIndex * 45u, params.shBands, direction);
+        // A splat's row is 45 floats for bands 1-3 and 72 for band 4 (shFloatsPerSplat).
+        const uint shStride = params.shBands > 3u ? 72u : 45u;
+        displayColor += evaluateSH(splatIndex * shStride, params.shBands, direction);
     }
 
     o.position = clip;

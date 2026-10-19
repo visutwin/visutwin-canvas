@@ -18,6 +18,8 @@
 // shift.
 //
 // No keys beyond the orbit camera's (drag to orbit, wheel to zoom, R to reset).
+// VISUTWIN_GSPLAT_PLY=<path> loads another PLY in the skull's place (a band-4 file, say,
+// to check the SH path on both backends).
 //
 // DEVIATIONS:
 // - upstream's control panel picks the splat renderer (auto, raster with CPU sort,
@@ -33,6 +35,7 @@
 // - upstream caps the pixel ratio at 2; the examples render at one pixel per point.
 //
 #include <cmath>
+#include <cstdlib>
 #include <memory>
 
 #include "extras/script/cameraControls.h"
@@ -80,7 +83,9 @@ protected:
         // -----------------------------------------------------------------------
         // The skull splat, with its SH bands
         // -----------------------------------------------------------------------
-        const std::string splatPath = assetPath("models/skull.compressed.ply");
+        const char* splatOverride = std::getenv("VISUTWIN_GSPLAT_PLY");
+        const std::string splatPath = splatOverride && *splatOverride ? std::string(splatOverride)
+                                                                       : assetPath("models/skull.compressed.ply");
         spdlog::info("Loading splats from '{}'...", splatPath);
         auto splatResource = GSplatResource::loadPly(splatPath, device());
         if (!splatResource) {

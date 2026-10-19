@@ -202,3 +202,4 @@ visutwin_add_unit_test(visutwin-resources-outlive-device-tests resources-outlive
 visutwin_add_unit_test(visutwin-sky-material-tests sky-material skyMaterialTests.cpp)
 visutwin_add_unit_test(visutwin-clip-planes-tests clip-planes clipPlanesTests.cpp)
 visutwin_add_unit_test(visutwin-directional-shadow-bounds-tests directional-shadow-bounds directionalShadowBoundsTests.cpp)
+visutwin_add_unit_test(visutwin-gsplat-sh-tests gsplat-sh gsplatShTests.cpp)

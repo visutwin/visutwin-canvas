@@ -103,13 +103,14 @@ namespace visutwin::canvas
                 case 3:  return 1;
                 case 8:  return 2;
                 case 15: return 3;
+                case 24: return 4;
                 default: return 0;
             }
         }
 
-        /// SH bands 1-3 per splat, coefficient-major interleaved RGB, zero-padded to 15
-        /// coefficients — the layout the shader reads.
-        using ShRow = std::array<float, 45>;
+        /// SH bands 1-4 per splat, coefficient-major interleaved RGB, zero-padded to 24
+        /// coefficients; a row stores the first GSplatData::shFloatsPerSplat of them.
+        using ShRow = std::array<float, 72>;
 
         // ── Header ───────────────────────────────────────────────────────────
 
@@ -225,7 +226,7 @@ namespace visutwin::canvas
                 return std::nullopt;
             }
 
-            // SH bands from the count of present f_rest_* properties (9/24/45).
+            // SH bands from the count of present f_rest_* properties (9/24/45/72).
             while (true) {
                 const int column = prop("f_rest_" + std::to_string(ply.fRest.size()));
                 if (column < 0) {
@@ -260,7 +261,7 @@ namespace visutwin::canvas
         }
 
         // f_rest is channel-major: [R(shCoeffs), G(shCoeffs), B(shCoeffs)].
-        // Reorder to coefficient-major interleaved, zero-padded to 15.
+        // Reorder to coefficient-major interleaved, zero-padded.
         ShRow decodeUncompressedSh(const float* row, const UncompressedPly& ply)
         {
             ShRow sh{};
@@ -462,13 +463,13 @@ namespace visutwin::canvas
         _splats.reserve(count);
         _centers.reserve(count * 3);
         if (shBands > 0) {
-            _shCoeffs.reserve(count * 45);
+            _shCoeffs.reserve(count * static_cast<size_t>(shFloatsPerSplat(shBands)));
         }
     }
 
-    void GSplatData::appendShRow(const float* sh45)
+    void GSplatData::appendShRow(const float* row)
     {
-        _shCoeffs.insert(_shCoeffs.end(), sh45, sh45 + 45);
+        _shCoeffs.insert(_shCoeffs.end(), row, row + shFloatsPerSplat(_shBands));
     }
 
     void GSplatData::appendSplat(const GpuSplat& s, BoundsAccumulator& bounds)
@@ -567,7 +568,7 @@ namespace visutwin::canvas
             data->appendSplat(buildSplat(pos, q[3], q[0], q[1], q[2], in.scales.data() + i * 3, colorRGB,
                 in.opacities[i]), bounds);
             if (bands > 0) {
-                // Already coefficient-major interleaved; pad to the 15 the shader reads.
+                // Already coefficient-major interleaved; padded to the row the shader reads.
                 ShRow sh{};
                 std::copy_n(in.shRest.data() + i * static_cast<size_t>(coeffs) * 3, coeffs * 3, sh.begin());
                 data->appendShRow(sh.data());
