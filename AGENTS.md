@@ -347,7 +347,11 @@ bindings like a program of the tree, so it needs the source tree at run time. Wh
   variant: gate it on the feature (`VT_FEATURE_ALPHA_TEST`, `_SHADOW_DITHER`,
   `_OPACITY_DITHER`), which specialisation removes. Likewise the shadow program defines
   `VT_SHADOW_PROGRAM`, and `forwardFinish` then writes only what a shadow fragment reads, so
-  the shared vertex stage drops the normal frame there. Together these took the Slang shadow
+  the shared vertex stage drops the normal frame there; its vertex entries return
+  `ForwardVertexOut`, which in the shadow program carries only the position, the world
+  position and the two UVs (`forwardVertexOut`, the identity in the forward program), so no
+  shadow pipeline has an output its fragment does not read. A shadow fragment that needs
+  another varying adds it there, at its forward location. Together these took the Slang shadow
   pass on `post-processing` from 35% over the hand-written MSL to level.
 - **A path gated only by a RUNTIME value is paid for by every draw of the variant, even when
   it never runs.** A uniform branch is cheap; the registers the dead path keeps live are not
@@ -3616,11 +3620,6 @@ What stays HERE is only what bites during UNRELATED work.
   `element-states`). (3) `.basis` files do not load (libktx reads KTX2 only; `texture-basis`
   ships KTX2 re-encodes). (4) A custom shader material gets no skin or morph variant
   (`shaders/shader-hatch`).
-- **A shadow pipeline whose fragment stage runs warns under Vulkan validation** that its vertex
-  stage writes location 5 and the fragment stage does not read it (a performance warning). It shows
-  where a caster gets a fragment stage that reads only some varyings: `dynamic-sky`'s island, a VSM
-  caster in `shadow-bounds`, the clipped casters of `clipping-planes`. Find which output before
-  trusting the shadow program's interface for other models.
 - **Queued — none a correctness bug:** the
   binding footprint exceeds WebGPU's defaults (Metal 43 texture slots, Vulkan 7 sets). The
   parsers derive tangents through one `generateTangents` / `tangentFromNormal`

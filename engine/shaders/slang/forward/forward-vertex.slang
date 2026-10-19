@@ -122,7 +122,7 @@ struct ForwardInstancedColorVertexIn
 
 struct ForwardPointVarying
 {
-    ForwardVarying v;
+    ForwardVertexOut v;
     float pointSize : SV_PointSize;
 };
 
@@ -207,7 +207,7 @@ float4x4 skinMatrix(float4 weights, float4 indices)
 // ---- Entries ----
 
 [shader("vertex")]
-ForwardVarying forwardVertex(ForwardVertexIn input)
+ForwardVertexOut forwardVertex(ForwardVertexIn input)
 {
     float3 localPos = input.position;
     // Vertex displacement along the local normal from a height map; explicit LOD (no
@@ -232,11 +232,12 @@ ForwardVarying forwardVertex(ForwardVertexIn input)
         // Screen-space UI: the element's world transform already carries it to clip space.
         clip = float4(world.x, world.y, 0.5, 1.0);
     }
-    return forwardFinish(world, clip, drawNormalMatrix(), normal, tangent, input.uv0, input.uv1, model);
+    return forwardVertexOut(forwardFinish(world, clip, drawNormalMatrix(), normal, tangent, input.uv0, input.uv1,
+        model));
 }
 
 [shader("vertex")]
-ForwardVarying forwardSkyVertex(ForwardVertexIn input)
+ForwardVertexOut forwardSkyVertex(ForwardVertexIn input)
 {
     const float4x4 model = drawModel();
     const float4 world = mul(float4(input.position, 1.0), model);
@@ -254,11 +255,11 @@ ForwardVarying forwardSkyVertex(ForwardVertexIn input)
     // The view ray: the pre-transform vertex position, carried in the normal. The world
     // position minus the camera would cancel catastrophically at globe scale (both ~1e7 m).
     o.worldNormal = input.position;
-    return o;
+    return forwardVertexOut(o);
 }
 
 [shader("vertex")]
-ForwardVarying forwardColorVertex(ForwardColorVertexIn input)
+ForwardVertexOut forwardColorVertex(ForwardColorVertexIn input)
 {
     float3 position = input.position;
     float3 normal = input.normal;
@@ -269,7 +270,7 @@ ForwardVarying forwardColorVertex(ForwardColorVertexIn input)
     ForwardVarying o = forwardFinish(world, forwardClip(world), drawNormalMatrix(), normal, tangent,
         input.uv0, input.uv1, model);
     o.color = forwardVertexColor(input.color);
-    return o;
+    return forwardVertexOut(o);
 }
 
 [shader("vertex")]
@@ -278,17 +279,19 @@ ForwardPointVarying forwardPointVertex(ForwardPointVertexIn input)
     const float4x4 model = drawModel();
     const float4 world = mul(float4(input.position, 1.0), model);
     const float4 clip = forwardClip(world);
+    ForwardVarying v;
+    v.position = clip;
+    v.worldPos = world.xyz;
+    v.worldNormal = float3(0.0);   // the fragment stage's unlit sentinel
+    v.worldTangent = float4(1.0, 0.0, 0.0, 1.0);
+    v.uv0 = float2(0.0);
+    v.uv1 = float2(0.0);
+    v.viewDepth = clip.w;
+    v.color = forwardVertexColor(input.color);
+    v.modelScale = forwardModelScale(model);
+    v.instanceColor = material.baseColor;
     ForwardPointVarying o;
-    o.v.position = clip;
-    o.v.worldPos = world.xyz;
-    o.v.worldNormal = float3(0.0);   // the fragment stage's unlit sentinel
-    o.v.worldTangent = float4(1.0, 0.0, 0.0, 1.0);
-    o.v.uv0 = float2(0.0);
-    o.v.uv1 = float2(0.0);
-    o.v.viewDepth = clip.w;
-    o.v.color = forwardVertexColor(input.color);
-    o.v.modelScale = forwardModelScale(model);
-    o.v.instanceColor = material.baseColor;
+    o.v = forwardVertexOut(v);
     // DEVIATION between the backends, kept: Metal draws a point 3 pixels across, Vulkan 1.
     __target_switch
     {
@@ -301,7 +304,7 @@ ForwardPointVarying forwardPointVertex(ForwardPointVertexIn input)
 }
 
 [shader("vertex")]
-ForwardVarying forwardDynamicBatchVertex(ForwardDynamicBatchVertexIn input)
+ForwardVertexOut forwardDynamicBatchVertex(ForwardDynamicBatchVertexIn input)
 {
     // The world transform comes from the palette, by the vertex's own index; the bare 3x3
     // carries the normal (uniform-scale batches).
@@ -310,7 +313,7 @@ ForwardVarying forwardDynamicBatchVertex(ForwardDynamicBatchVertexIn input)
     const float3x3 normalMatrix = float3x3(model[0].xyz, model[1].xyz, model[2].xyz);
     ForwardVarying o = forwardFinish(world, forwardClip(world), normalMatrix, input.normal, input.tangent,
         input.uv0, input.uv1, drawModel());
-    return o;
+    return forwardVertexOut(o);
 }
 
 ForwardVarying forwardSkinned(float3 position, float3 normal, ForwardSkinnedVertexIn input)
@@ -329,22 +332,22 @@ ForwardVarying forwardSkinned(float3 position, float3 normal, ForwardSkinnedVert
 }
 
 [shader("vertex")]
-ForwardVarying forwardSkinnedVertex(ForwardSkinnedVertexIn input)
+ForwardVertexOut forwardSkinnedVertex(ForwardSkinnedVertexIn input)
 {
-    return forwardSkinned(input.position, input.normal, input);
+    return forwardVertexOut(forwardSkinned(input.position, input.normal, input));
 }
 
 [shader("vertex")]
-ForwardVarying forwardSkinnedMorphedVertex(ForwardSkinnedVertexIn input, uint vertexIndex : SV_VulkanVertexID)
+ForwardVertexOut forwardSkinnedMorphedVertex(ForwardSkinnedVertexIn input, uint vertexIndex : SV_VulkanVertexID)
 {
     float3 position = input.position;
     float3 normal = input.normal;
     applyMorph(position, normal, vertexIndex);
-    return forwardSkinned(position, normal, input);
+    return forwardVertexOut(forwardSkinned(position, normal, input));
 }
 
 [shader("vertex")]
-ForwardVarying forwardMorphedVertex(ForwardVertexIn input, uint vertexIndex : SV_VulkanVertexID)
+ForwardVertexOut forwardMorphedVertex(ForwardVertexIn input, uint vertexIndex : SV_VulkanVertexID)
 {
     float3 position = input.position;
     float3 normal = input.normal;
@@ -353,8 +356,8 @@ ForwardVarying forwardMorphedVertex(ForwardVertexIn input, uint vertexIndex : SV
     forwardLocalVertex(position, normal, tangent, input.uv0, input.uv1);
     const float4x4 model = drawModel();
     const float4 world = mul(float4(position, 1.0), model);
-    return forwardFinish(world, forwardClip(world), drawNormalMatrix(), normal, tangent, input.uv0,
-        input.uv1, model);
+    return forwardVertexOut(forwardFinish(world, forwardClip(world), drawNormalMatrix(), normal, tangent,
+        input.uv0, input.uv1, model));
 }
 
 ForwardVarying forwardInstanced(ForwardVertexIn input, float4x4 instance)
@@ -384,14 +387,14 @@ ForwardVertexIn forwardVertexOf(ForwardInstancedVertexIn input)
 }
 
 [shader("vertex")]
-ForwardVarying forwardInstancedVertex(ForwardInstancedVertexIn input)
+ForwardVertexOut forwardInstancedVertex(ForwardInstancedVertexIn input)
 {
-    return forwardInstanced(forwardVertexOf(input),
-        float4x4(input.instance0, input.instance1, input.instance2, input.instance3));
+    return forwardVertexOut(forwardInstanced(forwardVertexOf(input),
+        float4x4(input.instance0, input.instance1, input.instance2, input.instance3)));
 }
 
 [shader("vertex")]
-ForwardVarying forwardInstancedColorVertex(ForwardInstancedColorVertexIn input)
+ForwardVertexOut forwardInstancedColorVertex(ForwardInstancedColorVertexIn input)
 {
     ForwardVertexIn v;
     v.position = input.position;
@@ -401,5 +404,5 @@ ForwardVarying forwardInstancedColorVertex(ForwardInstancedColorVertexIn input)
     v.uv1 = input.uv1;
     ForwardVarying o = forwardInstanced(v, float4x4(input.instance0, input.instance1, input.instance2, input.instance3));
     o.instanceColor = input.instanceColor;
-    return o;
+    return forwardVertexOut(o);
 }

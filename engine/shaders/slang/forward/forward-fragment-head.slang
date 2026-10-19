@@ -318,3 +318,32 @@ struct ForwardVarying
     // a material without normal, clearcoat-normal or height maps builds its anisotropy on.
     [[vk::location(9)]] float3 objectUp : TEXCOORD8;
 };
+
+// What a vertex entry hands on. In the shadow program that is only what a shadow fragment
+// reads (the position, the world position and the UVs, at the forward locations): the other
+// varyings would be outputs nothing consumes, interpolated for nothing. In the forward program
+// it is the whole varying, unchanged.
+#if defined(VT_SHADOW_PROGRAM)
+struct ForwardVertexOut
+{
+    float4 position : SV_Position;
+    [[vk::location(0)]] float3 worldPos : TEXCOORD0;
+    [[vk::location(2)]] float2 uv0 : TEXCOORD2;
+    [[vk::location(3)]] float2 uv1 : TEXCOORD3;
+};
+ForwardVertexOut forwardVertexOut(ForwardVarying v)
+{
+    ForwardVertexOut o;
+    o.position = v.position;
+    o.worldPos = v.worldPos;
+    o.uv0 = v.uv0;
+    o.uv1 = v.uv1;
+    return o;
+}
+#else
+typedef ForwardVarying ForwardVertexOut;
+ForwardVertexOut forwardVertexOut(ForwardVarying v)
+{
+    return v;
+}
+#endif

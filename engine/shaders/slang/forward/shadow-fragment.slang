@@ -18,7 +18,7 @@
 // opacity frontend for a caster that needs it, and no fragment stage at all otherwise.
 
 // Discards the fragment when the caster's material says the surface is not there.
-void applyShadowOpacity(ForwardVarying input)
+void applyShadowOpacity(ForwardVertexOut input)
 {
     // What the clipping planes clip casts no shadow and writes no prepass depth.
     applyClipPlanes(input.worldPos);
@@ -84,7 +84,7 @@ bool shadowDistanceRatio(float4x4 vp, float3 worldPos, out float ratio)
 }
 
 [shader("fragment")]
-void shadowOpacityFragment(ForwardVarying input)
+void shadowOpacityFragment(ForwardVertexOut input)
 {
     applyShadowOpacity(input);
 }
@@ -92,7 +92,7 @@ void shadowOpacityFragment(ForwardVarying input)
 // EVSM_16F moments: (exp(c z'), exp(c z')^2, 1, 1) with c = 5.54 and z' = 2 depth - 1. The
 // .z = 1 marks "rendered"; cleared texels stay (0, 0, 0, 0) and read as fully lit.
 [shader("fragment")]
-float4 shadowVsmFragment(ForwardVarying input) : SV_Target0
+float4 shadowVsmFragment(ForwardVertexOut input) : SV_Target0
 {
     applyShadowOpacity(input);
     float depth = input.position.z;
