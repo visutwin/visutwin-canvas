@@ -64,6 +64,12 @@ namespace visutwin::canvas
         return it != pixelFormatInfo.end() && it->second.isInt;
     };
 
+    bool isFloatPixelFormat(const PixelFormat format)
+    {
+        return format == PixelFormat::PIXELFORMAT_RGBA16F || format == PixelFormat::PIXELFORMAT_RGBA32F ||
+            format == PixelFormat::PIXELFORMAT_R32F || format == PixelFormat::PIXELFORMAT_BC6H;
+    }
+
     uint32_t pixelFormatBytesPerPixel(const PixelFormat format)
     {
         const auto it = pixelFormatInfo.find(format);

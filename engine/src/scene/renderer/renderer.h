@@ -179,6 +179,22 @@ namespace visutwin::canvas
         }
         const std::vector<std::shared_ptr<RenderPass>>& appendPasses() const { return _appendPasses; }
 
+        // App-injected render passes put at the START of every frame graph, before any
+        // shadow or camera pass: a pass producing a texture this frame's cameras sample (a
+        // procedural material map). A disabled pass is skipped, so a pass that renders only
+        // when its output changes sets its enabled state before the frame is built (from an
+        // update or the engine's "prerender" event). The engine's own "prerender" fires before
+        // the frame starts, where a pass cannot record on every backend.
+        void addPrependPass(const std::shared_ptr<RenderPass>& pass)
+        {
+            _prependPasses.push_back(pass);
+        }
+        void removePrependPass(const std::shared_ptr<RenderPass>& pass)
+        {
+            std::erase(_prependPasses, pass);
+        }
+        const std::vector<std::shared_ptr<RenderPass>>& prependPasses() const { return _prependPasses; }
+
         // Per-frame GPU instance culling: for every active MeshInstance that called
         // enableGpuInstanceCulling(), one compute cull per camera in `cameras`, each into
         // that camera's own output (MeshInstance::gpuCullOutputFor), so every view draws
@@ -199,6 +215,7 @@ namespace visutwin::canvas
         void syncShadowComponentRegistry();
 
         std::vector<std::shared_ptr<RenderPass>> _appendPasses;
+        std::vector<std::shared_ptr<RenderPass>> _prependPasses;
         std::shared_ptr<GraphicsDevice> _device;
 
         std::shared_ptr<Scene> _scene;

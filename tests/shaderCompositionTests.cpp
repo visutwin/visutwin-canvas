@@ -323,6 +323,22 @@ int main()
         a.setNormalMap(nullptr);
         check(ProgramLibraryTestAccess::key(msl, &a) == base, "and clearing it returns to the old key");
 
+        // A base colour map in a float format holds linear colours (a texture a pass rendered),
+        // read without the sRGB decode an 8-bit map takes.
+        Texture byteColor(device.get());
+        a.setDiffuseMap(&byteColor);
+        check(ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::BaseColorMap) &&
+                  !ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::BaseColorMapLinear),
+            "an 8-bit base colour map is decoded from sRGB");
+        TextureOptions halfOptions;
+        halfOptions.format = PixelFormat::PIXELFORMAT_RGBA16F;
+        Texture halfColor(device.get(), halfOptions);
+        a.setDiffuseMap(&halfColor);
+        check(ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::BaseColorMapLinear),
+            "a half-float base colour map compiles VT_FEATURE_BASE_COLOR_MAP_LINEAR");
+        a.setDiffuseMap(nullptr);
+        check(ProgramLibraryTestAccess::key(msl, &a) == base, "and clearing it returns to the old key");
+
         // A material's own environment atlas, and box projection of its reflections.
         Texture materialAtlas(device.get());
         materialAtlas.setEncoding(TextureEncoding::RGBP);

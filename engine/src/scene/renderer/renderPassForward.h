@@ -5,12 +5,16 @@
 //
 #pragma once
 
+#include <memory>
+#include <vector>
+
 #include "platform/graphics/renderPass.h"
 #include "scene/composition/renderAction.h"
 
 namespace visutwin::canvas
 {
     class CameraComponent;
+    class Layer;
     class LayerComposition;
     class Scene;
     class Renderer;
@@ -30,6 +34,21 @@ namespace visutwin::canvas
 
         /// Adds a render action of the pass's camera; one of another camera is refused.
         void addRenderAction(RenderAction* renderAction);
+
+        /// Adds a layer the pass's camera renders, as a render action the pass owns: an
+        /// application's own forward pass (a camera's render passes). With `autoClears` the
+        /// first layer added takes the camera's and the layer's clear flags, a later one the
+        /// layer's alone. Call after init(), which sets the target the actions render into.
+        void addLayer(Layer* layer, bool transparent, bool autoClears = true);
+
+        /// Marks the pass as the first / last rendering its camera in the frame, so it fires the
+        /// scene's "prerender" / "postrender" for the camera: what the frame graph sets for a
+        /// forward pass among a camera's render passes, whose actions no composition marks.
+        void setCameraUse(const bool first, const bool last)
+        {
+            _firstCameraUse = first;
+            _lastCameraUse = last;
+        }
         [[nodiscard]] CameraComponent* camera() const { return _camera; }
         const std::vector<RenderAction*>& renderActions() const { return _renderActions; }
 
@@ -53,6 +72,9 @@ namespace visutwin::canvas
         Renderer* _renderer = nullptr;
         CameraComponent* _camera = nullptr;
         std::vector<RenderAction*> _renderActions;
+        std::vector<std::unique_ptr<RenderAction>> _ownedActions;
+        bool _firstCameraUse = false;
+        bool _lastCameraUse = false;
 
         bool _hdrPass = false;
 

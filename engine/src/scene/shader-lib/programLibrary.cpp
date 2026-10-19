@@ -124,6 +124,7 @@ namespace visutwin::canvas
 
         // Prefer StandardMaterial-specific textures, fall back to base Material typed properties.
         options.baseColorMap = (stdMat.diffuseMap() || stdMat.baseColorTexture());
+        options.baseColorMapLinear = stdMat.diffuseMap() && isFloatPixelFormat(stdMat.diffuseMap()->format());
         options.normalMap = (stdMat.normalMap() || stdMat.normalTexture());
         options.normalMapPacked = stdMat.normalMap() &&
             stdMat.normalMap()->encoding() == TextureEncoding::SwizzleGGGR;
@@ -347,6 +348,7 @@ namespace visutwin::canvas
         set(ShaderFeature::Skybox, options.skybox);
         set(ShaderFeature::SkyDepth, options.skyDepth);
         set(ShaderFeature::BaseColorMap, options.baseColorMap);
+        set(ShaderFeature::BaseColorMapLinear, options.baseColorMap && options.baseColorMapLinear);
         set(ShaderFeature::NormalMap, options.normalMap);
         set(ShaderFeature::NormalMapPacked, options.normalMap && options.normalMapPacked);
         set(ShaderFeature::MaterialEnvAtlas, options.materialEnvAtlas);

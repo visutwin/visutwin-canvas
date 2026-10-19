@@ -115,6 +115,13 @@ namespace visutwin::canvas
         cullMeshInstancesForFrame(*layerComposition);
         cullLightsForFrame(*layerComposition);
 
+        // App-injected passes (Renderer::addPrependPass) run first.
+        for (const auto& prependPass : _prependPasses) {
+            if (prependPass) {
+                frameGraph->addRenderPass(prependPass);
+            }
+        }
+
         const std::vector<Light*> atlasLights = addLocalShadowPasses(frameGraph);
         if (_scene->clusteredLightingEnabled()) {
             addClusteredLightingPass(frameGraph, atlasLights);
@@ -379,8 +386,27 @@ namespace visutwin::canvas
                 addDirectionalShadowPasses(frameGraph, renderAction->camera->camera());
             }
             if (renderAction->useCameraPasses) {
-                // schedule render passes from the camera
-                for (const auto& renderPass : renderAction->camera->renderPasses()) {
+                // Schedule the camera's own passes. The first and the last forward pass among
+                // them fire the camera's prerender and postrender, as the composition's
+                // actions do for a camera rendering its layers.
+                const auto& cameraPasses = renderAction->camera->renderPasses();
+                RenderPassForward* firstForward = nullptr;
+                RenderPassForward* lastForward = nullptr;
+                for (const auto& renderPass : cameraPasses) {
+                    if (auto* forward = dynamic_cast<RenderPassForward*>(renderPass.get());
+                        forward && forward->enabled()) {
+                        forward->setCameraUse(false, false);
+                        firstForward = firstForward ? firstForward : forward;
+                        lastForward = forward;
+                    }
+                }
+                if (firstForward) {
+                    firstForward->setCameraUse(true, firstForward == lastForward);
+                    if (lastForward != firstForward) {
+                        lastForward->setCameraUse(false, true);
+                    }
+                }
+                for (const auto& renderPass : cameraPasses) {
                     if (renderPass) {
                         frameGraph->addRenderPass(renderPass);
                     }

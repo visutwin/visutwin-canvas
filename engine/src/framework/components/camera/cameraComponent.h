@@ -197,6 +197,8 @@ namespace visutwin::canvas
 
         // Gets the render passes the camera uses for rendering, instead of its default rendering
         const std::vector<std::shared_ptr<RenderPass>>& renderPasses() const { return _camera->renderPasses(); }
+        /// Sets them; an empty list puts the camera's default rendering back.
+        void setRenderPasses(const std::vector<std::shared_ptr<RenderPass>>& passes) { _camera->setRenderPasses(passes); }
 
         bool renderSceneColorMap() const { return _renderSceneColorMap > 0; }
 

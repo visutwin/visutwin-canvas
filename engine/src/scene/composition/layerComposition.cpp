@@ -303,6 +303,9 @@ namespace visutwin::canvas
                 auto* action = new RenderAction();
                 action->camera = cameraComponent;
                 action->useCameraPasses = true;
+                // The camera's only action: its directional shadows render before its passes.
+                action->firstCameraUse = true;
+                action->lastCameraUse = true;
                 _renderActions.push_back(action);
                 continue;
             }

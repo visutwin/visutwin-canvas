@@ -180,6 +180,10 @@ namespace visutwin::canvas
         void storeShaderMatrices(const Matrix4& viewProjection, float jitterX, float jitterY, int renderVersion);
 
         const std::vector<std::shared_ptr<RenderPass>>& renderPasses() const { return _renderPasses; };
+        /// Passes that replace the camera's own rendering: the frame graph schedules them in
+        /// order where the camera would render, after its directional shadows. A forward pass
+        /// among them takes this camera's component.
+        void setRenderPasses(const std::vector<std::shared_ptr<RenderPass>>& passes) { _renderPasses = passes; }
 
         const std::shared_ptr<RenderTarget>& renderTarget() const { return _renderTarget; }
         void setRenderTarget(const std::shared_ptr<RenderTarget>& value) { _renderTarget = value;}

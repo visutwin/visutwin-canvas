@@ -105,6 +105,10 @@ namespace visutwin::canvas
 
     bool isIntegerPixelFormat(PixelFormat format);
 
+    /// True for a format that stores floating-point values (half, float, BC6H): its colours are
+    /// linear as stored, where an 8-bit colour map is authored in sRGB.
+    bool isFloatPixelFormat(PixelFormat format);
+
     uint32_t pixelFormatBytesPerPixel(PixelFormat format);
 
     /// Bytes per compressed block (0 for uncompressed).

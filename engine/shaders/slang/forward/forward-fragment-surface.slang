@@ -159,7 +159,10 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
     // An instanced draw with per-instance colours (an 80-byte instance stride) takes its
     // base colour from the instance instead of the material.
     const float4 baseFactor = vtFeatureEnabled(VT_FEATURE_INSTANCING_COLOR_BIT) ? input.instanceColor : material.baseColor;
-    float3 baseLinear = srgbToLinear(baseFactor.rgb) * srgbToLinear(baseSample.rgb);
+    // A map in a float format stores linear colours already (a render target a pass drew).
+    const float3 baseSampleLinear = vtFeatureEnabled(VT_FEATURE_BASE_COLOR_MAP_LINEAR_BIT)
+        ? baseSample.rgb : srgbToLinear(baseSample.rgb);
+    float3 baseLinear = srgbToLinear(baseFactor.rgb) * baseSampleLinear;
     float4 albedo = float4(baseLinear * vertexTint.rgb,
         baseFactor.a * baseSample.a * vertexTint.a);
 

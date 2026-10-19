@@ -39,6 +39,26 @@ namespace visutwin::canvas
         _renderActions.push_back(renderAction);
     }
 
+    void RenderPassForward::addLayer(Layer* layer, const bool transparent, const bool autoClears)
+    {
+        if (!layer || !_camera) {
+            return;
+        }
+        if (!_camera->rendersLayer(layer->id())) {
+            spdlog::warn("RenderPassForward::addLayer: the camera does not render layer '{}'", layer->name());
+        }
+        auto action = std::make_unique<RenderAction>();
+        action->camera = _camera;
+        action->layer = layer;
+        action->transparent = transparent;
+        action->renderTarget = renderTarget();
+        if (autoClears) {
+            action->setupClears(_renderActions.empty() ? _camera : nullptr, layer);
+        }
+        _renderActions.push_back(action.get());
+        _ownedActions.push_back(std::move(action));
+    }
+
     void RenderPassForward::updateClears()
     {
         if (_renderActions.empty()) {
@@ -104,6 +124,9 @@ namespace visutwin::canvas
 
         updateClears();
 
+        if (_firstCameraUse && _scene) {
+            _scene->fire("prerender", _camera);
+        }
         for (const auto* ra : _renderActions) {
             if (ra && ra->firstCameraUse && _scene) {
                 _scene->fire("prerender", ra->camera);
@@ -200,6 +223,9 @@ namespace visutwin::canvas
             if (ra && ra->lastCameraUse && _scene) {
                 _scene->fire("postrender", ra->camera);
             }
+        }
+        if (_lastCameraUse && _scene) {
+            _scene->fire("postrender", _camera);
         }
 
         // restore normal shader output after HDR pass completes.

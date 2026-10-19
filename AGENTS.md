@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 157 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 159 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -298,7 +298,9 @@ bindings like a program of the tree, so it needs the source tree at run time. Wh
   `VT_DECLARE_QUAD_TEXEL_INPUTn` is an input read only with `Load`: a plain image on Metal,
   where `Load` through a combined sampler emits code Apple's compiler rejects.
 - **`VISUTWIN_SLANG_RUNTIME=1` compiles from the source tree instead** (found through
-  `shaderSourceRoots()`, so `VISUTWIN_CANVAS_SHADERS=<dir>` points at another tree), through
+  `shaderSourceRoots()`, so `VISUTWIN_CANVAS_SHADERS=<dir>` points at another tree: `<dir>` is a
+  PROJECT ROOT holding `engine/shaders/slang`, not the slang directory itself, which is silently
+  passed over for the repository's own tree), through
   `SlangCompiler` with `bindings.slang` served from memory; Vulkan keeps that SPIR-V in its
   persistent shader cache (`slang-vert` / `slang-frag` / `slang-comp`, keyed on the Slang
   version, target, program, every module and the bindings). This is the hot-reload and
@@ -1641,7 +1643,12 @@ present, but the rule below never depends on reading it.
   target's, and scale anything measured in scene pixels (the DOF radius) by the ratio.
 - **Do not draw to the back buffer after `Engine::render()`** — `frameEnd`
   presents the drawable and a stale `_frameDrawable` reuse is a pointer-auth
-  SIGSEGV. Use `Renderer::addAppendPass` to append app passes to the frame graph.
+  SIGSEGV. Use `Renderer::addAppendPass` to append app passes to the frame graph, and
+  `Renderer::addPrependPass` for a pass producing a texture this frame's cameras sample (it
+  runs first; gate it with `setEnabled` before the frame is built). Never render a pass from the
+  engine's "prerender" event: it fires before `frameStart`, where Vulkan has no command buffer
+  recording. A camera's own passes (`CameraComponent::setRenderPasses`) replace its rendering;
+  a `RenderPassForward` among them takes its layers with `addLayer` (actions the pass owns).
 - **`Compute` parameter binding is by NAME in sorted order, and the INDICES DIFFER
   PER BACKEND.** This port has no shader reflection, so the order is derived from
   the names — buffers, then textures, then the single uniform block, each group
@@ -3628,7 +3635,9 @@ What stays HERE is only what bites during UNRELATED work.
   curve). Audited 2026-10-13: of the ported examples only `texture-copy` shows an unflagged
   texture in an image element (its thumbnails read lighter upstream, by exactly one decode);
   every UI atlas is flagged (`uiAtlasData.srgb`), and no port uses an unflagged colour map in a
-  material. A float texture as a colour map is linear upstream; nothing here exercises it. (2) No `CanvasFont` (`text-emojis`, `element-colors`,
+  material. A BASE COLOUR map in a float format (half, float, BC6H) is linear, as upstream's: it
+  compiles `VT_FEATURE_BASE_COLOR_MAP_LINEAR` and skips the decode (`render-pass-procedural-texture`);
+  the other colour maps (emissive, sheen ...) still decode any format. (2) No `CanvasFont` (`text-emojis`, `element-colors`,
   `element-states`). (3) `.basis` files do not load (libktx reads KTX2 only; `texture-basis`
   ships KTX2 re-encodes). (4) A custom shader material gets no skin or morph variant
   (`shaders/shader-hatch`).

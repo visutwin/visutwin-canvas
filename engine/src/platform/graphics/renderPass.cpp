@@ -18,20 +18,27 @@ namespace visutwin::canvas
     void RenderPass::frameUpdate() const
     {
         if (_options != nullptr && _renderTarget != nullptr) {
-            // With no explicit resizeSource the pass follows the back buffer. Only the
-            // Metal backend publishes a back-buffer RenderTarget, so on Vulkan this is
-            // null and dereferencing it segfaulted the whole camera-frame subtree —
-            // taking post-processing, DOF and bloom down with it on the first frame.
-            // Falling through with a null source skips the resize, which is the
-            // documented contract: RenderPassCameraFrame::frameUpdate() resizes its own
-            // scene targets from the device size precisely for this case.
-            const auto& backBuffer = _device->backBuffer();
-            const Texture* resizeSource = _options->resizeSource != nullptr
-                ? _options->resizeSource.get()
-                : (backBuffer != nullptr ? backBuffer->getColorBuffer(0) : nullptr);
-            if (resizeSource) {
-                const auto width = std::floor(resizeSource->width() * scaleX());
-                const auto height = std::floor(resizeSource->height() * scaleY());
+            // With no explicit resizeSource the pass follows the back buffer: its colour
+            // target where the backend publishes one (Metal), the device's size otherwise
+            // (Vulkan has no back-buffer RenderTarget). Skipping the resize there left such a
+            // target at its creation size on Vulkan alone.
+            float sourceWidth = 0.0f;
+            float sourceHeight = 0.0f;
+            if (const Texture* source = _options->resizeSource.get()) {
+                sourceWidth = static_cast<float>(source->width());
+                sourceHeight = static_cast<float>(source->height());
+            } else if (const auto& backBuffer = _device->backBuffer();
+                       backBuffer != nullptr && backBuffer->getColorBuffer(0) != nullptr) {
+                sourceWidth = static_cast<float>(backBuffer->getColorBuffer(0)->width());
+                sourceHeight = static_cast<float>(backBuffer->getColorBuffer(0)->height());
+            } else {
+                const auto [width, height] = _device->size();
+                sourceWidth = static_cast<float>(width);
+                sourceHeight = static_cast<float>(height);
+            }
+            if (sourceWidth > 0.0f && sourceHeight > 0.0f) {
+                const auto width = std::floor(sourceWidth * scaleX());
+                const auto height = std::floor(sourceHeight * scaleY());
                 _renderTarget->resize(width, height);
             }
         }

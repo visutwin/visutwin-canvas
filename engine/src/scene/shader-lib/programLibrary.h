@@ -193,6 +193,8 @@ namespace visutwin::canvas
             bool doubleSided = false;
 
             bool baseColorMap = false;
+            // The base colour map stores linear colours (a float format), read without a decode.
+            bool baseColorMapLinear = false;
             bool normalMap = false;
             // The normal map is packed (TextureEncoding::SwizzleGGGR): x in alpha, y in green.
             bool normalMapPacked = false;
