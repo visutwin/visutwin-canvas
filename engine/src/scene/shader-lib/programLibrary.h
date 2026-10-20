@@ -205,6 +205,8 @@ namespace visutwin::canvas
             bool metallicRoughnessMap = false;
             bool occlusionMap = false;
             bool emissiveMap = false;
+            // The emissive map stores linear colours (a float format), read without a decode.
+            bool emissiveMapLinear = false;
             // A StandardMaterial's gloss and opacity maps: variants, not runtime flags, so a
             // material without them carries neither read (and its registers) in its shader.
             bool glossMap = false;

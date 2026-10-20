@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 159 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 160 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -3645,9 +3645,10 @@ What stays HERE is only what bites during UNRELATED work.
   curve). Audited 2026-10-13: of the ported examples only `texture-copy` shows an unflagged
   texture in an image element (its thumbnails read lighter upstream, by exactly one decode);
   every UI atlas is flagged (`uiAtlasData.srgb`), and no port uses an unflagged colour map in a
-  material. A BASE COLOUR map in a float format (half, float, BC6H) is linear, as upstream's: it
-  compiles `VT_FEATURE_BASE_COLOR_MAP_LINEAR` and skips the decode (`render-pass-procedural-texture`);
-  the other colour maps (emissive, sheen ...) still decode any format. (2) No `CanvasFont` (`text-emojis`, `element-colors`,
+  material. A BASE COLOUR or EMISSIVE map in a float format (half, float, BC6H) is linear, as
+  upstream's: it compiles `VT_FEATURE_BASE_COLOR_MAP_LINEAR` / `_EMISSIVE_MAP_LINEAR` and skips the
+  decode (`render-pass-procedural-texture`, `render-pass-shader-quad`); the other colour maps
+  (sheen, specular colour ...) still decode any format. (2) No `CanvasFont` (`text-emojis`, `element-colors`,
   `element-states`). (3) `.basis` files do not load (libktx reads KTX2 only; `texture-basis`
   ships KTX2 re-encodes). (4) A custom shader material gets no skin or morph variant
   (`shaders/shader-hatch`).

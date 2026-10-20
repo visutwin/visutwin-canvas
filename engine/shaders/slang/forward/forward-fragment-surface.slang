@@ -238,7 +238,9 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
         if (vtFeatureEnabled(VT_FEATURE_EMISSIVE_MAP_BIT)) {
             // Decoded as the lit path decodes it; read as raw sRGB an unlit emissive
             // map would come out too bright.
-            unlitEmissive *= srgbToLinear(emissiveMap.Sample(uvEmissive).rgb);
+            const float3 emissiveSample = emissiveMap.Sample(uvEmissive).rgb;
+            unlitEmissive *= vtFeatureEnabled(VT_FEATURE_EMISSIVE_MAP_LINEAR_BIT) ? emissiveSample
+                                                                                 : srgbToLinear(emissiveSample);
         }
         if ((material.flags & (1u << 23)) != 0u) {
             unlitEmissive *= clamp(fragColor.rgb, 0.0, 1.0);

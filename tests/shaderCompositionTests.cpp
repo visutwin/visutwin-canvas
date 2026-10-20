@@ -338,6 +338,16 @@ int main()
             "a half-float base colour map compiles VT_FEATURE_BASE_COLOR_MAP_LINEAR");
         a.setDiffuseMap(nullptr);
         check(ProgramLibraryTestAccess::key(msl, &a) == base, "and clearing it returns to the old key");
+        // The emissive map likewise.
+        a.setEmissiveMap(&byteColor);
+        check(ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::EmissiveMap) &&
+                  !ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::EmissiveMapLinear),
+            "an 8-bit emissive map is decoded from sRGB");
+        a.setEmissiveMap(&halfColor);
+        check(ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::EmissiveMapLinear),
+            "a half-float emissive map compiles VT_FEATURE_EMISSIVE_MAP_LINEAR");
+        a.setEmissiveMap(nullptr);
+        check(ProgramLibraryTestAccess::key(msl, &a) == base, "and clearing it returns to the old key");
 
         // A material's own environment atlas, and box projection of its reflections.
         Texture materialAtlas(device.get());

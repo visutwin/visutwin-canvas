@@ -133,6 +133,7 @@ namespace visutwin::canvas
         options.metallicRoughnessMap = (stdMat.metalnessMap() || stdMat.metallicRoughnessTexture());
         options.occlusionMap = (stdMat.aoMap() || stdMat.occlusionTexture());
         options.emissiveMap = (stdMat.emissiveMap() || stdMat.emissiveTexture());
+        options.emissiveMapLinear = stdMat.emissiveMap() && isFloatPixelFormat(stdMat.emissiveMap()->format());
         options.glossMap = stdMat.glossMap() != nullptr;
         options.opacityMap = stdMat.opacityMap() != nullptr;
 
@@ -356,6 +357,7 @@ namespace visutwin::canvas
         set(ShaderFeature::MetallicRoughnessMap, options.metallicRoughnessMap);
         set(ShaderFeature::OcclusionMap, options.occlusionMap);
         set(ShaderFeature::EmissiveMap, options.emissiveMap);
+        set(ShaderFeature::EmissiveMapLinear, options.emissiveMap && options.emissiveMapLinear);
         set(ShaderFeature::GlossMap, options.glossMap);
         set(ShaderFeature::OpacityMap, options.opacityMap);
         set(ShaderFeature::AlphaTest, options.alphaTest);
