@@ -30,8 +30,9 @@
 //   event: that event fires before a frame has begun here, where a pass cannot record on Vulkan.
 // - the colour texture is RGBA16F on both backends (both render to half float); upstream falls
 //   back to an sRGB 8-bit format, which this engine does not have.
-// - upstream's TextureRenderer is a RenderPassDownsample per preview, appended to the frame with
-//   the rectangle as its viewport; it copies the texture's values as they are, as upstream's does.
+// - upstream's TextureRenderer is a TexturePreviewPass per preview (examples/texturePreview.h),
+//   appended to the frame with the rectangle as its viewport: the float colour texture is
+//   gamma-encoded for the screen, the 8-bit normal map shown as stored, as upstream's are.
 // - upstream's orbit-camera script is CameraControls in orbit mode with the same pitch and
 //   distance ranges; anisotropy is the engine's material sampler's, not the textures' own 8.
 //
@@ -44,13 +45,13 @@
 #include <vector>
 
 #include "../exampleApp.h"
+#include "../texturePreview.h"
 #include "extras/script/cameraControls.h"
 #include "framework/assets/asset.h"
 #include "framework/components/render/primitiveGeometry.h"
 #include "platform/graphics/renderTarget.h"
 #include "platform/graphics/texture.h"
 #include "scene/constants.h"
-#include "scene/graphics/renderPassDownsample.h"
 #include "scene/graphics/renderPassShaderQuad.h"
 #include "scene/materials/standardMaterial.h"
 #include "scene/meshInstance.h"
@@ -378,11 +379,10 @@ protected:
         }
 
         // ------ The previews in the bottom right corner ------
-        _colorPreview = std::make_shared<RenderPassDownsample>(device(), _colorTexture.get());
-        _normalPreview = std::make_shared<RenderPassDownsample>(device(), _normalTexture.get());
+        _colorPreview = std::make_shared<TexturePreviewPass>(device(), _colorTexture.get());
+        _normalPreview = std::make_shared<TexturePreviewPass>(device(), _normalTexture.get());
         for (const auto& preview : {_colorPreview, _normalPreview}) {
             preview->init(nullptr);
-            preview->setRequiresCubemaps(false);
             engine()->renderer()->addAppendPass(preview);
         }
 
@@ -545,8 +545,8 @@ private:
     std::shared_ptr<RenderTarget> _normalTarget;
     std::shared_ptr<RenderPassPattern> _patternPass;
     std::shared_ptr<RenderPassNormalMap> _normalMapPass;
-    std::shared_ptr<RenderPassDownsample> _colorPreview;
-    std::shared_ptr<RenderPassDownsample> _normalPreview;
+    std::shared_ptr<TexturePreviewPass> _colorPreview;
+    std::shared_ptr<TexturePreviewPass> _normalPreview;
     std::shared_ptr<StandardMaterial> _cubeMaterial;
     std::shared_ptr<StandardMaterial> _sphereMaterial;
     std::shared_ptr<StandardMaterial> _groundMaterial;

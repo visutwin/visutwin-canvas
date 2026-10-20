@@ -28,8 +28,9 @@
 //   renders them from the "prerender" event, which fires here before a frame has begun.
 // - the texture is RGBA16F on both backends (both render to half float); upstream falls back to
 //   an sRGB 8-bit format, which this engine does not have.
-// - upstream's TextureRenderer is a RenderPassDownsample appended to the frame, its viewport the
-//   preview rectangle; the orbit-camera script is CameraControls in orbit mode with the same
+// - upstream's TextureRenderer is a TexturePreviewPass (examples/texturePreview.h) appended to the
+//   frame, its viewport the preview rectangle, gamma-encoding the float canvas as upstream's
+//   preview does; the orbit-camera script is CameraControls in orbit mode with the same
 //   distance range; anisotropy is the engine's material sampler's.
 //
 #include <algorithm>
@@ -39,13 +40,13 @@
 #include <vector>
 
 #include "../exampleApp.h"
+#include "../texturePreview.h"
 #include "extras/script/cameraControls.h"
 #include "framework/assets/asset.h"
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/renderTarget.h"
 #include "platform/graphics/texture.h"
 #include "scene/constants.h"
-#include "scene/graphics/renderPassDownsample.h"
 #include "scene/graphics/renderPassShaderQuad.h"
 #include "scene/materials/standardMaterial.h"
 #include "scene/renderer/forwardRenderer.h"
@@ -317,9 +318,8 @@ protected:
         }
 
         // ------ The preview in the bottom right corner ------
-        _preview = std::make_shared<RenderPassDownsample>(device(), _canvasTexture.get());
+        _preview = std::make_shared<TexturePreviewPass>(device(), _canvasTexture.get());
         _preview->init(nullptr);
-        _preview->setRequiresCubemaps(false);
         engine()->renderer()->addAppendPass(_preview);
 
         spdlog::info("Keys: S/A count, ] [ size, . , speed, B blend, T/G trail, O border, C clear");
@@ -407,8 +407,8 @@ protected:
 
 private:
     // The dots of each brush along its path since the previous frame, so the trails stay
-    // continuous at any speed. Positions are canvas pixels, and a viewport's y runs down the
-    // texture as v does, so a dot lands at the same texture coordinate as upstream's.
+    // continuous at any speed. Positions are canvas pixels measured from the BOTTOM, as upstream's
+    // viewports are; a viewport here is measured from the top row, so each dot's y is flipped.
     void addStamps()
     {
         const float radius = static_cast<float>(_size);
@@ -436,8 +436,9 @@ private:
 
                 // the viewport is kept within the canvas
                 RenderPassBrush::Stamp stamp;
+                const float bottom = std::clamp(cy - radius, 0.0f, kCanvasSize - 2.0f * radius);
                 stamp.rect = Vector4(std::clamp(cx - radius, 0.0f, kCanvasSize - 2.0f * radius),
-                    std::clamp(cy - radius, 0.0f, kCanvasSize - 2.0f * radius), 2.0f * radius, 2.0f * radius);
+                    kCanvasSize - 2.0f * radius - bottom, 2.0f * radius, 2.0f * radius);
                 stamp.color = hueToColor(std::fmod(static_cast<float>(i) / static_cast<float>(_count) + _time * 0.05f,
                     1.0f));
                 _brushPass->stamps.push_back(stamp);
@@ -458,7 +459,7 @@ private:
     std::shared_ptr<RenderTarget> _canvasTarget;
     std::shared_ptr<RenderPassFade> _fadePass;
     std::shared_ptr<RenderPassBrush> _brushPass;
-    std::shared_ptr<RenderPassDownsample> _preview;
+    std::shared_ptr<TexturePreviewPass> _preview;
     std::array<std::shared_ptr<BlendState>, 3> _blendStates;
     std::shared_ptr<StandardMaterial> _material;
     Entity* _cube = nullptr;

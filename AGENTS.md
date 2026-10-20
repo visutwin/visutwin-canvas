@@ -1001,7 +1001,8 @@ same flush immediately before `vkQueueSubmit`.
 **Shared example and test code.** Examples build UI elements through `examples/uiElements.h`
 (each example passes its own defaults), screens and UI systems through `ExampleApp::createScreen`
 / `registerUi`, read assets through `Asset::resourceAs<T>()`, and share `grid.h`,
-`transformGizmoExample.h` and `ssaoKeys.h`. Unit tests use `tests/support/`: `check.h`
+`transformGizmoExample.h`, `ssaoKeys.h` and `texturePreview.h` (upstream's TextureRenderer: a
+float texture gamma-encoded, an 8-bit one as stored). Unit tests use `tests/support/`: `check.h`
 (`check`, `near` / `nearStrict` with an explicit epsilon, `finish`), `stubDevice.h` (one
 configurable stub device), `testEngine.h` and `gltfModel.h`, and register through
 `visutwin_add_unit_test` in `tests/CMakeLists.txt`. Do not paste a local copy of any of them.
