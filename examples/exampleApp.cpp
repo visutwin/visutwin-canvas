@@ -390,7 +390,11 @@ namespace visutwin::canvas
             }
         }
 
-        // The scene exists now, so the initialize phase has something to initialize.
+        // The scene exists now, so the initialize phase has something to initialize. start()
+        // renders a frame once the scripts have initialized; the example's own update runs
+        // before it, as before every frame of the loop, so that frame shows the example's state
+        // (an effect's settings, a material a script swaps in) rather than its defaults.
+        _engine->once("postinitialize", [this]() { update(0.0f); });
         _engine->start();
 
         const uint64_t perfFrequency = SDL_GetPerformanceFrequency();

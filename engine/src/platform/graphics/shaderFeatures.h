@@ -27,6 +27,7 @@
     X(BaseColorMap,              "VT_FEATURE_BASE_COLOR_MAP") \
     X(BaseColorMapLinear,        "VT_FEATURE_BASE_COLOR_MAP_LINEAR") \
     X(EmissiveMapLinear,         "VT_FEATURE_EMISSIVE_MAP_LINEAR") \
+    X(SkyboxReflection,          "VT_FEATURE_SKYBOX_REFLECTION") \
     X(NormalMap,                 "VT_FEATURE_NORMAL_MAP") \
     X(NormalMapPacked,           "VT_FEATURE_NORMAL_MAP_PACKED") \
     X(MaterialEnvAtlas,          "VT_FEATURE_MATERIAL_ENV_ATLAS") \

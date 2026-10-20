@@ -27,7 +27,8 @@
 //
 // DEVIATIONS:
 // - upstream's orbitCamera script (inertia 0.2, distance 2..60) is replaced by the examples'
-//   CameraControls in orbit mode around the same focus point, from the same start position.
+//   CameraControls in orbit mode, from the same start position. Its focus entity (at (0, 3, 0))
+//   holds no meshes, so the script's bounds are empty and it orbits the ORIGIN, as this port does.
 //
 #include <algorithm>
 #include <array>
@@ -131,7 +132,7 @@ protected:
         createSpot(Vector3(-12.0f, 7.0f, -10.0f), Vector3(1.0f, -0.25f, 1.0f), Color(1.0f, 1.0f, 0.9f, 1.0f), 25.0f);
         createSpot(Vector3(14.0f, 6.0f, -2.0f), Vector3(-1.0f, -0.15f, 0.4f), Color(0.6f, 0.8f, 1.0f, 1.0f), 20.0f);
 
-        // The camera, orbiting a point above the ground.
+        // The camera, orbiting the origin (see the header).
         auto* camera = createCamera(Vector3(2.0f, 4.0f, 22.0f));
         _cameraComp = camera->findComponent<CameraComponent>();
         if (!_cameraComp || !_cameraComp->camera()) {
@@ -139,7 +140,7 @@ protected:
         }
         _cameraComp->camera()->setFarClip(400.0f);
         _cameraComp->camera()->setFov(65.0f);
-        if (auto* controls = addOrbitControls(camera, Vector3(0.0f, 3.0f, 0.0f))) {
+        if (auto* controls = addOrbitControls(camera, Vector3(0.0f, 0.0f, 0.0f))) {
             controls->setZoomRange(Vector2(2.0f, 60.0f));
             controls->storeResetState();
         }

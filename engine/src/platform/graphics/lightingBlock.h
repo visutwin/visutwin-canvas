@@ -71,6 +71,15 @@ namespace visutwin::canvas
         }
     }
 
+    /// How the scene's environment is decoded: the atlas's encoding, or with no atlas the
+    /// skybox's. The forward program decodes both with one variant (decodeEnv), so a skybox
+    /// without an atlas must set it: an RGBP skybox read as sRGB draws the sky, and reflects
+    /// it, too dark.
+    inline EnvAtlasEncoding sceneEnvEncodingOf(const Texture* atlas, const Texture* skybox)
+    {
+        return envAtlasEncodingOf(atlas ? atlas : skybox);
+    }
+
     struct LightingBlock
     {
         float ambient[4]            = {0.0f, 0.0f, 0.0f, 0.0f};  // rgb ambient

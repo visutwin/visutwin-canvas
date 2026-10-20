@@ -89,6 +89,9 @@ int main()
         library.setEnvAtlasEncoding(EnvAtlasEncoding::Rgbp);
         check(library.forwardFrameBits() != frameBits, "the scene atlas's encoding is a frame switch too");
         library.setEnvAtlasEncoding(EnvAtlasEncoding::Srgb);
+        library.setSkyboxReflectionEnabled(true);
+        check(library.forwardFrameBits() != frameBits, "so is a skybox reflected without an atlas");
+        library.setSkyboxReflectionEnabled(false);
 
         // The chunk registry.
         // An override is compiled, so it is the chunk's own source with a change that alters

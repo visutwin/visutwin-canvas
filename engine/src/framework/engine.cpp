@@ -708,6 +708,12 @@ namespace visutwin::canvas
 
         _graphicsDevice->update();
 
+        // A camera rendering through a camera frame has its frame and effects before anything
+        // this update reads them.
+        if (_renderer && _scene && _scene->layers()) {
+            _renderer->createMissingCameraFrames(*_scene->layers());
+        }
+
         // Dispatch completed async resource load callbacks on the main thread.
         // Limit to 1 per frame so heavy callbacks (e.g. 70 MB GLB parsing)
         // don't stall the event loop and cause a spinning-wait cursor.

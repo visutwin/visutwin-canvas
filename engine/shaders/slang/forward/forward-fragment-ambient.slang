@@ -133,6 +133,27 @@
             }
             ccReflection = ccEnv * intensity * getFresnelCC(max(dot(ccNormalW, V), 0.0));
         }
+    } else if (vtFeatureEnabled(VT_FEATURE_SKYBOX_REFLECTION_BIT) && (material.flags & (1u << 18)) == 0u) {
+        // A scene with a skybox and no atlas: the skybox cube itself is reflected, one lookup
+        // along the reflection, not prefiltered by gloss, with the skybox intensity and rotation
+        // and the X negation the sky's own lookup has. The ambient stays the flat one above.
+        float intensity = envIntensity();
+        float3 R = vtFeatureEnabled(VT_FEATURE_ANISOTROPY_BIT)
+            ? getReflDirAniso(N, V, anisoB, 1.0 - roughness, anisoIntensity)
+            : reflect(-V, N);
+        float3 skyR = envRotate(envProject(R, fragWorldPos));
+        float3 reflected = decodeEnv(skyboxCube.Sample(linearClampSampler, float3(-skyR.x, skyR.y, skyR.z))) * intensity;
+        float3 Fr = ssrFresnel(NdotV, 1.0 - roughness, F0);
+        if (vtFeatureEnabled(VT_FEATURE_IRIDESCENCE_BIT)) {
+            Fr = lerp(Fr, iridFresnel, iridIntensity);
+        }
+        indirectSpecular = reflected * Fr * specularOn * material.envBoxMax.w;
+
+        if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
+            float3 ccR = envRotate(envProject(reflect(-V, ccNormalW), fragWorldPos));
+            float3 ccSky = decodeEnv(skyboxCube.Sample(linearClampSampler, float3(-ccR.x, ccR.y, ccR.z))) * intensity;
+            ccReflection = ccSky * getFresnelCC(max(dot(ccNormalW, V), 0.0));
+        }
     }
     // No kD on the irradiance: scaling it by (1 - Fr) * (1 - metallic) would apply
     // (1 - metallic) a SECOND time, because diffuseAlbedo already carries it. No

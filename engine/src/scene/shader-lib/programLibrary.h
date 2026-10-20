@@ -179,6 +179,11 @@ namespace visutwin::canvas
         /// binders' envParams.z says it, so the shader carries one decode, not all of them.
         void setEnvAtlasEncoding(const EnvAtlasEncoding value) { _envAtlasEncoding = value; }
 
+        /// The scene has a skybox and no environment atlas: materials reflect the skybox
+        /// cube itself (a single lookup, no prefiltering by gloss), as upstream does in that
+        /// case, and keep the flat ambient.
+        void setSkyboxReflectionEnabled(bool value) { _skyboxReflectionEnabled = value; }
+
         // Local reflection probe (box-projected cubemap) active this frame.
         void setReflectionProbeEnabled(bool value) { _reflectionProbeEnabled = value; }
 
@@ -214,6 +219,7 @@ namespace visutwin::canvas
             bool envAtlas = true;
             bool envAtlasRgbp = false;   // the scene atlas's encoding; neither is sRGB
             bool envAtlasRgbm = false;
+            bool skyboxReflection = false;
 
             // Feature toggles for future shader chunk ports.
             bool shadowMapping = false;
@@ -403,6 +409,7 @@ namespace visutwin::canvas
         bool _atmosphereEnabled = false;
         bool _lightProbesEnabled = false;
         bool _envAtlasEnabled = true;
+        bool _skyboxReflectionEnabled = false;
         EnvAtlasEncoding _envAtlasEncoding = EnvAtlasEncoding::Srgb;
         bool _reflectionProbeEnabled = false;
     };

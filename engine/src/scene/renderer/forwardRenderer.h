@@ -23,6 +23,13 @@ namespace visutwin::canvas
     class ForwardRenderer : public Renderer
     {
     public:
+        /// Builds the camera frame of each camera that renders through one and has none yet,
+        /// and applies its effects once, so the frame's passes, the objects its effects add to
+        /// the scene (a sky mesh) and what they set on it (an environment atlas) exist before
+        /// that camera's first frame is updated and culled. The engine calls it as its update
+        /// begins; the graph build again, for a camera that began rendering since.
+        void createMissingCameraFrames(LayerComposition& layerComposition);
+
         ForwardRenderer(const std::shared_ptr<GraphicsDevice>& device, const std::shared_ptr<Scene>& scene) : Renderer(device, scene) {}
 
         // Builds a frame graph for the rendering of the whole frame
@@ -34,6 +41,7 @@ namespace visutwin::canvas
 
     private:
         // buildFrameGraph's stages, in the order it runs them.
+
 
         /// Resolves ASPECT_AUTO cameras, then culls mesh instances once per
         /// (camera, layer) the composition renders.

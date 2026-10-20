@@ -219,8 +219,8 @@ namespace visutwin::canvas
 
         _lightingUniforms.envParams[0] = skyboxIntensity;
         _lightingUniforms.envParams[1] = envAtlas ? 1.0f : 0.0f;
-        if (envAtlas) {
-            _lightingUniforms.envParams[2] = static_cast<float>(envAtlasEncodingOf(envAtlas));
+        if (envAtlas || skyboxCubeMap) {
+            _lightingUniforms.envParams[2] = static_cast<float>(sceneEnvEncodingOf(envAtlas, skyboxCubeMap));
         }
         _lightingUniforms.envParams[3] = skyboxMip;
     }

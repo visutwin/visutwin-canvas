@@ -109,6 +109,8 @@ namespace visutwin::canvas
         // (shadow or forward pass) and are shared for the rest of the frame.
         SkinInstance::beginFrame();
 
+        createMissingCameraFrames(*layerComposition);
+
         // Culling happens at BUILD time, and in this order: camera transforms are
         // final for the frame by the time the graph is assembled, and every shadow
         // and cookie pass below is built from the visibility worked out here.
@@ -147,6 +149,36 @@ namespace visutwin::canvas
         // still being decided would make the predicate impure, and a culled light
         // would lose the shadow it asked for.
         consumeOneShotShadows();
+    }
+
+    void ForwardRenderer::createMissingCameraFrames(LayerComposition& layerComposition)
+    {
+        // Built only when its block is added to the graph, after the cull, a camera frame's
+        // first frame would render without what its effects add to the scene and the update
+        // reads (the dynamic sky's mesh and environment atlas, which the Water script and the
+        // auto exposure's first measurement then missed). The camera's actions up to the one
+        // that triggers its post-processing are its block; the graph build hands the frame its
+        // actual block every frame.
+        const auto& actions = layerComposition.renderActions();
+        for (size_t end = 0; end < actions.size(); ++end) {
+            RenderAction* action = actions[end];
+            if (!action || !rendersThroughCameraFrame(*action) || action->camera->cameraFrame()) {
+                continue;
+            }
+            size_t start = end;
+            while (start > 0 && actions[start - 1] && actions[start - 1]->camera == action->camera) {
+                --start;
+            }
+            const std::vector<RenderAction*> blockActions(actions.begin() + static_cast<std::ptrdiff_t>(start),
+                actions.begin() + static_cast<std::ptrdiff_t>(end) + 1);
+            action->camera->setCameraFrame(std::make_shared<RenderPassCameraFrame>(
+                _device, &layerComposition, _scene.get(), this, blockActions, action->camera, action->renderTarget));
+            for (const auto& effect : action->camera->allFrameEffects()) {
+                if (effect && effect->active()) {
+                    effect->update();
+                }
+            }
+        }
     }
 
     void ForwardRenderer::cullMeshInstancesForFrame(LayerComposition& layerComposition)

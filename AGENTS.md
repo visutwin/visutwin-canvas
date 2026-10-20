@@ -1545,6 +1545,13 @@ present, but the rule below never depends on reading it.
   CUBEPROJ_BOX)` with a world box) bends every REFLECTION lookup (`envProject`), not the
   ambient. `reflectivity` (default 1) scales the environment reflection; the atlas encoding,
   the box and the reflectivity ride in `envBoxMin` / `envBoxMax`. `reflection-box` shows it.
+- **A scene with a skybox and NO atlas reflects the skybox cube itself** (`VT_FEATURE_SKYBOX_REFLECTION`,
+  a frame switch set by the renderer): one lookup along the reflection, not prefiltered by gloss,
+  with the skybox intensity, rotation and X negation, for the base and the clearcoat, as
+  upstream's `REFLECTIONSRC_CUBEMAP`; the ambient stays flat. Its decode is the SKYBOX's encoding
+  (`sceneEnvEncodingOf`: the atlas's, or the skybox's without one), which the frame switch and
+  both binders' `envParams.z` share. Read by the atlas switch alone, the RGBP cube `generateSkyboxCubemap`
+  makes was decoded as sRGB, and the sky drew 10% dark (`wide-lines-dynamic`).
 - **A ReflectionProbe's mips are averaged in LINEAR space.** The face cameras render into a
   one-level capture cube and `update()` fills the sampled cube from it (`bakeCubeMipsLinear`:
   decode, box-average, encode), as upstream's sRGB-format capture cube is mipmapped. A blit
@@ -2385,6 +2392,9 @@ present, but the rule below never depends on reading it.
   the engine in `run()` once `create()` has returned, for exactly this reason —
   starting it in `initEngine()` initializes an empty world and renders an empty
   first frame. Every script initializes before any script post-initializes.
+  The tick `start()` ends with renders a frame, so `ExampleApp` runs the example's own
+  `update(0)` on `postinitialize`, as it does before every frame of its loop: without it
+  that first frame shows the example's defaults (a dynamic sky at noon).
 - **The per-draw uniform rings GROW; Metal's inside the frame, Vulkan's at the next
   frame boundary.** Metal's two rings (`MetalUniformRingBuffer`: transform, and the
   material + lighting slots) start at 256 slots a frame and DOUBLE on the allocation that
@@ -3123,6 +3133,13 @@ present, but the rule below never depends on reading it.
   BUFFER, and its texture was never written. Compose writes the scene's alpha after the scene
   slot, so a texture cleared transparent stays transparent where nothing drew; nothing reads
   the back buffer's alpha (the swapchain composites opaque, screenshots write 255).
+- **A camera frame is BUILT as the engine update begins** (`ForwardRenderer::
+  createMissingCameraFrames`, from `Engine::update`, and again in the graph build for a camera
+  that began rendering since), with its effects applied once (`update()`), as an application's
+  `CameraFrame.update()` builds it before its first frame. Built only when the graph adds its
+  block, after the cull, its first frame missed what the effects add to the scene and what the
+  update reads: the dynamic sky's mesh and environment atlas, which the Water script's switches
+  and the auto exposure's first measurement (which it snaps to) then lacked.
 - **A camera frame effect's passes are built once per REBUILD, and the rebuild key is
   `CameraFrameOptions::effectsKey`** (the serial, required resources and `buildKey()` of
   every active effect that owns passes or requires a resource; a compose-only effect

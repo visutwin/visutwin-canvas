@@ -233,6 +233,14 @@ int main()
         msl.setEnvAtlasEncoding(EnvAtlasEncoding::Srgb);
         check(ProgramLibraryTestAccess::key(msl, &a) == base, "and an sRGB one neither again");
 
+        // A skybox without an atlas is reflected from the cube itself: a frame switch.
+        check(!base.features.test(ShaderFeature::SkyboxReflection), "no skybox reflection by default");
+        msl.setSkyboxReflectionEnabled(true);
+        check(ProgramLibraryTestAccess::key(msl, &a).features.test(ShaderFeature::SkyboxReflection),
+            "a scene skybox without an atlas compiles VT_FEATURE_SKYBOX_REFLECTION");
+        msl.setSkyboxReflectionEnabled(false);
+        check(ProgramLibraryTestAccess::key(msl, &a) == base, "and switched off, the old key again");
+
         Material generic;
         check(!ProgramLibraryTestAccess::key(msl, &generic).features.test(ShaderFeature::VertexColorGamma),
             "a generic material reads vertex colours as linear");
