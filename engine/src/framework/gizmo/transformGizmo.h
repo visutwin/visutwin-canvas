@@ -7,7 +7,8 @@
 // share — coloured X, Y and Z handles with plane and centre shapes, hover colouring by
 // theme, a drag that fires `transform:start` (Vector3 point, float x, float y),
 // `transform:move` (the same) and `transform:end`, snapping, the drag mode, and the
-// span guide lines drawn through the gizmo along the active axes.
+// span guide lines drawn through the gizmo along the active axes, and a readout of the
+// transform delta while dragging.
 //
 // The subclasses decide what a drag does to the attached nodes.
 //
@@ -29,6 +30,22 @@ namespace visutwin::canvas
 {
     class PlaneShape;
 
+    /// The transform readout as a gizmo leaves it each frame, for the application to draw:
+    /// DEVIATION: upstream shows it as an HTML element over the canvas; here the gizmo only keeps
+    /// what to show and where, and the application draws it (the examples with a UI text element,
+    /// see examples/transformGizmoExample.h).
+    struct GizmoReadout
+    {
+        bool visible = false;
+        /// The text, the axis labels in their theme colour as text markup
+        /// (`[color="#rrggbb"]X[/color]`).
+        std::string markup;
+        /// Where it goes, in canvas points from the top-left: the horizontal centre of the text
+        /// and its top edge.
+        float x = 0.0f;
+        float y = 0.0f;
+    };
+
     class WideLineRenderer;
 
     class TransformGizmo : public Gizmo
@@ -37,6 +54,11 @@ namespace visutwin::canvas
         static constexpr const char* EVENT_TRANSFORMSTART = "transform:start";
         static constexpr const char* EVENT_TRANSFORMMOVE = "transform:move";
         static constexpr const char* EVENT_TRANSFORMEND = "transform:end";
+        /// Fired when the transformation starts and on each step of it, whether or not the
+        /// readout is shown, with the selected axis, whether it is a plane, and the value the
+        /// readout shows: the translation (Vector3) for a translate gizmo, the scale factor
+        /// (Vector3) for a scale gizmo, the angle in degrees (float) for a rotate gizmo.
+        static constexpr const char* EVENT_TRANSFORMREADOUT = "transform:readout";
 
         TransformGizmo(CameraComponent* camera, std::shared_ptr<Layer> layer,
                        const std::string& name = "gizmo:transform");
@@ -59,6 +81,13 @@ namespace visutwin::canvas
 
         /// The shape under a key, or null.
         Shape* shape(GizmoAxis key) const;
+
+        /// Whether the transform delta is shown in a readout just below the gizmo while dragging.
+        /// On by default. Off, `transform:readout` still fires, for a UI of the application's own.
+        bool readout() const { return _readoutEnabled; }
+        void setReadout(bool value);
+        /// What the readout shows this frame, and where.
+        const GizmoReadout& readoutState() const { return _readout; }
 
         GizmoAxis hoverAxis() const { return _hoverAxis; }
         GizmoAxis selectedAxis() const { return _selectedAxis; }
@@ -108,6 +137,20 @@ namespace visutwin::canvas
             return raw;
         }
 
+        /// An axis letter in the axis colour, as text markup.
+        std::string readoutLabel(GizmoAxis axis) const;
+        /// A delta with an explicit sign, so it does not read as an absolute value; a value that
+        /// rounds to zero is shown as positive.
+        static std::string readoutDelta(float value, int digits);
+        /// A value for each axis being dragged: deltas, or with `factor` scale factors (x1.25).
+        std::string readoutAxes(const Vector3& values, bool factor = false) const;
+        /// Shows the readout centred below the visible shapes (while dragging, the dragged
+        /// handle), or below the gizmo centre when every shape is hidden.
+        void showReadout(const std::string& markup);
+        /// Shows it centred on `x`, just below `y` (canvas points).
+        void showReadoutAt(const std::string& markup, float x, float y);
+        void hideReadout() { _readout.visible = false; }
+
         /// Shape arguments for an axis, coloured from the theme.
         ShapeArgs shapeArgs(GizmoAxis axis, const Vector3& rotation = Vector3(0.0f)) const;
 
@@ -134,6 +177,9 @@ namespace visutwin::canvas
         void releaseGuideLines();
 
         std::vector<GizmoAxis> _hovering;
+
+        bool _readoutEnabled = true;
+        GizmoReadout _readout;
 
         // Span guide lines. DEVIATION: upstream draws them with app.drawLine (one-pixel
         // immediate lines) — the base colour depth-tested on the Immediate layer and the

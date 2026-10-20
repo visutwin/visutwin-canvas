@@ -5,13 +5,16 @@
 //
 #include "rotateGizmo.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 #include "core/math/defines.h"
 #include "framework/components/camera/cameraComponent.h"
 #include "framework/entity.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/gizmo/meshLine.h"
+#include "framework/gizmo/meshSector.h"
 #include "framework/gizmo/shape/shapes.h"
 #include "scene/camera.h"
 #include "scene/layer.h"
@@ -69,6 +72,12 @@ namespace visutwin::canvas
                     line->entity()->setEnabled(false);
                 }
             }
+            for (auto& sector : _guideAngleSectors) {
+                sector = std::make_unique<MeshSector>(_engine, _layer->id());
+                if (sector->entity()) {
+                    sector->entity()->setEnabled(false);
+                }
+            }
         }
 
         on(EVENT_TRANSFORMSTART, [this](const Vector3& point, const float x, const float y) {
@@ -90,6 +99,8 @@ namespace visutwin::canvas
 
             // angle guide lines
             angleGuide(true);
+
+            fire(EVENT_TRANSFORMREADOUT, _selectedAxis, _selectedIsPlane, 0.0f);
         });
 
         on(EVENT_TRANSFORMMOVE, [this](const Vector3& point, const float x, const float y) {
@@ -107,6 +118,8 @@ namespace visutwin::canvas
                 const Vector3 angleAxis = facingDir().cross(delta).normalized();
                 const float angleDelta = std::sqrt((_screenPos - _screenStartPos).lengthSquared());
                 setNodeRotations(axis, angleAxis, angleDelta);
+
+                fire(EVENT_TRANSFORMREADOUT, _selectedAxis, _selectedIsPlane, angleDelta);
             } else {
                 // calculate angle axis and delta and update node rotations
                 float angleDelta = calculateArcAngle(point, x, y) - _selectionStartAngle;
@@ -118,6 +131,14 @@ namespace visutwin::canvas
                 // update guide points and show angle guide
                 updateGuidePoints(angleDelta);
                 angleGuide(true);
+
+                fire(EVENT_TRANSFORMREADOUT, _selectedAxis, _selectedIsPlane, angleDelta);
+            }
+        });
+
+        on(EVENT_TRANSFORMREADOUT, [this](GizmoAxis, bool, const float angle) {
+            if (readout()) {
+                showAngleReadout(angle);
             }
         });
 
@@ -175,6 +196,13 @@ namespace visutwin::canvas
                 }
             }
         }
+        for (const auto& sector : _guideAngleSectors) {
+            if (Entity* entity = sector ? sector->entity() : nullptr) {
+                if (auto* render = entity->findComponent<RenderComponent>()) {
+                    render->setLayers({layer->id()});
+                }
+            }
+        }
     }
 
     float RotateGizmo::angleGuideThickness() const
@@ -199,6 +227,7 @@ namespace visutwin::canvas
 
         _guideAngleStart = (_selectionStartPoint - gizmoPos).normalized() * scale;
         _guideAngleEnd = _guideAngleStart;
+        _guideAngle = 0.0f;
     }
 
     void RotateGizmo::updateGuidePoints(const float angleDelta)
@@ -211,6 +240,8 @@ namespace visutwin::canvas
             v1 = _rootStartRot * withGizmoComponent(Vector3(0.0f), gizmoAxisIndex(axis), 1.0f);
         }
         _guideAngleEnd = Quaternion::fromAxisAngle(v1, angleDelta) * _guideAngleStart;
+        _guideAngleAxis = v1;
+        _guideAngle = angleDelta;
 
         _renderUpdate = true;
     }
@@ -236,10 +267,39 @@ namespace visutwin::canvas
                     line->entity()->setEnabled(true);
                 }
             }
+
+            // At most one turn is filled: each full turn adds a step of opacity to the whole
+            // circle, and the swept part one step more.
+            constexpr float kSectorAlpha = 0.4f;
+            const float angle = _guideAngle;
+            const float turns = std::floor(std::abs(angle) / 360.0f);
+            const float swept = std::fmod(angle, 360.0f);
+            const float rest = swept >= 0.0f ? 360.0f - swept : -(360.0f + swept);
+            Color color = axis == GizmoAxis::X ? _theme.shapeBase.x :
+                axis == GizmoAxis::Y ? _theme.shapeBase.y :
+                axis == GizmoAxis::Z ? _theme.shapeBase.z : _theme.shapeBase.f;
+            if (_guideAngleSectors[0] && _guideAngleSectors[0]->entity()) {
+                color.a = std::min(1.0f, kSectorAlpha * (turns + 1.0f));
+                _guideAngleSectors[0]->draw(gizmoPos, _guideAngleStart, _guideAngleAxis, 0.0f, swept, _scale, color);
+                _guideAngleSectors[0]->entity()->setEnabled(swept != 0.0f);
+            }
+            if (_guideAngleSectors[1] && _guideAngleSectors[1]->entity()) {
+                if (turns > 0.0f) {
+                    color.a = std::min(1.0f, kSectorAlpha * turns);
+                    _guideAngleSectors[1]->draw(gizmoPos, _guideAngleStart, _guideAngleAxis, swept, rest, _scale,
+                        color);
+                }
+                _guideAngleSectors[1]->entity()->setEnabled(turns > 0.0f);
+            }
         } else {
             for (auto& line : _guideAngleLines) {
                 if (line->entity()) {
                     line->entity()->setEnabled(false);
+                }
+            }
+            for (auto& sector : _guideAngleSectors) {
+                if (sector && sector->entity()) {
+                    sector->entity()->setEnabled(false);
                 }
             }
         }
@@ -484,6 +544,42 @@ namespace visutwin::canvas
         for (auto& line : _guideAngleLines) {
             line.reset();
         }
+        for (auto& sector : _guideAngleSectors) {
+            sector.reset();
+        }
+    }
+
+    void RotateGizmo::showAngleReadout(const float angle)
+    {
+        if (!_camera || !_camera->camera() || !_camera->entity()) {
+            return;
+        }
+        const GizmoAxis axis = _selectedAxis;
+        const std::string label = axis == GizmoAxis::F || axis == GizmoAxis::XYZ ? "" : readoutLabel(axis) + " ";
+        const std::string markup = label + readoutDelta(angle, 1) + "\u00b0";
+        const float radius = _scale * std::max(xyzRingRadius() + xyzTubeRadius(), faceRingRadius() + faceTubeRadius());
+
+        const Vector3 center = rootPosition();
+        const float x = _camera->worldToScreen(center).getX();
+
+        // The lowest point of the outline: in perspective its tangent from the camera, which
+        // reaches further than the radius straight down once the sphere is close.
+        const Matrix4& cameraWorld = _camera->entity()->worldTransform();
+        const Vector4 upColumn = cameraWorld.getColumn(1);
+        const Vector3 up = Vector3(upColumn.getX(), upColumn.getY(), upColumn.getZ()).normalized();
+        const Vector3 eye = _camera->entity()->position();
+        Vector3 view = center - eye;
+        const float dist = view.length();
+        if (_camera->camera()->projection() != ProjectionType::Perspective || dist <= radius) {
+            showReadoutAt(markup, x, _camera->worldToScreen(center - up * radius).getY());
+            return;
+        }
+        view = view * (1.0f / dist);
+        const Vector3 down = (view * up.dot(view) - up).normalized();
+        const float sine = radius / dist;
+        const float cosine = std::sqrt(1.0f - sine * sine);
+        const Vector3 lowest = (view * cosine + down * sine) * (dist * cosine) + eye;
+        showReadoutAt(markup, x, _camera->worldToScreen(lowest).getY());
     }
 
     void RotateGizmo::destroy()

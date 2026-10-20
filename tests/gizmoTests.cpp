@@ -33,6 +33,7 @@
 #include "framework/components/render/renderComponentSystem.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
+#include "framework/gizmo/meshSector.h"
 #include "framework/gizmo/rotateGizmo.h"
 #include "framework/gizmo/scaleGizmo.h"
 #include "framework/gizmo/shape/shapes.h"
@@ -378,6 +379,154 @@ namespace
 
     // The drag, snapping, layer and enabled-state behaviours a single drag of each gizmo
     // does not show.
+    // The transform readout and the rotate gizmo's angle sector.
+    void readoutAndSector()
+    {
+        std::cout << "transform readout\n";
+        const auto contains = [](const std::string& text, const std::string& part) {
+            return text.find(part) != std::string::npos;
+        };
+
+        {
+            GizmoScene scene = makeScene();
+            Entity* box = addEntity(*scene.engine);
+            auto gizmo = std::make_unique<TranslateGizmo>(scene.camera, scene.layer);
+            gizmo->attach(box);
+            gizmo->prerender();
+            const float s = gizmo->worldScale();
+            check(gizmo->readout() && !gizmo->readoutState().visible, "the readout is on, and hidden until a drag");
+
+            int fired = 0;
+            GizmoAxis lastAxis = GizmoAxis::None;
+            bool lastPlane = true;
+            Vector3 lastValue(9.0f);
+            gizmo->on(TransformGizmo::EVENT_TRANSFORMREADOUT, [&](GizmoAxis axis, bool plane, const Vector3& value) {
+                ++fired;
+                lastAxis = axis;
+                lastPlane = plane;
+                lastValue = value;
+            });
+
+            const Vector3 head = screenOf(scene.camera, Vector3(0.59f * s, 0.0f, 0.0f));
+            gizmo->pointerDown(head.getX(), head.getY(), 0);
+            check(fired == 1 && lastAxis == GizmoAxis::X && !lastPlane && near(lastValue, Vector3(0.0f), 1e-6f),
+                "the drag's start fires transform:readout with X, not a plane, and a zero translation");
+            const Vector3 to = screenOf(scene.camera, Vector3(0.59f * s + 1.0f, 0.0f, 0.0f));
+            gizmo->pointerMove(to.getX(), to.getY());
+            check(fired == 2 && near(lastValue, Vector3(1.0f, 0.0f, 0.0f), 2e-3f),
+                "a step fires it with the translation: " + str(lastValue));
+            const GizmoReadout& readout = gizmo->readoutState();
+            check(readout.visible && contains(readout.markup, "[color=\"#") &&
+                      contains(readout.markup, "]X[/color] +1.00") && !contains(readout.markup, "]Y["),
+                "the readout shows the X delta, signed, its label in the axis colour: " + readout.markup);
+            const Vector3 boxScreen = screenOf(scene.camera, box->position());
+            check(readout.y > boxScreen.getY() && std::abs(readout.x - screenOf(scene.camera,
+                box->position() + Vector3(0.59f * s * 0.5f, 0.0f, 0.0f)).getX()) < 0.6f * s * 100.0f,
+                "it sits below the dragged arrow");
+            gizmo->pointerUp(to.getX(), to.getY(), 0);
+            check(!gizmo->readoutState().visible, "and hides when the drag ends");
+
+            // a plane moves along the other two axes; the readout shows those two
+            box->setPosition(0.0f, 0.0f, 0.0f);
+            gizmo->update();
+            gizmo->prerender();
+            const auto* plane = static_cast<PlaneShape*>(gizmo->shape(GizmoAxis::XY));
+            const Vector3 planeCentre = plane->position() * s;
+            const Vector3 planeScreen = screenOf(scene.camera, planeCentre);
+            gizmo->pointerDown(planeScreen.getX(), planeScreen.getY(), 0);
+            const Vector3 planeTo = screenOf(scene.camera, planeCentre + Vector3(0.5f, -0.3f, 0.0f));
+            gizmo->pointerMove(planeTo.getX(), planeTo.getY());
+            check(lastAxis == GizmoAxis::Z && lastPlane && contains(gizmo->readoutState().markup, "]X[/color] +0.50") &&
+                      contains(gizmo->readoutState().markup, "]Y[/color] -0.30") &&
+                      !contains(gizmo->readoutState().markup, "]Z["),
+                "the XY plane's readout shows X and Y: " + gizmo->readoutState().markup);
+            gizmo->pointerUp(planeTo.getX(), planeTo.getY(), 0);
+
+            // off: the event still fires, nothing is shown
+            gizmo->setReadout(false);
+            box->setPosition(0.0f, 0.0f, 0.0f);
+            gizmo->update();
+            gizmo->prerender();
+            const int before = fired;
+            gizmo->pointerDown(head.getX(), head.getY(), 0);
+            gizmo->pointerMove(to.getX(), to.getY());
+            check(fired == before + 2 && !gizmo->readoutState().visible,
+                "with the readout off, transform:readout still fires and nothing is shown");
+            gizmo->pointerUp(to.getX(), to.getY(), 0);
+        }
+
+        {
+            GizmoScene scene = makeScene();
+            Entity* box = addEntity(*scene.engine);
+            auto gizmo = std::make_unique<ScaleGizmo>(scene.camera, scene.layer);
+            gizmo->attach(box);
+            gizmo->prerender();
+            const float s = gizmo->worldScale();
+            Vector3 lastValue(9.0f);
+            gizmo->on(TransformGizmo::EVENT_TRANSFORMREADOUT, [&](GizmoAxis, bool, const Vector3& value) {
+                lastValue = value;
+            });
+            const Vector3 head = screenOf(scene.camera, Vector3(0.5f * s, 0.0f, 0.0f));
+            gizmo->pointerDown(head.getX(), head.getY(), 0);
+            check(near(lastValue, Vector3(1.0f), 1e-6f), "the scale gizmo's start reports a factor of 1");
+            const Vector3 to = screenOf(scene.camera, Vector3(0.5f * s + 0.5f * s, 0.0f, 0.0f));
+            gizmo->pointerMove(to.getX(), to.getY());
+            check(near(lastValue.getX(), box->localScale().getX(), 1e-5f) &&
+                      contains(gizmo->readoutState().markup, "]X[/color] \u00d7"),
+                "a step reports the scale factor, shown as a multiplier: " + gizmo->readoutState().markup);
+            gizmo->pointerUp(to.getX(), to.getY(), 0);
+        }
+
+        std::cout << "rotate angle sector\n";
+        {
+            const auto fan = MeshSector::fanPositions(Vector3(1.0f, 2.0f, 3.0f), Vector3(0.5f, 0.0f, 0.0f),
+                Vector3(0.0f, 0.0f, 1.0f), 0.0f, 90.0f, 2.0f, 4);
+            bool onCircle = fan.size() == 6;
+            for (size_t i = 1; onCircle && i < fan.size(); ++i) {
+                onCircle = near((fan[i] - fan[0]).length(), 1.0f, 1e-5f);
+            }
+            check(onCircle && near(fan[0], Vector3(1.0f, 2.0f, 3.0f), 0.0f) &&
+                      near(fan[1], Vector3(2.0f, 2.0f, 3.0f), 1e-5f) && near(fan[5], Vector3(1.0f, 3.0f, 3.0f), 1e-5f),
+                "a sector's fan: the centre, then segments + 1 points on the scaled circle from 0 to the sweep");
+            const auto back = MeshSector::fanPositions(Vector3(0.0f), Vector3(1.0f, 0.0f, 0.0f),
+                Vector3(0.0f, 0.0f, 1.0f), 30.0f, -60.0f, 1.0f, 2);
+            check(near(back[1], Vector3(std::cos(0.5236f), std::sin(0.5236f), 0.0f), 1e-4f) &&
+                      near(back[3], Vector3(std::cos(-0.5236f), std::sin(-0.5236f), 0.0f), 1e-4f),
+                "it starts at `from` and sweeps by a negative angle the other way");
+
+            GizmoScene scene = makeScene();
+            Entity* box = addEntity(*scene.engine);
+            auto gizmo = std::make_unique<RotateGizmo>(scene.camera, scene.layer);
+            gizmo->rotationMode = RotateGizmo::RotationMode::Orbit;
+            gizmo->attach(box);
+            gizmo->prerender();
+            gizmo->enableShape(GizmoAxis::F, false);
+            float lastAngle = -1.0f;
+            gizmo->on(TransformGizmo::EVENT_TRANSFORMREADOUT, [&](GizmoAxis, bool, const float angle) {
+                lastAngle = angle;
+            });
+            const float r = 0.52f * gizmo->worldScale();
+            const auto onRing = [&](const float degrees) {
+                const float a = degrees * std::numbers::pi_v<float> / 180.0f;
+                return screenOf(scene.camera, Vector3(r * std::cos(a), r * std::sin(a), 0.0f));
+            };
+            gizmo->pointerDown(onRing(45.0f).getX(), onRing(45.0f).getY(), 0);
+            check(lastAngle == 0.0f && !gizmo->guideAngleSector(0)->entity()->enabled(),
+                "the start reports 0 degrees, and no sector is filled yet");
+            gizmo->pointerMove(onRing(75.0f).getX(), onRing(75.0f).getY());
+            check(near(lastAngle, 30.0f, 0.05f) && near(gizmo->guideAngle(), lastAngle, 0.0f) &&
+                      near(gizmo->guideAngleAxis(), Vector3(0.0f, 0.0f, 1.0f), 1e-5f),
+                "a step reports the angle, which the guide sweeps around the ring's axis");
+            check(gizmo->guideAngleSector(0)->entity()->enabled() && !gizmo->guideAngleSector(1)->entity()->enabled(),
+                "the swept angle is filled; the rest of the circle only past a full turn");
+            check(contains(gizmo->readoutState().markup, "]Z[/color] +30.0\u00b0"),
+                "the readout shows the signed angle with the axis: " + gizmo->readoutState().markup);
+            gizmo->pointerUp(onRing(75.0f).getX(), onRing(75.0f).getY(), 0);
+            check(!gizmo->guideAngleSector(0)->entity()->enabled() && !gizmo->readoutState().visible,
+                "the sector and the readout go when the drag ends");
+        }
+    }
+
     void hardening()
     {
         std::cout << "hardening\n";
@@ -514,6 +663,7 @@ int main()
     translateDrags();
     rotateDrag();
     scaleDrags();
+    readoutAndSector();
     hardening();
     lifetime();
 

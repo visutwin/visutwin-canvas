@@ -21,6 +21,7 @@ namespace visutwin::canvas
 {
     class ArcShape;
     class MeshLine;
+    class MeshSector;
     class SphereShape;
 
     class RotateGizmo : public TransformGizmo
@@ -58,6 +59,14 @@ namespace visutwin::canvas
         /// The angle guide's end points relative to the gizmo centre (in units of its scale).
         const Vector3& guideAngleStart() const { return _guideAngleStart; }
         const Vector3& guideAngleEnd() const { return _guideAngleEnd; }
+        /// The angle the guide has swept, in degrees, and the world axis it sweeps around.
+        float guideAngle() const { return _guideAngle; }
+        const Vector3& guideAngleAxis() const { return _guideAngleAxis; }
+        /// The sectors filling the swept angle and, past a full turn, the rest of the circle.
+        MeshSector* guideAngleSector(const size_t index) const
+        {
+            return index < _guideAngleSectors.size() ? _guideAngleSectors[index].get() : nullptr;
+        }
 
         void prerender() override;
         void destroy() override;
@@ -81,6 +90,10 @@ namespace visutwin::canvas
         void storeNodeRotations();
         void setNodeRotations(GizmoAxis axis, const Vector3& angleAxis, float angleDelta);
         void releaseGuideAngleLines();
+        /// The angle in the readout, labelled with the axis unless rotating freely or facing,
+        /// below the outline of a sphere around all the rings (the ring shapes turn while
+        /// dragging).
+        void showAngleReadout(float angle);
 
         std::array<ArcShape*, 3> _arcs{};   // x, y, z
         ArcShape* _face = nullptr;
@@ -95,6 +108,9 @@ namespace visutwin::canvas
         Vector3 _guideAngleStart = Vector3(0.0f);
         Vector3 _guideAngleEnd = Vector3(0.0f);
         std::array<std::unique_ptr<MeshLine>, 2> _guideAngleLines;
+        std::array<std::unique_ptr<MeshSector>, 2> _guideAngleSectors;
+        Vector3 _guideAngleAxis = Vector3(0.0f);
+        float _guideAngle = 0.0f;
         Vector3 _facingDir = Vector3(0.0f);
     };
 }

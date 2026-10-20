@@ -6,6 +6,10 @@
 #include "transformGizmo.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <limits>
 
 #include "framework/components/camera/cameraComponent.h"
 #include "framework/engine.h"
@@ -141,6 +145,129 @@ namespace visutwin::canvas
             // is skipped when its arguments are missing, so the pointer-up carries (0, 0, null).
             fire(EVENT_POINTERUP, 0.0f, 0.0f, static_cast<MeshInstance*>(nullptr));
         });
+
+        on(EVENT_TRANSFORMEND, [this]() {
+            hideReadout();
+        });
+    }
+
+    void TransformGizmo::setReadout(const bool value)
+    {
+        _readoutEnabled = value;
+        if (!value) {
+            hideReadout();
+        }
+    }
+
+    std::string TransformGizmo::readoutLabel(const GizmoAxis axis) const
+    {
+        const Color* color = themeColor(_theme.shapeBase, axis);
+        const char* letter = axis == GizmoAxis::X ? "X" : axis == GizmoAxis::Y ? "Y" : axis == GizmoAxis::Z ? "Z" : "";
+        if (!color) {
+            return letter;
+        }
+        const auto channel = [](const float c) {
+            return static_cast<unsigned>(std::lround(std::clamp(c, 0.0f, 1.0f) * 255.0f));
+        };
+        char markup[48];
+        std::snprintf(markup, sizeof(markup), "[color=\"#%02x%02x%02x\"]%s[/color]", channel(color->r),
+            channel(color->g), channel(color->b), letter);
+        return markup;
+    }
+
+    std::string TransformGizmo::readoutDelta(const float value, const int digits)
+    {
+        char magnitude[32];
+        std::snprintf(magnitude, sizeof(magnitude), "%.*f", digits, std::abs(value));
+        const bool negative = value < 0.0f && std::strtod(magnitude, nullptr) != 0.0;
+        return std::string(negative ? "-" : "+") + magnitude;
+    }
+
+    std::string TransformGizmo::readoutAxes(const Vector3& values, const bool factor) const
+    {
+        const GizmoAxis axis = _selectedAxis;
+        std::string text;
+        for (size_t i = 0; i < AXES.size(); ++i) {
+            const GizmoAxis a = AXES[i];
+            // A plane moves along the other two axes; the centre along all three.
+            const bool shown = axis == GizmoAxis::XYZ ||
+                (_selectedIsPlane ? gizmoAxisIndex(axis) != static_cast<int>(i) : a == axis);
+            if (!shown) {
+                continue;
+            }
+            const float value = values[static_cast<int>(i)];
+            std::string part;
+            if (factor) {
+                char number[32];
+                std::snprintf(number, sizeof(number), "\u00d7%.2f", value);
+                part = number;
+            } else {
+                part = readoutDelta(value, 2);
+            }
+            if (!text.empty()) {
+                text += "  ";
+            }
+            text += readoutLabel(a) + " " + part;
+        }
+        return text;
+    }
+
+    void TransformGizmo::showReadout(const std::string& markup)
+    {
+        if (!_readoutEnabled || !_camera) {
+            return;
+        }
+        BoundingBox bounds;
+        bool found = false;
+        for (const auto& [key, shape] : _shapes) {
+            if (!shape || !shape->entity() || !shape->entity()->enabled()) {
+                continue;
+            }
+            for (auto* instance : shape->meshInstances()) {
+                if (!instance || !instance->visible()) {
+                    continue;
+                }
+                if (found) {
+                    bounds.add(instance->aabb());
+                } else {
+                    bounds = instance->aabb();
+                    found = true;
+                }
+            }
+        }
+        // with every shape hidden while dragging, sit below the gizmo centre
+        if (!found) {
+            bounds = BoundingBox(rootPosition(), Vector3(0.0f));
+        }
+
+        const Vector3 center = bounds.center();
+        const Vector3 half = bounds.halfExtents();
+        float left = std::numeric_limits<float>::max();
+        float right = std::numeric_limits<float>::lowest();
+        float bottom = std::numeric_limits<float>::lowest();
+        for (int i = 0; i < 8; ++i) {
+            const Vector3 corner(center.getX() + ((i & 1) ? half.getX() : -half.getX()),
+                center.getY() + ((i & 2) ? half.getY() : -half.getY()),
+                center.getZ() + ((i & 4) ? half.getZ() : -half.getZ()));
+            const Vector3 screen = _camera->worldToScreen(corner);
+            left = std::min(left, screen.getX());
+            right = std::max(right, screen.getX());
+            bottom = std::max(bottom, screen.getY());
+        }
+        showReadoutAt(markup, 0.5f * (left + right), bottom);
+    }
+
+    void TransformGizmo::showReadoutAt(const std::string& markup, const float x, const float y)
+    {
+        if (!_readoutEnabled) {
+            return;
+        }
+        // A small gap below the point.
+        constexpr float kGap = 6.0f;
+        _readout.visible = true;
+        _readout.markup = markup;
+        _readout.x = x;
+        _readout.y = y + kGap;
     }
 
     TransformGizmo::~TransformGizmo()

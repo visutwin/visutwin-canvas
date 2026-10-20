@@ -50,6 +50,8 @@ namespace visutwin::canvas
 
             // hide shapes that are not selected
             drag(true);
+
+            fire(EVENT_TRANSFORMREADOUT, _selectedAxis, _selectedIsPlane, Vector3(1.0f));
         });
 
         on(EVENT_TRANSFORMMOVE, [this](const Vector3& point) {
@@ -59,7 +61,16 @@ namespace visutwin::canvas
             if (snap) {
                 scaleDelta = roundVector(scaleDelta * (1.0f / snapIncrement)) * snapIncrement;
             }
-            setNodeScales(scaleDelta + Vector3(1.0f));
+            const Vector3 factor = scaleDelta + Vector3(1.0f);
+            setNodeScales(factor);
+
+            fire(EVENT_TRANSFORMREADOUT, _selectedAxis, _selectedIsPlane, factor);
+        });
+
+        on(EVENT_TRANSFORMREADOUT, [this](GizmoAxis, bool, const Vector3& value) {
+            if (readout()) {
+                showReadout(readoutAxes(value, true));
+            }
         });
 
         on(EVENT_TRANSFORMEND, [this]() {
