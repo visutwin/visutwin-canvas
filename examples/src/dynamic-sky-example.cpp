@@ -211,7 +211,6 @@ protected:
         if (const char* autoExposure = std::getenv("VISUTWIN_SKY_AUTO_EXPOSURE"); autoExposure && std::atoi(autoExposure) == 0) {
             _autoExposure->setEnabled(false);
         }
-        if (const char* e = std::getenv("TMP_SKY_EXPOSURE")) { scene()->setExposure(static_cast<float>(std::atof(e))); }
         _elevationCurve = Curve({0.0f, -60.0f, 6.0f, 0.0f, 12.0f, 60.0f, 18.0f, 0.0f, 24.0f, -90.0f});
         _elevationCurve.type = CURVE_SMOOTHSTEP;
         applySettings();
