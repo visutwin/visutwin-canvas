@@ -77,5 +77,13 @@ namespace visutwin::canvas
         /// Compiles a module's entry points for one target. Each call uses a session
         /// of its own, so calls may run on several threads at once.
         [[nodiscard]] static SlangCompileResult compile(const SlangCompileRequest& request);
+
+        /// Declares each of the `readOnly` structured / byte-address buffers `const device` in
+        /// Slang's MSL, which emits every one as `device T*`: Apple's compiler warns about a
+        /// writable resource in a vertex function, and cannot treat the data as read-only.
+        /// Slang suffixes each declaration of `name` (entry parameters, the kernel context's
+        /// fields) as `name_N`. compile() applies it to its MSL; the shader bundle's generator
+        /// (tools/generate_slang_bundle.py, const_read_only_buffers) does the same: change both.
+        [[nodiscard]] static std::string constReadOnlyBuffers(std::string msl, const std::vector<std::string>& readOnly);
     };
 }

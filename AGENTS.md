@@ -278,6 +278,16 @@ bindings like a program of the tree, so it needs the source tree at run time. Wh
   `xcrun metal -ffast-math` from that MSL, NOT by slangc's metallib target: slangc passes the
   compiler options of its own, and its library rounded differently from the runtime compile of
   the same MSL (`MetalShader`, fast math on), so the bundle and an override disagreed.
+- **A read-only buffer is `const device` in the MSL, by a pass over slangc's output.** slangc emits
+  every `StructuredBuffer` / `ByteAddressBuffer` as `device T*`, and Apple's compiler (Metal 27 on)
+  warns "writable resources in non-void vertex function" wherever a vertex entry sees one, which
+  with Slang putting every global on every entry is every forward, splat, particle and wide-line
+  vertex stage. The bundle generator (`const_read_only_buffers`, names from slangc's reflection
+  JSON) and the run-time compile (`SlangCompiler::constReadOnlyBuffers`, names from the linked
+  layout) const-qualify each read-only buffer's declarations (`name_N`) and the local pointers
+  Slang copies it into: two twins of one rule, change both; `tests/slangCompilerTests.cpp`
+  holds the C++ one. A RW buffer stays `device`, so a program whose vertex entry sees one
+  still warns.
 - **`VT_TARGET_METAL` is defined for the Metal targets** (`SlangCompiler` adds it, the bundle
   passes it), and `bindings.slang` declares some inputs per target under it. Prefer
   `__target_switch` inside a function; use the define only where the DECLARATIONS must differ.

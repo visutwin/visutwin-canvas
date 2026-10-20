@@ -188,6 +188,53 @@ int main()
             "a missing entry point fails and is named");
     }
 
+    // Read-only buffers are `const device` in the MSL: slangc emits every structured buffer as
+    // `device T*`, which Apple's compiler warns about in a vertex function. A RW buffer, and a
+    // local pointer copied from it, stay writable.
+    {
+        std::cout << "\nread-only buffers in MSL\n";
+        SlangCompileRequest r;
+        r.moduleName = "buffers";
+        r.source = R"slang(
+[[vk::binding(0, 0)]] StructuredBuffer<float4> data : register(t3);
+[[vk::binding(1, 0)]] ByteAddressBuffer raw : register(t5);
+[[vk::binding(2, 0)]] RWStructuredBuffer<float4> written : register(u4);
+struct VOut { float4 pos : SV_Position; };
+[shader("vertex")]
+VOut bufferVertex(uint vid : SV_VulkanVertexID) { VOut o; o.pos = data[vid] + raw.Load<float4>(vid * 16); return o; }
+[shader("fragment")]
+float4 bufferFragment(float4 pos : SV_Position) : SV_Target0 { written[uint(pos.x)] = data[0]; return data[1]; }
+)slang";
+        r.entryPoints = {"bufferVertex", "bufferFragment"};
+        r.target = SlangTarget::Msl;
+        const auto result = SlangCompiler::compile(r);
+        if (check(result.ok, "the module compiles to MSL: " + result.diagnostics)) {
+            const std::string msl = result.programText();
+            check(contains(msl, "const device* data_") && contains(msl, "const device* raw_"),
+                "a StructuredBuffer and a ByteAddressBuffer are const device");
+            check(!contains(msl, "const device* written_") && contains(msl, "device* written_"),
+                "a RWStructuredBuffer stays writable");
+        }
+
+        const std::string sample =
+            "struct K { float4 device* data_0; float4 device* out_0; };\n"
+            "vertex V vs(float4 device* data_1 [[buffer(3)]], float4 device* out_1 [[buffer(4)]]) {\n"
+            "    float4 device* _S1 = context->data_0+i;\n"
+            "    float4 device* _S2 = (&context_1)->data_0+i;\n"
+            "    float4 device* _S3 = out_1+i;\n"
+            "    float4 device* data_10x = nullptr;\n"
+            "}\n";
+        const std::string done = SlangCompiler::constReadOnlyBuffers(sample, {"data"});
+        check(contains(done, "float4 const device* data_0;") && contains(done, "float4 const device* data_1 [[buffer(3)]]"),
+            "the kernel context field and the entry parameter of a read-only buffer are const");
+        check(contains(done, "const device* _S1 = context->data_0") &&
+                  contains(done, "const device* _S2 = (&context_1)->data_0"),
+            "so are the local pointers copied from it");
+        check(contains(done, "float4 device* out_0;") && contains(done, "float4 device* _S3 = out_1"),
+            "another buffer, and pointers copied from it, are left alone");
+        check(contains(done, "float4 device* data_10x"), "a longer name that only starts the same is left alone");
+    }
+
     // VISUTWIN_SLANG_TIME_MODULE=<file.slang> [VISUTWIN_SLANG_TIME_ENTRY=<name>]: compile that
     // module in-process to SPIR-V and MSL twice each and print the times, for sizing the
     // front end on a real module without the CLI's process start and core-module load.

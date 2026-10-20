@@ -5,11 +5,13 @@
 //
 #include "slangCompiler.h"
 
+#include <cctype>
 #include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <regex>
 #include <sstream>
 
 #include "spdlog/spdlog.h"
@@ -301,6 +303,26 @@ namespace visutwin::canvas
                 return finish();
             }
             result.programCode = blobBytes(code);
+            if (request.target == SlangTarget::Msl) {
+                // The read-only buffers, from the linked program's layout.
+                std::vector<std::string> readOnly;
+                if (slang::ProgramLayout* layout = linked->getLayout()) {
+                    for (unsigned i = 0; i < layout->getParameterCount(); ++i) {
+                        slang::VariableLayoutReflection* parameter = layout->getParameterByIndex(i);
+                        slang::TypeReflection* type = parameter ? parameter->getType() : nullptr;
+                        if (!type || type->getKind() != slang::TypeReflection::Kind::Resource ||
+                            type->getResourceAccess() != SLANG_RESOURCE_ACCESS_READ || !parameter->getName()) {
+                            continue;
+                        }
+                        const auto shape = type->getResourceShape() & SLANG_RESOURCE_BASE_SHAPE_MASK;
+                        if (shape == SLANG_STRUCTURED_BUFFER || shape == SLANG_BYTE_ADDRESS_BUFFER) {
+                            readOnly.emplace_back(parameter->getName());
+                        }
+                    }
+                }
+                const std::string text = constReadOnlyBuffers(result.programText(), readOnly);
+                result.programCode.assign(text.begin(), text.end());
+            }
         }
 
         result.ok = true;
@@ -325,4 +347,25 @@ namespace visutwin::canvas
         return result;
     }
 #endif
+
+    std::string SlangCompiler::constReadOnlyBuffers(std::string msl, const std::vector<std::string>& readOnly)
+    {
+        for (const auto& name : readOnly) {
+            std::string escaped;
+            for (const char c : name) {
+                if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_') {
+                    escaped += '\\';
+                }
+                escaped += c;
+            }
+            const std::string declared = escaped + "_\\d+\\b";
+            // Its declarations, and the local pointers Slang copies it into
+            // (`T device* _S1 = context->name_0 + i;`).
+            msl = std::regex_replace(msl, std::regex("\\bdevice\\*(\\s+" + declared + ")"), "const device*$1");
+            msl = std::regex_replace(msl,
+                std::regex("\\bdevice\\*(\\s+\\w+\\s*=\\s*(?:\\(&?\\w+\\)->|\\w+->)?" + declared + ")"),
+                "const device*$1");
+        }
+        return msl;
+    }
 }

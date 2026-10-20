@@ -112,6 +112,36 @@ def reflected_parameters(json_path: Path) -> dict[str, tuple[str, int]]:
     return out
 
 
+def read_only_buffers(json_path: Path) -> list[str]:
+    """The names of the program's read-only structured and byte-address buffers: reflected as
+    such with no `access`, where a RW buffer says "readWrite"."""
+    data = json.loads(json_path.read_text())
+    names = []
+    for param in data["parameters"]:
+        type_info = param["type"]
+        if (type_info.get("kind") == "resource"
+                and type_info.get("baseShape") in ("structuredBuffer", "byteAddressBuffer")
+                and type_info.get("access", "read") == "read"):
+            names.append(param["name"])
+    return names
+
+
+def const_read_only_buffers(msl: str, names: list[str]) -> str:
+    """Declares each read-only buffer `const device` in the MSL. slangc emits every structured
+    buffer as `device T*`, which Apple's compiler (Metal 27) warns about in a vertex function
+    ("writable resources in non-void vertex function"), and which hides from it that the
+    data is only read. Slang suffixes each declaration of `name` (the entry parameters, the
+    kernel context's fields) as `name_N`. SlangCompiler::constReadOnlyBuffers is the twin of
+    this for the run-time compile: change both."""
+    for name in names:
+        declared = re.escape(name) + r"_\d+\b"
+        # Its declarations, and the local pointers Slang copies it into
+        # (`T device* _S1 = context->name_0 + i;`).
+        msl = re.sub(r"\bdevice\*(\s+" + declared + ")", r"const device*\1", msl)
+        msl = re.sub(r"\bdevice\*(\s+\w+\s*=\s*(?:\(&?\w+\)->|\w+->)?" + declared + ")", r"const device*\1", msl)
+    return msl
+
+
 def used_descriptors(spirv: bytes) -> tuple[list[tuple[str, int, int]], list[str]]:
     """(name, set, binding) of every descriptor variable a SPIR-V module declares (Slang
     drops the globals an entry does not use), and the names of its push-constant variables."""
@@ -273,10 +303,13 @@ def main() -> None:
             spirv = {}
             if "metal" in targets:
                 msl_path = args.work_dir / f"{stem}.metal"
-                command = common + define_flags + ["-DVT_TARGET_METAL"] + [str(program), "-target", "metal", "-o", str(msl_path)]
+                msl_reflection = args.work_dir / f"{stem}.metal.json"
+                command = common + define_flags + ["-DVT_TARGET_METAL"] + [str(program), "-target", "metal", "-o",
+                                                                           str(msl_path), "-reflection-json", str(msl_reflection)]
                 for stage, entry in found_list:
                     command += ["-entry", entry, "-stage", STAGE_FLAG[stage]]
                 run(command)
+                msl_path.write_text(const_read_only_buffers(msl_path.read_text(), read_only_buffers(msl_reflection)))
                 out.append(f"    inline constexpr char {ident}Msl[] = {raw_string(msl_path.read_text())};")
                 fields["metalSource"] = f"{ident}Msl"
                 # The same MSL compiled by Apple's compiler, so the Metal backend loads a library
