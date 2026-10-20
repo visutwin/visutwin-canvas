@@ -13,7 +13,7 @@
 // (mip 1) seen by the main camera.
 //
 // DEVIATIONS:
-// - there is no TextureRenderer; each half is drawn by a RenderPassDownsample
+// - upstream's TextureRenderer is a TexturePreviewPass (examples/texturePreview.h) per half,
 //   appended to the frame graph, with the viewport upstream's draw() rectangles
 //   describe.
 // - upstream's one WGSL kernel is written twice, MSL and GLSL, picked from the
@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "../exampleApp.h"
+#include "../texturePreview.h"
 #include "framework/assets/asset.h"
 #include "framework/handlers/containerResource.h"
 #include "platform/graphics/compute.h"
@@ -35,7 +36,6 @@
 #include "platform/graphics/texture.h"
 #include "scene/composition/layerComposition.h"
 #include "scene/constants.h"
-#include "scene/graphics/renderPassDownsample.h"
 #include "scene/layer.h"
 #include "scene/materials/standardMaterial.h"
 
@@ -249,12 +249,10 @@ protected:
             mainCamera->camera()->setClearColor(Color(0.2f, 0.2f, 0.3f, 1.0f));
         }
 
-        _displayOriginalPass = std::make_shared<RenderPassDownsample>(device(), _sourceTexture.get());
-        _displayEdgePass = std::make_shared<RenderPassDownsample>(device(), _outputTexture.get());
+        _displayOriginalPass = std::make_shared<TexturePreviewPass>(device(), _sourceTexture.get());
+        _displayEdgePass = std::make_shared<TexturePreviewPass>(device(), _outputTexture.get());
         _displayOriginalPass->init(nullptr);
         _displayEdgePass->init(nullptr);
-        _displayOriginalPass->setRequiresCubemaps(false);
-        _displayEdgePass->setRequiresCubemaps(false);
 
         // Register the display passes as renderer append passes so they run inside
         // Engine::render(), after the scene render actions but BEFORE frame end.
@@ -356,8 +354,8 @@ private:
     std::shared_ptr<Texture> _sourceTexture;
     std::shared_ptr<Texture> _outputTexture;
     std::shared_ptr<RenderTarget> _sceneRenderTarget;
-    std::shared_ptr<RenderPassDownsample> _displayOriginalPass;
-    std::shared_ptr<RenderPassDownsample> _displayEdgePass;
+    std::shared_ptr<TexturePreviewPass> _displayOriginalPass;
+    std::shared_ptr<TexturePreviewPass> _displayEdgePass;
     std::shared_ptr<Shader> _computeShader;
     std::unique_ptr<Compute> _compute;
 

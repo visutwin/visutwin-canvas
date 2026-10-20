@@ -1401,9 +1401,13 @@ namespace visutwin::canvas
             // Our local-shadow shader subtracts this from the receiver depth,
             // so it needs a POSITIVE value while Light::shadowBias() is a
             // negative internal one — hence the negation. The per-type scaling
-            // is spot x20, omni raw.
+            // is spot x20, omni raw. A PCF spot takes NONE: its bias is the shadow
+            // pass's polygon offset (drawLocalShadowFace), and its perspective depth
+            // is crushed against 1 (near is range / 1000), where the x20 value is
+            // larger than the depth span of the whole scene and lit every receiver.
+            const bool pcfSpot = !isOmni && sceneLight->shadowType() != SHADOW_PCSS_32F;
             ls.bias = isOmni ? -sceneLight->shadowBias()
-                             : -sceneLight->shadowBias() * 20.0f;
+                             : (pcfSpot ? 0.0f : -sceneLight->shadowBias() * 20.0f);
             ls.normalBias = sceneLight->normalBias();
             // A VSM spot: a fixed 0.0002 off the
             // distance ratio and the variance bias in place of the normal offset.
@@ -1468,8 +1472,7 @@ namespace visutwin::canvas
             lightData.cookieFalloff = sceneLight->cookieFalloff();
             lightData.cookieMatrix = isOmniCookie
                 ? lightComponent.entity()->worldTransform()
-                : (lightData.castShadows ? sceneLight->shadowViewProjection()
-                                         : LightCamera::evalSpotCookieMatrix(*sceneLight));
+                : LightCamera::evalSpotCookieTextureMatrix(*sceneLight);
             if (!isOmniCookie) {
                 // The cookie offset is added to the projected xy before the
                 // clip test; a translation by offset * w in front of the projection is

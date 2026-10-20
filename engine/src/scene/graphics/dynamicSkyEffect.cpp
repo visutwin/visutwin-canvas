@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <numbers>
+#include <vector>
 
 #include <spdlog/spdlog.h>
 
@@ -723,6 +724,11 @@ namespace visutwin::canvas
             texture->setEncoding(TextureEncoding::RGBP);
             texture->setAddressU(AddressMode::ADDRESS_CLAMP_TO_EDGE);
             texture->setAddressV(AddressMode::ADDRESS_CLAMP_TO_EDGE);
+            // Zeroed, not left uninitialised until the first generation: the atlas is the scene's
+            // from the frame it is created, and a camera that renders before the effect's camera
+            // in that frame (a planar reflection) samples it before it is generated.
+            const std::vector<uint8_t> zeros(static_cast<size_t>(atlasSize) * static_cast<size_t>(atlasSize) * 4u, 0u);
+            texture->setLevelData(0, zeros.data(), zeros.size());
             texture->upload();
             return texture;
         };

@@ -1347,14 +1347,21 @@ present, but the rule below never depends on reading it.
   compiles rounded the compare differently and Vulkan speckled the walls nearest
   `clustered-omni-shadows`' lights (365 px off, now 22). The atlas contents were
   identical; read them back (`Texture::read`) before blaming the filter.
-- **A clustered spot shadow takes NO depth bias in the shader.** Its perspective depth is
-  crushed against 1 (near a thousandth of the range), so the whole scene spans a few
-  thousandths of depth; the non-clustered path's spot bias (upstream's `shadowBias * 20`, so
-  0.08 at an authoring value of 0.4) is many times that span and lights every
-  fragment. Upstream says so in one line of comment — "depth bias is already applied
-  on render" — and biases these with hardware polygon offset, which the atlas pass
-  already sets. What the shader applies is the receiver NORMAL offset, and
-  `ClusterLightData::shadowNormalBias` carries it.
+- **A PCF spot shadow takes NO depth bias in the shader, clustered or not.** Its perspective
+  depth is crushed against 1 (near a thousandth of the range), so the whole scene spans a few
+  thousandths of depth; upstream's uniform spot bias (`shadowBias * 20`, so 0.01 at an
+  authoring value of 0.05) is many times that span and lights every fragment. Upstream biases
+  these with hardware polygon offset (`shadowBias * -1000`, constant and slope), which the atlas
+  pass and `drawLocalShadowFace` set; the uniform is read only by PCSS (and VSM has its own).
+  What the shader applies is the receiver NORMAL offset (`ClusterLightData::shadowNormalBias`
+  on the clustered path). With the uniform subtracted as well, `lights-non-clustered`' statue
+  cast no spot shadow at all; `pcss-local` matched throughout, being PCSS.
+- **A spot COOKIE is an image, so its UV is NOT the shadow map's.** A shadow map is rendered
+  top-origin and every spot shadow projection flips Y (`viewportProjectionBias`); a cookie
+  sampled directly takes `LightCamera::evalSpotCookieTextureMatrix`, which undoes the flip, for
+  a shadowed spot too (its shadow matrix drew the heart cookie upside down). The clustered path
+  samples the cookie ATLAS, which its copy pass lays out in the shadow convention, and keeps the
+  shadow matrix; `lights` (clustered) and `lights-non-clustered` both match upstream's heart.
 - **A clustered OMNI receiver's normal offset is scaled by (1 - NdotL) and by the
   DISTANCE to the light** — upstream's `normalOffsetPointShadow`, on the GEOMETRIC
   normal; a clustered spot keeps the flat `N * normalBias`

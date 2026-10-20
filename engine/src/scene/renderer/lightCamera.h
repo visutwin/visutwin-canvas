@@ -31,6 +31,12 @@ namespace visutwin::canvas
         /// the cookie atlas) instead of the whole of it.
         static Matrix4 evalSpotCookieMatrix(const Light& light, const Vector4& viewport);
 
+        /// World -> UV of the cookie TEXTURE itself, for a cookie sampled directly (the
+        /// non-clustered path). The shadow projections above flip Y, because a shadow map is
+        /// rendered with its origin at the top; a cookie is an image, whose v runs the other way
+        /// along the light camera's up axis, so this undoes the flip (v -> 1 - v), shadowed or not.
+        static Matrix4 evalSpotCookieTextureMatrix(const Light& light);
+
         /** NDC → texture-UV bias matrix shared by spot shadow and cookie projections. */
         static Matrix4 spotProjectionBias();
 

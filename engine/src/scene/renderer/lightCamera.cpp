@@ -53,6 +53,15 @@ namespace visutwin::canvas
         return viewportProjectionBias(viewport) * viewProj;
     }
 
+    Matrix4 LightCamera::evalSpotCookieTextureMatrix(const Light& light)
+    {
+        // v' = 1 - v of the projected point, as w - v before the divide.
+        Matrix4 flipV = Matrix4::identity();
+        flipV.setElement(1, 1, -1.0f);
+        flipV.setElement(3, 1, 1.0f);
+        return flipV * evalSpotCookieMatrix(light);
+    }
+
     Matrix4 LightCamera::spotProjectionBias()
     {
         return viewportProjectionBias(Vector4(0.0f, 0.0f, 1.0f, 1.0f));
