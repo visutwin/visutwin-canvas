@@ -29,12 +29,16 @@ namespace visutwin::canvas::gpu
         uint32_t width = 0;
         uint32_t height = 0;
         uint32_t mipLevel = 0;
+        // A cubemap face or an array layer; a volume's FIRST depth slice.
         uint32_t face = 0;
+        // The depth slices of a volume read from `face` on, packed slice after slice; 1
+        // for any other texture.
+        uint32_t depth = 1;
     };
 
     // A copy between two textures of one format: a width x height block of the source's
     // mip level at (sourceX, sourceY) to the destination's mip level at (destX, destY), on
-    // the same cube face (0 for a 2D texture).
+    // the same cube face, array layer or volume depth slices (0 for a 2D texture).
     struct TextureCopyRegion
     {
         uint32_t sourceX = 0;
@@ -45,7 +49,10 @@ namespace visutwin::canvas::gpu
         uint32_t height = 0;
         uint32_t sourceMipLevel = 0;
         uint32_t destMipLevel = 0;
+        // A cubemap face or an array layer; a volume's first depth slice, the same on both sides.
         uint32_t face = 0;
+        // The depth slices of a volume copied from `face` on; 1 for any other texture.
+        uint32_t depth = 1;
     };
 
     class HardwareTexture

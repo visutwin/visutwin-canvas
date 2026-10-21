@@ -100,6 +100,7 @@ namespace visutwin::canvas::gpu
             uint32_t layer = 0;
             uint32_t width = 1;
             uint32_t height = 1;
+            uint32_t depth = 1;
         };
 
         /// The host data a texture carries, laid out for one staging buffer.
@@ -155,7 +156,9 @@ namespace visutwin::canvas::gpu
 
                     const uint32_t mipWidth = std::max(width >> mip, 1u);
                     const uint32_t mipHeight = std::max(height >> mip, 1u);
-                    const size_t expectedSize = expectedLevelSize(pixelFormat, mipWidth, mipHeight);
+                    // A volume's level holds all its depth slices, one after another.
+                    const uint32_t mipDepth = owner.levelDepth(mip);
+                    const size_t expectedSize = expectedLevelSize(pixelFormat, mipWidth, mipHeight) * mipDepth;
                     if (expectedSize == 0 || sourceSize < expectedSize) {
                         spdlog::error(
                             "VulkanTexture: subresource face={} mip={} has {} bytes, expected at least {}",
@@ -164,7 +167,7 @@ namespace visutwin::canvas::gpu
                     }
 
                     result.totalSize = alignTo4(result.totalSize);
-                    result.uploads.push_back({source, expectedSize, mip, layer, mipWidth, mipHeight});
+                    result.uploads.push_back({source, expectedSize, mip, layer, mipWidth, mipHeight, mipDepth});
                     result.totalSize += expectedSize;
                     basePresent |= mip == 0;
                     result.hasExplicitHigherMips |= mip > 0;
@@ -214,7 +217,7 @@ namespace visutwin::canvas::gpu
                 VkBufferImageCopy region{};
                 region.bufferOffset = offset;
                 region.imageSubresource = {aspect, upload.mipLevel, upload.layer, 1};
-                region.imageExtent = {upload.width, upload.height, 1};
+                region.imageExtent = {upload.width, upload.height, upload.depth};
                 staged.regions.push_back(region);
 
                 offset += upload.size;
@@ -233,7 +236,34 @@ namespace visutwin::canvas::gpu
             uint32_t arrayLayers = 1;
             uint32_t width = 1;
             uint32_t height = 1;
+            // A volume's depth, halved with the width and height down the chain; 1 otherwise.
+            uint32_t depth = 1;
+            bool volume = false;
+            // See mipLevelBlit.
+            bool sourceZByDestinationDepth = false;
+
+            /// The layer count a barrier names: a volume's must be VK_REMAINING_ARRAY_LAYERS,
+            /// which on a 2D-array-compatible 3D image covers every depth slice whether or not
+            /// maintenance9 makes a count of 1 mean one slice.
+            uint32_t barrierLayers() const { return volume ? VK_REMAINING_ARRAY_LAYERS : arrayLayers; }
         };
+
+        /// The blit that filters mip `level` from `level - 1`, halving a volume's depth too.
+        /// `sourceZByDestinationDepth` gives the source z range in units of the destination
+        /// level's depth, which is where a driver that places the source z that way (MoltenVK)
+        /// reads the range the blit means.
+        VkImageBlit mipLevelBlit(const VkImageAspectFlags aspect, const uint32_t level,
+            const uint32_t baseLayer, const uint32_t layerCount, const int32_t width, const int32_t height,
+            const int32_t depth, const int32_t nextWidth, const int32_t nextHeight, const int32_t nextDepth,
+            const bool sourceZByDestinationDepth)
+        {
+            VkImageBlit blit{};
+            blit.srcSubresource = {aspect, level - 1, baseLayer, layerCount};
+            blit.srcOffsets[1] = {width, height, sourceZByDestinationDepth ? nextDepth : depth};
+            blit.dstSubresource = {aspect, level, baseLayer, layerCount};
+            blit.dstOffsets[1] = {nextWidth, nextHeight, nextDepth};
+            return blit;
+        }
 
         /// Fills levels 1..n-1 from level 0 by successive linear blits, leaving the
         /// whole chain in SHADER_READ_ONLY. Level 0 enters in TRANSFER_DST.
@@ -241,20 +271,19 @@ namespace visutwin::canvas::gpu
         {
             int32_t mipW = static_cast<int32_t>(target.width);
             int32_t mipH = static_cast<int32_t>(target.height);
+            int32_t mipD = static_cast<int32_t>(target.depth);
             for (uint32_t level = 1; level < target.mipLevels; ++level) {
                 vulkanTransitionImageLayout(cmd, target.image,
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                    target.aspect, level - 1, 1, 0, target.arrayLayers);
+                    target.aspect, level - 1, 1, 0, target.barrierLayers());
 
                 const int32_t nextW = std::max(mipW / 2, 1);
                 const int32_t nextH = std::max(mipH / 2, 1);
+                const int32_t nextD = std::max(mipD / 2, 1);
 
-                VkImageBlit blit{};
-                blit.srcSubresource = {target.aspect, level - 1, 0, target.arrayLayers};
-                blit.srcOffsets[1] = {mipW, mipH, 1};
-                blit.dstSubresource = {target.aspect, level, 0, target.arrayLayers};
-                blit.dstOffsets[1] = {nextW, nextH, 1};
+                const VkImageBlit blit = mipLevelBlit(target.aspect, level, 0, target.arrayLayers, mipW, mipH,
+                    mipD, nextW, nextH, nextD, target.volume && target.sourceZByDestinationDepth);
                 vkCmdBlitImage(cmd,
                     target.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                     target.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -262,16 +291,17 @@ namespace visutwin::canvas::gpu
 
                 mipW = nextW;
                 mipH = nextH;
+                mipD = nextD;
             }
 
             vulkanTransitionImageLayout(cmd, target.image,
                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                target.aspect, 0, target.mipLevels - 1, 0, target.arrayLayers);
+                target.aspect, 0, target.mipLevels - 1, 0, target.barrierLayers());
             vulkanTransitionImageLayout(cmd, target.image,
                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                target.aspect, target.mipLevels - 1, 1, 0, target.arrayLayers);
+                target.aspect, target.mipLevels - 1, 1, 0, target.barrierLayers());
         }
 
         /// Copies the staged data into the image, generates the remaining mips when
@@ -282,7 +312,7 @@ namespace visutwin::canvas::gpu
             vulkanTransitionImageLayout(cmd, target.image,
                 VK_IMAGE_LAYOUT_UNDEFINED,
                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                target.aspect, 0, target.mipLevels, 0, target.arrayLayers);
+                target.aspect, 0, target.mipLevels, 0, target.barrierLayers());
 
             vkCmdCopyBufferToImage(cmd, stagingBuffer, target.image,
                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -294,7 +324,7 @@ namespace visutwin::canvas::gpu
                 vulkanTransitionImageLayout(cmd, target.image,
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    target.aspect, 0, target.mipLevels, 0, target.arrayLayers);
+                    target.aspect, 0, target.mipLevels, 0, target.barrierLayers());
             }
         }
     }
@@ -321,7 +351,8 @@ namespace visutwin::canvas::gpu
             return;
         }
 
-        const UploadTarget target{_image, _aspect, _mipLevels, _arrayLayers, _owner->width(), _owner->height()};
+        const UploadTarget target{_image, _aspect, _mipLevels, _arrayLayers, _owner->width(), _owner->height(),
+            _owner->levelDepth(0), _owner->isVolume(), vkDev->volumeBlitSourceZByDestinationDepth()};
         const HostUploads host = collectHostUploads(*_owner, isDepth(), _arrayLayers, _mipLevels);
         if (!host.uploads.empty()) {
             auto staged = stageHostUploads(_allocator, _aspect, host);
@@ -353,7 +384,7 @@ namespace visutwin::canvas::gpu
                 vulkanTransitionImageLayout(cmd, target.image,
                     VK_IMAGE_LAYOUT_UNDEFINED,
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    target.aspect, 0, target.mipLevels, 0, target.arrayLayers);
+                    target.aspect, 0, target.mipLevels, 0, target.barrierLayers());
             });
         }
         std::fill(_subresourceLayouts.begin(), _subresourceLayouts.end(),
@@ -464,7 +495,10 @@ namespace visutwin::canvas::gpu
         const uint32_t width = _owner->width();
         const uint32_t height = _owner->height();
         const bool isCubemap = _owner->isCubemap();
-        const VkImageCreateFlags imageFlags = isCubemap
+        const bool volume = _owner->isVolume();
+        const uint32_t depth = _owner->levelDepth(0);
+        const VkImageType imageType = volume ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D;
+        VkImageCreateFlags imageFlags = isCubemap
             ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0;
 
         VkImageUsageFlags imageUsage = VK_IMAGE_USAGE_SAMPLED_BIT |
@@ -474,28 +508,32 @@ namespace visutwin::canvas::gpu
         if (isDepth()) {
             imageUsage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
             requiredFeatures |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
-        } else if (_supportsColorAttachment) {
+        } else if (_supportsColorAttachment && (!volume || device->supportsVolumeSliceRendering())) {
             imageUsage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+            // A render target renders into one depth slice through a 2D view of it.
+            if (volume) {
+                imageFlags |= VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT;
+            }
         }
         if (_owner->storage()) {
             imageUsage |= VK_IMAGE_USAGE_STORAGE_BIT;
             requiredFeatures |= VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
         }
         if (!vulkanFormatSupportsImage(device->physicalDevice(), _format,
-                VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL, imageUsage,
-                imageFlags, requiredFeatures, {width, height, 1},
+                imageType, VK_IMAGE_TILING_OPTIMAL, imageUsage,
+                imageFlags, requiredFeatures, {width, height, depth},
                 _mipLevels, _arrayLayers, VK_SAMPLE_COUNT_1_BIT)) {
             spdlog::error(
                 "VulkanTexture: format {} does not support requested usage {:#x}{}",
                 static_cast<int>(_format), static_cast<uint32_t>(imageUsage),
-                isCubemap ? " as a cubemap" : "");
+                isCubemap ? " as a cubemap" : (volume ? " as a volume" : ""));
             return false;
         }
 
         VkImageCreateInfo imageInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-        imageInfo.imageType = VK_IMAGE_TYPE_2D;
+        imageInfo.imageType = imageType;
         imageInfo.format = _format;
-        imageInfo.extent = {width, height, 1};
+        imageInfo.extent = {width, height, depth};
         imageInfo.mipLevels = _mipLevels;
         imageInfo.arrayLayers = _arrayLayers;
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -508,8 +546,8 @@ namespace visutwin::canvas::gpu
         allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
         if (vmaCreateImage(_allocator, &imageInfo, &allocInfo, &_image, &_allocation, nullptr) != VK_SUCCESS) {
-            spdlog::error("VulkanTexture: failed to create VkImage ({}x{}, fmt={})",
-                width, height, static_cast<int>(_format));
+            spdlog::error("VulkanTexture: failed to create VkImage ({}x{}x{}, fmt={})",
+                width, height, depth, static_cast<int>(_format));
             return false;
         }
 
@@ -531,6 +569,7 @@ namespace visutwin::canvas::gpu
         // layer takes it too, as a shader reading it declares an array.
         viewInfo.viewType = _owner->isCubemap()
             ? VK_IMAGE_VIEW_TYPE_CUBE
+            : _owner->isVolume() ? VK_IMAGE_VIEW_TYPE_3D
             : (_arrayLayers > 1 || _owner->isArray() ? VK_IMAGE_VIEW_TYPE_2D_ARRAY
                                                      : VK_IMAGE_VIEW_TYPE_2D);
         viewInfo.format = _format;
@@ -607,8 +646,9 @@ namespace visutwin::canvas::gpu
                 if (oldLayout == newLayout) {
                     continue;
                 }
+                // A volume names every depth slice (see UploadTarget::barrierLayers).
                 vulkanTransitionImageLayout(commandBuffer, _image,
-                    oldLayout, newLayout, _aspect, mip, 1, layer, 1);
+                    oldLayout, newLayout, _aspect, mip, 1, layer, isVolume() ? VK_REMAINING_ARRAY_LAYERS : 1u);
                 oldLayout = newLayout;
             }
         }
@@ -631,25 +671,25 @@ namespace visutwin::canvas::gpu
 
         int32_t mipWidth = static_cast<int32_t>(_owner->width());
         int32_t mipHeight = static_cast<int32_t>(_owner->height());
+        // A volume's chain halves its depth too, filtering neighbouring slices together.
+        int32_t mipDepth = static_cast<int32_t>(_owner->levelDepth(0));
         for (uint32_t mip = 1; mip < _mipLevels; ++mip) {
             transitionLayout(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                 mip - 1, 1, baseArrayLayer, layerCount);
 
             const int32_t nextWidth = std::max(mipWidth / 2, 1);
             const int32_t nextHeight = std::max(mipHeight / 2, 1);
-            VkImageBlit blit{};
-            blit.srcSubresource = {
-                _aspect, mip - 1, baseArrayLayer, layerCount};
-            blit.srcOffsets[1] = {mipWidth, mipHeight, 1};
-            blit.dstSubresource = {
-                _aspect, mip, baseArrayLayer, layerCount};
-            blit.dstOffsets[1] = {nextWidth, nextHeight, 1};
+            const int32_t nextDepth = std::max(mipDepth / 2, 1);
+            const VkImageBlit blit = mipLevelBlit(_aspect, mip, baseArrayLayer, layerCount, mipWidth, mipHeight,
+                mipDepth, nextWidth, nextHeight, nextDepth,
+                isVolume() && _deviceRef && _deviceRef->volumeBlitSourceZByDestinationDepth());
             vkCmdBlitImage(commandBuffer,
                 _image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                 _image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                 1, &blit, VK_FILTER_LINEAR);
             mipWidth = nextWidth;
             mipHeight = nextHeight;
+            mipDepth = nextDepth;
         }
 
         transitionLayout(commandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -707,7 +747,7 @@ namespace visutwin::canvas::gpu
             ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR;
         samplerInfo.addressModeU = vulkanMapAddressMode(state.addressU);
         samplerInfo.addressModeV = vulkanMapAddressMode(state.addressV);
-        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        samplerInfo.addressModeW = vulkanMapAddressMode(state.addressW);
         samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
         samplerInfo.anisotropyEnable = state.maxAnisotropy > 1.0f ? VK_TRUE : VK_FALSE;
         samplerInfo.maxAnisotropy = state.maxAnisotropy;
@@ -741,7 +781,7 @@ namespace visutwin::canvas::gpu
         }
         const uint32_t bytesPerPixel = pixelFormatBytesPerPixel(_owner->format());
         const VkDeviceSize size =
-            static_cast<VkDeviceSize>(region.width) * region.height * bytesPerPixel;
+            static_cast<VkDeviceSize>(region.width) * region.height * region.depth * bytesPerPixel;
         if (bytesPerPixel == 0 || outSize < size) {
             return false;
         }
@@ -755,37 +795,9 @@ namespace visutwin::canvas::gpu
             return false;
         }
 
-        // The subresource is left exactly as it was found. A texture read between
-        // frames is still bound by descriptors written for it, and handing it back
-        // in TRANSFER_SRC would make every later sample of it invalid.
-        const VkImageLayout previous = layout(region.mipLevel, region.face);
+        // The copy hands the subresource back in the layout it was found in.
         const bool submitted = vulkanDevice->runOneShotCommands(
-            [&](VkCommandBuffer cmd) {
-                transitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                    region.mipLevel, 1, region.face, 1);
-
-                VkBufferImageCopy copy{};
-                // Zero means tightly packed to imageExtent, which is how `out` is
-                // sized — Vulkan has no 256-byte row alignment to pad around.
-                copy.bufferRowLength = 0;
-                copy.bufferImageHeight = 0;
-                copy.imageSubresource.aspectMask = _aspect;
-                copy.imageSubresource.mipLevel = region.mipLevel;
-                copy.imageSubresource.baseArrayLayer = region.face;
-                copy.imageSubresource.layerCount = 1;
-                copy.imageOffset = {static_cast<int32_t>(region.x),
-                    static_cast<int32_t>(region.y), 0};
-                copy.imageExtent = {region.width, region.height, 1};
-                vkCmdCopyImageToBuffer(cmd, _image,
-                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging, 1, &copy);
-
-                vulkanRecordCopyToHostBarrier(cmd);
-
-                if (previous != VK_IMAGE_LAYOUT_UNDEFINED &&
-                    previous != VK_IMAGE_LAYOUT_PREINITIALIZED) {
-                    transitionLayout(cmd, previous, region.mipLevel, 1, region.face, 1);
-                }
-            });
+            [&](VkCommandBuffer cmd) { recordCopyToBuffer(cmd, region, staging); });
 
         bool ok = false;
         if (submitted && mapped.pMappedData) {
@@ -811,6 +823,11 @@ namespace visutwin::canvas::gpu
         return true;
     }
 
+    bool VulkanTexture::isVolume() const
+    {
+        return _owner && _owner->isVolume();
+    }
+
     PixelFormat VulkanTexture::ownerFormat() const
     {
         return _owner->format();
@@ -818,24 +835,32 @@ namespace visutwin::canvas::gpu
 
     void VulkanTexture::recordCopyToBuffer(VkCommandBuffer cmd, const TextureReadRegion& region, VkBuffer buffer)
     {
-        // The subresource is handed back in the layout it was found in, as read() does.
-        const VkImageLayout previous = layout(region.mipLevel, region.face);
-        transitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, region.mipLevel, 1, region.face, 1);
+        // The subresource is handed back in the layout it was found in: a texture read between
+        // frames is still bound by descriptors written for it, and handing it back in
+        // TRANSFER_SRC would make every later sample of it invalid. A volume's slices are its
+        // z range, in its one layer.
+        const bool volume = isVolume();
+        const uint32_t layer = volume ? 0u : region.face;
+        const VkImageLayout previous = layout(region.mipLevel, layer);
+        transitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, region.mipLevel, 1, layer, 1);
 
         VkBufferImageCopy copy{};
+        // Zero means tightly packed to imageExtent, which is how the buffer is sized: Vulkan
+        // has no 256-byte row alignment to pad around.
         copy.bufferRowLength = 0;
         copy.bufferImageHeight = 0;
         copy.imageSubresource.aspectMask = _aspect;
         copy.imageSubresource.mipLevel = region.mipLevel;
-        copy.imageSubresource.baseArrayLayer = region.face;
+        copy.imageSubresource.baseArrayLayer = layer;
         copy.imageSubresource.layerCount = 1;
-        copy.imageOffset = {static_cast<int32_t>(region.x), static_cast<int32_t>(region.y), 0};
-        copy.imageExtent = {region.width, region.height, 1};
+        copy.imageOffset = {static_cast<int32_t>(region.x), static_cast<int32_t>(region.y),
+            volume ? static_cast<int32_t>(region.face) : 0};
+        copy.imageExtent = {region.width, region.height, volume ? region.depth : 1u};
         vkCmdCopyImageToBuffer(cmd, _image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, 1, &copy);
         vulkanRecordCopyToHostBarrier(cmd);
 
         if (previous != VK_IMAGE_LAYOUT_UNDEFINED && previous != VK_IMAGE_LAYOUT_PREINITIALIZED) {
-            transitionLayout(cmd, previous, region.mipLevel, 1, region.face, 1);
+            transitionLayout(cmd, previous, region.mipLevel, 1, layer, 1);
         }
     }
 
@@ -859,35 +884,39 @@ namespace visutwin::canvas::gpu
         // Both subresources are handed back in the layout they were found in, so the
         // descriptors written for them stay valid; a destination never written (UNDEFINED)
         // is left ready to sample.
-        const VkImageLayout sourcePrevious = vulkanSource->layout(region.sourceMipLevel, region.face);
-        const VkImageLayout destPrevious = layout(region.destMipLevel, region.face);
+        // A volume's slices are its z range, in its one layer.
+        const bool volume = isVolume();
+        const uint32_t layer = volume ? 0u : region.face;
+        const int32_t z = volume ? static_cast<int32_t>(region.face) : 0;
+        const VkImageLayout sourcePrevious = vulkanSource->layout(region.sourceMipLevel, layer);
+        const VkImageLayout destPrevious = layout(region.destMipLevel, layer);
         const auto restored = [](const VkImageLayout previous) {
             return previous == VK_IMAGE_LAYOUT_UNDEFINED || previous == VK_IMAGE_LAYOUT_PREINITIALIZED
                 ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : previous;
         };
         return vulkanDevice->runOneShotCommands([&](VkCommandBuffer cmd) {
             vulkanSource->transitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                region.sourceMipLevel, 1, region.face, 1);
-            transitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, region.destMipLevel, 1, region.face, 1);
+                region.sourceMipLevel, 1, layer, 1);
+            transitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, region.destMipLevel, 1, layer, 1);
 
             VkImageCopy copy{};
             copy.srcSubresource.aspectMask = vulkanSource->_aspect;
             copy.srcSubresource.mipLevel = region.sourceMipLevel;
-            copy.srcSubresource.baseArrayLayer = region.face;
+            copy.srcSubresource.baseArrayLayer = layer;
             copy.srcSubresource.layerCount = 1;
-            copy.srcOffset = {static_cast<int32_t>(region.sourceX), static_cast<int32_t>(region.sourceY), 0};
+            copy.srcOffset = {static_cast<int32_t>(region.sourceX), static_cast<int32_t>(region.sourceY), z};
             copy.dstSubresource.aspectMask = _aspect;
             copy.dstSubresource.mipLevel = region.destMipLevel;
-            copy.dstSubresource.baseArrayLayer = region.face;
+            copy.dstSubresource.baseArrayLayer = layer;
             copy.dstSubresource.layerCount = 1;
-            copy.dstOffset = {static_cast<int32_t>(region.destX), static_cast<int32_t>(region.destY), 0};
-            copy.extent = {region.width, region.height, 1};
+            copy.dstOffset = {static_cast<int32_t>(region.destX), static_cast<int32_t>(region.destY), z};
+            copy.extent = {region.width, region.height, volume ? region.depth : 1u};
             vkCmdCopyImage(cmd, vulkanSource->_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, _image,
                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
 
             vulkanSource->transitionLayout(cmd, restored(sourcePrevious), region.sourceMipLevel, 1,
-                region.face, 1);
-            transitionLayout(cmd, restored(destPrevious), region.destMipLevel, 1, region.face, 1);
+                layer, 1);
+            transitionLayout(cmd, restored(destPrevious), region.destMipLevel, 1, layer, 1);
         });
     }
 

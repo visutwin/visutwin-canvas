@@ -41,9 +41,11 @@ namespace visutwin::canvas
             // A depth-stencil texture's own view samples its depth only; attaching it
             // needs both aspects.
             const bool depthStencil = (tex->aspect() & VK_IMAGE_ASPECT_STENCIL_BIT) != 0;
+            // A volume is attached one depth slice at a time, through a 2D view of the slice
+            // (its image is created 2D-array compatible), never its own 3D view.
             const bool needsCarvedView = (face != 0) || (mipLevel != 0) ||
                                          (tex->arrayLayers() > 1) ||
-                                         (tex->mipLevels() > 1) || depthStencil;
+                                         (tex->mipLevels() > 1) || depthStencil || tex->isVolume();
 
             if (!needsCarvedView) {
                 return tex->imageView();

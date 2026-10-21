@@ -53,6 +53,8 @@ namespace visutwin::canvas::gpu
         [[nodiscard]] VkImageAspectFlags aspect() const { return _aspect; }
         [[nodiscard]] bool isDepth() const { return (_aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0; }
         [[nodiscard]] uint32_t arrayLayers() const { return _arrayLayers; }
+        /// A 3D image: its depth slices are not array layers (it has one), but its z range.
+        [[nodiscard]] bool isVolume() const;
         [[nodiscard]] uint32_t mipLevels() const { return _mipLevels; }
         [[nodiscard]] bool supportsColorAttachment() const {
             return _supportsColorAttachment;
@@ -62,6 +64,8 @@ namespace visutwin::canvas::gpu
         void transitionLayout(VkCommandBuffer commandBuffer, VkImageLayout newLayout,
             uint32_t baseMipLevel = 0, uint32_t levelCount = VK_REMAINING_MIP_LEVELS,
             uint32_t baseArrayLayer = 0, uint32_t layerCount = VK_REMAINING_ARRAY_LAYERS);
+        /// The texture this is the GPU side of.
+        Texture* owner() const { return _owner; }
         bool generateMipmaps(VkCommandBuffer commandBuffer,
             uint32_t baseArrayLayer = 0,
             uint32_t layerCount = VK_REMAINING_ARRAY_LAYERS);

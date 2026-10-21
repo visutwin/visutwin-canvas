@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 161 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 163 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -2535,7 +2535,34 @@ present, but the rule below never depends on reading it.
   size, layer)`, as a cubemap's faces): both backends upload each layer to its own slice. Until
   2026-10-17 the setter forced face 0 for anything but a cubemap and Metal uploaded level 0 into
   every layer, so a CPU-filled array (the dynamic sky's 3D cloud noise) came out as one layer
-  repeated, with nothing logged.
+  repeated, with nothing logged. The same `face` names a LAYER everywhere else: `Texture::read`
+  / `readAsync` / `copy` take one up to `layerCount()` (6 for a cube, the array length for an
+  array), and `RenderTargetOptions::face` renders into one. A pass on an array layer that
+  generates mips regenerates THAT layer's chain (Vulkan a per-layer blit, Metal through a slice
+  view), not the whole array's: 64 layer targets would otherwise rebuild 64 x 64 chains, as
+  upstream's WebGL does. `tests/textureCopyTests.cpp` (`gpu`) holds all of it.
+- **A VOLUME's depth slices are its Z RANGE, not layers, and `face` names the first one.**
+  `Texture::read` / `readAsync` / `copy` take `face` as the first slice and a slice count (1 by
+  default, 0 through the level's last; a DEVIATION, upstream reads every slice when none is
+  named), packed slice after slice; `levelDepth(mip)` is a level's slice count, and
+  `layerCount()` stays 1. In the backends a volume is one layer with a z extent
+  (`TextureReadRegion::depth`): Metal copies at slice 0 with origin z, Vulkan at layer 0 with
+  imageOffset z, and a Vulkan BARRIER on a volume names `VK_REMAINING_ARRAY_LAYERS` (its image is
+  2D-array compatible, where a count of 1 changes meaning under maintenance9). A render target
+  over a volume (`face` = the slice) attaches a 2D view of that slice (Vulkan: needs the
+  portability subset's `imageView2DOn3DImage`, chained at device creation since vk-bootstrap
+  enables the extension without its features; Metal: the depth plane), is never multisampled,
+  and generating mips rebuilds the whole volume. **MoltenVK (1.4.2) places a 3D blit's source z
+  by the DESTINATION level's depth**, so a mip blit halving a volume read its slices from twice
+  their depth (mip 1's slice 0 = source slices 1 and 2): on MoltenVK only
+  (`volumeBlitSourceZByDestinationDepth`) the source z range is given in destination units.
+  KosmicKrisp blits by the spec. The sampler's W address mode is the volume's own
+  (`TextureSamplerState::addressW`). `tests/textureCopyTests.cpp` (`gpu`) holds every piece, the
+  mips exactly enough to fail if the MoltenVK compensation stops being right.
+- **A multisampled render target resolves by DEFAULT** (`RenderTargetOptions::autoResolve`,
+  true as upstream's). It defaulted to false, and every MSAA target in the tree set it by hand;
+  one that did not (a 4x bake into texture-array layers) left its texture uninitialised with
+  nothing logged.
 - **Initialize every `static` global in Slang that a branch may skip writing.** GLSL zeroes an
   initialized global; Slang's `static float3 x;` is undefined on both targets, and garbage times
   zero is still NaN or Inf. The dynamic sky's sun disc, written only by the day model, was read at

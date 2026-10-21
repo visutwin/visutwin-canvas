@@ -23,13 +23,18 @@ namespace visutwin::canvas
 
         bool depth = false;
 
+        /// The cubemap face (0-5), the array texture LAYER or the volume DEPTH SLICE the colour
+        /// (and a layered depth) buffer is rendered into. A volume slice is never multisampled.
         int face = 0;
 
         int samples = 1;
 
         bool stencil = false;
 
-        bool autoResolve = false;
+        /// A multisampled target resolves into its colour (and depth) buffers at the end of each
+        /// pass. On by default: off, the buffers hold nothing a pass rendered (an MSAA bake into a
+        /// texture array came out as uninitialised memory). Meaningless at one sample.
+        bool autoResolve = true;
         /// The multisampled twins are TRANSIENT: rendered and resolved within one
         /// pass, never stored for a later pass to load. Metal then keeps them in
         /// tile memory (StorageModeMemoryless); a pass that nevertheless asks to
@@ -92,7 +97,7 @@ namespace visutwin::canvas
         bool autoResolve() const { return _autoResolve; }
         bool transientMultisample() const { return _transientMultisample; }
 
-        // Cubemap face index (0-5). Used when rendering to a specific face of a cubemap texture.
+        // The cubemap face (0-5), array layer or volume depth slice the target renders into.
         int face() const { return _face; }
 
         int key() const { return _id; }

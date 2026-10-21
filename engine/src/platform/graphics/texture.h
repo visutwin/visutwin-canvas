@@ -5,6 +5,7 @@
 //
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -100,7 +101,8 @@ namespace visutwin::canvas
         void setLevelData(uint32_t mipLevel, const uint8_t* data, size_t dataSize, uint32_t face = 0);
 
         /**
-         * Read a rectangle of one mip level and face back from the GPU into `out`,
+         * Read a rectangle of one mip level and face (a cubemap's face or an array
+         * texture's layer) back from the GPU into `out`,
          * tightly packed, BLOCKING until it arrives. There is no frame-deferred
          * variant, so a caller on the hot path pays a full pipeline drain and should
          * not be there.
@@ -115,9 +117,14 @@ namespace visutwin::canvas
          * atlas tool came to sample a device-private render target and write out
          * garbage that looked almost right.
          */
+        ///
+        /// A VOLUME is read by depth slice: `face` is the first slice and `sliceCount` the
+        /// number of slices (0: through the level's last), packed slice after slice into `out`.
+        /// DEVIATION: upstream reads every slice when none is named; here the default is one,
+        /// slice 0, and a whole level is `sliceCount` 0.
         bool read(std::vector<uint8_t>& out, uint32_t x = 0, uint32_t y = 0,
             uint32_t width = 0, uint32_t height = 0, uint32_t mipLevel = 0,
-            uint32_t face = 0);
+            uint32_t face = 0, uint32_t sliceCount = 1);
 
         /**
          * The same read WITHOUT blocking: the region is copied into staging at the end of
@@ -130,19 +137,25 @@ namespace visutwin::canvas
          * device goes away. Returns false, queuing nothing, for the same reasons read() does.
          */
         bool readAsync(gpu::TextureReadCallback callback, uint32_t x = 0, uint32_t y = 0,
-            uint32_t width = 0, uint32_t height = 0, uint32_t mipLevel = 0, uint32_t face = 0);
+            uint32_t width = 0, uint32_t height = 0, uint32_t mipLevel = 0, uint32_t face = 0,
+            uint32_t sliceCount = 1);
+
+        /// The depth slices of a mip level: the volume's depth halved per level (never below
+        /// one), 1 for any texture that is not a volume.
+        uint32_t levelDepth(uint32_t mipLevel) const { return _volume ? std::max(_depth >> mipLevel, 1u) : 1u; }
 
     private:
         /// The checked region of a read, or nothing (logged) when it cannot be read.
         std::optional<gpu::TextureReadRegion> readRegion(const char* what, uint32_t x, uint32_t y,
-            uint32_t width, uint32_t height, uint32_t mipLevel, uint32_t face) const;
+            uint32_t width, uint32_t height, uint32_t mipLevel, uint32_t face, uint32_t sliceCount) const;
 
     public:
 
         /**
          * Copy a block of `source` into this texture on the GPU: `source` must have this
          * texture's format, uncompressed, and be a different texture. The options pick the
-         * mip levels, the cube face (the same on both sides), the source rectangle (a zero
+         * mip levels, the cube face or array layer (the same on both sides; a volume's first depth
+         * slice, with `sliceCount` slices, 0 through the source level's last), the source rectangle (a zero
          * width or height means the rest of the source level) and where it lands. The copy
          * is ordered with the rendering: Metal encodes it into the open command buffer, so
          * it must not be issued inside a render pass; Vulkan submits it at once and waits,
@@ -160,6 +173,7 @@ namespace visutwin::canvas
             uint32_t height = 0;
             uint32_t destX = 0;
             uint32_t destY = 0;
+            uint32_t sliceCount = 1;
         };
         bool copy(const Texture& source, const CopyOptions& options);
         bool copy(const Texture& source) { return copy(source, CopyOptions{}); }
@@ -177,6 +191,9 @@ namespace visutwin::canvas
         bool isVolume() const { return _volume; }
 
         uint32_t getArrayLength() const { return _arrayLength; }
+        /// The faces or layers a read, a copy or a render target can name: 6 for a cubemap, the
+        /// array length for an array texture, 1 otherwise (a volume's slices: levelDepth).
+        uint32_t layerCount() const { return _cubemap ? 6u : (_arrayLength > 0 ? _arrayLength : 1u); }
 
         bool mipmaps() const { return _mipmaps; }
         void setMipmaps(bool mipmaps);

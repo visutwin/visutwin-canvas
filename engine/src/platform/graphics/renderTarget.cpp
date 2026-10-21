@@ -92,6 +92,16 @@ namespace visutwin::canvas
             }
         }
 
+        // A volume's depth slice is rendered single-sampled: a multisampled surface would need a
+        // resolve into one plane of a 3D texture, which neither backend has.
+        for (const auto* colorBuffer : _colorBuffers) {
+            if (colorBuffer && colorBuffer->isVolume() && _samples > 1) {
+                spdlog::warn("RenderTarget {}: a volume slice is not multisampled; using 1 sample", options.name);
+                _samples = 1;
+                break;
+            }
+        }
+
         _autoResolve = options.autoResolve;
 
         // Use specified name, otherwise get one from color or depth buffer

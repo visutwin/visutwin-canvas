@@ -251,9 +251,23 @@ namespace visutwin::canvas
                 options.sourceMipLevel, options.destMipLevel);
             return false;
         }
-        const uint32_t sourceFaces = source._cubemap ? 6u : 1u;
-        const uint32_t destFaces = _cubemap ? 6u : 1u;
-        if (options.face >= sourceFaces || options.face >= destFaces) {
+        if (source._volume != _volume) {
+            spdlog::warn("Texture::copy({} <- {}): a volume copies only to and from a volume", _name, source._name);
+            return false;
+        }
+        uint32_t slices = 1;
+        if (_volume) {
+            // Depth slices, the same on both sides.
+            const uint32_t sourceDepth = source.levelDepth(options.sourceMipLevel);
+            slices = options.sliceCount != 0 ? options.sliceCount
+                : (sourceDepth > options.face ? sourceDepth - options.face : 0);
+            if (slices == 0 || options.face + slices > sourceDepth ||
+                options.face + slices > levelDepth(options.destMipLevel)) {
+                spdlog::warn("Texture::copy({} <- {}): {} slices from slice {} leave a level", _name, source._name,
+                    slices, options.face);
+                return false;
+            }
+        } else if (options.face >= source.layerCount() || options.face >= layerCount() || options.sliceCount > 1) {
             spdlog::warn("Texture::copy({} <- {}): face {} does not exist", _name, source._name, options.face);
             return false;
         }
@@ -275,12 +289,13 @@ namespace visutwin::canvas
         }
 
         const gpu::TextureCopyRegion region{options.sourceX, options.sourceY, options.destX, options.destY,
-            width, height, options.sourceMipLevel, options.destMipLevel, options.face};
+            width, height, options.sourceMipLevel, options.destMipLevel, options.face, slices};
         return _impl->copyFrom(_device, *source._impl, region);
     }
 
     std::optional<gpu::TextureReadRegion> Texture::readRegion(const char* what, const uint32_t x, const uint32_t y,
-        uint32_t width, uint32_t height, const uint32_t mipLevel, const uint32_t face) const
+        uint32_t width, uint32_t height, const uint32_t mipLevel, const uint32_t face,
+        const uint32_t sliceCount) const
     {
         if (!_impl || !_device) {
             spdlog::warn("Texture::{}({}): no GPU texture to read from", what, _name);
@@ -305,24 +320,37 @@ namespace visutwin::canvas
                 "({}x{})", what, _name, width, height, x, y, mipLevel, levelWidth, levelHeight);
             return std::nullopt;
         }
-        if (mipLevel >= _numLevels || (_cubemap && face >= 6) || (!_cubemap && face > 0)) {
-            spdlog::warn("Texture::{}({}): mip {} face {} does not exist", what, _name,
-                mipLevel, face);
+        if (mipLevel >= _numLevels) {
+            spdlog::warn("Texture::{}({}): mip {} does not exist", what, _name, mipLevel);
             return std::nullopt;
         }
-        return gpu::TextureReadRegion{x, y, width, height, mipLevel, face};
+        uint32_t slices = 1;
+        if (_volume) {
+            const uint32_t depth = levelDepth(mipLevel);
+            slices = sliceCount != 0 ? sliceCount : (depth > face ? depth - face : 0);
+            if (slices == 0 || face + slices > depth) {
+                spdlog::warn("Texture::{}({}): {} slices from slice {} leave mip {} ({} slices)", what, _name,
+                    slices, face, mipLevel, depth);
+                return std::nullopt;
+            }
+        } else if (face >= layerCount() || sliceCount > 1) {
+            spdlog::warn("Texture::{}({}): face {} does not exist", what, _name, face);
+            return std::nullopt;
+        }
+        return gpu::TextureReadRegion{x, y, width, height, mipLevel, face, slices};
     }
 
     bool Texture::read(std::vector<uint8_t>& out, const uint32_t x, const uint32_t y,
-        const uint32_t width, const uint32_t height, const uint32_t mipLevel, const uint32_t face)
+        const uint32_t width, const uint32_t height, const uint32_t mipLevel, const uint32_t face,
+        const uint32_t sliceCount)
     {
-        const auto region = readRegion("read", x, y, width, height, mipLevel, face);
+        const auto region = readRegion("read", x, y, width, height, mipLevel, face, sliceCount);
         if (!region) {
             return false;
         }
         const uint32_t bytesPerPixel = pixelFormatBytesPerPixel(_format);
         std::vector<uint8_t> pixels(
-            static_cast<size_t>(region->width) * region->height * bytesPerPixel);
+            static_cast<size_t>(region->width) * region->height * region->depth * bytesPerPixel);
         if (!_impl->read(_device, *region, pixels.data(), pixels.size())) {
             return false;
         }
@@ -331,12 +359,13 @@ namespace visutwin::canvas
     }
 
     bool Texture::readAsync(gpu::TextureReadCallback callback, const uint32_t x, const uint32_t y,
-        const uint32_t width, const uint32_t height, const uint32_t mipLevel, const uint32_t face)
+        const uint32_t width, const uint32_t height, const uint32_t mipLevel, const uint32_t face,
+        const uint32_t sliceCount)
     {
         if (!callback) {
             return false;
         }
-        const auto region = readRegion("readAsync", x, y, width, height, mipLevel, face);
+        const auto region = readRegion("readAsync", x, y, width, height, mipLevel, face, sliceCount);
         return region && _impl->readAsync(_device, *region, std::move(callback));
     }
 

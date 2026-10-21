@@ -7,6 +7,8 @@
 #ifdef VISUTWIN_HAS_VULKAN
 
 #define VMA_IMPLEMENTATION
+// The portability subset's feature struct (MoltenVK, KosmicKrisp) is a beta extension.
+#define VK_ENABLE_BETA_EXTENSIONS
 #include "vulkanGraphicsDevice.h"
 
 #include <chrono>
@@ -803,6 +805,7 @@ namespace visutwin::canvas
         VkPhysicalDeviceProperties props;
         vkGetPhysicalDeviceProperties(_physicalDevice, &props);
         const auto chosenDriver = driverProperties(_physicalDevice);
+        _volumeBlitSourceZByDestinationDepth = chosenDriver.driverID == VK_DRIVER_ID_MOLTENVK;
         spdlog::info("Vulkan device: {} ({} {}), apiVersion={}.{}.{}", props.deviceName,
             chosenDriver.driverName, chosenDriver.driverInfo,
             VK_API_VERSION_MAJOR(props.apiVersion),
@@ -906,9 +909,27 @@ namespace visutwin::canvas
         features2.features.samplerAnisotropy = _samplerAnisotropyEnabled ? VK_TRUE : VK_FALSE;
         features2.features.dualSrcBlend = _dualSrcBlendEnabled ? VK_TRUE : VK_FALSE;
 
+        // A portability-subset driver (vk-bootstrap enables the extension where it is offered)
+        // allows only the features enabled through its own struct: a 2D view of one depth
+        // slice of a volume, which renders into that slice, needs imageView2DOn3DImage. A
+        // driver without the subset supports it as core.
+        VkPhysicalDevicePortabilitySubsetFeaturesKHR portabilityFeatures{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR};
+        const bool portabilitySubset = vkbPhysical.is_extension_present(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
+        if (portabilitySubset) {
+            VkPhysicalDeviceFeatures2 query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+            query.pNext = &portabilityFeatures;
+            vkGetPhysicalDeviceFeatures2(_physicalDevice, &query);
+            portabilityFeatures.pNext = nullptr;
+            _volumeSliceRendering = portabilityFeatures.imageView2DOn3DImage == VK_TRUE;
+        }
+
         vkb::DeviceBuilder deviceBuilder{vkbPhysical};
         deviceBuilder.add_pNext(&features13);
         deviceBuilder.add_pNext(&features2);
+        if (portabilitySubset) {
+            deviceBuilder.add_pNext(&portabilityFeatures);
+        }
         auto devResult = deviceBuilder.build();
         if (!devResult) {
             spdlog::error("Failed to create Vulkan device: {}", devResult.error().message());

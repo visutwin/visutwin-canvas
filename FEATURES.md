@@ -48,6 +48,8 @@ the [README](README.md).
 - **Debug shader passes**: replace the forward output with a single surface quantity (albedo, world normal, opacity, specularity, gloss, metalness, AO, emission, lighting, UV0) — one variant, mode switched at runtime with no recompile
 - **GPU timestamp profiler** (per-pass timings on both backends) and a **MiniStats** HUD built on it, drawn by the engine itself (one-draw quad list, MSDF text, history graphs) on both backends
 - **In-engine measurement hooks** in the examples harness: env-driven screenshot capture (by frame or by time, single or burst), a uniform SH probe, and a mirror floor with a pillar for screen-space-reflection checks
+- **Texture arrays**: per-layer upload, `Texture::read` / `readAsync` / `copy` of one layer, and render targets over a layer (multisampled, with that layer's mips generated)
+- **Volume (3D) textures** on both backends: upload with mips generated in all three dimensions, sampled with their own W address mode, `Texture::read` / `readAsync` / `copy` of one depth slice or a run of them, and render targets over a depth slice (mips regenerated after rendering)
 - **KTX2/Basis compressed textures** transcoded on the loader thread to the best format the device supports (ASTC, BC7, DXT5, otherwise RGBA8)
 - **ImGui overlay** (Metal/SDL3 bindings) for digital-twin HUDs, **immediate-mode** debug rendering, **transform gizmos**, and an **outline renderer** + **view cube** (extras)
 

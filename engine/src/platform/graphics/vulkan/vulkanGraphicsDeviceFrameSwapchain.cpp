@@ -1203,7 +1203,8 @@ namespace visutwin::canvas
     {
         for (auto& readback : _readbacksQueued) {
             const uint32_t bytesPerPixel = pixelFormatBytesPerPixel(readback.texture->ownerFormat());
-            readback.size = static_cast<size_t>(readback.region.width) * readback.region.height * bytesPerPixel;
+            readback.size = static_cast<size_t>(readback.region.width) * readback.region.height *
+                readback.region.depth * bytesPerPixel;
             VmaAllocationInfo mapped{};
             if (readback.size == 0 || !vulkanCreateReadbackBuffer(_vmaAllocator, readback.size, readback.buffer,
                     readback.allocation, &mapped) || !mapped.pMappedData) {

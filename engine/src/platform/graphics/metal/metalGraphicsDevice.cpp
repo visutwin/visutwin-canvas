@@ -1309,11 +1309,10 @@ namespace visutwin::canvas
         for (auto& readback : _readbacksQueued) {
             const auto& region = readback.region;
             const size_t rowPitch = static_cast<size_t>(region.width) * readback.bytesPerPixel;
-            readback.buffer = _device->newBuffer(rowPitch * region.height, MTL::ResourceStorageModeShared);
+            readback.buffer = _device->newBuffer(rowPitch * region.height * region.depth,
+                MTL::ResourceStorageModeShared);
             if (readback.buffer) {
-                blit->copyFromTexture(readback.texture, region.face, region.mipLevel,
-                    MTL::Origin(region.x, region.y, 0), MTL::Size(region.width, region.height, 1),
-                    readback.buffer, 0, rowPitch, rowPitch * region.height);
+                gpu::encodeTextureToBuffer(blit, readback.texture, region, rowPitch, readback.buffer);
             }
             readback.texture->release();
             readback.texture = nullptr;
@@ -1341,7 +1340,7 @@ namespace visutwin::canvas
         }
         for (auto& readback : completed) {
             const size_t size = static_cast<size_t>(readback.region.width) * readback.region.height *
-                readback.bytesPerPixel;
+                readback.region.depth * readback.bytesPerPixel;
             if (readback.callback) {
                 readback.callback(static_cast<const uint8_t*>(readback.buffer->contents()), size);
             }
@@ -1377,9 +1376,14 @@ namespace visutwin::canvas
             spdlog::warn("MetalGraphicsDevice: a texture copy cannot be encoded inside a render pass");
             return false;
         }
-        blitEncoder->copyFromTexture(source, region.face, region.sourceMipLevel,
-            MTL::Origin(region.sourceX, region.sourceY, 0), MTL::Size(region.width, region.height, 1),
-            destination, region.face, region.destMipLevel, MTL::Origin(region.destX, region.destY, 0));
+        // A volume's slices are its z range, at slice 0.
+        const bool volume = source->textureType() == MTL::TextureType3D;
+        const NS::UInteger slice = volume ? 0 : region.face;
+        const NS::UInteger z = volume ? region.face : 0;
+        blitEncoder->copyFromTexture(source, slice, region.sourceMipLevel,
+            MTL::Origin(region.sourceX, region.sourceY, z),
+            MTL::Size(region.width, region.height, volume ? region.depth : 1),
+            destination, slice, region.destMipLevel, MTL::Origin(region.destX, region.destY, z));
         blitEncoder->endEncoding();
         // Inside a frame or an offline scope it is submitted with that; alone, here.
         if (!_insideFrame && _envBatchDepth <= 0) {
@@ -1988,6 +1992,10 @@ namespace visutwin::canvas
             if (!multisampled && colorHasSlices && target.face() >= 0) {
                 colorAttachment->setSlice(static_cast<NS::UInteger>(target.face()));
             }
+            // A volume's depth slice is its depth plane (a volume target is never multisampled).
+            if (colorTextureType == MTL::TextureType3D && target.face() >= 0) {
+                colorAttachment->setDepthPlane(static_cast<NS::UInteger>(target.face()));
+            }
 
             applyColorLoad(colorAttachment, ops);
 
@@ -2314,9 +2322,24 @@ namespace visutwin::canvas
                             continue;
                         }
                         auto* hwTexture = dynamic_cast<gpu::MetalTexture*>(colorBuffer->impl());
-                        if (hwTexture && hwTexture->raw()) {
-                            blitEncoder->generateMipmaps(hwTexture->raw());
+                        if (!hwTexture || !hwTexture->raw()) {
+                            continue;
                         }
+                        // An array texture's pass regenerates the chain of the layer it rendered,
+                        // through a view of that slice; a cubemap's last face pass all six.
+                        MTL::Texture* raw = hwTexture->raw();
+                        if (colorBuffer->isArray() && !colorBuffer->isCubemap() && activeTarget->face() >= 0 &&
+                            static_cast<NS::UInteger>(activeTarget->face()) < raw->arrayLength()) {
+                            MTL::Texture* slice = raw->newTextureView(raw->pixelFormat(), MTL::TextureType2DArray,
+                                NS::Range(0, raw->mipmapLevelCount()),
+                                NS::Range(static_cast<NS::UInteger>(activeTarget->face()), 1));
+                            if (slice) {
+                                blitEncoder->generateMipmaps(slice);
+                                slice->release();
+                                continue;
+                            }
+                        }
+                        blitEncoder->generateMipmaps(raw);
                     }
                     blitEncoder->endEncoding();
                 }

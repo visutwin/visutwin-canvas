@@ -29,6 +29,11 @@ namespace visutwin::canvas::gpu
         MTL::Texture* source, const TextureReadRegion& region,
         uint32_t bytesPerPixel, uint8_t* out, size_t outSize);
 
+    /// Encodes the copy of `region` into `destination` at offset 0, rows `rowPitch` apart and a
+    /// volume's slices packed one after another.
+    void encodeTextureToBuffer(MTL::BlitCommandEncoder* blit, MTL::Texture* source,
+        const TextureReadRegion& region, size_t rowPitch, MTL::Buffer* destination);
+
     /**
       * Metal texture implementation.
       * Wraps MTL::Texture and provides texture management functionality.

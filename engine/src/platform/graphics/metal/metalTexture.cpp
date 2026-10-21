@@ -7,6 +7,7 @@
 #include "metalTexture.h"
 
 #include <algorithm>
+#include <cstring>
 #include <vector>
 #include <spdlog/spdlog.h>
 #include "metalGraphicsDevice.h"
@@ -21,23 +22,18 @@ namespace visutwin::canvas::gpu
             return false;
         }
         const size_t rowPitch = static_cast<size_t>(region.width) * bytesPerPixel;
-        if (outSize < rowPitch * region.height) {
-            spdlog::error("readMetalTexture: destination holds {} bytes, the region needs {}",
-                outSize, rowPitch * region.height);
+        const size_t slicePitch = rowPitch * region.height;
+        const size_t size = slicePitch * region.depth;
+        if (outSize < size) {
+            spdlog::error("readMetalTexture: destination holds {} bytes, the region needs {}", outSize, size);
             return false;
         }
 
-        // Staging is a 2D texture the size of the REGION, not of the source, so a
-        // small crop of a large render target costs a small allocation. The blit
-        // carries the mip level and the cube face as the source slice.
-        auto* descriptor = MTL::TextureDescriptor::texture2DDescriptor(
-            source->pixelFormat(), region.width, region.height, false);
-        descriptor->setStorageMode(MTL::StorageModeShared);
-        descriptor->setUsage(MTL::TextureUsageShaderRead);
-        MTL::Texture* staging = device->newTexture(descriptor);
+        // Staging is a shared buffer the size of the REGION, not of the source, so a
+        // small crop of a large render target costs a small allocation.
+        MTL::Buffer* staging = device->newBuffer(size, MTL::ResourceStorageModeShared);
         if (!staging) {
-            spdlog::error("readMetalTexture: failed to allocate a {}x{} staging texture",
-                region.width, region.height);
+            spdlog::error("readMetalTexture: failed to allocate a {}-byte staging buffer", size);
             return false;
         }
 
@@ -48,18 +44,26 @@ namespace visutwin::canvas::gpu
             spdlog::error("readMetalTexture: failed to open a blit encoder");
             return false;
         }
-        blit->copyFromTexture(source, region.face, region.mipLevel,
-            MTL::Origin(region.x, region.y, 0),
-            MTL::Size(region.width, region.height, 1),
-            staging, 0, 0, MTL::Origin(0, 0, 0));
+        encodeTextureToBuffer(blit, source, region, rowPitch, staging);
         blit->endEncoding();
         buffer->commit();
         buffer->waitUntilCompleted();
 
-        staging->getBytes(out, rowPitch,
-            MTL::Region::Make2D(0, 0, region.width, region.height), 0);
+        std::memcpy(out, staging->contents(), size);
         staging->release();
         return true;
+    }
+
+    void encodeTextureToBuffer(MTL::BlitCommandEncoder* blit, MTL::Texture* source,
+        const TextureReadRegion& region, const size_t rowPitch, MTL::Buffer* destination)
+    {
+        // A volume's slices are its z range, at slice 0; a cubemap face or an array layer is
+        // a slice of its own.
+        const bool volume = source->textureType() == MTL::TextureType3D;
+        blit->copyFromTexture(source, volume ? 0 : region.face, region.mipLevel,
+            MTL::Origin(region.x, region.y, volume ? region.face : 0),
+            MTL::Size(region.width, region.height, volume ? region.depth : 1),
+            destination, 0, rowPitch, rowPitch * region.height);
     }
 
     namespace

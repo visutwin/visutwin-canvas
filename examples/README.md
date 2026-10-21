@@ -238,6 +238,8 @@ The second column is the upstream example each one ports, as
 | layers | graphics/layers | X-ray, character and front layers |
 | multi-view | graphics/multi-view | One board through three cameras and viewports |
 | render-to-texture | render-targets/render-to-texture | A camera rendering into a texture shown in the scene |
+| texture-array-impostors | render-targets/texture-array-impostors | A statue baked from 64 directions into texture-array layers, drawn as thousands of instanced impostors |
+| volume-texture | render-targets/volume-texture | Colourful fog in a volume texture raymarched over a terrain, static or rendered into its depth slices, with mipmaps |
 | render-pass-procedural-texture | render-targets/render-pass-procedural-texture | Two frame-start quad passes generating a material's tiling colour and normal maps |
 | render-pass-camera | render-targets/render-pass-camera | A camera's own render passes: a forward pass into a texture, then a tint quad to the screen |
 | render-pass-shader-quad | render-targets/render-pass-shader-quad | Glowing trails painted by fade and brush quad passes, the emissive map of a cube |

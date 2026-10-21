@@ -397,7 +397,14 @@ namespace visutwin::canvas
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                     mip, 1, layer, 1);
                 if (mip == 0 && colorOps && colorOps->genMipmaps) {
-                    att.texture->generateMipmaps(cmd);
+                    // An array texture's pass regenerates the chain of the layer it rendered; a
+                    // cubemap's last face pass all six (the frame graph drops the others').
+                    const Texture* owner = att.texture->owner();
+                    if (owner && owner->isArray() && !owner->isCubemap()) {
+                        att.texture->generateMipmaps(cmd, layer, 1);
+                    } else {
+                        att.texture->generateMipmaps(cmd);
+                    }
                 }
             }
             if (_activeOffscreenTarget->hasDepthAttachment()) {

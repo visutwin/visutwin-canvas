@@ -91,6 +91,7 @@ namespace visutwin::canvas
         descriptor->setMaxAnisotropy(static_cast<NS::UInteger>(state.maxAnisotropy));
         descriptor->setSAddressMode(toMetalAddressMode(state.addressU));
         descriptor->setTAddressMode(toMetalAddressMode(state.addressV));
+        descriptor->setRAddressMode(toMetalAddressMode(state.addressW));
         MTL::SamplerState* sampler = _device->newSamplerState(descriptor);
         descriptor->release();
 

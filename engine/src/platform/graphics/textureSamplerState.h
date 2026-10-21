@@ -4,7 +4,8 @@
 // Created by Arnis Lektauers on 03.10.2026
 //
 // The sampler state a texture is read through, resolved from what the Texture carries
-// (address modes, min and mag filters) and the device's anisotropy ratio.
+// (address modes, min and mag filters) and the device's anisotropy ratio. The W address
+// mode is a volume's own (Texture::setAddressW); every other texture repeats on W.
 //
 // ONE mapping for both backends: Vulkan builds each texture's VkSampler from it
 // (VulkanTexture::createSampler) and Metal keys its sampler-state cache on it
@@ -13,8 +14,6 @@
 // only would let the two drift apart again.
 //
 // What the state deliberately does NOT carry:
-//   - The W address mode. Texture::setAddressW applies to volume textures only, no
-//     material map is one, and every texture sampler is built with REPEAT on W.
 //   - The mip half of the min filter. Every texture blends its mip levels linearly
 //     (mipFilter is always Linear); the min filter picks only the filter within a
 //     level. A texture with a single level samples the same either way.
@@ -42,6 +41,7 @@ namespace visutwin::canvas
 
         AddressMode addressU = ADDRESS_REPEAT;
         AddressMode addressV = ADDRESS_REPEAT;
+        AddressMode addressW = ADDRESS_REPEAT;
         Filter minFilter = Filter::Linear;
         Filter magFilter = Filter::Linear;
         Filter mipFilter = Filter::Linear;
@@ -59,7 +59,8 @@ namespace visutwin::canvas
                    (static_cast<uint64_t>(static_cast<uint32_t>(addressV) & 0xFFu) << 8) |
                    (static_cast<uint64_t>(minFilter) << 16) |
                    (static_cast<uint64_t>(magFilter) << 17) |
-                   (static_cast<uint64_t>(mipFilter) << 18);
+                   (static_cast<uint64_t>(mipFilter) << 18) |
+                   (static_cast<uint64_t>(static_cast<uint32_t>(addressW) & 0xFFu) << 24);
         }
     };
 
@@ -97,8 +98,12 @@ namespace visutwin::canvas
     [[nodiscard]] inline TextureSamplerState textureSamplerState(const Texture& texture,
         const float deviceMaxAnisotropy)
     {
-        return textureSamplerState(texture.addressU(), texture.addressV(), texture.minFilter(),
-            texture.magFilter(), deviceMaxAnisotropy);
+        TextureSamplerState state = textureSamplerState(texture.addressU(), texture.addressV(),
+            texture.minFilter(), texture.magFilter(), deviceMaxAnisotropy);
+        if (texture.isVolume()) {
+            state.addressW = texture.addressW();
+        }
+        return state;
     }
 
     /// The state of a texture left at its defaults (repeat, trilinear). Metal's default

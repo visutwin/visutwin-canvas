@@ -297,6 +297,11 @@ namespace visutwin::canvas
         /// creation fails rather than degrades.
         [[nodiscard]] bool supportsCompressedFormat(PixelFormat format) const override;
 
+        /// Whether a render target may render into one depth slice of a volume texture.
+        [[nodiscard]] bool supportsVolumeSliceRendering() const { return _volumeSliceRendering; }
+        /// Whether a 3D blit's source z must be given in units of the destination level's depth.
+        [[nodiscard]] bool volumeBlitSourceZByDestinationDepth() const { return _volumeBlitSourceZByDestinationDepth; }
+
         [[nodiscard]] bool supportsDualSourceBlending() const override
         {
             return _dualSrcBlendEnabled;
@@ -980,6 +985,14 @@ namespace visutwin::canvas
         bool _textureCompressionAstcLdr = false;
         bool _textureCompressionBc = false;
         uint32_t _maxDualSrcDrawBuffers = 0;
+        // Whether a 2D view of one depth slice of a volume may be created, which is how a
+        // render target renders into the slice (a portability-subset feature).
+        bool _volumeSliceRendering = true;
+        // MoltenVK (1.4.2) places a 3D blit's source z by the DESTINATION level's depth, so
+        // a blit that halves a volume's depth reads its source from twice the depth asked
+        // for; a volume's mip blits then name their source z range in destination units.
+        // tests/textureCopyTests.cpp (`gpu`) fails if it stops being true.
+        bool _volumeBlitSourceZByDestinationDepth = false;
 
         // Resolve mode a multisampled depth attachment is resolved with, or
         // VK_RESOLVE_MODE_NONE when the device offers none.
