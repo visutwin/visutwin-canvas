@@ -44,6 +44,11 @@ namespace visutwin::canvas
         double lightClustersTime = 0.0;
         int lightClusters = 0;
 
+        /// Compute dispatches (each Compute of a computeDispatch call) and compute passes
+        /// (each call) of the frame, its update included. Zero on a device without compute.
+        int computeDispatches = 0;
+        int computePasses = 0;
+
         double timeToCountFrames = 0.0;
         int fpsAccum = 0;
     };

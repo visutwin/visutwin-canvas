@@ -282,6 +282,22 @@ namespace visutwin::canvas
         }
         appendDiagnostics(result.diagnostics, diagnostics);
 
+        // Each compute entry's workgroup size, which a dispatch sized by thread count needs
+        // and which MSL does not carry.
+        if (slang::ProgramLayout* layout = linked->getLayout()) {
+            for (size_t i = 0; i < entryPoints.size(); ++i) {
+                std::array<uint32_t, 3> size{};
+                slang::EntryPointReflection* entry = layout->getEntryPointByIndex(static_cast<SlangUInt>(i));
+                if (entry && entry->getStage() == SLANG_STAGE_COMPUTE) {
+                    SlangUInt sizes[3] = {0, 0, 0};
+                    entry->getComputeThreadGroupSize(3, sizes);
+                    size = {static_cast<uint32_t>(sizes[0]), static_cast<uint32_t>(sizes[1]),
+                        static_cast<uint32_t>(sizes[2])};
+                }
+                result.entryPointThreadGroupSizes.push_back(size);
+            }
+        }
+
         if (request.target == SlangTarget::Spirv) {
             for (size_t i = 0; i < entryPoints.size(); ++i) {
                 Slang::ComPtr<slang::IBlob> code;

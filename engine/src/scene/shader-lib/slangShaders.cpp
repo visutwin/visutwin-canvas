@@ -162,7 +162,8 @@ namespace visutwin::canvas
         out.entries.clear();
         for (size_t i = 0; i < entry->entryCount; ++i) {
             const auto& e = entry->entries[i];
-            SlangBundledProgram::Entry copy{e.stage, e.name, e.spirv, e.spirvWords, {}, e.pushConstantBytes};
+            SlangBundledProgram::Entry copy{e.stage, e.name, e.spirv, e.spirvWords, {}, e.pushConstantBytes,
+                {e.threadGroupSize[0], e.threadGroupSize[1], e.threadGroupSize[2]}};
             for (size_t b = 0; b < e.bindingCount; ++b) {
                 const auto& r = e.bindings[b];
                 copy.bindings.push_back({r.name, r.set, r.binding,
@@ -284,6 +285,9 @@ namespace visutwin::canvas
             spdlog::info("Slang program '{}'{}{} compiled from {} for {} in {:.1f} ms", program,
                 variant.empty() ? "" : " variant ", variant, fromString ? std::string("its source") : path.string(),
                 metal ? "Metal" : "Vulkan", result.seconds * 1000.0);
+            for (size_t i = 0; i < out.entries.size() && i < result.entryPointThreadGroupSizes.size(); ++i) {
+                out.entries[i].threadGroupSize = result.entryPointThreadGroupSizes[i];
+            }
             if (metal) {
                 out.metalSource = result.programText();
                 return true;
@@ -329,6 +333,7 @@ namespace visutwin::canvas
         }
         if (const auto* compute = firstEntry(build, "compute")) {
             code.computeSpirv = compute->spirv;
+            code.computeThreadGroupSize = compute->threadGroupSize;
         }
         return true;
     }
@@ -352,7 +357,8 @@ namespace visutwin::canvas
                 haveCode = !out.metalLibrary.empty() || !out.metalSource.empty();
             }
             for (const auto& entry : bundled.entries) {
-                SlangProgramBuild::Entry e{std::string(entry.stage), std::string(entry.name), {}};
+                SlangProgramBuild::Entry e{std::string(entry.stage), std::string(entry.name), {},
+                    entry.threadGroupSize};
                 if (!metal) {
                     if (!entry.spirv) {
                         haveCode = false;
@@ -427,6 +433,11 @@ namespace visutwin::canvas
             definition.vshader = std::string(bundled.vertexEntry);
             definition.fshader = std::string(bundled.fragmentEntry);
             definition.cshader = std::string(bundled.computeEntry);
+            for (const auto& entry : bundled.entries) {
+                if (entry.stage == "compute" && entry.name == bundled.computeEntry) {
+                    code.computeThreadGroupSize = entry.threadGroupSize;
+                }
+            }
             if (metal) {
                 // The precompiled library, so the first use costs a load, not an MSL
                 // compile; MetalShader takes the source only when no library is given.
@@ -553,6 +564,9 @@ namespace visutwin::canvas
                 auto& spirv = entry.stage == "vertex" ? code.vertexSpirv
                     : entry.stage == "fragment" ? code.fragmentSpirv : code.computeSpirv;
                 spirv = entry.spirv;
+                if (entry.stage == "compute") {
+                    code.computeThreadGroupSize = entry.threadGroupSize;
+                }
             }
             code.depthOnlyFragment = spirvFragmentWritesNoOutput(code.fragmentSpirv);
 

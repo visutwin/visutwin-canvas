@@ -180,6 +180,8 @@ The second column is the upstream example each one ports, as
 | volumetric-fog | camera-frame/volumetric-fog | Amber height fog with long shafts from a low sun through the terrain and clouds |
 | ambient-occlusion-davinci | — (original scene) | SSAO over the da Vinci workshop with the colour finishing chain |
 | edge-detect | compute/edge-detect | Compute-shader Sobel filter over an offscreen render |
+| histogram | compute/histogram | Luminance histogram of the grabbed scene colour, built by a compute pass in the camera's after-passes |
+| scene-maps | compute/scene-maps | A compute scanner pulse reading the camera's scene depth and colour maps after it renders |
 | outlines-colored | graphics/outlines-colored | Coloured outlines on laboratory objects under SSAO |
 | model-outline | graphics/model-outline | An outline around one of four primitives |
 | taa-alpha | test/taa-alpha | A camera frame with TAA keeping the alpha of its own render target |

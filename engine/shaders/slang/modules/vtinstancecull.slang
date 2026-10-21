@@ -10,8 +10,6 @@
 // (index count, instance count, first index, vertex offset, first instance).
 module vtinstancecull;
 
-public static const uint kCullThreads = 64u;
-
 public struct CullParams
 {
     public float4 frustumPlanes[6];   // (nx, ny, nz, d); dot(n, p) + d >= 0 is inside
@@ -21,7 +19,7 @@ public struct CullParams
     public uint indexStart;
     public int baseVertex;
     public uint baseInstance;
-    public float pad0;
+    public uint dispatchRowThreads;   // the cull's Compute::dispatchRowThreads
     public float pad1;
 };
 

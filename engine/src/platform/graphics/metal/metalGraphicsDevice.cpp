@@ -180,6 +180,11 @@ namespace visutwin::canvas
         // diverge in silence anywhere else.
         setMaxAnisotropy(16.0f);
 
+        // Metal publishes no limit on the threadgroups of a dispatch per dimension. MoltenVK
+        // reports 2^30 for the same GPUs, so both backends spread a one-dimensional dispatch
+        // over rows (Compute::setupDispatchThreads) at the same counts.
+        setMaxComputeWorkgroupsPerDimension(1u << 30);
+
         // Half- and full-float colour attachments are renderable on every Metal
         // GPU this engine runs on; VSM shadows (RGBA16F moments) key on the first.
         setTextureHalfFloatRenderable(true);
@@ -792,6 +797,9 @@ namespace visutwin::canvas
             return nullptr;
         }
         shader->setSpecializeFeatures(code.specializeFeatures);
+        // An MSL kernel declares no workgroup size; the dispatch supplies it, so the one the
+        // Slang source declared comes with the code.
+        shader->setComputeThreadGroupSize(code.computeThreadGroupSize);
         return shader;
     }
 
@@ -921,7 +929,8 @@ namespace visutwin::canvas
             encoder->pushDebugGroup(NS::String::string(label.c_str(), NS::UTF8StringEncoding));
         }
 
-        for (const auto* compute : computes) {
+        int dispatched = 0;
+        for (auto* compute : computes) {
             if (!compute || !compute->shader()) {
                 continue;
             }
@@ -932,6 +941,24 @@ namespace visutwin::canvas
             }
 
             encoder->setComputePipelineState(pipelineState);
+            ++dispatched;
+
+            // The scene maps attached to the compute, resolved now, where the kernel runs in
+            // the frame, and bound at their fixed slots outside the name-ordered table
+            // (compute.h): the block, the depth and the colour with the post sampler (linear,
+            // clamped, mipmapped).
+            if (compute->hasSceneMaps()) {
+                compute->prepareDispatch();
+                const ComputeSceneMapsBlock& block = compute->sceneMapsBlock();
+                encoder->setBytes(&block, sizeof(block), kComputeSceneMapsMetalBufferSlot);
+                const auto bindSceneMap = [encoder](Texture* texture, const uint32_t slot) {
+                    auto* hwTexture = texture ? dynamic_cast<gpu::MetalTexture*>(texture->impl()) : nullptr;
+                    encoder->setTexture(hwTexture ? hwTexture->raw() : nullptr, slot);
+                };
+                bindSceneMap(compute->sceneDepthTexture(), kComputeSceneDepthMetalTextureSlot);
+                bindSceneMap(compute->sceneColorTexture(), kComputeSceneColorMetalTextureSlot);
+                encoder->setSamplerState(_postSampler, kComputeSceneColorMetalSamplerSlot);
+            }
 
             // DEVIATION: C++ port does not yet have compute bind group
             // declarations/reflection, so resources bind in deterministic name order.
@@ -988,6 +1015,10 @@ namespace visutwin::canvas
         }
 
         encoder->endEncoding();
+        // One compute encoder per call: one compute pass, however many dispatches it holds.
+        if (dispatched > 0) {
+            recordComputePass(dispatched);
+        }
         // Left in the open command buffer even outside a frame — a simulation steps in
         // the update, before the frame starts — and submitted with the next frame, as
         // the Vulkan backend queues a dispatch for its frame's command buffer.

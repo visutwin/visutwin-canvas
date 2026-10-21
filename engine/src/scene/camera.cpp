@@ -9,6 +9,7 @@
 #include <cstddef>
 
 #include "graphNode.h"
+#include "platform/graphics/texture.h"
 
 namespace visutwin::canvas
 {
@@ -37,7 +38,56 @@ namespace visutwin::canvas
         }();
     }
 
-    Camera::~Camera() = default;
+    Camera::~Camera()
+    {
+        // A handle can outlive its camera, held by whatever consumes the maps, so it records
+        // that the camera is gone instead of just being dropped.
+        _sceneDepthMapHandle->texture.reset();
+        _sceneDepthMapHandle->destroyed = true;
+        _sceneColorMapHandle->texture.reset();
+        _sceneColorMapHandle->destroyed = true;
+    }
+
+    void Camera::publishSceneDepthMap(const std::shared_ptr<Texture>& texture, const int renderVersion,
+        const bool linear, const bool packed, const bool reciprocal)
+    {
+        auto& handle = *_sceneDepthMapHandle;
+        handle.texture = texture;
+        handle.renderVersion = renderVersion;
+        handle.linear = linear;
+        handle.packed = linear && packed;
+        handle.reciprocal = linear && reciprocal;
+        handle.cameraParams = {1.0f / _farClip, _farClip, _nearClip,
+            _projection == ProjectionType::Orthographic ? 1.0f : 0.0f};
+
+        // The matrices the shaders were given this frame, stored when the camera first rendered
+        // in it (storeShaderMatrices).
+        handle.viewProjectionInverse = _viewProjInverse;
+
+        // The viewport the camera rendered to, placed as the renderer places it: the rect's
+        // origin is its bottom-left corner, a texture's row 0 its top.
+        if (texture) {
+            const int width = static_cast<int>(texture->width());
+            const int height = static_cast<int>(texture->height());
+            const auto clamp01 = [](const float v) { return std::clamp(v, 0.0f, 1.0f); };
+            const int x = std::clamp(static_cast<int>(clamp01(_rect.getX()) * static_cast<float>(width)),
+                0, std::max(width - 1, 0));
+            const int y = std::clamp(height - static_cast<int>(clamp01(_rect.getY() + _rect.getW()) *
+                static_cast<float>(height)), 0, std::max(height - 1, 0));
+            const int w = std::clamp(std::max(1, static_cast<int>(clamp01(_rect.getZ()) * static_cast<float>(width))),
+                1, std::max(width - x, 1));
+            const int h = std::clamp(std::max(1, static_cast<int>(clamp01(_rect.getW()) * static_cast<float>(height))),
+                1, std::max(height - y, 1));
+            handle.viewport = {static_cast<uint32_t>(x), static_cast<uint32_t>(y),
+                static_cast<uint32_t>(w), static_cast<uint32_t>(h)};
+        }
+    }
+
+    void Camera::publishSceneColorMap(const std::shared_ptr<Texture>& texture, const bool gamma)
+    {
+        _sceneColorMapHandle->texture = texture;
+        _sceneColorMapHandle->gamma = gamma;
+    }
 
     std::array<float, 2> Camera::jitterOffset(const int renderVersion, const int viewportWidth,
         const int viewportHeight) const
@@ -185,7 +235,7 @@ namespace visutwin::canvas
     {
         if (enable) {
             if (!_renderPassColorGrab) {
-                _renderPassColorGrab = std::make_shared<RenderPassColorGrab>(device);
+                _renderPassColorGrab = std::make_shared<RenderPassColorGrab>(device, this);
             }
         } else {
             _renderPassColorGrab.reset();

@@ -26,6 +26,7 @@
 #include "framework/components/render/renderComponentSystem.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
+#include "platform/graphics/compute.h"
 #include "scene/materials/standardMaterial.h"
 #include "support/check.h"
 #include "support/stubDevice.h"
@@ -46,6 +47,24 @@ namespace
         return entity;
     }
 
+    /// Counts each computeDispatch call as a backend does: one compute pass of its computes.
+    class ComputeCountingDevice final : public StubGraphicsDevice
+    {
+    public:
+        using StubGraphicsDevice::StubGraphicsDevice;
+
+        void computeDispatch(const std::vector<Compute*>& computes, const std::string& /*label*/) override
+        {
+            int dispatched = 0;
+            for (const Compute* compute : computes) {
+                dispatched += compute ? 1 : 0;
+            }
+            if (dispatched > 0) {
+                recordComputePass(dispatched);
+            }
+        }
+    };
+
     void report(const ApplicationStats& constStats)
     {
         auto& stats = const_cast<ApplicationStats&>(constStats);
@@ -64,7 +83,7 @@ int main()
 {
     std::cout << std::unitbuf;
 
-    auto device = std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{
+    auto device = std::make_shared<ComputeCountingDevice>(StubGraphicsDevice::Options{
         .size = {64, 64}, .cpuBuffers = true, .recordDraws = true, .renderTargets = true});
     auto engine = makeTestEngine<RenderComponentSystem, LightComponentSystem, CameraComponentSystem>(device);
 
@@ -174,6 +193,31 @@ int main()
         check(s.drawCalls().shadow == fourCascades && s.drawCalls().forward == 3,
             "and the same again the next frame");
         light->setNumCascades(1);
+    }
+
+    // The particle systems simulate during the update, so the compute counters span the
+    // update and the render: zeroed when the update begins, not the render.
+    std::cout << "\ncompute dispatches and passes\n";
+    {
+        auto& s = const_cast<ApplicationStats&>(stats);
+        Compute first(device.get(), nullptr, "First");
+        Compute second(device.get(), nullptr, "Second");
+        Compute third(device.get(), nullptr, "Third");
+
+        device->computeDispatch({&first}, "before the update");
+        engine->update(1.0f / 60.0f);
+        device->computeDispatch({&first, &second}, "in the update");
+        const auto handle = engine->on("prerender", [&]() { device->computeDispatch({&third}, "in the render"); });
+        engine->render();
+        handle->off();
+        check(s.frame().computeDispatches == 3 && s.frame().computePasses == 2,
+            "two calls after the update began, one of them in the render: 3 dispatches in 2 passes (" +
+                std::to_string(s.frame().computeDispatches) + ", " + std::to_string(s.frame().computePasses) + ")");
+        check(s.drawCalls().forward == 3, "and the render's own counters as before");
+
+        engine->update(1.0f / 60.0f);
+        engine->render();
+        check(s.frame().computeDispatches == 0 && s.frame().computePasses == 0, "a frame without compute: none");
     }
 
     return finish("frame stats");

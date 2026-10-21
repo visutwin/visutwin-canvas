@@ -21,7 +21,10 @@
 //    quad per instance and derives it from the instance id, which is how the engine's
 //    own emitter and splat paths draw and avoids a 24 MB index buffer;
 //  - upstream reflects the compute resources out of the WGSL source. This port has no
-//    shader reflection, so bindings follow parameter name order — see compute.h.
+//    shader reflection, so bindings follow parameter name order — see compute.h;
+//  - upstream's kernel takes its thread count from the dispatch-threads chunk; this one
+//    keeps its own `count` uniform (Compute::setupDispatchThreads), and the MSL kernel's
+//    workgroup size is given to the Compute, since MSL declares none.
 //
 // Esc quits; the camera orbits with the mouse.
 //
@@ -111,7 +114,8 @@ kernel void simulateParticles(device Particle* particles      [[buffer(0)]],
                               constant SimParams& params      [[buffer(2)]],
                               uint3 gid [[thread_position_in_grid]])
 {
-    const uint index = gid.x * 1024u + gid.y;
+    // A thread per particle; the dispatch is rounded up to whole workgroups of 64.
+    const uint index = gid.x;
     if (index >= params.count) {
         return;
     }
@@ -172,7 +176,8 @@ layout(set = 0, binding = 2, std140) uniform SimParams {
 
 void main()
 {
-    uint index = gl_GlobalInvocationID.x * 1024u + gl_GlobalInvocationID.y;
+    // A thread per particle; the dispatch is rounded up to whole workgroups of 64.
+    uint index = gl_GlobalInvocationID.x;
     if (index >= params.count) return;
 
     Particle particle = particles.values[index];
@@ -355,7 +360,7 @@ std::vector<GpuParticleRecord> buildInitialParticles()
 class ParticlesExample final: public ExampleApp
 {
 public:
-    ParticlesExample(): ExampleApp({.title = "Compute Particles"}) {}
+    ParticlesExample(): ExampleApp({.title = "Compute Particles", .miniStatsPresets = {"compute"}}) {}
 
 protected:
     bool create() override
@@ -517,14 +522,13 @@ protected:
         return true;
     }
 
-    // Advance the simulation before the frame's render encoding. The dispatch is
-    // 1024/64 x 1024 workgroups; the kernel folds those two axes
-    // back into one particle index.
+    // Advance the simulation before the frame's render encoding, a thread for each
+    // particle.
     void preRender() override
     {
         if (_compute) {
             _compute->setParameter("dt", _lastDt);
-            _compute->setupDispatch(NUM_PARTICLES / 1024u / WORKGROUP_SIZE, 1024u, 1u);
+            _compute->setupDispatchThreads(NUM_PARTICLES);
             device()->computeDispatch({_compute.get()}, "ComputeParticlesDispatch");
         }
     }

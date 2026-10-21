@@ -22,7 +22,9 @@ SPIR-V target each entry also carries its REFLECTED layout: every descriptor the
 module actually uses (set, binding, kind, and a uniform block's size) and its push-constant
 size, from slangc's reflection JSON joined to the entry's own SPIR-V. The Vulkan backend
 checks the forward and shadow entries against its descriptor contract with them, and C++
-asserts the shared blocks' sizes against its structs.
+asserts the shared blocks' sizes against its structs. Every compute entry carries its
+`[numthreads]` workgroup size from the same reflection, on whichever targets were built: an
+MSL kernel declares none, so Metal's dispatch takes it from here.
 """
 from __future__ import annotations
 
@@ -110,6 +112,25 @@ def reflected_parameters(json_path: Path) -> dict[str, tuple[str, int]]:
             continue
         out[param["name"]] = (descriptor_kind(type_info), size)
     return out
+
+
+def thread_group_sizes(json_path: Path) -> dict[str, tuple[int, int, int]]:
+    """Each compute entry point's [numthreads] in slangc's reflection JSON, by name."""
+    sizes: dict[str, tuple[int, int, int]] = {}
+    for entry in json.loads(json_path.read_text()).get("entryPoints", []):
+        if entry.get("stage") == "compute" and "threadGroupSize" in entry:
+            x, y, z = (int(v) for v in entry["threadGroupSize"])
+            sizes[entry["name"]] = (x, y, z)
+    return sizes
+
+
+def record_thread_group_sizes(found: dict[str, tuple[int, int, int]], into: dict[str, tuple[int, int, int]],
+                              where: str) -> None:
+    """Merges one target's sizes; two targets disagreeing is a compiler bug worth stopping on."""
+    for name, size in found.items():
+        if name in into and into[name] != size:
+            raise RuntimeError(f"{where}:{name}: workgroup size {size} disagrees with {into[name]}")
+        into[name] = size
 
 
 def read_only_buffers(json_path: Path) -> list[str]:
@@ -258,6 +279,7 @@ def main() -> None:
         "        const ReflectedBinding* bindings;   // the descriptors this entry's SPIR-V uses",
         "        size_t bindingCount;",
         "        uint32_t pushConstantBytes; // 0 when the entry reads no push constants",
+        "        uint32_t threadGroupSize[3]; // a compute entry's [numthreads]; zero for another stage",
         "    };",
         "",
         "    struct Program",
@@ -300,6 +322,7 @@ def main() -> None:
             ident = "k" + camel(name) + (camel(variant.replace(".", "_")) if variant else "")
             stem = name + (f"@{variant}" if variant else "")
             fields = {"metalSource": '""', "metalLibrary": "nullptr, 0"}
+            group_sizes: dict[str, tuple[int, int, int]] = {}
             spirv = {}
             if "metal" in targets:
                 msl_path = args.work_dir / f"{stem}.metal"
@@ -309,6 +332,7 @@ def main() -> None:
                 for stage, entry in found_list:
                     command += ["-entry", entry, "-stage", STAGE_FLAG[stage]]
                 run(command)
+                record_thread_group_sizes(thread_group_sizes(msl_reflection), group_sizes, str(program))
                 msl_path.write_text(const_read_only_buffers(msl_path.read_text(), read_only_buffers(msl_reflection)))
                 out.append(f"    inline constexpr char {ident}Msl[] = {raw_string(msl_path.read_text())};")
                 fields["metalSource"] = f"{ident}Msl"
@@ -339,12 +363,16 @@ def main() -> None:
                     spv_path = args.work_dir / f"{stem}.{entry}.spv"
                     command = common + define_flags + [str(program), "-target", "spirv", "-entry", entry,
                                                        "-stage", STAGE_FLAG[stage], "-o", str(spv_path)]
-                    if index == 0:
-                        # The program's parameters (names, kinds, block sizes); one is enough.
-                        command += ["-reflection-json", str(reflection_path)]
+                    # The program's parameters (names, kinds, block sizes): one is enough. A compute
+                    # entry's own, for its workgroup size.
+                    entry_reflection = reflection_path if index == 0 else args.work_dir / f"{stem}.{entry}.json"
+                    if index == 0 or stage == "compute":
+                        command += ["-reflection-json", str(entry_reflection)]
                     run(command)
                     if index == 0:
                         parameters = reflected_parameters(reflection_path)
+                    if stage == "compute":
+                        record_thread_group_sizes(thread_group_sizes(entry_reflection), group_sizes, str(program))
                     data = spv_path.read_bytes()
                     if data[:4] != b"\x03\x02\x23\x07":
                         raise RuntimeError(f"{spv_path}: not SPIR-V")
@@ -377,7 +405,11 @@ def main() -> None:
                 array = entry_arrays.get(entry)
                 spv = f"{array}, sizeof({array}) / sizeof(uint32_t)" if array else "nullptr, 0"
                 layout, push_bytes = entry_layouts.get(entry, ("nullptr, 0", 0))
-                out.append(f'        Entry{{"{stage}", "{entry}", {spv}, {layout}, {push_bytes}u}},')
+                if stage == "compute" and entry not in group_sizes:
+                    raise RuntimeError(f"{program}:{entry}: no workgroup size in the reflection")
+                gx, gy, gz = group_sizes.get(entry, (0, 0, 0))
+                out.append(f'        Entry{{"{stage}", "{entry}", {spv}, {layout}, {push_bytes}u, '
+                           f'{{{gx}u, {gy}u, {gz}u}}}},')
             out.append("    };")
             entry_names = {stage: f'"{found[stage]}"' if stage in found else '""'
                            for stage in ("vertex", "fragment", "compute")}

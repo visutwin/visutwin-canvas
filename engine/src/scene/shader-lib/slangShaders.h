@@ -16,6 +16,7 @@
 //
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -82,6 +83,8 @@ namespace visutwin::canvas
             /// the build compiled no SPIR-V.
             std::vector<SlangReflectedBinding> bindings;
             uint32_t pushConstantBytes = 0;
+            /// A compute entry's `[numthreads]`, from the build's reflection; zero otherwise.
+            std::array<uint32_t, 3> threadGroupSize{};
         };
         std::vector<Entry> entries;
     };
@@ -96,6 +99,9 @@ namespace visutwin::canvas
             std::string stage;
             std::string name;
             std::vector<uint32_t> spirv;   // Vulkan only
+            /// A compute entry's `[numthreads]`, from Slang's reflection; zero otherwise, and
+            /// zero for SPIR-V served from the persistent cache (the module declares it).
+            std::array<uint32_t, 3> threadGroupSize{};
         };
         std::string metalSource;           // Metal: MSL with every entry point
         std::vector<uint8_t> metalLibrary; // Metal: the same, compiled (the bundle's)

@@ -62,6 +62,11 @@ namespace visutwin::canvas
                 _grabTexture, true, false, "sceneDepthGrab")) {
             device->copyRenderTarget(sourceTarget.get(), nullptr, destination);
             device->setSceneDepthGrabMap(destination);
+            // The camera's own record: the copy holds the depth buffer's values as they are.
+            // Inside a camera frame (a source set) the frame publishes its depth texture.
+            if (_camera && !_source) {
+                _camera->publishSceneDepthMap(_grabTexture, device->renderVersion(), false, false, false);
+            }
         }
     }
 }

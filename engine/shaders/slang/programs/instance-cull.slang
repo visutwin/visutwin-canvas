@@ -6,16 +6,19 @@
 // GPU instance culling, second dispatch (one thread per instance): tests each instance's
 // bounding sphere against six planes and appends the visible ones to the output with an
 // atomic add on the instance count, which the indirect draw then reads.
+import vtdispatch;
 import vtinstancecull;
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void instanceCull(uint3 tid : SV_DispatchThreadID)
 {
-    const uint index = tid.x;
-    if (index >= params.instanceCount) {
+    // A thread per instance, spread over rows of workgroups past the per-dimension limit.
+    const uint4 dispatch = uint4(params.instanceCount, 1, 1, params.dispatchRowThreads);
+    if (!dispatchThreadInRange(tid, dispatch)) {
         return;
     }
+    const uint index = dispatchThreadIndex(tid, dispatch);
     const float3 center = input[index].columns[3].xyz;
     for (int p = 0; p < 6; ++p) {
         const float4 plane = params.frustumPlanes[p];

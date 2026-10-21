@@ -36,6 +36,7 @@ the [README](README.md).
 
 ## Gaussian splatting & particles
 - **Gaussian splatting** (classic path): 3DGS PLY loading, CPU-precomputed covariance, background depth sorter, EWA screen-space projection — with **view-dependent spherical harmonics** (bands 1–4), the SuperSplat **`.compressed.ply`** quantized format, and **shadow casting** (alpha-clipped footprints into directional, spot and omni shadow maps, PCF / PCSS / VSM)
+- **Compute at a position in the frame**: a `ComputePass` dispatches compute work between render passes (both backends order it with the passes around it), and a camera's **after-passes** run right after everything it renders, e.g. a histogram of the scene colour it grabbed that frame
 - **GPU particle system**: compute-simulated pool, curve-driven size/color/alpha over life, local and world velocity graphs, rotation speed graph, bursts, pre-warm, align-to-motion and stretch, box/sphere emitters with an initial speed along the spawn direction, sprite-sheet animation (one row per emitter or a random row per particle), additive/normal/premultiplied blending, screen-space particles drawn in the UI's order
 
 ## Post-processing & tooling

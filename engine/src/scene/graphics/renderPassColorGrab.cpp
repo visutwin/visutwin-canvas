@@ -6,6 +6,7 @@
 #include "renderPassColorGrab.h"
 
 #include "platform/graphics/graphicsDevice.h"
+#include "scene/camera.h"
 #include "sceneGrab.h"
 
 namespace visutwin::canvas
@@ -36,5 +37,8 @@ namespace visutwin::canvas
         device->copyRenderTarget(_source.get(), destination, nullptr);
         device->generateMipmaps(destination);
         device->setSceneColorMap(destination);
+        if (_camera) {
+            _camera->publishSceneColorMap(_grabTexture, _gamma);
+        }
     }
 }

@@ -162,6 +162,11 @@ namespace visutwin::canvas
         // copy: a sharper glow and a stronger core, one more level keeping the blur the same
         // size on screen, for a chain twice the size. Changing it rebuilds the camera frame.
         bool bloomHighQuality = false;
+
+        // Render through a camera frame even when no effect or setting here asks for one: the
+        // scene renders linear HDR into the frame's offscreen target, which compose tone-maps
+        // and gamma-encodes (a camera frame enabled with nothing switched on).
+        bool useCameraFrame = false;
     };
 
     /*
@@ -200,12 +205,24 @@ namespace visutwin::canvas
         /// Sets them; an empty list puts the camera's default rendering back.
         void setRenderPasses(const std::vector<std::shared_ptr<RenderPass>>& passes) { _camera->setRenderPasses(passes); }
 
+        /// The passes that run after everything the camera renders in the frame, and before the
+        /// cameras rendering after it (Camera::afterPasses).
+        std::vector<std::shared_ptr<RenderPass>>& afterPasses() { return _camera->afterPasses(); }
+        const std::vector<std::shared_ptr<RenderPass>>& afterPasses() const { return _camera->afterPasses(); }
+
         bool renderSceneColorMap() const { return _renderSceneColorMap > 0; }
 
         bool renderSceneDepthMap() const { return _renderSceneDepthMap > 0; }
 
         void requestSceneColorMap(bool enabled);
         void requestSceneDepthMap(bool enabled);
+
+        /// The handles to this camera's scene depth and colour maps (Camera::sceneDepthMapHandle):
+        /// the same objects for the camera's life, naming the maps it rendered most recently. It
+        /// renders them only on request (requestSceneDepthMap / requestSceneColorMap) or when its
+        /// camera frame needs them. Hand one to Compute::setSceneDepthMap / setSceneColorMap.
+        const std::shared_ptr<SceneDepthMapHandle>& sceneDepthMapHandle() const { return _camera->sceneDepthMapHandle(); }
+        const std::shared_ptr<SceneColorMapHandle>& sceneColorMapHandle() const { return _camera->sceneColorMapHandle(); }
 
         Camera* camera() { return _camera; }
 
@@ -218,7 +235,7 @@ namespace visutwin::canvas
         /// for either alone must also produce a frame.
         void* onPostprocessing() const
         {
-            const bool needsSceneTarget =
+            const bool needsSceneTarget = _rendering.useCameraFrame ||
                 _rendering.samples > 1 || _rendering.renderTargetScale != 1.0f;
             return (_dof.enabled || _taa.enabled || _ssao.enabled || _volumetricFog.enabled ||
                     _rendering.bloomIntensity > 0.0f || _rendering.sharpness > 0.0f ||

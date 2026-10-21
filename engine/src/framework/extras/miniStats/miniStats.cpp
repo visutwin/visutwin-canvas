@@ -165,6 +165,19 @@ namespace visutwin::canvas
                 stats.push_back({"GSplats", [engine]() {
                     return engine && engine->stats() ? static_cast<float>(engine->stats()->frame().gsplats) * 1e-6f : 0.0f;
                 }, 3, "M", 10.0f, false});
+            } else if (preset == "compute") {
+                // Only on a device that runs compute: elsewhere both would read zero for good.
+                const GraphicsDevice* d = device();
+                if (d && d->supportsCompute()) {
+                    stats.push_back({"Dispatches", [engine]() {
+                        return engine && engine->stats() ? static_cast<float>(engine->stats()->frame().computeDispatches)
+                                                         : 0.0f;
+                    }, 0, "", 100.0f, false});
+                    stats.push_back({"Compute passes", [engine]() {
+                        return engine && engine->stats() ? static_cast<float>(engine->stats()->frame().computePasses)
+                                                         : 0.0f;
+                    }, 0, "", 100.0f, false});
+                }
             } else {
                 spdlog::warn("MiniStats: no stat preset named '{}'", preset);
             }

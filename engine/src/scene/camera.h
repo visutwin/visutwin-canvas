@@ -20,6 +20,7 @@
 #include "graphics/renderPassColorGrab.h"
 #include "graphics/renderPassDepthGrab.h"
 #include "platform/graphics/renderPass.h"
+#include "platform/graphics/sceneMapHandles.h"
 
 namespace visutwin::canvas
 {
@@ -185,6 +186,12 @@ namespace visutwin::canvas
         /// among them takes this camera's component.
         void setRenderPasses(const std::vector<std::shared_ptr<RenderPass>>& passes) { _renderPasses = passes; }
 
+        /// Passes that run after everything this camera renders in the frame — its render
+        /// passes when it uses those, its camera frame, its grabs — and before the cameras that
+        /// render after it. Add or remove entries to change them; a disabled pass is skipped.
+        std::vector<std::shared_ptr<RenderPass>>& afterPasses() { return _afterPasses; }
+        const std::vector<std::shared_ptr<RenderPass>>& afterPasses() const { return _afterPasses; }
+
         const std::shared_ptr<RenderTarget>& renderTarget() const { return _renderTarget; }
         void setRenderTarget(const std::shared_ptr<RenderTarget>& value) { _renderTarget = value;}
 
@@ -316,6 +323,20 @@ namespace visutwin::canvas
         void _enableRenderPassColorGrab(const std::shared_ptr<GraphicsDevice>& device, bool enable);
         void _enableRenderPassDepthGrab(const std::shared_ptr<GraphicsDevice>& device, bool enable);
 
+        /// This camera's scene depth and colour maps: the same objects for the camera's life,
+        /// naming the maps it rendered most recently (see sceneMapHandles.h). Shared, so a
+        /// consumer (a Compute) may keep one past the camera; the destructor marks them.
+        const std::shared_ptr<SceneDepthMapHandle>& sceneDepthMapHandle() const { return _sceneDepthMapHandle; }
+        const std::shared_ptr<SceneColorMapHandle>& sceneColorMapHandle() const { return _sceneColorMapHandle; }
+
+        /// Records the depth a producer rendered for this camera, with how it stores it, and the
+        /// camera parameters, inverse view-projection and viewport it was rendered with. Only the
+        /// handle: the device's global grab maps are the producer's to set.
+        void publishSceneDepthMap(const std::shared_ptr<Texture>& texture, int renderVersion,
+            bool linear, bool packed, bool reciprocal);
+        /// Records the colour a producer rendered for this camera; `gamma` when gamma-encoded.
+        void publishSceneColorMap(const std::shared_ptr<Texture>& texture, bool gamma);
+
         // Returns 8 frustum corners in camera-local space for the given near/far depth slice.
         // Points 0-3 are near plane corners (BR, TR, TL, BL), points 4-7 are far plane.
         // .
@@ -405,6 +426,7 @@ namespace visutwin::canvas
 
         // Render passes used to render this camera. If empty, the camera will render using the default render pass
         std::vector<std::shared_ptr<RenderPass>> _renderPasses;
+        std::vector<std::shared_ptr<RenderPass>> _afterPasses;
 
         std::shared_ptr<RenderTarget> _renderTarget;
 
@@ -427,6 +449,9 @@ namespace visutwin::canvas
         std::shared_ptr<RenderPassColorGrab> _renderPassColorGrab;
 
         std::shared_ptr<RenderPass> _renderPassDepthGrab;
+
+        std::shared_ptr<SceneDepthMapHandle> _sceneDepthMapHandle = std::make_shared<SceneDepthMapHandle>();
+        std::shared_ptr<SceneColorMapHandle> _sceneColorMapHandle = std::make_shared<SceneColorMapHandle>();
 
         // when true, the forward shader outputs distance-from-reflection-plane
         // instead of PBR lighting. Used by the depth camera in blurred planar reflections.

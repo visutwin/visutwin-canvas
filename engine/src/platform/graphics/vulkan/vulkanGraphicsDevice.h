@@ -760,16 +760,25 @@ namespace visutwin::canvas
             VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
             VkPipeline pipeline = VK_NULL_HANDLE;
             std::vector<VkDescriptorType> descriptorTypes;
+            // Built with set 1 for the scene maps (compute.h); its layout is the device's.
+            bool sceneMaps = false;
+            VkDescriptorSetLayout sceneMapsSetLayout = VK_NULL_HANDLE;
         };
         std::unordered_map<int, ComputePipelineResources> _computePipelines;
 
         // computeDispatch()'s stages for one Compute.
         /// Resolves the compute's bindings, then builds, writes and queues one dispatch.
-        void enqueueComputeDispatch(Compute& compute);
+        bool enqueueComputeDispatch(Compute& compute);   // false when nothing was enqueued
         /// The cached pipeline for this shader, built on first use for these descriptor
         /// types; null when it cannot be built or the shader was built for other types.
         const ComputePipelineResources* computePipelineFor(const VulkanShader& shader,
-            const std::vector<VkDescriptorType>& types, const std::string& computeName);
+            const std::vector<VkDescriptorType>& types, bool sceneMaps, const std::string& computeName);
+        /// Set 1 of a compute with scene maps: its block, pool and set, written from what
+        /// Compute::prepareDispatch resolved; false (nothing left allocated) on failure.
+        bool writeComputeSceneMaps(Compute& compute, VkDescriptorSetLayout setLayout, VkDescriptorPool& pool,
+            VkDescriptorSet& set, VkBuffer& buffer, VmaAllocation& allocation);
+        // The one set-1 layout every compute with scene maps shares, made on first use.
+        VkDescriptorSetLayout _computeSceneMapsSetLayout = VK_NULL_HANDLE;
         /// A mapped uniform buffer holding `data`; false when it cannot be allocated.
         bool createComputeUniformBuffer(const std::vector<uint8_t>& data, VkBuffer& buffer,
             VmaAllocation& allocation);

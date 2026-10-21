@@ -9,7 +9,6 @@
 
 #include "platform/graphics/compute.h"
 #include "platform/graphics/graphicsDevice.h"
-#include "platform/graphics/instanceCullShaders.h"
 #include "platform/graphics/shader.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "platform/graphics/vertexFormat.h"
@@ -56,11 +55,9 @@ namespace visutwin::canvas
         }
         _reset = std::make_unique<Compute>(_device, _resetShader, "InstanceCullReset");
         _reset->setParameter("args", _args);
-        _reset->setThreadgroupSize(1u, 1u, 1u);
         _reset->setupDispatch(1u, 1u, 1u);
         _cull = std::make_unique<Compute>(_device, _cullShader, "InstanceCull");
         _cull->setParameter("args", _args);
-        _cull->setThreadgroupSize(instance_cull_shaders::kCullThreads, 1u, 1u);
         return true;
     }
 
@@ -85,13 +82,14 @@ namespace visutwin::canvas
         if (!_output) {
             return;
         }
+        // A thread per instance, sized from the kernel's own workgroup size.
+        _cull->setupDispatchThreads(params.instanceCount);
+        InstanceCullParams block = params;
+        block.dispatchRowThreads = _cull->dispatchRowThreads();
         for (Compute* compute : {_reset.get(), _cull.get()}) {
             compute->setParameter("input", input);
-            compute->setUniformBlock(&params, sizeof(params));
+            compute->setUniformBlock(&block, sizeof(block));
         }
-        _cull->setupDispatch(
-            (params.instanceCount + instance_cull_shaders::kCullThreads - 1u) / instance_cull_shaders::kCullThreads,
-            1u, 1u);
         _device->computeDispatch({_reset.get(), _cull.get()}, "instance-cull");
     }
 

@@ -38,6 +38,16 @@ visutwin_add_unit_test(visutwin-env-atlas-orientation-tests env-atlas-orientatio
     LABELS gpu TIMEOUT 60)
 # Texture::copy on a real device (tests/textureCopyTests.cpp); `gpu` label for the same reason.
 visutwin_add_unit_test(visutwin-texture-copy-tests texture-copy textureCopyTests.cpp LABELS gpu TIMEOUT 60)
+# A ComputePass between two render passes of one frame, on a real device (tests/computePassGpuTests.cpp);
+# `gpu` label for the same reason.
+visutwin_add_unit_test(visutwin-compute-pass-gpu-tests compute-pass-gpu computePassGpuTests.cpp LABELS gpu TIMEOUT 60)
+# The scene maps a compute kernel reads through vtscenemaps, on a real device
+# (tests/sceneMapsGpuTests.cpp); `gpu` label for the same reason.
+visutwin_add_unit_test(visutwin-scene-maps-gpu-tests scene-maps-gpu sceneMapsGpuTests.cpp LABELS gpu TIMEOUT 60)
+# Compute::setupDispatchThreads on a real device, its workgroup size taken from the shader
+# (tests/computeDispatchThreadsGpuTests.cpp); `gpu` label for the same reason.
+visutwin_add_unit_test(visutwin-compute-dispatch-threads-gpu-tests compute-dispatch-threads-gpu
+    computeDispatchThreadsGpuTests.cpp LABELS gpu TIMEOUT 60)
 
 if(VISUTWIN_BACKEND_VULKAN)
     visutwin_add_unit_test(visutwin-vulkan-smoke vulkan-validation-smoke vulkanSmoke.cpp
@@ -173,6 +183,7 @@ visutwin_add_unit_test(visutwin-cluster-grid-sharing-tests cluster-grid-sharing 
 visutwin_add_unit_test(visutwin-ktx2-target-tests ktx2-target ktx2TargetTests.cpp TINYGLTF DEFINITIONS VISUTWIN_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 visutwin_add_unit_test(visutwin-obj-stl-round-trip-tests obj-stl-round-trip objStlRoundTripTests.cpp)
 visutwin_add_unit_test(visutwin-frame-stats-tests frame-stats frameStatsTests.cpp)
+visutwin_add_unit_test(visutwin-compute-dispatch-threads-tests compute-dispatch-threads computeDispatchThreadsTests.cpp)
 visutwin_add_unit_test(visutwin-mesh-instance-parameter-tests mesh-instance-parameter meshInstanceParameterTests.cpp)
 visutwin_add_unit_test(visutwin-gsplat-shadow-tests gsplat-shadow gsplatShadowTests.cpp)
 visutwin_add_unit_test(visutwin-curve-tests curve curveTests.cpp)
@@ -205,3 +216,4 @@ visutwin_add_unit_test(visutwin-sky-material-tests sky-material skyMaterialTests
 visutwin_add_unit_test(visutwin-clip-planes-tests clip-planes clipPlanesTests.cpp)
 visutwin_add_unit_test(visutwin-directional-shadow-bounds-tests directional-shadow-bounds directionalShadowBoundsTests.cpp)
 visutwin_add_unit_test(visutwin-gsplat-sh-tests gsplat-sh gsplatShTests.cpp)
+visutwin_add_unit_test(visutwin-scene-map-handle-tests scene-map-handles sceneMapHandleTests.cpp)

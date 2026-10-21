@@ -19,6 +19,7 @@
 //
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -56,6 +57,9 @@ namespace visutwin::canvas
         std::vector<std::vector<uint8_t>> entryPointCode;
         /// Msl / MetalLib / Wgsl: the whole program with every entry point.
         std::vector<uint8_t> programCode;
+        /// One per requested entry point, in request order: a compute entry's `[numthreads]`
+        /// from the linked program's reflection, all zero for another stage.
+        std::vector<std::array<uint32_t, 3>> entryPointThreadGroupSizes;
         std::string diagnostics;
         double seconds = 0.0; ///< Wall time of the compile
 

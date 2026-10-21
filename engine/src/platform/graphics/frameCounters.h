@@ -24,6 +24,15 @@ namespace visutwin::canvas
         int lightClusters = 0;      ///< distinct cluster grids built
         int gsplats = 0;            ///< splats drawn (visible after culling)
 
+        /// Compute work, counted by the backends' computeDispatch. Unlike everything above,
+        /// these are zeroed when the engine UPDATE begins, not the render: the particle
+        /// simulation dispatches from the update, before the frame renders.
+        struct Compute
+        {
+            int dispatches = 0;     ///< dispatches encoded
+            int passes = 0;         ///< computeDispatch calls, each one compute pass
+        } compute;
+
         // Milliseconds, fractional.
         double cullTime = 0.0;
         double sortTime = 0.0;

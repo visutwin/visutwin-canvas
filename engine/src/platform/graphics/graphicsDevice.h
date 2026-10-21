@@ -985,6 +985,15 @@ namespace visutwin::canvas
         float maxAnisotropy() const { return _maxAnisotropy; }
 
         /**
+         * Most compute workgroups one dispatch may have in a single dimension, which
+         * Compute::setupDispatchThreads spreads a larger one-dimensional dispatch under.
+         * The default is 65535, the least Vulkan guarantees (and WebGPU's default). Vulkan
+         * reports its device's own limit (MoltenVK: 2^30); Metal, which publishes none, reports
+         * what MoltenVK does on the same GPUs, so the two spread at the same counts.
+         */
+        uint32_t maxComputeWorkgroupsPerDimension() const { return _maxComputeWorkgroupsPerDimension; }
+
+        /**
          * Whether a 16-bit / 32-bit float colour format can be a RENDER TARGET
          * here, which is a separate capability from sampling one. VSM shadows
          * render EVSM moments into an RGBA16F attachment, so a device without
@@ -1207,12 +1216,25 @@ namespace visutwin::canvas
         /** Texture dimension limits; see maxTextureSize(). */
         void setMaxTextureSize(const int value) { _maxTextureSize = value > 1 ? value : 1; }
         void setMaxCubeMapSize(const int value) { _maxCubeMapSize = value > 1 ? value : 1; }
+        /** See maxComputeWorkgroupsPerDimension(). */
+        void setMaxComputeWorkgroupsPerDimension(const uint32_t value)
+        {
+            _maxComputeWorkgroupsPerDimension = value > 1u ? value : 1u;
+        }
         /** Highest anisotropy ratio the device's samplers accept; see maxAnisotropy(). */
         void setMaxAnisotropy(const float value) { _maxAnisotropy = value > 1.0f ? value : 1.0f; }
         /** Float colour-attachment support; see textureHalfFloatRenderable(). */
         void setTextureHalfFloatRenderable(const bool value) { _textureHalfFloatRenderable = value; }
         void setTextureFloatRenderable(const bool value) { _textureFloatRenderable = value; }
         void recordDrawCall(int count = 1) { _drawCallsPerFrame += count; }
+        /// One compute pass recording `dispatches` dispatches, counted into the frame
+        /// statistics (stats.frame.computeDispatches / computePasses). Each backend's
+        /// computeDispatch calls it once a call, with the dispatches it encoded.
+        void recordComputePass(const int dispatches)
+        {
+            _frameCounters.compute.dispatches += dispatches;
+            ++_frameCounters.compute.passes;
+        }
         /// Where a backend's createRenderTarget accumulates its time (stats.misc, a running
         /// total, never reset).
         double& renderTargetCreationTimeTotal() { return _renderTargetCreationTime; }
@@ -1389,6 +1411,7 @@ namespace visutwin::canvas
         int _maxTextureSize = 4096;
         int _maxCubeMapSize = 4096;
         float _maxAnisotropy = 1.0f;
+        uint32_t _maxComputeWorkgroupsPerDimension = 65535u;
         bool _textureHalfFloatRenderable = false;
         bool _textureFloatRenderable = false;
 

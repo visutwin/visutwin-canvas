@@ -445,6 +445,42 @@ forwards to `setParticleState`: Metal vertex slot 7 + params slot 11, Vulkan set
 0 and 3), so one mesh instance is a storage draw, a particle draw, or a splat draw — never
 two at once.
 
+**Compute at a position in the frame** (`platform/graphics/computePass.h`): a `ComputePass`
+is a render pass with no target that dispatches its computes (non-owning `Compute*`, in
+order, one `computeDispatch` named after the pass) in `execute()`. Being targetless it starts
+no device pass and the graph merges neither neighbour across it, and it does not displace the
+pass before it as the one a later pass on the same target loads from, so that pass still
+stores. Its onBefore is where a dispatch is set up from what the frame produced (the grabbed
+scene colour, its size). Placed in a camera's after-passes (`CameraComponent::afterPasses()`,
+`Camera::afterPasses()`), it runs after everything the camera renders this frame and before
+the next camera: `ForwardRenderer::addCameraAfterPasses` adds them after the block holding
+the camera's `lastCameraUse` action (its grabs and camera frame included), or right after
+its own render passes when it renders through those. Upstream's per-camera `beforePasses`
+are not ported. On Vulkan a dispatch made while a frame or offline scope records goes INTO
+that command buffer (the upload queue would submit it ahead of the frame); Metal encodes
+into its open command buffer either way. `histogram-example.cpp` ports upstream
+`compute/histogram`: a clear and a histogram kernel (Slang, the camera's scene-colour handle
+through `vtscenemaps`) in one ComputePass among the camera's after-passes, over the scene colour
+grabbed that frame. `tests/computePassGpuTests.cpp`
+(`gpu`) holds the in-frame order on both backends.
+
+**A camera's scene maps in a kernel** (`Compute::setSceneDepthMap` / `setSceneColorMap`,
+upstream's): each camera owns a handle to its scene depth and colour maps
+(`platform/graphics/sceneMapHandles.h`, `CameraComponent::sceneDepthMapHandle()` /
+`sceneColorMapHandle()`), which every producer fills when it publishes (the standalone grabs,
+the camera frame's scene depth and colour grab) with how the map is stored and, for the
+depth, the camera parameters, inverse view-projection and viewport it was rendered with. A
+compute keeps the handle and reads it as the dispatch is recorded (`prepareDispatch`), so a
+kernel in a camera's after-passes reads the maps of the frame just rendered, and one
+dispatched from an update reads last frame's. The kernel imports `vtscenemaps`
+(`sceneDepthLinear`, `sceneDepthWorldPosition`, `sceneColorLoad`, `sceneColorSample`,
+`sceneColorToLinear` ...); the maps bind at fixed slots outside the name-ordered table (Metal
+texture 30 / 31, sampler 15, buffer 30; Vulkan set 1). A map not rendered binds a 1x1
+substitute (depth 1, pink) and is reported once. Every producer here stores depth buffer
+values, so the module's linear and reciprocal paths only follow upstream's handle. Example:
+`scene-maps-example.cpp` (upstream `compute/scene-maps`: a scanner pulse over the laboratory,
+forward or camera frame, prepass or TAA depth, MSAA on or off).
+
 Example: `particles-example.cpp` (port of upstream `compute/particles` — 1M particles,
 Verlet integration, three collision spheres; yellow on impact fading to red). DEVIATION:
 upstream draws 6 indices per particle over a vertex-buffer-less mesh keyed on
@@ -1134,7 +1170,7 @@ Upstream's `ScreenComponent` and `ElementComponent` layout
 geometry, multi-light, multi-layer), `RenderPassShadowDirectional` (cascades, PCF +
 EVSM_16F), `RenderPassVsmBlur`, `RenderPassShadowLocalClustered` / `NonClustered`,
 `RenderPassUpdateClustered`, `RenderPassCookieRenderer`,
-and the colour and depth grabs. The camera frame's sub-passes: prepass, SSAO, TAA,
+the colour and depth grabs, and `ComputePass` (targetless, dispatches computes). The camera frame's sub-passes: prepass, SSAO, TAA,
 downsample/upsample, bloom, the DOF trio (CoC, far downsample, bokeh blur under a
 targetless `RenderPassDof` orchestrator), volumetric fog and its combine, compose,
 and the after pass. Every quad-drawing pass derives from `RenderPassShaderQuad`.
@@ -1419,7 +1455,8 @@ The cross-cutting traps stay in `AGENTS.md`.
 of a camera frame: registered with `CameraComponent::addFrameEffect` (the camera co-owns
 it; ids are unique per camera; `removeFrameEffect`, `frameEffect(id)`), it adds render
 passes of its own at five stages and asks the frame for the resources they read. An
-active effect makes the camera render through a frame (`onPostprocessing`). An effect can
+active effect makes the camera render through a frame (`onPostprocessing`), as does
+`RenderingSettings::useCameraFrame` (upstream's camera frame enabled with nothing on). An effect can
 also add code to the compose pass at a slot (below). Port of upstream's API (its
 `postOpaque` stage included). DEVIATIONS: the built-in effects stay internal passes
 configured by `RenderingSettings`, except TAA (below), an effect registers on the camera rather than on a

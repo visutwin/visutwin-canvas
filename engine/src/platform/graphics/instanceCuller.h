@@ -32,7 +32,11 @@ namespace visutwin::canvas
         uint32_t indexStart;        ///< Mesh Primitive.base -> indirect args.
         int32_t  baseVertex;        ///< Mesh Primitive.baseVertex -> indirect args.
         uint32_t baseInstance;      ///< Always 0.
-        float    _pad[2];
+        /// Threads in a row of the cull's dispatch (Compute::dispatchRowThreads); the culler
+        /// writes it. A scalar of its own here: the kernel builds its vtdispatch uint4 from it
+        /// and instanceCount.
+        uint32_t dispatchRowThreads;
+        float    _pad;
     };
     static_assert(sizeof(InstanceCullParams) == 128,
         "InstanceCullParams must be 128 bytes to match backend kernel layout");

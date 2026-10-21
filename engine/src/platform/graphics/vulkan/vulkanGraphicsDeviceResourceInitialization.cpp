@@ -816,6 +816,8 @@ namespace visutwin::canvas
         // the lightmappers, the skybox cube bake, a shadow map — clamps to what
         // this device actually accepts instead of to a literal 4096.
         setMaxTextureSize(static_cast<int>(props.limits.maxImageDimension2D));
+        setMaxComputeWorkgroupsPerDimension(std::min({props.limits.maxComputeWorkGroupCount[0],
+            props.limits.maxComputeWorkGroupCount[1], props.limits.maxComputeWorkGroupCount[2]}));
         setMaxCubeMapSize(static_cast<int>(props.limits.maxImageDimensionCube));
 
         // Half- and full-float colour attachments are optional in Vulkan, and a

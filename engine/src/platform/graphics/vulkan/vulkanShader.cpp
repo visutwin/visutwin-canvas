@@ -56,8 +56,12 @@ namespace visutwin::canvas
         if (skinnedMorphedVertSpirv && skinnedMorphedVertWordCount > 0)
             _skinnedMorphedVertexModule = createVertexModule(
                 skinnedMorphedVertSpirv, skinnedMorphedVertWordCount);
-        if (computeSpirv && computeWordCount > 0)
+        if (computeSpirv && computeWordCount > 0) {
             _computeModule = createModule(computeSpirv, computeWordCount);
+            // The size the module dispatches with, whichever path compiled it (the bundle, a
+            // runtime Slang compile, the persistent cache, custom GLSL).
+            setComputeThreadGroupSize(spirvComputeLocalSize(computeSpirv, computeWordCount));
+        }
 
         spdlog::debug("VulkanShader created: {} (vert={} frag={} instanced={} sky={} color={} point={})",
             definition.name,

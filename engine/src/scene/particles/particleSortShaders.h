@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 02.10.2026
 //
-// The particle sort's uniform block and workgroup size (the kernel is
+// The particle sort's uniform block (the kernel, which declares its workgroup size, is
 // engine/shaders/slang/programs/particle-sort.slang). Particle sorting, as one compute
 // dispatch of ONE workgroup:
 // each thread keys a share of the pool — sorted ascending: minus the
@@ -28,7 +28,4 @@ namespace visutwin::canvas::particle_sort_shaders
         float counts[4];           // x particle count, y the power of two sorted over
     };
     static_assert(sizeof(SortUniforms) == 32);
-
-    constexpr uint32_t kSortThreads = 256u;
-
 }

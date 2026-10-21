@@ -145,7 +145,7 @@ class EdgeDetectExample final: public ExampleApp
 {
 public:
     EdgeDetectExample()
-        : ExampleApp({.title = "Compute Edge Detect", .width = 1200, .height = 800}) {}
+        : ExampleApp({.title = "Compute Edge Detect", .width = 1200, .height = 800, .miniStatsPresets = {"compute"}}) {}
 
 protected:
     bool create() override
@@ -306,9 +306,10 @@ protected:
         _rtCameraEntity->lookAt(Vector3(0.0f, 0.0f, 0.0f));
 
         if (_compute) {
-            const uint32_t dispatchX = static_cast<uint32_t>((_sceneRenderTarget->width() + 7) / 8);
-            const uint32_t dispatchY = static_cast<uint32_t>((_sceneRenderTarget->height() + 7) / 8);
-            _compute->setupDispatch(dispatchX, dispatchY, 1);
+            // A thread per pixel, in workgroups of 8x8 (declared by the GLSL kernel; the
+            // MSL one takes the Compute's default, 8x8).
+            _compute->setupDispatchThreads(static_cast<uint32_t>(_sceneRenderTarget->width()),
+                static_cast<uint32_t>(_sceneRenderTarget->height()));
             device()->computeDispatch({_compute.get()}, "EdgeDetectDispatch");
         }
 

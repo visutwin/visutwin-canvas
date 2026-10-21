@@ -443,6 +443,7 @@ namespace visutwin::canvas
                         frameGraph->addRenderPass(renderPass);
                     }
                 }
+                addCameraAfterPasses(frameGraph, renderAction->camera);
                 continue;
             }
 
@@ -456,7 +457,24 @@ namespace visutwin::canvas
             const RenderAction* nextRenderAction = i + 1 < actionCount ? renderActions[i + 1] : nullptr;
             if (endsRenderActionBlock(*renderAction, nextRenderAction, renderTarget)) {
                 addRenderActionBlock(frameGraph, layerComposition, renderTarget, startIndex, i);
+                // after the camera's last block, its grabs included
+                if (renderAction->lastCameraUse) {
+                    addCameraAfterPasses(frameGraph, renderAction->camera);
+                }
                 newStart = true;
+            }
+        }
+    }
+
+    void ForwardRenderer::addCameraAfterPasses(FrameGraph* frameGraph, const CameraComponent* camera)
+    {
+        if (!camera || !camera->camera()) {
+            return;
+        }
+        // The graph leaves a disabled pass out.
+        for (const auto& pass : camera->afterPasses()) {
+            if (pass) {
+                frameGraph->addRenderPass(pass);
             }
         }
     }

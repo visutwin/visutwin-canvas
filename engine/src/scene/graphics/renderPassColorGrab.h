@@ -11,14 +11,21 @@
 
 namespace visutwin::canvas
 {
+    class Camera;
+
     /**
-     * A render pass implementing grab of a color buffer.
+     * A render pass implementing grab of a color buffer. The copy is published as the device's
+     * scene colour map (shared by every camera) and on the camera's scene colour handle.
      */
     class RenderPassColorGrab : public RenderPass
     {
     public:
-        explicit RenderPassColorGrab(const std::shared_ptr<GraphicsDevice>& device)
-            : RenderPass(device) {}
+        RenderPassColorGrab(const std::shared_ptr<GraphicsDevice>& device, Camera* camera)
+            : RenderPass(device), _camera(camera) {}
+
+        /// Whether the grabbed colour is gamma-encoded (true, a camera rendering straight to its
+        /// target) or linear (a camera frame's HDR scene), as the camera's handle reports it.
+        void setGamma(const bool gamma) { _gamma = gamma; }
 
         /// The device holds a raw pointer to the grab destination, so a pass that goes
         /// away while it is still published leaves every later draw binding freed memory.
@@ -38,6 +45,10 @@ namespace visutwin::canvas
         void execute() override;
 
     private:
+        // The camera the grabbed colour is published for; null publishes no handle.
+        Camera* _camera = nullptr;
+        bool _gamma = true;
+
         // The source render target to grab the color from
         std::shared_ptr<RenderTarget> _source = nullptr;
 

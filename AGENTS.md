@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 163 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 165 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -409,7 +409,17 @@ bindings like a program of the tree, so it needs the source tree at run time. Wh
   refuses a forward or shadow entry that leaves the descriptor contract, and
   `tests/slangBundleTests.cpp` holds the material, lighting, particle and splat blocks against
   their C++ structs and the 128-byte draw push block. A new block shared with C++ gets a line
-  there.
+  there. Every compute entry also carries its `[numthreads]` (`Entry::threadGroupSize`, from
+  the same reflection on each target built; the generator stops if the targets disagree or a
+  compute entry has none), and a runtime compile reports it too
+  (`SlangCompileResult::entryPointThreadGroupSizes`): an MSL kernel declares no workgroup
+  size, so Metal's dispatch takes it from there (`ShaderCode::computeThreadGroupSize`), while
+  Vulkan reads the SPIR-V's own LocalSize (`spirvComputeLocalSize`, in `VulkanShader`).
+- **Never put a scalar after a 3-vector in a block C++ fills.** In a Slang constant block a
+  `uint3` / `float3` is 16 bytes on Metal and 12 under Vulkan's std140, so the scalar after it
+  lands at offset 16 on one and 12 on the other, and one backend reads it out of the wrong
+  bytes (the dispatch-threads GPU test counted every row of threads twice on Metal). Pack the
+  pair as one `uint4` / `float4`, as every engine block does.
 - **Known per-backend differences kept in one source**: the point size (3 on Metal, 1 on
   Vulkan, DEVIATION marked at `forwardPointVertex`), Vulkan's instancing has no instance
   colour (the material's base colour), and the rounding of
@@ -1695,7 +1705,50 @@ present, but the rule below never depends on reading it.
   table in `compute.h` is the contract rather than any existing kernel. A shader
   that declares them in a different order silently reads the wrong data. Metal also
   binds NO sampler state to a compute kernel: a kernel that filters on Metal needs
-  a sampler of its own.
+  a sampler of its own. The ONE exception is the scene maps (next entry), which sit
+  outside the table.
+- **A compute kernel reads a camera's scene maps through its HANDLES, at FIXED slots.**
+  Each `Camera` owns a `SceneDepthMapHandle` and a `SceneColorMapHandle`
+  (`platform/graphics/sceneMapHandles.h`, `CameraComponent::sceneDepthMapHandle()` ...): the
+  same objects for the camera's life, naming the map it rendered most recently with how it is
+  stored (gamma or linear colour; depth buffer values or linear / reciprocal depth) and, for
+  the depth, the camera parameters, the inverse view-projection the shaders were given
+  (jitter included) and the viewport in texels (row 0 at the top), all captured at
+  publication. The device's `sceneColorMap` / `sceneDepthGrabMap` stay the GLOBAL maps the
+  forward shaders read (last publisher wins); a handle is per camera. Every producer publishes
+  to its camera's handle: the standalone grabs (`RenderPassColorGrab` gamma, the standalone
+  `RenderPassDepthGrab` its copy) and the camera frame (`publishSceneInputs`: its
+  `_sceneDepthTexture`, single-sampled or written by the prepass; its colour grab linear). A
+  new producer must publish too, or a kernel reads the substitute. The texture is held WEAKLY,
+  so a producer that frees it (a rebuilt camera frame) needs no withdrawal: it reads as no
+  map. `Compute::setSceneDepthMap` / `setSceneColorMap` attach a handle once;
+  `Compute::prepareDispatch`, which the backends call as they RECORD the dispatch, resolves it
+  (a never-rendered or freed map binds a 1x1 substitute: depth 1, pink) and fills
+  `ComputeSceneMapsBlock`. The kernel `import vtscenemaps;` (upstream's sceneDepthCS /
+  sceneColorCS in one module) and the maps bind OUTSIDE the name-ordered table: Metal texture
+  30 (depth) and 31 (colour), sampler 15 (the post sampler) and buffer 30 (the block); Vulkan
+  descriptor SET 1, bindings 0-3, a layout the device shares between every such compute. The
+  constants are in `compute.h` and the module; change both. The module unprojects a depth
+  buffer value with NDC z = `d * 2 - 1` (the GL clip the matrices use). DEVIATION: upstream
+  compiles a kernel variant per storage combination; the module reads the block's flags.
+  `tests/sceneMapHandleTests.cpp` holds the handles and the resolution,
+  `tests/sceneMapsGpuTests.cpp` (`gpu`) the slots and the decoded values on the real device;
+  `scene-maps` is the example.
+- **A dispatch is sized from the workgroup size the SHADER declares, never a C++ copy of
+  it.** `Compute::threadgroupSize()` is the shader's `[numthreads]`
+  (`Shader::computeThreadGroupSize`: Slang's reflection on Metal, the SPIR-V LocalSize on
+  Vulkan) whenever it has one; `setThreadgroupSize` only serves a custom MSL kernel, which
+  declares none (Metal's dispatch supplies the size), and is ignored with a warning when it
+  disagrees with a declared size. Size a dispatch by thread count with
+  `setupDispatchThreads(x, y, z)`. A one-dimensional dispatch needing more workgroups than
+  `maxComputeWorkgroupsPerDimension()` (2^30 on both backends here, 65535 the default) is
+  spread over rows of them; a kernel that can get there takes `Compute::dispatchThreads()`
+  (count xyz, row width w) in its OWN uniform block as one `uint4` and indexes through the
+  `vtdispatch` module (`dispatchThreadInRange` / `dispatchThreadIndex`; DEVIATION: upstream
+  assigns uniforms its chunk declares), as the instance cull does. A kernel indexing
+  `SV_DispatchThreadID.x` alone reads a spread dispatch's rows as one. Both backends allow
+  2^30, so `tests/computeDispatchThreadsGpuTests.cpp` (`gpu`) dispatches the spread that a
+  limit of 4 makes, to prove the indexing on real devices.
 - **Only ONE SIMD backend compiles per target, so a defect in another one is
   invisible here.** Apple silicon selects the Apple backend; the SSE path is gated
   on `__SSE4_1__` (it uses `_mm_dp_ps` / `_mm_insert_ps`, so `__SSE__` alone could
@@ -2078,8 +2131,8 @@ present, but the rule below never depends on reading it.
   `GraphicsDevice`.** `maxTextureSize` / `maxCubeMapSize`, `maxAnisotropy`,
   `textureHalfFloatRenderable` / `textureFloatRenderable`, `maxSamples`,
   `maxFramesInFlight`, `supportsCompressedFormat`, `supportsDualSourceBlending`,
-  `supportsCompute`, `supportsGpuInstanceCulling` and `supportsTimestampQuery` are
-  the whole list; a new one goes there rather than into a backend header, or only
+  `supportsCompute`, `maxComputeWorkgroupsPerDimension`, `supportsGpuInstanceCulling` and
+  `supportsTimestampQuery` are the whole list; a new one goes there rather than into a backend header, or only
   one backend can be asked. Two failure shapes this prevents, both silent: a LITERAL
   standing in for a limit (a clamp to 4096 is a quarter of what either backend
   actually allows) and the SAME limit spelled differently per backend (a hard-coded
@@ -2107,8 +2160,13 @@ present, but the rule below never depends on reading it.
   `recordDraw(primitive, instances)`, which is what `stats.triangles` and
   `otherPrimitives` come from, and `setShader` counts a switch when the shader
   changes. A second reset site (in the fills, say) would let `start()`'s tick followed
-  by the examples' manual update/render count two renders into the first frame. A new
-  counter needs a writer
+  by the examples' manual update/render count two renders into the first frame. The
+  COMPUTE counters are the exception (`FrameCounters::compute`, written by each backend's
+  `computeDispatch` through `recordComputePass(dispatches)`: one pass a call): they are
+  zeroed when `Engine::update` begins and kept through the render's reset, because the
+  particle systems dispatch from the update, so `stats.frame.computeDispatches` /
+  `computePasses` span the update and the render (the HUD's "compute" preset shows them, on a
+  device with compute only). A new counter needs a writer
   AND a line in `tests/frameStatsTests.cpp`, which renders a known scene through the
   real engine on a stub device — nothing on screen reads these, so nothing else will
   notice a dead one.
@@ -2781,6 +2839,22 @@ present, but the rule below never depends on reading it.
   on the shadow passes while the CPU encodes the forward pass; never wait on that
   commit. (4) Nothing may hold the pointer across a call that can flush: ask for it
   again.
+- **A Vulkan compute dispatch made while a frame or offline scope records is RECORDED INTO
+  THAT command buffer** (`currentCommandBuffer()`, after a barrier making every earlier write
+  visible to the kernel; its descriptor pool and uniform block retired through
+  `deferDestroy`); only outside them does it go through the upload queue and `flushUploads()`.
+  The upload queue is submitted on its own the moment it is flushed, while the frame's buffer
+  is submitted at frame end, so a dispatch queued there mid-frame ran AHEAD of every pass the
+  frame had recorded: a `ComputePass` after a camera read the previous frame's colour.
+  `tests/computePassGpuTests.cpp` (`gpu`) clears red, dispatches, clears blue in one frame
+  and fails on blue. Anything else that records GPU work mid-frame owes the same choice.
+- **A `ComputePass` has no target, and that is its whole frame-graph contract**: it starts no
+  device pass, never merges, keeps the passes on either side of it apart, and does not
+  displace the pass before it in the store propagation. A camera's after-passes
+  (`CameraComponent::afterPasses()`) run after the block carrying its `lastCameraUse`
+  action, grabs and camera frame included, or right after its own render passes, and before the next
+  camera. `tests/frameGraphTests.cpp` holds both. Set a dispatch up from the frame's products in the pass's onBefore (the grabbed
+  colour may be recreated on resize).
 - **Vulkan's `draw()` does the same: it binds only what differs from the draw before it,
   and it is the ONLY writer of that state.** `BoundDrawState` (`_bound`) remembers, for
   the command buffer being recorded, the descriptor set and dynamic offset at each of
@@ -2839,7 +2913,8 @@ present, but the rule below never depends on reading it.
   own; `tests/shaderDiskCacheTests.cpp` holds the format and every miss.
 - **A camera frame's depth prepass RENDERS only where something reads the depth before
   the scene pass, or under MSAA** (`RenderPassCameraFrame::prepassRenders`).
-  `prepassEnabled` means "there is a depth consumer" (TAA, SSAO, DOF, fog). Under MSAA
+  `prepassEnabled` means "there is a depth consumer" (TAA, SSAO, DOF, fog, a requested
+  scene depth map, as upstream's `sceneDepthMap` asks for a prepass). Under MSAA
   the prepass is the only sampleable depth, so any consumer renders it; single-sampled
   the scene pass clears and rewrites the shared depth texture, so only lighting-mode
   SSAO, which samples the depth BEFORE the scene pass, needs one. Rendered for every
@@ -3250,7 +3325,8 @@ present, but the rule below never depends on reading it.
   (the next frame's scene pass binds the pointer before the grab re-runs), and its
   destructor clears `setSceneColorMap` / `setSceneDepthGrabMap` when the device
   still points at it — `requestSceneColorMap(false)` and any camera-frame option
-  change that rebuilds render targets both destroy one.
+  change that rebuilds render targets both destroy one. Its camera's scene-map handle
+  holds the texture weakly and needs no such withdrawal.
 - **Every caster sweep goes through `collectShadowCasters`, and it takes the
   CAMERA.** Batch mesh instances belong to no `RenderComponent` — `BatchManager`
   registers them straight with the scene layers — so a hand-written sweep of the
@@ -3653,8 +3729,9 @@ What stays HERE is only what bites during UNRELATED work.
   with an explicit source, its offscreen scene target, placed beside the colour
   grab; either request splits the scene pass at the grab layer. Under MSAA the scene
   target's depth is an internal multisampled buffer no copy can read, so the frame
-  publishes its PREPASS depth texture as the grab map instead, which needs the
-  prepass (TAA, SSAO, DOF or fog) — without one it warns and SSR has no depth.
+  publishes its PREPASS depth texture as the grab map instead; the depth request is a
+  depth consumer itself, so it renders the prepass (until 2026-10-21 it did not, and a
+  depth request under MSAA with no other consumer warned and left SSR with no depth).
   Without a depth grab in the frame, SSR under any post-processing does nothing on
   either backend. The standalone `RenderPassDepthGrab` publishes the scene depth in
   `before()` for the depth-layer flow; with a source set it only copies. Check on

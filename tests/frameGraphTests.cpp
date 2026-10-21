@@ -6,7 +6,9 @@
 // FrameGraph::compile on a stub device: the load/store contract it derives between
 // passes that share a target, pass merging, before-pass ordering, and that its edits
 // to a PERSISTENT pass's attachment flags last one frame. Also the onBefore / onAfter
-// callbacks: where a pass runs them, and that the graph merges no pass across one.
+// callbacks: where a pass runs them, and that the graph merges no pass across one. And the
+// ComputePass (its dispatch, its place between device passes, that nothing merges across it)
+// and a camera's after-passes, scheduled by the real renderer.
 //
 // Passes persist across frames while the graph is rebuilt every frame. A compile() that
 // raises a store or drops a cubemap mip generation and never puts it back makes one
@@ -18,12 +20,31 @@
 #include <string>
 #include <vector>
 
+#include <algorithm>
+
+#include "framework/components/camera/cameraComponent.h"
+#include "framework/components/camera/cameraComponentSystem.h"
+#include "framework/components/render/renderComponent.h"
+#include "framework/components/render/renderComponentSystem.h"
+#include "framework/engine.h"
+#include "framework/entity.h"
+#include "platform/graphics/compute.h"
+#include "platform/graphics/computePass.h"
 #include "platform/graphics/renderPass.h"
 #include "platform/graphics/renderTarget.h"
 #include "platform/graphics/texture.h"
+#include "scene/camera.h"
+#include "scene/composition/layerComposition.h"
 #include "scene/frameGraph.h"
+#include "scene/graphics/renderPassColorGrab.h"
+#include "scene/graphics/renderPassDepthGrab.h"
+#include "scene/materials/standardMaterial.h"
+#include "scene/renderer/forwardRenderer.h"
+#include "scene/renderer/renderPassForward.h"
+#include "scene/scene.h"
 #include "support/check.h"
 #include "support/stubDevice.h"
+#include "support/testEngine.h"
 
 using namespace visutwin::canvas;
 using namespace visutwin::canvas::test;
@@ -81,6 +102,36 @@ namespace
         void before() override { _log.push_back("before"); }
         void execute() override { _log.push_back(device()->insideRenderPass() ? "execute" : "execute(outside)"); }
         void after() override { _log.push_back("after"); }
+    private:
+        std::vector<std::string>& _log;
+    };
+
+    // A stub that logs device passes and compute dispatches, in the order they arrive.
+    class DispatchLoggingDevice final : public StubGraphicsDevice
+    {
+    public:
+        explicit DispatchLoggingDevice(std::vector<std::string>& log)
+            : StubGraphicsDevice(Options{.size = {64, 64}, .recordDraws = true}), _log(log) {}
+        bool supportsCompute() const override { return true; }
+        void startRenderPass(RenderPass* pass) override
+        {
+            StubGraphicsDevice::startRenderPass(pass);
+            _log.push_back("start");
+        }
+        void endRenderPass(RenderPass* pass) override
+        {
+            StubGraphicsDevice::endRenderPass(pass);
+            _log.push_back("end");
+        }
+        void computeDispatch(const std::vector<Compute*>& computes, const std::string& label) override
+        {
+            std::string entry = insideRenderPass() ? "dispatch(inside)" : "dispatch";
+            entry += "[" + label;
+            for (const auto* compute : computes) {
+                entry += " " + compute->name();
+            }
+            _log.push_back(entry + "]");
+        }
     private:
         std::vector<std::string>& _log;
     };
@@ -378,6 +429,179 @@ int main()
         p.setEnabled(false);
         p.render();
         check(log.empty(), "and not when the pass is: " + joined(log));
+    }
+
+    std::cout << "\nComputePass\n";
+    {
+        std::vector<std::string> log;
+        const auto logging = std::make_shared<DispatchLoggingDevice>(log);
+        Compute first(logging.get(), nullptr, "First");
+        Compute second(logging.get(), nullptr, "Second");
+        ComputePass computePass(logging, {&first, &second});
+        computePass.setName("TestPass");
+        computePass.render();
+        check(joined(log) == "dispatch[TestPass First Second]",
+            "it dispatches its computes in order, in one dispatch named after the pass: " + joined(log));
+
+        log.clear();
+        ComputePass empty(logging);
+        empty.render();
+        check(log.empty(), "with no computes it dispatches nothing");
+
+        log.clear();
+        computePass.setEnabled(false);
+        computePass.render();
+        check(log.empty(), "nor when it is disabled");
+    }
+    {
+        // Between two passes on one target, the second loading: they would merge.
+        const auto between = std::make_shared<ComputePass>(device);
+        auto a = pass(target, true);
+        auto b = pass(target, false);
+        compile({a, between, b});
+        check(!a->skipEnd() && !between->skipStart() && !between->skipEnd() && !b->skipStart(),
+            "a compute pass keeps the passes around it apart, and merges with neither");
+        check(a->colorArrayOps()[0]->store && a->depthStencilOps()->storeDepth,
+            "and does not displace the first as the pass the second loads from, which stores");
+        check(!between->hasRenderTarget(), "it has no target, so it starts no device pass");
+    }
+    {
+        // Rendered: the dispatch lands between the two device passes, outside both.
+        std::vector<std::string> log;
+        const auto logging = std::make_shared<DispatchLoggingDevice>(log);
+        RenderTargetOptions options;
+        options.graphicsDevice = logging.get();
+        options.colorBuffer = &colour;
+        const auto loggingTarget = std::make_shared<StubRenderTarget>(options);
+        const auto makePass = [&](const bool clear) {
+            auto p = std::make_shared<RenderPass>(logging);
+            p->init(loggingTarget);
+            p->colorArrayOps()[0]->clear = clear;
+            p->depthStencilOps()->clearDepth = clear;
+            return p;
+        };
+        Compute kernel(logging.get(), nullptr, "Kernel");
+        const auto computePass = std::make_shared<ComputePass>(logging, std::vector<Compute*>{&kernel});
+        computePass->setName("Mid");
+        bool onBeforeOutside = false;
+        computePass->setOnBefore([&](RenderPass&) { onBeforeOutside = !logging->insideRenderPass(); });
+        FrameGraph graph;
+        graph.addRenderPass(makePass(true));
+        graph.addRenderPass(computePass);
+        graph.addRenderPass(makePass(false));
+        graph.render(logging.get());
+        check(joined(log) == "start end dispatch[Mid Kernel] start end",
+            "in a rendered graph the dispatch runs after the pass before it ends and before the next starts: "
+                + joined(log));
+        check(onBeforeOutside, "its onBefore runs outside any device pass, to set the dispatch up");
+    }
+
+    std::cout << "\ncamera after-passes\n";
+    {
+        const auto engineDevice = std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{
+            .size = {64, 48}, .cpuBuffers = true, .recordDraws = true, .renderTargets = true});
+        auto engine = makeTestEngine<RenderComponentSystem, CameraComponentSystem>(engineDevice);
+
+        Entity* firstEntity = addTo(engine->root(), newEntity(engine.get(), "First"));
+        firstEntity->setLocalPosition(0.0f, 0.0f, 8.0f);
+        auto* firstCamera = static_cast<CameraComponent*>(firstEntity->addComponent<CameraComponent>());
+        Entity* secondEntity = addTo(engine->root(), newEntity(engine.get(), "Second"));
+        secondEntity->setLocalPosition(8.0f, 0.0f, 0.0f);
+        auto* secondCamera = static_cast<CameraComponent*>(secondEntity->addComponent<CameraComponent>());
+        secondCamera->setPriority(1);
+
+        auto material = std::make_shared<StandardMaterial>();
+        Entity* box = addTo(engine->root(), newEntity(engine.get(), "Box"));
+        auto* render = static_cast<RenderComponent*>(box->addComponent<RenderComponent>());
+        render->setMaterial(material.get());
+        render->setType("box");
+
+        engine->start();
+        engine->update(1.0f / 60.0f);
+        engine->render();
+
+        const auto buildPasses = [&] {
+            engine->scene()->layers()->markDirty();
+            FrameGraph frameGraph;
+            engine->renderer()->buildFrameGraph(&frameGraph, engine->scene()->layers().get());
+            return frameGraph.renderPasses();
+        };
+        const auto rendersCamera = [](const std::shared_ptr<RenderPass>& p, const CameraComponent* camera) {
+            const auto* forward = dynamic_cast<const RenderPassForward*>(p.get());
+            return forward && forward->camera() == camera;
+        };
+        using Passes = std::vector<std::shared_ptr<RenderPass>>;
+        const auto indexOf = [](const Passes& passes, const RenderPass* p) {
+            const auto it = std::find_if(passes.begin(), passes.end(), [p](const auto& e) { return e.get() == p; });
+            return it == passes.end() ? -1 : static_cast<int>(it - passes.begin());
+        };
+        const auto lastIndex = [&](const Passes& passes, const CameraComponent* camera) {
+            int last = -1;
+            for (int i = 0; i < static_cast<int>(passes.size()); ++i) {
+                last = rendersCamera(passes[i], camera) ? i : last;
+            }
+            return last;
+        };
+        const auto firstIndex = [&](const Passes& passes, const CameraComponent* camera) {
+            for (int i = 0; i < static_cast<int>(passes.size()); ++i) {
+                if (rendersCamera(passes[i], camera)) {
+                    return i;
+                }
+            }
+            return -1;
+        };
+
+        check(&firstCamera->afterPasses() == &firstCamera->camera()->afterPasses(),
+            "the component's after-passes are its camera's");
+
+        const auto after = std::make_shared<ComputePass>(engineDevice);
+        firstCamera->afterPasses().push_back(after);
+        {
+            const Passes passes = buildPasses();
+            const int index = indexOf(passes, after.get());
+            check(index > lastIndex(passes, firstCamera) && lastIndex(passes, firstCamera) >= 0,
+                "an after-pass runs after the camera renders");
+            check(index >= 0 && index < firstIndex(passes, secondCamera),
+                "and before the camera rendering after it");
+        }
+
+        firstCamera->requestSceneColorMap(true);
+        firstCamera->requestSceneDepthMap(true);
+        {
+            const Passes passes = buildPasses();
+            const int index = indexOf(passes, after.get());
+            int lastGrab = -1;
+            for (int i = 0; i < static_cast<int>(passes.size()); ++i) {
+                if (dynamic_cast<RenderPassColorGrab*>(passes[i].get()) ||
+                    dynamic_cast<RenderPassDepthGrab*>(passes[i].get())) {
+                    lastGrab = i;
+                }
+            }
+            check(lastGrab >= 0 && index > lastGrab, "and after the camera's scene maps are grabbed");
+            check(index > lastIndex(passes, firstCamera) && index < firstIndex(passes, secondCamera),
+                "still between the two cameras");
+        }
+        firstCamera->requestSceneColorMap(false);
+        firstCamera->requestSceneDepthMap(false);
+
+        const auto ownFirst = std::make_shared<RenderPass>(engineDevice);
+        const auto ownSecond = std::make_shared<RenderPass>(engineDevice);
+        firstCamera->setRenderPasses({ownFirst, ownSecond});
+        {
+            const Passes passes = buildPasses();
+            const int index = indexOf(passes, after.get());
+            check(index >= 0 && index == indexOf(passes, ownSecond.get()) + 1,
+                "a camera rendering through its own passes runs its after-passes right after them");
+            check(index < firstIndex(passes, secondCamera), "and before the next camera");
+        }
+        firstCamera->setRenderPasses({});
+
+        after->setEnabled(false);
+        {
+            const Passes passes = buildPasses();
+            check(indexOf(passes, after.get()) < 0, "a disabled after-pass is left out");
+        }
+        firstCamera->afterPasses().clear();
     }
 
     return finish("frame graph");

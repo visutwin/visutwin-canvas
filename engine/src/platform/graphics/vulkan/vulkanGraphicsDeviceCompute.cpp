@@ -49,6 +49,10 @@ namespace visutwin::canvas
                 vkDestroyDescriptorSetLayout(_device, resources.setLayout, nullptr);
         }
         _computePipelines.clear();
+        if (_computeSceneMapsSetLayout != VK_NULL_HANDLE) {
+            vkDestroyDescriptorSetLayout(_device, _computeSceneMapsSetLayout, nullptr);
+            _computeSceneMapsSetLayout = VK_NULL_HANDLE;
+        }
     }
 
 
@@ -228,13 +232,15 @@ namespace visutwin::canvas
             vkUpdateDescriptorSets(device, writeCount, writes.data(), 0, nullptr);
         }
 
-        /// What the recorded dispatch needs, captured by value: the commands run later,
-        /// when the device flushes its upload queue.
+        /// What the recorded dispatch needs, captured by value: outside a frame the commands
+        /// run later, when the device flushes its upload queue.
         struct ComputeDispatchCommand
         {
             std::vector<gpu::VulkanTexture*> textures;
             std::vector<VkDescriptorType> textureTypes;
             VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+            // Set 1, the scene maps (compute.h); null when none are attached.
+            VkDescriptorSet sceneMapsSet = VK_NULL_HANDLE;
             VkPipeline pipeline = VK_NULL_HANDLE;
             VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
             uint32_t groupsX = 1;
@@ -242,11 +248,24 @@ namespace visutwin::canvas
             uint32_t groupsZ = 1;
         };
 
-        // Textures go to the layout their binding reads them in, the kernel runs, its
-        // writes are made visible to every later stage, and storage images return to
+        // Everything recorded before the kernel is made visible to it: a render pass's
+        // attachment writes (an image the kernel samples also gets its layout barrier
+        // below), a storage write from a draw or an earlier kernel, a copy. Then textures
+        // go to the layout their binding reads them in, the kernel runs, its writes are
+        // made visible to every later stage, and storage images return to
         // SHADER_READ_ONLY for whoever samples them next.
         void recordComputeDispatch(VkCommandBuffer cmd, const ComputeDispatchCommand& command)
         {
+            VkMemoryBarrier2 before{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+            before.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            before.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+            before.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            before.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+            VkDependencyInfo beforeDependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+            beforeDependency.memoryBarrierCount = 1;
+            beforeDependency.pMemoryBarriers = &before;
+            vkCmdPipelineBarrier2(cmd, &beforeDependency);
+
             for (uint32_t i = 0; i < command.textures.size(); ++i) {
                 command.textures[i]->transitionLayout(cmd,
                     command.textureTypes[i] == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
@@ -256,6 +275,10 @@ namespace visutwin::canvas
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, command.pipeline);
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                 command.pipelineLayout, 0, 1, &command.descriptorSet, 0, nullptr);
+            if (command.sceneMapsSet != VK_NULL_HANDLE) {
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                    command.pipelineLayout, kComputeSceneMapsVulkanSet, 1, &command.sceneMapsSet, 0, nullptr);
+            }
             vkCmdDispatch(cmd, command.groupsX, command.groupsY, command.groupsZ);
 
             VkMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
@@ -285,33 +308,48 @@ namespace visutwin::canvas
             spdlog::warn("Vulkan compute dispatch cannot run inside a render pass");
             return;
         }
+        int dispatched = 0;
         for (Compute* compute : computes) {
-            if (compute && compute->shader()) {
-                enqueueComputeDispatch(*compute);
+            if (compute && compute->shader() && enqueueComputeDispatch(*compute)) {
+                ++dispatched;
             }
         }
-        flushUploads();
+        // The dispatches of one call are recorded one after another: one compute pass.
+        if (dispatched > 0) {
+            recordComputePass(dispatched);
+        }
+        // Recorded into the frame's (or the offline scope's) buffer, a dispatch is already in
+        // order; outside them it waits in the upload queue, which this submits now.
+        if (!recording()) {
+            flushUploads();
+        }
     }
 
-    void VulkanGraphicsDevice::enqueueComputeDispatch(Compute& compute)
+    bool VulkanGraphicsDevice::enqueueComputeDispatch(Compute& compute)
     {
         auto shader = std::dynamic_pointer_cast<VulkanShader>(compute.shader());
         if (!shader || shader->computeModule() == VK_NULL_HANDLE) {
             spdlog::error("Vulkan compute dispatch '{}' has no compute module", compute.name());
-            return;
+            return false;
         }
         auto bindings = resolveComputeBindings(compute);
         if (!bindings) {
-            return;
+            return false;
         }
-        const ComputePipelineResources* resources = computePipelineFor(*shader, bindings->types, compute.name());
+        // The scene maps are read from their handles now, where the kernel runs in the frame.
+        const bool sceneMaps = compute.hasSceneMaps();
+        if (sceneMaps) {
+            compute.prepareDispatch();
+        }
+        const ComputePipelineResources* resources = computePipelineFor(*shader, bindings->types, sceneMaps,
+            compute.name());
         if (!resources) {
-            return;
+            return false;
         }
 
         const VkDescriptorPool descriptorPool = createSingleSetPool(_device, bindings->types);
         if (descriptorPool == VK_NULL_HANDLE) {
-            return;
+            return false;
         }
         VkDescriptorSetAllocateInfo allocInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
         allocInfo.descriptorPool = descriptorPool;
@@ -320,7 +358,7 @@ namespace visutwin::canvas
         VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
         if (vkAllocateDescriptorSets(_device, &allocInfo, &descriptorSet) != VK_SUCCESS) {
             vkDestroyDescriptorPool(_device, descriptorPool, nullptr);
-            return;
+            return false;
         }
 
         // The uniform block's backing buffer: allocated last, so every failure path above
@@ -331,14 +369,67 @@ namespace visutwin::canvas
             !createComputeUniformBuffer(bindings->uniformData, uniformBuffer, uniformAllocation)) {
             spdlog::error("Vulkan compute dispatch '{}' failed to allocate its uniform block", compute.name());
             vkDestroyDescriptorPool(_device, descriptorPool, nullptr);
-            return;
+            return false;
         }
 
         writeComputeDescriptors(_device, descriptorSet, *bindings, uniformBuffer);
 
         ComputeDispatchCommand command{bindings->textures, bindings->textureTypes, descriptorSet,
-            resources->pipeline, resources->pipelineLayout,
+            VK_NULL_HANDLE, resources->pipeline, resources->pipelineLayout,
             compute.dispatchX(), compute.dispatchY(), compute.dispatchZ()};
+
+        // Set 1, the scene maps: a pool and a block of their own, released with the dispatch.
+        VkDescriptorPool sceneMapsPool = VK_NULL_HANDLE;
+        VkBuffer sceneMapsBuffer = VK_NULL_HANDLE;
+        VmaAllocation sceneMapsAllocation = VK_NULL_HANDLE;
+        if (sceneMaps) {
+            const auto releaseDispatch = [&] {
+                vkDestroyDescriptorPool(_device, descriptorPool, nullptr);
+                if (uniformBuffer != VK_NULL_HANDLE) {
+                    vmaDestroyBuffer(_vmaAllocator, uniformBuffer, uniformAllocation);
+                }
+            };
+            if (!writeComputeSceneMaps(compute, resources->sceneMapsSetLayout, sceneMapsPool,
+                    command.sceneMapsSet, sceneMapsBuffer, sceneMapsAllocation)) {
+                spdlog::error("Vulkan compute dispatch '{}' failed to bind its scene maps", compute.name());
+                releaseDispatch();
+                return false;
+            }
+            // Both maps go to SHADER_READ_ONLY with the kernel's own sampled textures.
+            for (Texture* texture : {compute.sceneDepthTexture(), compute.sceneColorTexture()}) {
+                if (auto* vkTexture = texture ? dynamic_cast<gpu::VulkanTexture*>(texture->impl()) : nullptr) {
+                    command.textures.push_back(vkTexture);
+                    command.textureTypes.push_back(VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+                }
+            }
+        }
+
+        // While a frame or an offline scope records, the dispatch goes into THAT buffer, in
+        // order with the passes recorded before and after it: a kernel run from the frame
+        // graph (a ComputePass, the GPU instance cull) reads what the pass before it rendered.
+        // The upload queue is submitted on its own as soon as it is flushed, so a dispatch
+        // queued there mid-frame would run AHEAD of every pass the frame had recorded. The
+        // uploads queued before it still land first: they are submitted ahead of the frame.
+        if (recording()) {
+            recordComputeDispatch(currentCommandBuffer(), command);
+            deferDestroy([device = _device, allocator = _vmaAllocator, descriptorPool,
+                uniformBuffer, uniformAllocation, sceneMapsPool, sceneMapsBuffer, sceneMapsAllocation,
+                keepAlive = std::move(bindings->storageKeepAlive)] {
+                (void)keepAlive;
+                vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+                if (uniformBuffer != VK_NULL_HANDLE) {
+                    vmaDestroyBuffer(allocator, uniformBuffer, uniformAllocation);
+                }
+                if (sceneMapsPool != VK_NULL_HANDLE) {
+                    vkDestroyDescriptorPool(device, sceneMapsPool, nullptr);
+                }
+                if (sceneMapsBuffer != VK_NULL_HANDLE) {
+                    vmaDestroyBuffer(allocator, sceneMapsBuffer, sceneMapsAllocation);
+                }
+            });
+            return true;
+        }
+
         enqueueUpload(
             [command = std::move(command),
              keepAlive = std::move(bindings->storageKeepAlive)](VkCommandBuffer cmd) {
@@ -346,23 +437,94 @@ namespace visutwin::canvas
                 recordComputeDispatch(cmd, command);
             },
             [device = _device, allocator = _vmaAllocator, descriptorPool,
-             uniformBuffer, uniformAllocation] {
+             uniformBuffer, uniformAllocation, sceneMapsPool, sceneMapsBuffer, sceneMapsAllocation] {
                 vkDestroyDescriptorPool(device, descriptorPool, nullptr);
                 if (uniformBuffer != VK_NULL_HANDLE) {
                     vmaDestroyBuffer(allocator, uniformBuffer, uniformAllocation);
                 }
+                if (sceneMapsPool != VK_NULL_HANDLE) {
+                    vkDestroyDescriptorPool(device, sceneMapsPool, nullptr);
+                }
+                if (sceneMapsBuffer != VK_NULL_HANDLE) {
+                    vmaDestroyBuffer(allocator, sceneMapsBuffer, sceneMapsAllocation);
+                }
             });
+        return true;
+    }
+
+    bool VulkanGraphicsDevice::writeComputeSceneMaps(Compute& compute, const VkDescriptorSetLayout setLayout,
+        VkDescriptorPool& pool, VkDescriptorSet& set, VkBuffer& buffer, VmaAllocation& allocation)
+    {
+        // The order of compute.h's set-1 table: depth, colour, sampler, block.
+        static const std::vector<VkDescriptorType> kTypes = {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_SAMPLER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
+        const auto viewOf = [](Texture* texture) -> VkImageView {
+            auto* vkTexture = texture ? dynamic_cast<gpu::VulkanTexture*>(texture->impl()) : nullptr;
+            return vkTexture ? vkTexture->imageView() : VK_NULL_HANDLE;
+        };
+        // A map with no image yet (a substitute just made) is uploaded first.
+        for (Texture* texture : {compute.sceneDepthTexture(), compute.sceneColorTexture()}) {
+            if (texture && viewOf(texture) == VK_NULL_HANDLE) {
+                texture->upload();
+            }
+        }
+        const VkImageView depthView = viewOf(compute.sceneDepthTexture());
+        const VkImageView colorView = viewOf(compute.sceneColorTexture());
+        // An unattached map takes the white image: the set is the same either way.
+        VkDescriptorImageInfo images[3] = {
+            {VK_NULL_HANDLE, depthView != VK_NULL_HANDLE ? depthView : _whiteImageView,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+            {VK_NULL_HANDLE, colorView != VK_NULL_HANDLE ? colorView : _whiteImageView,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+            {_quadExtraSampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED}};
+
+        const ComputeSceneMapsBlock& block = compute.sceneMapsBlock();
+        const auto* bytes = reinterpret_cast<const uint8_t*>(&block);
+        if (!createComputeUniformBuffer(std::vector<uint8_t>(bytes, bytes + sizeof(block)), buffer, allocation)) {
+            return false;
+        }
+        pool = createSingleSetPool(_device, kTypes);
+        VkDescriptorSetAllocateInfo allocInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+        allocInfo.descriptorPool = pool;
+        allocInfo.descriptorSetCount = 1;
+        allocInfo.pSetLayouts = &setLayout;
+        if (pool == VK_NULL_HANDLE || vkAllocateDescriptorSets(_device, &allocInfo, &set) != VK_SUCCESS) {
+            if (pool != VK_NULL_HANDLE) {
+                vkDestroyDescriptorPool(_device, pool, nullptr);
+            }
+            vmaDestroyBuffer(_vmaAllocator, buffer, allocation);
+            pool = VK_NULL_HANDLE;
+            buffer = VK_NULL_HANDLE;
+            return false;
+        }
+        const VkDescriptorBufferInfo blockInfo{buffer, 0, sizeof(block)};
+        VkWriteDescriptorSet writes[4];
+        for (uint32_t i = 0; i < 4; ++i) {
+            writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            writes[i].dstSet = set;
+            writes[i].dstBinding = i;
+            writes[i].descriptorCount = 1;
+            writes[i].descriptorType = kTypes[i];
+            if (i < 3) {
+                writes[i].pImageInfo = &images[i];
+            } else {
+                writes[i].pBufferInfo = &blockInfo;
+            }
+        }
+        vkUpdateDescriptorSets(_device, 4, writes, 0, nullptr);
+        return true;
     }
 
     const VulkanGraphicsDevice::ComputePipelineResources* VulkanGraphicsDevice::computePipelineFor(
-        const VulkanShader& shader, const std::vector<VkDescriptorType>& types, const std::string& computeName)
+        const VulkanShader& shader, const std::vector<VkDescriptorType>& types, const bool sceneMaps,
+        const std::string& computeName)
     {
         auto [pipelineIt, inserted] = _computePipelines.try_emplace(shader.id());
         auto& resources = pipelineIt->second;
         if (!inserted) {
             // A pipeline is built for one resource layout; a compute that binds another
             // through the same shader would bind against the wrong set layout.
-            if (resources.descriptorTypes != types) {
+            if (resources.descriptorTypes != types || resources.sceneMaps != sceneMaps) {
                 spdlog::error("Vulkan compute shader '{}' was rebound with an incompatible resource layout",
                     computeName);
                 return nullptr;
@@ -384,9 +546,30 @@ namespace visutwin::canvas
             return nullptr;
         }
 
+        // A compute with scene maps has set 1 as well, one layout shared by every such compute.
+        resources.sceneMaps = sceneMaps;
+        if (sceneMaps && _computeSceneMapsSetLayout == VK_NULL_HANDLE) {
+            const VkDescriptorSetLayoutBinding sceneBindings[4] = {
+                {0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
+                {1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
+                {2, VK_DESCRIPTOR_TYPE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
+                {3, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr}};
+            VkDescriptorSetLayoutCreateInfo sceneInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+            sceneInfo.bindingCount = 4;
+            sceneInfo.pBindings = sceneBindings;
+            if (vkCreateDescriptorSetLayout(_device, &sceneInfo, nullptr, &_computeSceneMapsSetLayout) != VK_SUCCESS) {
+                spdlog::error("Failed to create the Vulkan compute scene-map descriptor layout");
+                vkDestroyDescriptorSetLayout(_device, resources.setLayout, nullptr);
+                _computePipelines.erase(pipelineIt);
+                return nullptr;
+            }
+        }
+        resources.sceneMapsSetLayout = sceneMaps ? _computeSceneMapsSetLayout : VK_NULL_HANDLE;
+        const VkDescriptorSetLayout setLayouts[2] = {resources.setLayout, _computeSceneMapsSetLayout};
+
         VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-        layoutInfo.setLayoutCount = 1;
-        layoutInfo.pSetLayouts = &resources.setLayout;
+        layoutInfo.setLayoutCount = sceneMaps ? 2u : 1u;
+        layoutInfo.pSetLayouts = setLayouts;
         if (vkCreatePipelineLayout(_device, &layoutInfo, nullptr, &resources.pipelineLayout) != VK_SUCCESS) {
             vkDestroyDescriptorSetLayout(_device, resources.setLayout, nullptr);
             _computePipelines.erase(pipelineIt);

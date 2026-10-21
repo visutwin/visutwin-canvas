@@ -269,7 +269,6 @@ namespace visutwin::canvas
         // The simulation step, dispatched through the generic Compute seam rather
         // than a GraphicsDevice virtual. Built lazily on the first update so a
         // device without compute simply never simulates.
-        static constexpr uint32_t kSimThreadgroupSize = 256u;  // matches local_size_x
 
         void simulate(const GpuParticleSimParams& params);
         void step(float dt, const Matrix4& emitterTransform, bool onStop, bool clampDt);

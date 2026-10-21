@@ -129,6 +129,14 @@ namespace
     }
 
     /// A panel on a stub engine with its own GPU pass timings, in the size `size`.
+    /// A stub that answers that it runs compute.
+    class ComputeStubDevice final : public StubGraphicsDevice
+    {
+    public:
+        using StubGraphicsDevice::StubGraphicsDevice;
+        bool supportsCompute() const override { return true; }
+    };
+
     struct PassFixture
     {
         std::shared_ptr<StubGraphicsDevice> device;
@@ -138,10 +146,12 @@ namespace
         std::vector<GpuProfiler::PassTiming> passes;
         std::unique_ptr<MiniStats> stats;
 
-        explicit PassFixture(const int size, const std::function<void(MiniStatsOptions&)>& configure = {})
+        explicit PassFixture(const int size, const std::function<void(MiniStatsOptions&)>& configure = {},
+            const bool compute = false)
         {
-            device = std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{
-                .size = {640, 480}, .resizable = true, .cpuBuffers = true});
+            const StubGraphicsDevice::Options deviceOptions{.size = {640, 480}, .resizable = true, .cpuBuffers = true};
+            device = compute ? std::make_shared<ComputeStubDevice>(deviceOptions)
+                             : std::make_shared<StubGraphicsDevice>(deviceOptions);
             engine = makeTestEngine<CameraComponentSystem>(device);
             regular = makeMsdfTestFont(device.get());
             bold = makeMsdfTestFont(device.get());
@@ -697,6 +707,26 @@ int main()
         check(engineRows == 3, "an unknown preset adds nothing");
         PassFixture plain(1);
         check(!findGraph(*plain.stats, "GSplats"), "and no preset, no row");
+    }
+
+    std::cout << "\nthe compute preset\n";
+    {
+        PassFixture f(1, [](MiniStatsOptions& o) { o.statPresets = {"gsplats", "compute"}; }, true);
+        const MiniStatsGraph* dispatches = findGraph(*f.stats, "Dispatches");
+        const MiniStatsGraph* passes = findGraph(*f.stats, "Compute passes");
+        check(dispatches && passes && dispatches->group == MiniStats::ENGINE && passes->group == MiniStats::ENGINE &&
+              dispatches->decimals == 0 && dispatches->watermark == 100.0f && passes->watermark == 100.0f,
+              "Dispatches and Compute passes rows in Engine: whole numbers, a budget of 100");
+        const std::vector<std::string> order = visibleLabels(*f.stats);
+        check(order.size() > 5 && order[3] == "GSplats" && order[4] == "Dispatches" && order[5] == "Compute passes",
+              "in the order the presets are named");
+        f.frame().computeDispatches = 7;
+        f.frame().computePasses = 3;
+        check(sample(*f.stats, "Dispatches") == 7.0f && sample(*f.stats, "Compute passes") == 3.0f,
+              "the frame's compute dispatches and passes");
+        PassFixture noCompute(1, [](MiniStatsOptions& o) { o.statPresets = {"compute"}; });
+        check(!findGraph(*noCompute.stats, "Dispatches") && !findGraph(*noCompute.stats, "Compute passes"),
+              "a device without compute shows neither");
     }
 
     std::cout << "\nthe first frame after the HUD is shown samples nothing\n";

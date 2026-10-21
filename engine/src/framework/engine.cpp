@@ -396,7 +396,8 @@ namespace visutwin::canvas
         // fill left a tick followed by a manual frame — start() then the examples' loop
         // — counting two renders into one frame. Zeroed here, both paths read one.
         _graphicsDevice->resetDrawCallsPerFrame();
-        _graphicsDevice->frameCounters() = FrameCounters{};
+        // The compute counters span the update too (frameCounters.h) and are kept.
+        _graphicsDevice->frameCounters() = FrameCounters{.compute = _graphicsDevice->frameCounters().compute};
         _graphicsDevice->_primsPerFrame.fill(0);
         _graphicsDevice->_shaderSwitchesPerFrame = 0;
         _frameStartCalled = false;
@@ -614,6 +615,8 @@ namespace visutwin::canvas
         stats.morphTime = counters.morphTime;
         stats.lightClusters = counters.lightClusters;
         stats.lightClustersTime = counters.lightClustersTime;
+        stats.computeDispatches = counters.compute.dispatches;
+        stats.computePasses = counters.compute.passes;
 
         auto& prims = _graphicsDevice->_primsPerFrame;
         stats.triangles = prims[PRIMITIVE_TRIANGLES] / 3 +
@@ -705,6 +708,10 @@ namespace visutwin::canvas
             // Accumulated by RigidBodyComponentSystem::step across this frame's substeps.
             _stats->frame().physicsTime = 0.0;
         }
+
+        // The frame's compute work starts here, not at the render: the particle systems
+        // simulate during the update. The tick reads the previous frame's before this.
+        _graphicsDevice->frameCounters().compute = {};
 
         _graphicsDevice->update();
 

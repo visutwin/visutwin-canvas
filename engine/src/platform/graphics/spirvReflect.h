@@ -6,10 +6,12 @@
 // The little a pipeline needs to know about a SPIR-V module without a reflection library:
 // which input locations a stage declares. A Vulkan pipeline declares a vertex attribute only
 // at a location its vertex stage reads; an attribute the stage leaves unread is a validation
-// warning and costs a fetch on some drivers.
+// warning and costs a fetch on some drivers. And the workgroup size a compute module
+// declares, which a dispatch sized by thread count divides by.
 //
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -51,5 +53,31 @@ namespace visutwin::canvas
             i += wordCount;
         }
         return mask;
+    }
+
+    /// The workgroup size of the module's compute entry point: its LocalSize execution mode.
+    /// All zero when the words are not a SPIR-V module or declare none (a LocalSizeId, sized
+    /// by specialization constants, is not resolved).
+    [[nodiscard]] inline std::array<uint32_t, 3> spirvComputeLocalSize(const uint32_t* words, const size_t count)
+    {
+        // OpExecutionMode is 16 (entry point, mode, literals); LocalSize is mode 17 with the
+        // x, y and z as its three literals.
+        constexpr uint32_t kOpExecutionMode = 16;
+        constexpr uint32_t kExecutionModeLocalSize = 17;
+        if (!words || count <= 5 || words[0] != 0x07230203u) {
+            return {};
+        }
+        for (size_t i = 5; i < count;) {
+            const uint32_t wordCount = words[i] >> 16;
+            const uint32_t opcode = words[i] & 0xFFFFu;
+            if (wordCount == 0 || i + wordCount > count) {
+                return {};
+            }
+            if (opcode == kOpExecutionMode && wordCount >= 6 && words[i + 2] == kExecutionModeLocalSize) {
+                return {words[i + 3], words[i + 4], words[i + 5]};
+            }
+            i += wordCount;
+        }
+        return {};
     }
 }

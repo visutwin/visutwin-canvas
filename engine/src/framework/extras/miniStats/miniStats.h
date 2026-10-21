@@ -68,7 +68,9 @@ namespace visutwin::canvas
         float gpuWatermark = 33.0f;
         /// Predefined counters, added after Draw calls, Frame and VRAM and before `stats`:
         /// "gsplats", the gaussian splats drawn this frame, in millions (Engine section,
-        /// budget 10 M). An unknown name adds nothing and logs a warning.
+        /// budget 10 M); "compute", the frame's compute dispatches and compute passes (Engine
+        /// section, budget 100 each), on a device that supports compute and nowhere else. An
+        /// unknown name adds nothing and logs a warning.
         std::vector<std::string> statPresets;
         /// Further counters after Draw calls, Frame, VRAM and the presets.
         std::vector<MiniStatsGraphOptions> stats;

@@ -392,13 +392,13 @@ namespace visutwin::canvas
             }
             _simCompute = std::make_unique<Compute>(_device.get(), _simShader, "ParticleSim");
             _simCompute->setParameter("particles", _particleBuffer);
-            _simCompute->setThreadgroupSize(kSimThreadgroupSize, 1u, 1u);
         }
 
         _simCompute->setUniformBlock(&params, sizeof(params));
         const uint32_t count = _options.numParticles;
-        _simCompute->setupDispatch(
-            (count + kSimThreadgroupSize - 1u) / kSimThreadgroupSize, 1u, 1u);
+        // A thread per particle. The kernel indexes one dimension, which the dispatch keeps
+        // below 65535 x 256 threads: the count travels as a float, exact to 2^24 only.
+        _simCompute->setupDispatchThreads(count);
 
         Compute* dispatch = _simCompute.get();
         _device->computeDispatch({dispatch}, "particle-sim");
@@ -545,7 +545,6 @@ namespace visutwin::canvas
             _sortCompute->setParameter("order", _orderBuffer);
             _sortCompute->setParameter("particles", _particleBuffer);
             _sortCompute->setParameter("sortKeys", _sortKeys);
-            _sortCompute->setThreadgroupSize(particle_sort_shaders::kSortThreads, 1u, 1u);
             _sortCompute->setupDispatch(1u, 1u, 1u);
         }
 

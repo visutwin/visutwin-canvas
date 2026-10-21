@@ -5,6 +5,7 @@
 //
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -12,12 +13,41 @@
 #include <unordered_map>
 #include <vector>
 
+#include "sceneMapHandles.h"
+
 namespace visutwin::canvas
 {
     class GraphicsDevice;
     class Shader;
     class Texture;
     class VertexBuffer;
+
+    /// Where a compute kernel finds the scene maps attached with Compute::setSceneDepthMap /
+    /// setSceneColorMap: FIXED slots outside the name-ordered table above, so the module that
+    /// reads them (engine/shaders/slang/modules/vtscenemaps.slang, which declares the same
+    /// numbers) works in any kernel whatever its own parameters are. Metal: the block at
+    /// buffer 30, the depth at texture 30, the colour at texture 31 and its linear clamp
+    /// sampler at sampler 15. Vulkan: descriptor SET 1, bindings 0-3 in that order (depth,
+    /// colour, sampler, block); a compute without scene maps has no set 1.
+    inline constexpr uint32_t kComputeSceneMapsMetalBufferSlot = 30u;
+    inline constexpr uint32_t kComputeSceneDepthMetalTextureSlot = 30u;
+    inline constexpr uint32_t kComputeSceneColorMetalTextureSlot = 31u;
+    inline constexpr uint32_t kComputeSceneColorMetalSamplerSlot = 15u;
+    inline constexpr uint32_t kComputeSceneMapsVulkanSet = 1u;
+
+    /// The uniform block the scene-map module reads (`SceneMapsData` there), 112 bytes.
+    struct ComputeSceneMapsBlock
+    {
+        float depthCameraParams[4];             // 1 / far, far, near, orthographic
+        float depthViewProjectionInverse[16];   // column-major, GL clip (NDC z in [-1, 1])
+        uint32_t depthViewport[4];              // x, y of the first texel, width, height
+        // x: the depth is linear, y: it is the reciprocal of the linear depth, z: the colour is
+        // gamma-encoded. DEVIATION: upstream compiles a shader variant per combination; the
+        // kernels here are compiled once (no variant compile from a Compute), so the module
+        // tests these uniform flags.
+        uint32_t flags[4];
+    };
+    static_assert(sizeof(ComputeSceneMapsBlock) == 112, "ComputeSceneMapsBlock must match SceneMapsData");
 
     /**
      * A representation of a compute shader with the associated resources, that can be executed on the
@@ -100,19 +130,85 @@ namespace visutwin::canvas
         /// The packed uniform block, empty when no scalar parameters were set.
         std::vector<uint8_t> uniformData() const;
 
-        // Workgroup group counts.
+        /// Prepare the dispatch as a grid of workgroups. To dispatch for a number of threads
+        /// instead, with the workgroups derived from them, use setupDispatchThreads.
         void setupDispatch(uint32_t x, uint32_t y, uint32_t z);
         uint32_t dispatchX() const { return _dispatchX; }
         uint32_t dispatchY() const { return _dispatchY; }
         uint32_t dispatchZ() const { return _dispatchZ; }
 
-        /// Threads per workgroup — must match the shader's declared workgroup size
-        /// (`[[threads_per_threadgroup]]` dispatch on Metal, `local_size_*` in GLSL).
-        /// Defaults to 8x8x1, the size every compute kernel used before this was configurable.
+        /// Prepare the dispatch for a number of THREADS in each dimension, a thread being one
+        /// invocation of the kernel (its SV_DispatchThreadID). The workgroups are derived from
+        /// the workgroup size (threadgroupSize below) and rounded up to whole workgroups, so
+        /// the kernel skips the threads past the requested number. A dispatch in one dimension
+        /// that needs more workgroups than the device allows in one
+        /// (GraphicsDevice::maxComputeWorkgroupsPerDimension) is spread over rows of
+        /// workgroups; the kernel then indexes its threads with the `vtdispatch` module's
+        /// dispatchThreadInRange / dispatchThreadIndex, which account for that.
+        ///
+        /// DEVIATION: upstream assigns the thread count and the row width to uniforms the
+        /// shader's chunk declares. Here the uniform block is the caller's (the class
+        /// comment), so the caller writes dispatchThreads() into its own block, as one uint4,
+        /// after this call, for the kernel to pass to those functions.
+        void setupDispatchThreads(uint32_t x, uint32_t y = 1u, uint32_t z = 1u);
+        /// The threads the last setupDispatchThreads was set up for (1, 1, 1 after a
+        /// setupDispatch).
+        const std::array<uint32_t, 3>& dispatchThreadCount() const { return _dispatchThreadCount; }
+        /// The threads in a row of that dispatch: the x of the thread count, or the threads in a
+        /// row of workgroups when a one-dimensional dispatch was spread over rows.
+        uint32_t dispatchRowThreads() const { return _dispatchRowThreads; }
+        /// Both, as the uint4 the `vtdispatch` functions take: the thread count, then the
+        /// threads in a row.
+        std::array<uint32_t, 4> dispatchThreads() const
+        {
+            return {_dispatchThreadCount[0], _dispatchThreadCount[1], _dispatchThreadCount[2], _dispatchRowThreads};
+        }
+
+        /// Threads per workgroup: the size the shader DECLARES (`[numthreads]` in Slang,
+        /// `local_size_*` in GLSL, Shader::computeThreadGroupSize) whenever it declares one,
+        /// and otherwise the size set here, which Metal's dispatch supplies to a custom MSL
+        /// kernel (an MSL kernel declares none). Defaults to 8x8x1. A size set here that
+        /// disagrees with the shader's is ignored, with a warning.
         void setThreadgroupSize(uint32_t x, uint32_t y, uint32_t z);
-        uint32_t threadgroupSizeX() const { return _threadgroupX; }
-        uint32_t threadgroupSizeY() const { return _threadgroupY; }
-        uint32_t threadgroupSizeZ() const { return _threadgroupZ; }
+        uint32_t threadgroupSizeX() const { return threadgroupSize()[0]; }
+        uint32_t threadgroupSizeY() const { return threadgroupSize()[1]; }
+        uint32_t threadgroupSizeZ() const { return threadgroupSize()[2]; }
+        std::array<uint32_t, 3> threadgroupSize() const;
+
+        /// Workgroups needed for `count` of them in one dimension, spread as a near-square
+        /// grid when they exceed `maxDimension`: {count, 1} when they fit, otherwise the
+        /// fewest rows that do, with each row as short as they allow.
+        static std::array<uint32_t, 2> calcDispatchSize(uint32_t count, uint32_t maxDimension);
+
+        /// Attaches a camera's scene depth map (CameraComponent::sceneDepthMapHandle), read by a
+        /// kernel that imports `vtscenemaps`: sceneDepthSize, sceneDepthViewport,
+        /// sceneDepthNearClip / FarClip, sceneDepthLinear(texel) and
+        /// sceneDepthWorldPosition(texel). Kept and read at EVERY dispatch, so this is called
+        /// once: a dispatch reads the map the camera rendered most recently (dispatched before
+        /// the camera renders, from an update, that is last frame's), decoded with the camera
+        /// parameters it was rendered with. Null detaches it.
+        void setSceneDepthMap(std::shared_ptr<SceneDepthMapHandle> handle) { _sceneDepthMap = std::move(handle); }
+
+        /// Attaches a camera's scene colour map (CameraComponent::sceneColorMapHandle):
+        /// sceneColorSize(lod), sceneColorLoad(texel, lod), sceneColorSample(uv, lod),
+        /// sceneColorToLinear and sceneColorToDisplay. The colours come as the camera stored
+        /// them, linear under a camera frame and gamma-encoded otherwise. Null detaches it.
+        void setSceneColorMap(std::shared_ptr<SceneColorMapHandle> handle) { _sceneColorMap = std::move(handle); }
+
+        const std::shared_ptr<SceneDepthMapHandle>& sceneDepthMap() const { return _sceneDepthMap; }
+        const std::shared_ptr<SceneColorMapHandle>& sceneColorMap() const { return _sceneColorMap; }
+        bool hasSceneMaps() const { return _sceneDepthMap || _sceneColorMap; }
+
+        /// Called by the backend as it records the dispatch, the point in the frame the kernel
+        /// runs at: reads the attached handles into the textures and block below. A map the
+        /// camera has not rendered (or whose texture is gone) is a substitute: a 1x1 depth of
+        /// 1 (the far plane) or a pink colour, as upstream binds; a missing one is reported once.
+        void prepareDispatch();
+
+        /// What prepareDispatch resolved; valid while hasSceneMaps().
+        Texture* sceneDepthTexture() const { return _boundSceneDepth.get(); }
+        Texture* sceneColorTexture() const { return _boundSceneColor.get(); }
+        const ComputeSceneMapsBlock& sceneMapsBlock() const { return _sceneMapsBlock; }
 
     private:
         GraphicsDevice* _graphicsDevice = nullptr;
@@ -130,5 +226,20 @@ namespace visutwin::canvas
         uint32_t _threadgroupX = 8u;
         uint32_t _threadgroupY = 8u;
         uint32_t _threadgroupZ = 1u;
+        std::array<uint32_t, 3> _dispatchThreadCount{1u, 1u, 1u};
+        uint32_t _dispatchRowThreads = 1u;
+        bool _warnedThreadgroupMismatch = false;
+        bool _warnedExtraDimensions = false;
+
+        std::shared_ptr<SceneDepthMapHandle> _sceneDepthMap;
+        std::shared_ptr<SceneColorMapHandle> _sceneColorMap;
+        // Held for the dispatch: a texture locked from a handle, or a substitute.
+        std::shared_ptr<Texture> _boundSceneDepth;
+        std::shared_ptr<Texture> _boundSceneColor;
+        std::shared_ptr<Texture> _depthSubstitute;
+        std::shared_ptr<Texture> _colorSubstitute;
+        ComputeSceneMapsBlock _sceneMapsBlock{};
+        bool _reportedMissingDepth = false;
+        bool _reportedMissingColor = false;
     };
 }

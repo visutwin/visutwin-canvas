@@ -65,6 +65,8 @@ namespace visutwin::canvas
         void addRenderActionPasses(FrameGraph* frameGraph, LayerComposition* layerComposition);
         /// The directional shadow passes of `camera`'s fitted lights, if it has any.
         void addDirectionalShadowPasses(FrameGraph* frameGraph, Camera* camera);
+        /// The camera's after-passes, once everything it renders this frame is scheduled.
+        void addCameraAfterPasses(FrameGraph* frameGraph, const CameraComponent* camera);
         /// Whether the block that `action` belongs to ends with it.
         bool endsRenderActionBlock(const RenderAction& action, const RenderAction* next,
             const RenderTarget* blockTarget) const;

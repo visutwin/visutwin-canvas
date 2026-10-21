@@ -5,7 +5,9 @@
 //
 #pragma once
 
+#include <array>
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
@@ -56,6 +58,10 @@ namespace visutwin::canvas
         /// opacity frontend), or none at all (fragmentSpirv empty): a depth-only pass may run it.
         bool depthOnlyFragment = false;
         bool specializeFeatures = true;
+        /// The compute entry's workgroup size as the shader declares it (`[numthreads]`), from
+        /// Slang's reflection; all zero when unknown. Metal takes it from here, since an MSL
+        /// kernel does not declare one; Vulkan reads it from the SPIR-V itself.
+        std::array<uint32_t, 3> computeThreadGroupSize{};
     };
 
     class GraphicsDevice;
@@ -78,6 +84,15 @@ namespace visutwin::canvas
         const std::string& name() const { return _definition.name; }
         const ShaderFeatureSet& features() const { return _definition.features; }
         GraphicsDevice* graphicsDevice() const { return _device; }
+
+        /// The workgroup size the compute entry declares, all zero when the shader does not
+        /// say (a custom MSL kernel). Compute sizes its dispatches from it.
+        const std::array<uint32_t, 3>& computeThreadGroupSize() const { return _computeThreadGroupSize; }
+        bool hasComputeThreadGroupSize() const
+        {
+            return _computeThreadGroupSize[0] > 0 && _computeThreadGroupSize[1] > 0 && _computeThreadGroupSize[2] > 0;
+        }
+        void setComputeThreadGroupSize(const std::array<uint32_t, 3>& size) { _computeThreadGroupSize = size; }
 
     private:
         // Process shader definition and create implementation
@@ -123,6 +138,7 @@ namespace visutwin::canvas
         GraphicsDevice* _device;
         int _id;
         ShaderDefinition _definition;
+        std::array<uint32_t, 3> _computeThreadGroupSize{};
         LiveCount _live;
     };
 
