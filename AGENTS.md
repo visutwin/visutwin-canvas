@@ -3805,7 +3805,10 @@ What stays HERE is only what bites during UNRELATED work.
   culling sweep is at most 0.1 ms a frame even at 2,173 draws; `renderForwardLayer`'s own
   per-sublayer work is under 2% of the main thread; the graph build and its allocations
   do not register; Vulkan's set 4 per skinned draw and a variant-sorted caster list
-  have nothing to act on in any shipped scene. Revisit them only with a scene that shows
+  have nothing to act on in any shipped scene. A radix sort of the opaque draws (upstream's
+  for its comparator sort) is SLOWER here: draws arrive in creation order, nearly grouped,
+  where `std::stable_sort` takes 0.025 ms at 5,461 draws (0.6% of render) and a radix sort
+  about 6x that; it wins only on shuffled lists. Revisit them only with a scene that shows
   them in a profile.
 - **The ambient diffuse is scaled by `(1 - specularity)` on both backends**, right
   where upstream's `litForwardBackend` does it after `addAmbient`: per channel, F0 in
