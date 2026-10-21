@@ -829,8 +829,15 @@ both backends fix the end of the pass at begin, so the graph gives the first pas
 pass's stores and resolves (a DEVIATION: upstream keeps the store it raised for the absorbed
 load and writes the whole MSAA surface out). `before()` / `after()` of merged passes run with
 the device pass open, so they may not encode GPU work of their own (the engine-level
-`prerender` / `postrender` events run outside the passes). `tests/frameGraphTests.cpp` holds
-propagation, merging, before-pass order and the undo; `tests/shaderCompositionTests.cpp` holds the forward chunk
+`prerender` / `postrender` events run outside the passes). Work an OWNER runs around a pass goes
+in its callbacks instead (`RenderPass::setOnBefore` / `setOnAfter`, handed the pass): onBefore
+right after `before()`, onAfter right after `after()`, both while execute() is disabled too and
+neither while the pass is; the graph merges no pair with a callback between them (the first's
+onAfter, the second's onBefore), nor a pass that does not execute (`setExecuteEnabled(false)`),
+so a callback always runs outside a device pass and a readback queued in onAfter copies what
+the pass rendered (the auto exposure's histogram, the lens flare's last shape copy). A private
+`setOnAfter` on a pass subclass is the pattern this replaced. `tests/frameGraphTests.cpp` holds
+propagation, merging, before-pass order, the callbacks and the undo; `tests/shaderCompositionTests.cpp` holds the forward chunk
 registry against the files the programs include, override precedence and variant keys.
 
 **Tone mapping.** 6 modes dispatched in `forward/common-tonemap.slang :: toneMapByMode`: LINEAR (0),

@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <functional>
 #include <string>
 
 #include <spdlog/spdlog.h>
@@ -116,8 +115,8 @@ float3 debugAutoexposure()
         return weight > 0.0 ? static_cast<float>(sum / weight) : -1.0f;
     }
 
-    // One of the three passes: the variant of auto-exposure.slang, its input, the effect's
-    // uniform block, and what runs once it has rendered.
+    // One of the three passes: the variant of auto-exposure.slang, its input and the effect's
+    // uniform block.
     class AutoExposureEffect::Pass final : public RenderPassShaderQuad
     {
     public:
@@ -128,7 +127,6 @@ float3 debugAutoexposure()
         }
 
         void setInput(Texture* texture) { _input = texture; }
-        void setOnAfter(std::function<void()> onAfter) { _onAfter = std::move(onAfter); }
 
         void prepareShaders() override
         {
@@ -148,18 +146,10 @@ float3 debugAutoexposure()
             RenderPassShaderQuad::execute();
         }
 
-        void after() override
-        {
-            if (_onAfter) {
-                _onAfter();
-            }
-        }
-
     private:
         std::string _variant;
         const Uniforms* _uniforms = nullptr;
         Texture* _input = nullptr;
-        std::function<void()> _onAfter;
     };
 
     AutoExposureEffect::AutoExposureEffect()
@@ -227,7 +217,7 @@ float3 debugAutoexposure()
         _passes[2]->init(histogram.target);
         _passes[2]->setInput(_rows.get());
         // The histogram is read back once the pass rendering it has ended.
-        _passes[2]->setOnAfter([this] { readHistogram(); });
+        _passes[2]->setOnAfter([this](RenderPass&) { readHistogram(); });
 
         for (const auto& pass : _passes) {
             passes.postResolve.push_back(pass);

@@ -128,6 +128,12 @@ namespace visutwin::canvas
                 continue;
             }
 
+            // a pass that does not execute starts and ends no device pass, which the other would
+            // depend on
+            if (!firstPass->executeEnabled() || !secondPass->executeEnabled()) {
+                continue;
+            }
+
             // do not merge if the second pass clears any of the attachments
             const auto secondDepthStencilOps = secondPass->depthStencilOps();
             if (secondDepthStencilOps->clearDepth ||
@@ -154,6 +160,12 @@ namespace visutwin::canvas
 
             // second pass cannot contain before passes
             if (secondPass->beforePasses().size() > 0) {
+                continue;
+            }
+
+            // a callback running between the two runs outside a device pass, to read back what
+            // the first rendered, say
+            if (firstPass->hasOnAfter() || secondPass->hasOnBefore()) {
                 continue;
             }
 

@@ -5,7 +5,8 @@
 //
 // FrameGraph::compile on a stub device: the load/store contract it derives between
 // passes that share a target, pass merging, before-pass ordering, and that its edits
-// to a PERSISTENT pass's attachment flags last one frame.
+// to a PERSISTENT pass's attachment flags last one frame. Also the onBefore / onAfter
+// callbacks: where a pass runs them, and that the graph merges no pass across one.
 //
 // Passes persist across frames while the graph is rebuilt every frame. A compile() that
 // raises a store or drops a cubemap mip generation and never puts it back makes one
@@ -67,6 +68,20 @@ namespace
         void frameUpdate() const override { _log.push_back(_name); }
     private:
         std::string _name;
+        std::vector<std::string>& _log;
+    };
+
+    // A pass that logs its before / execute / after and its callbacks, each callback tagged with
+    // whether a device pass was open when it ran.
+    class RecordingPass : public RenderPass
+    {
+    public:
+        RecordingPass(const std::shared_ptr<GraphicsDevice>& graphicsDevice, std::vector<std::string>& log)
+            : RenderPass(graphicsDevice), _log(log) {}
+        void before() override { _log.push_back("before"); }
+        void execute() override { _log.push_back(device()->insideRenderPass() ? "execute" : "execute(outside)"); }
+        void after() override { _log.push_back("after"); }
+    private:
         std::vector<std::string>& _log;
     };
 
@@ -298,6 +313,71 @@ int main()
             "two faces of one cubemap: only the LAST generates mipmaps");
         compile({face0});
         check(face0->colorArrayOps()[0]->genMipmaps, "a frame with one face gives its mipmap generation back");
+    }
+
+    std::cout << "onBefore / onAfter\n";
+    {
+        // Merged with its neighbour, a pass's callback would run inside the shared device pass.
+        for (const bool onAfterFirst : {true, false}) {
+            auto first = pass(target, true);
+            auto second = pass(target, false);
+            if (onAfterFirst) {
+                first->setOnAfter([](RenderPass&) {});
+            } else {
+                second->setOnBefore([](RenderPass&) {});
+            }
+            compile({first, second});
+            check(!first->skipEnd() && !second->skipStart(), onAfterFirst
+                ? "the first pass's onAfter keeps the two passes apart"
+                : "the second pass's onBefore keeps the two passes apart");
+        }
+        auto first = pass(target, true);
+        auto second = pass(target, false);
+        first->setOnBefore([](RenderPass&) {});
+        second->setOnAfter([](RenderPass&) {});
+        compile({first, second});
+        check(first->skipEnd() && second->skipStart(), "callbacks that do not run between them leave the merge alone");
+
+        auto idle = pass(target, true);
+        auto next = pass(target, false);
+        idle->setExecuteEnabled(false);
+        compile({idle, next});
+        check(!idle->skipEnd() && !next->skipStart(), "a pass that does not execute is not merged");
+    }
+    {
+        const auto recording = std::make_shared<StubGraphicsDevice>(
+            StubGraphicsDevice::Options{.size = {64, 64}, .recordDraws = true});
+        RenderTargetOptions options;
+        options.graphicsDevice = recording.get();
+        options.colorBuffer = &colour;
+        const auto recordingTarget = std::make_shared<StubRenderTarget>(options);
+
+        std::vector<std::string> log;
+        RecordingPass p(recording, log);
+        p.init(recordingTarget);
+        RenderPass* seen = nullptr;
+        p.setOnBefore([&](RenderPass& self) {
+            seen = &self;
+            log.push_back(recording->insideRenderPass() ? "onBefore(inside)" : "onBefore");
+        });
+        p.setOnAfter([&](RenderPass& self) {
+            check(&self == seen, "both callbacks are handed the pass itself");
+            log.push_back(recording->insideRenderPass() ? "onAfter(inside)" : "onAfter");
+        });
+        p.render();
+        check(joined(log) == "before onBefore execute after onAfter",
+            "onBefore after before(), onAfter after after(), both outside the device pass: " + joined(log));
+        check(seen == &p, "onBefore is handed the pass");
+
+        log.clear();
+        p.setExecuteEnabled(false);
+        p.render();
+        check(joined(log) == "before onBefore after onAfter", "they run when execute() is disabled: " + joined(log));
+
+        log.clear();
+        p.setEnabled(false);
+        p.render();
+        check(log.empty(), "and not when the pass is: " + joined(log));
     }
 
     return finish("frame graph");

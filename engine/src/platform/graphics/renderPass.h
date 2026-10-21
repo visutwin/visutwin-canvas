@@ -5,6 +5,7 @@
 //
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -77,6 +78,20 @@ namespace visutwin::canvas
         virtual void after() {}
         virtual void execute() {}
 
+        /// What the code that owns a pass, rather than its class, runs around it, with the pass.
+        /// onBefore runs right after before() and before the pass's device pass starts, so work
+        /// it records (setting the pass's parameters, clearing a buffer it writes) lands right
+        /// before the pass; onAfter runs once the device pass has ended, right after after(), so a
+        /// read queued there (Texture::readAsync) copies what the pass rendered. Both run when
+        /// execute() is disabled, and neither when the pass is. The frame graph does not merge a
+        /// pass with the one after it while either callback would run between them, so both run
+        /// outside any device pass.
+        using Callback = std::function<void(RenderPass&)>;
+        void setOnBefore(Callback callback) { _onBefore = std::move(callback); }
+        void setOnAfter(Callback callback) { _onAfter = std::move(callback); }
+        bool hasOnBefore() const { return static_cast<bool>(_onBefore); }
+        bool hasOnAfter() const { return static_cast<bool>(_onAfter); }
+
         /// CREATE — not use — every shader this pass will draw with. The frame graph
         /// calls it on all of a frame's passes before the first one executes
         /// (prepareShadersWithChildren), so a backend that starts compiling a shader
@@ -116,6 +131,13 @@ namespace visutwin::canvas
 
         bool enabled() const { return _enabled; }
         void setEnabled(bool value);
+
+        /// Whether execute() runs, with its device pass: false keeps before(), after() and the
+        /// callbacks, and the pass's before and after passes, running. Set it before the frame is
+        /// built: the graph merges no pass that does not execute, and a pass merged with one keeps
+        /// the device pass the other opens or closes.
+        bool executeEnabled() const { return _executeEnabled; }
+        void setExecuteEnabled(const bool value) { _executeEnabled = value; }
 
         std::shared_ptr<RenderTarget> renderTarget() const { return _renderTarget; };
 
@@ -208,6 +230,9 @@ namespace visutwin::canvas
 
         bool _skipStart = false;
         bool _skipEnd = false;
+
+        Callback _onBefore;
+        Callback _onAfter;
 
         struct GraphEdit
         {

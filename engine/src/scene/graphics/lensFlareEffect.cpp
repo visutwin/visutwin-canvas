@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <functional>
 #include <unordered_set>
 
 #include <spdlog/spdlog.h>
@@ -179,7 +178,6 @@ float3 debugLensflare()
         }
         /// A pass that only clears its target (a shape with no texture).
         void setClearOnly(const bool value) { _clearOnly = value; }
-        void setOnAfter(std::function<void()> onAfter) { _onAfter = std::move(onAfter); }
 
         void prepareShaders() override
         {
@@ -208,13 +206,6 @@ float3 debugLensflare()
             RenderPassShaderQuad::execute();
         }
 
-        void after() override
-        {
-            if (_onAfter) {
-                _onAfter();
-            }
-        }
-
     private:
         std::string _variant;
         std::array<Texture*, 2> _inputs{};
@@ -222,7 +213,6 @@ float3 debugLensflare()
         std::shared_ptr<VertexBuffer> _vertices;
         int _vertexCount = 0;
         bool _clearOnly = false;
-        std::function<void()> _onAfter;
     };
 
     // ---- LensFlareEffect
@@ -324,7 +314,7 @@ float3 debugLensflare()
             if (last) {
                 pass->colorOps()->genMipmaps = true;
                 // The copies are done once the last has rendered.
-                pass->setOnAfter([this] {
+                pass->setOnAfter([this](RenderPass&) {
                     for (const auto& shapePass : _shapePasses) {
                         shapePass->setEnabled(false);
                     }

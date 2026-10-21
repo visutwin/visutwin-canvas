@@ -81,6 +81,9 @@ namespace visutwin::canvas
             _executeSkipped = !_executeEnabled;
 
             before();
+            if (_onBefore) {
+                _onBefore(*this);
+            }
 
             if (_executeEnabled) {
                 bool passReady = true;
@@ -105,6 +108,9 @@ namespace visutwin::canvas
             }
 
             after();
+            if (_onAfter) {
+                _onAfter(*this);
+            }
 
             _device->_renderPassIndex++;
         }
