@@ -34,13 +34,13 @@ Vulkan 1.3.
 
 ```
 visutwin-canvas/
-  engine/          # Core 3D engine (369 .h + 262 .cpp + 1 .mm = 632 files)
+  engine/          # Core 3D engine (381 .h + 273 .cpp + 1 .mm = 655 files)
     src/core/      # Math (Vector2/3/4, Matrix4, Quaternion, SIMD multi-backend), shapes, events, tags
     src/platform/  # Graphics abstraction + Metal and Vulkan backends, input
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 160 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 161 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -2639,7 +2639,11 @@ present, but the rule below never depends on reading it.
   culled for 120 frames is dropped. `tests/gpuInstanceCullTests.cpp` (label `gpu`) culls
   for two cameras through the renderer and reads each output back.
 - **An `ASPECT_AUTO` camera's aspect is resolved BEFORE culling**
-  (`Renderer::resolveAutoAspectRatio` at the top of the graph build); the draw-time
+  (`Renderer::resolveAutoAspectRatio` at the top of the graph build), and once when its
+  component is created (`CameraComponent::initializeComponentData`), as upstream recomputes it
+  on every read: an example that places its camera by `aspectRatio()` in `create()` read the 16:9
+  default, and the four gizmo examples sat at their zoom limit, 1.12x too far (sweep 1.66 ->
+  0.66); the draw-time
   assignment from the actual target stays and the cull cache's frustum compare still
   catches a disagreement. It changes FIRST-FRAME work only, which a one-shot shadow keeps:
   resolved later, `ambient-occlusion`'s directional shadow would be fitted on frame one
@@ -3202,8 +3206,12 @@ present, but the rule below never depends on reading it.
   upstream" when it is not (pinned, `post-processing`'s amber matched, ours a touch
   brighter, BEFORE the Fresnel weight moved to the refracted colour — re-measure). The refraction offset is scaled by the model's
   per-axis world scale, as upstream's refractionDynamic (x60 on the amber), passed from
-  the vertex stage on both backends as a flat `modelScale` varying. Still
-  open: the amber projects LARGER here than upstream at identical camera parameters. Numbers in `ENGINEERING-LOG.md`.
+  the vertex stage on both backends as a flat `modelScale` varying. The amber does NOT project
+  larger than upstream's (an old note said so): at the time-matched frame the silhouettes match
+  under the albedo debug pass, and the refracted image inside fits best at scale 1.00
+  (correlation 0.986, 0.89 at +/-5%). That claim came from a COLOUR-MASK coverage count, which a
+  few counts of brightness moved: measure a shape on a debug pass, never through a colour mask.
+  Numbers in `ENGINEERING-LOG.md`.
 - **Vulkan's clip space is NOT Y-down for this engine.** The backend rasterises
   through a negated-height viewport so Metal projection matrices work unchanged,
   which puts NDC +Y at the TOP row of every target, back buffer and offscreen

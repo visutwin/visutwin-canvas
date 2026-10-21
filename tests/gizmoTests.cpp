@@ -33,6 +33,7 @@
 #include "framework/components/render/renderComponentSystem.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
+#include "framework/gizmo/boundingBoxGizmo.h"
 #include "framework/gizmo/meshSector.h"
 #include "framework/gizmo/rotateGizmo.h"
 #include "framework/gizmo/scaleGizmo.h"
@@ -380,6 +381,109 @@ namespace
     // The drag, snapping, layer and enabled-state behaviours a single drag of each gizmo
     // does not show.
     // The transform readout and the rotate gizmo's angle sector.
+    float axisOf(const Vector3& v, const int axis)
+    {
+        return axis == 0 ? v.getX() : (axis == 1 ? v.getY() : v.getZ());
+    }
+
+    void boundingBox()
+    {
+        std::cout << "bounding box gizmo\n";
+        {
+            BoundingBoxGizmo::ArmLayout layout;
+            layout.center = Vector3(1.0f, 2.0f, 3.0f);
+            layout.halfExtents = Vector3(2.0f, 1.0f, 0.5f);
+            layout.rootPosition = Vector3(0.5f, 0.0f, -1.0f);
+            layout.armLength = 0.3f;
+            layout.armThickness = 2.0f;
+            layout.pixel = 0.01f;
+            layout.perspective = false;
+            const float t = 0.02f;
+            const auto arms = BoundingBoxGizmo::armTransforms(layout);
+            int good = 0;
+            size_t i = 0;
+            for (int x = -1; x <= 1; x += 2) {
+                for (int y = -1; y <= 1; y += 2) {
+                    for (int z = -1; z <= 1; z += 2) {
+                        const Vector3 corner = layout.center + Vector3(2.0f * x, 1.0f * y, 0.5f * z);
+                        const int signs[3] = {x, y, z};
+                        for (int k = 0; k < 3; ++k, ++i) {
+                            const Vector3 centre = arms[i].position + layout.rootPosition;
+                            const float half = 0.5f * axisOf(arms[i].scale, k);
+                            const float outer = axisOf(centre, k) + signs[k] * half;
+                            const float inner = axisOf(centre, k) - signs[k] * half;
+                            const float length = axisOf(layout.halfExtents, k) * layout.armLength;
+                            const bool across = std::abs(axisOf(arms[i].scale, (k + 1) % 3) - t) < 1e-6f &&
+                                std::abs(axisOf(arms[i].scale, (k + 2) % 3) - t) < 1e-6f;
+                            const bool onCorner = std::abs(axisOf(centre, (k + 1) % 3) - axisOf(corner, (k + 1) % 3)) < 1e-5f &&
+                                std::abs(axisOf(centre, (k + 2) % 3) - axisOf(corner, (k + 2) % 3)) < 1e-5f;
+                            if (across && onCorner &&
+                                std::abs(outer - (axisOf(corner, k) + signs[k] * 0.5f * t)) < 1e-5f &&
+                                std::abs(inner - (axisOf(corner, k) - signs[k] * length)) < 1e-5f) {
+                                ++good;
+                            }
+                        }
+                    }
+                }
+            }
+            check(good == BoundingBoxGizmo::kArmCount,
+                "every arm runs from half a thickness outside its corner to armLength of the half edge inside, "
+                "its thickness across: " + std::to_string(good) + " of 24");
+
+            layout.perspective = true;
+            layout.cameraPosition = Vector3(1.0f, 2.0f, 13.0f);
+            layout.cameraForward = Vector3(0.0f, 0.0f, -1.0f);
+            const auto far = BoundingBoxGizmo::armTransforms(layout);
+            // corner 0 is at z = 2.5, 10.5 in front of the camera; corner 1 at z = 3.5, 9.5
+            check(std::abs(far[0].scale.getY() - t * 10.5f) < 1e-5f && std::abs(far[3].scale.getY() - t * 9.5f) < 1e-5f,
+                "in perspective the thickness is pixels at the corner's depth: " + str(far[0].scale));
+            layout.cameraPosition = Vector3(1.0f, 2.0f, 2.0f);   // corners behind and level with the camera
+            layout.nearClip = 0.25f;
+            const auto close = BoundingBoxGizmo::armTransforms(layout);
+            check(std::abs(close[0].scale.getY() - t * 0.25f) < 1e-6f, "and never nearer than the near plane");
+        }
+        {
+            GizmoScene scene = makeScene();
+            Entity* boxEntity = addEntity(*scene.engine);
+            boxEntity->setLocalPosition(2.0f, 0.0f, 0.0f);
+            boxEntity->setLocalScale(2.0f, 1.0f, 1.0f);
+            if (auto* render = static_cast<RenderComponent*>(boxEntity->addComponent<RenderComponent>())) {
+                render->setType("box");
+            }
+            auto childOwned = std::make_unique<Entity>();
+            Entity* child = childOwned.get();
+            child->setEngine(scene.engine.get());
+            boxEntity->addChild(std::move(childOwned));
+            child->setLocalPosition(0.0f, 3.0f, 0.0f);
+            if (auto* render = static_cast<RenderComponent*>(child->addComponent<RenderComponent>())) {
+                render->setType("box");
+            }
+
+            auto gizmo = std::make_unique<BoundingBoxGizmo>(scene.camera, scene.layer);
+            check(near(gizmo->root()->localScale(), Vector3(1.0f), 1e-6f), "the root keeps a unit scale");
+            gizmo->attach(boxEntity);
+            gizmo->prerender();
+            const auto& bounds = gizmo->bounds();
+            // the box spans x 1..3, y -0.5..0.5, z -0.5..0.5; the child (scale 2, 1, 1) x 1..3, y 2.5..3.5
+            check(bounds && near(bounds->center(), Vector3(2.0f, 1.5f, 0.0f), 1e-4f) &&
+                    near(bounds->halfExtents(), Vector3(1.0f, 2.0f, 0.5f), 1e-4f),
+                "the bounds take the attached entity and its descendants: " +
+                    (bounds ? str(bounds->center()) + " " + str(bounds->halfExtents()) : std::string("none")));
+            gizmo->update();
+            check(near(gizmo->root()->localScale(), Vector3(1.0f), 1e-6f) &&
+                    near(gizmo->root()->rotation() * Vector3(1.0f, 0.0f, 0.0f), Vector3(1.0f, 0.0f, 0.0f), 1e-6f),
+                "after an update the root is still world sized and aligned");
+
+            child->setEnabled(false);
+            gizmo->prerender();
+            check(gizmo->bounds() && near(gizmo->bounds()->halfExtents(), Vector3(1.0f, 0.5f, 0.5f), 1e-4f),
+                "a disabled descendant adds nothing");
+            boxEntity->setEnabled(false);
+            gizmo->prerender();
+            check(!gizmo->bounds(), "nothing enabled, no bounds");
+        }
+    }
+
     void readoutAndSector()
     {
         std::cout << "transform readout\n";
@@ -664,6 +768,7 @@ int main()
     rotateDrag();
     scaleDrags();
     readoutAndSector();
+    boundingBox();
     hardening();
     lifetime();
 

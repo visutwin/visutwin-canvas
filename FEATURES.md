@@ -87,7 +87,7 @@ Known Limitations, and `AGENTS.md` records the remaining parity items.
 | Framework / ECS | Engine, Entity, component-system registry, scripts, hierarchy, lifecycle/event integration |
 | Framework / Components | 18 types: Camera, Render, Light, Script, Animation, Anim (state graph), Screen, Element, Button, LayoutGroup, LayoutChild, Scrollbar, ScrollView, Collision, RigidBody, Joint, GSplat, ParticleSystem |
 | Framework / Animation | GPU skinning, morph targets/weights, clips/evaluator/binder with path resolution, state graphs, transitions, blend trees, weighted layer composition |
-| Framework / Gizmo | Upstream's transform gizmos: translate (arrows, plane handles, centre), rotate (half/full arc rings, view ring, orbit sphere, angle guides), scale (box-lines, planes, uniform centre); triangle picking, hover themes, snapping, drag modes, span guide lines, constant screen size |
+| Framework / Gizmo | Upstream's transform gizmos: translate (arrows, plane handles, centre), rotate (half/full arc rings, view ring, orbit sphere, angle guides), scale (box-lines, planes, uniform centre); triangle picking, hover themes, snapping, drag modes, span guide lines, constant screen size; a bounding box gizmo (corner brackets around a selection's bounds, faint where the scene hides them) |
 | Framework / Assets | Async container/texture/font loading; GLB/glTF (+Draco, meshopt, quantised attributes, texture transform, node identity for unnamed nodes), OBJ/STL/Assimp; KTX2/Basis transcoding to ASTC or BC |
 | Framework / Lightmapper | CPU ray-traced baker and GPU UV-space baker |
 | Overlay | Metal-only ImGui/ImPlot HUD integration, input capture, digital-twin theme, 3D-anchored labels/panels |

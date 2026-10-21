@@ -21,6 +21,7 @@
 #include "scene/graphics/renderPassCameraFrame.h"
 #include "scene/graphics/taaEffect.h"
 #include "scene/graphNode.h"
+#include "scene/renderer/forwardRenderer.h"
 
 namespace visutwin::canvas
 {
@@ -68,6 +69,13 @@ namespace visutwin::canvas
         if (!_camera) {
             _camera = new Camera();
             _camera->setNode(_entity);
+        }
+        // An ASPECT_AUTO camera answers the back buffer's aspect from the start, as one read in
+        // auto mode recomputes it: the renderer sets it again before every frame, and an
+        // application that places the camera by its aspect before the first frame would
+        // otherwise read the 16:9 default.
+        if (const Engine* engine = system() ? system()->engine() : nullptr; engine && engine->renderer()) {
+            engine->renderer()->resolveAutoAspectRatio(_camera);
         }
     }
 

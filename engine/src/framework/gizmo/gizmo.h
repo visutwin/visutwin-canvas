@@ -134,8 +134,12 @@ namespace visutwin::canvas
         Vector3 cameraDir() const;
 
         void updatePosition();
-        void updateRotation();
-        void updateScale();
+        /// Turn and scale the root to the attached nodes and the camera. Virtual for a gizmo
+        /// whose root stays world aligned or world sized (BoundingBoxGizmo); the base
+        /// constructor calls updateScale() before a subclass exists, so such a subclass puts
+        /// the root's scale back itself.
+        virtual void updateRotation();
+        virtual void updateScale();
 
         /// The axes of the root entity in world space.
         Vector3 rootRight() const;

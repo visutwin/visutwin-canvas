@@ -272,5 +272,6 @@ The second column is the upstream example each one ports, as
 | transform-translate | gizmos/transform-translate | Translate gizmo |
 | transform-rotate | gizmos/transform-rotate | Rotate gizmo |
 | transform-scale | gizmos/transform-scale | Scale gizmo |
+| bounding-box | gizmos/bounding-box | Bounding box gizmo: corner brackets, faint where hidden |
 | ui-text | user-interface/text | Screen-space text elements |
 | world-to-screen | user-interface/world-to-screen | Screen-space UI anchored to world positions |
