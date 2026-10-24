@@ -13,21 +13,9 @@
 
 namespace visutwin::canvas
 {
-    namespace
-    {
-
-
-        Vector3 roundVector(const Vector3& v)
-        {
-            return Vector3(std::round(v.getX()), std::round(v.getY()), std::round(v.getZ()));
-        }
-    }
-
     TranslateGizmo::TranslateGizmo(CameraComponent* camera, std::shared_ptr<Layer> layer)
         : TransformGizmo(camera, std::move(layer), "gizmo:translate")
     {
-        snapIncrement = 1.0f;
-
         _center = addShape<SphereShape>(GizmoAxis::XYZ, _engine, shapeArgs(GizmoAxis::XYZ));
         const auto planeArgs = [this](const GizmoAxis axis, const Vector3& rotation) {
             ShapeArgs args = shapeArgs(axis, rotation);
@@ -56,9 +44,7 @@ namespace visutwin::canvas
         on(EVENT_TRANSFORMMOVE, [this](const Vector3& point) {
             // calculate translate delta and update node positions
             Vector3 translateDelta = point - _selectionStartPoint;
-            if (snap) {
-                translateDelta = roundVector(translateDelta * (1.0f / snapIncrement)) * snapIncrement;
-            }
+            translateDelta = snapVector(translateDelta, snapIncrement);
             setNodePositions(translateDelta);
 
             fire(EVENT_TRANSFORMREADOUT, _selectedAxis, _selectedIsPlane, translateDelta);
@@ -105,6 +91,17 @@ namespace visutwin::canvas
     void TranslateGizmo::setAxisPlaneGap(const float value) { for (auto* p : _planes) p->setGap(value); }
     float TranslateGizmo::axisCenterSize() const { return _center->radius(); }
     void TranslateGizmo::setAxisCenterSize(const float value) { _center->setRadius(value); }
+
+    float TranslateGizmo::axisPlaneOpacity() const { return _planes[0]->opacity(); }
+    void TranslateGizmo::setAxisPlaneOpacity(const float value) { for (auto* p : _planes) p->setOpacity(value); }
+    float TranslateGizmo::axisPlaneOutlineThickness() const { return _planes[0]->outlineThickness(); }
+    void TranslateGizmo::setAxisPlaneOutlineThickness(const float value) { for (auto* p : _planes) p->setOutlineThickness(value); }
+    float TranslateGizmo::axisFadeAngle() const { return _fadeAngle; }
+    void TranslateGizmo::setAxisFadeAngle(const float value)
+    {
+        _fadeAngle = value;
+        shapesLookAtCamera();
+    }
 
     void TranslateGizmo::shapesLookAtCamera()
     {

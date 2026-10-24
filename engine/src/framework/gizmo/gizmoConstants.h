@@ -100,7 +100,12 @@ namespace visutwin::canvas
     inline const Color GIZMO_COLOR_GREEN{0.3f, 1.0f, 0.3f, 1.0f};
     inline const Color GIZMO_COLOR_BLUE{0.3f, 0.3f, 1.0f, 1.0f};
     inline const Color GIZMO_COLOR_YELLOW{1.0f, 1.0f, 0.5f, 1.0f};
+    inline const Color GIZMO_COLOR_AMBER{1.0f, 0.75f, 0.3f, 1.0f};
+    inline const Color GIZMO_COLOR_CYAN{0.3f, 0.85f, 1.0f, 1.0f};
+    inline const Color GIZMO_COLOR_MAGENTA{1.0f, 0.45f, 0.9f, 1.0f};
     inline const Color GIZMO_COLOR_GRAY{0.5f, 0.5f, 0.5f, 0.5f};
+    /// The disc behind an icon.
+    inline const Color GIZMO_COLOR_BACKDROP{0.05f, 0.055f, 0.07f, 0.6f};
 
     /// The colours every shape and guide line of a transform gizmo
     /// draws with. Shapes hold POINTERS to these colours,

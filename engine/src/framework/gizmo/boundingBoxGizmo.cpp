@@ -7,137 +7,51 @@
 
 #include <algorithm>
 #include <cmath>
-#include <numbers>
-#include <string>
 
-#include "framework/components/camera/cameraComponent.h"
-#include "framework/components/componentSystem.h"
-#include "framework/components/render/primitiveGeometry.h"
 #include "framework/components/render/renderComponent.h"
-#include "framework/engine.h"
 #include "framework/entity.h"
-#include "framework/gizmo/gizmoMaterial.h"
-#include "platform/graphics/depthState.h"
-#include "scene/camera.h"
+#include "framework/gizmo/overlay/overlayRenderer.h"
 #include "scene/meshInstance.h"
 
 namespace visutwin::canvas
 {
     namespace
     {
-        float component(const Vector3& v, const int axis)
+        // the origin marker: a dot of this radius in a ring of this radius, in points
+        constexpr float ORIGIN_DOT = 3.0f;
+        constexpr float ORIGIN_RING = 7.0f;
+        constexpr float MIN_FACTOR = 0.01f;
+        constexpr float MIN_EXTENT = 1e-6f;
+
+        // the world axis nearest a direction
+        int nearest(const Vector3& dir)
         {
-            return axis == 0 ? v.getX() : (axis == 1 ? v.getY() : v.getZ());
+            const float x = std::abs(dir.getX());
+            const float y = std::abs(dir.getY());
+            const float z = std::abs(dir.getZ());
+            return x >= y && x >= z ? 0 : y >= z ? 1 : 2;
         }
 
-        Vector3 withComponent(const Vector3& v, const int axis, const float value)
+        // the factor an extent was resized by, padding left out; a flat extent keeps its size
+        float fitFactor(const float half, const float start, const float pad)
         {
-            return Vector3(axis == 0 ? value : v.getX(), axis == 1 ? value : v.getY(), axis == 2 ? value : v.getZ());
+            return start - pad > MIN_EXTENT ? std::max((half - pad) / (start - pad), MIN_FACTOR) : 1.0f;
         }
-
-        std::shared_ptr<GizmoMaterial> createArmMaterial(const std::shared_ptr<GraphicsDevice>& device,
-            const bool depthTest)
-        {
-            auto material = std::make_shared<GizmoMaterial>(device);
-            auto depth = std::make_shared<DepthState>();
-            depth->setDepthTest(depthTest);
-            depth->setDepthWrite(false);
-            material->setDepthState(depth);
-            return material;
-        }
-    }
-
-    std::array<BoundingBoxGizmo::Arm, BoundingBoxGizmo::kArmCount> BoundingBoxGizmo::armTransforms(
-        const ArmLayout& layout)
-    {
-        std::array<Arm, kArmCount> arms{};
-        const Vector3& c = layout.center;
-        const Vector3& h = layout.halfExtents;
-        size_t i = 0;
-        for (int x = -1; x <= 1; x += 2) {
-            for (int y = -1; y <= 1; y += 2) {
-                for (int z = -1; z <= 1; z += 2) {
-                    const Vector3 corner(c.getX() + h.getX() * static_cast<float>(x),
-                        c.getY() + h.getY() * static_cast<float>(y), c.getZ() + h.getZ() * static_cast<float>(z));
-                    const float depth = layout.perspective
-                        ? std::max((corner - layout.cameraPosition).dot(layout.cameraForward), layout.nearClip)
-                        : 1.0f;
-                    const float thickness = layout.armThickness * layout.pixel * depth;
-                    const int signs[3] = {x, y, z};
-                    for (int k = 0; k < 3; ++k) {
-                        const float length = component(h, k) * layout.armLength;
-                        Vector3 position = corner - layout.rootPosition;
-                        position = withComponent(position, k, component(position, k) -
-                            static_cast<float>(signs[k]) * 0.5f * (length - 0.5f * thickness));
-                        const float along = length + 0.5f * thickness;
-                        arms[i++] = Arm{position, Vector3(k == 0 ? along : thickness, k == 1 ? along : thickness,
-                            k == 2 ? along : thickness)};
-                    }
-                }
-            }
-        }
-        return arms;
     }
 
     BoundingBoxGizmo::BoundingBoxGizmo(CameraComponent* camera, std::shared_ptr<Layer> layer)
-        : Gizmo(camera, layer, "gizmo:bounding-box")
+        : HandleGizmo(camera, std::move(layer), "gizmo:bounding-box")
     {
-        // The base sized the root to the viewport before this class existed.
-        if (_root) {
-            _root->setLocalScale(1.0f, 1.0f, 1.0f);
-        }
-        _scale = 1.0f;
-
-        Engine* engine = this->engine();
-        if (!engine || !engine->graphicsDevice() || !_root || !layer) {
-            return;
-        }
-        const auto& device = engine->graphicsDevice();
-        _occludedMaterial = createArmMaterial(device, false);
-        _material = createArmMaterial(device, true);
-        _mesh = createMeshFromGeometry(device, createBoxGeometry());
-
-        auto box = std::make_unique<Entity>();
-        _box = box.get();
-        _box->setEngine(engine);
-        _box->setName("box");
-        _root->addChild(std::move(box));
-
-        // The occluded pass first, then the depth tested pass over it: the layer keeps
-        // collection order.
-        for (int i = 0; i < kArmCount; ++i) {
-            auto arm = std::make_unique<Entity>();
-            Entity* entity = arm.get();
-            entity->setEngine(engine);
-            entity->setName("arm:" + std::to_string(i));
-            _box->addChild(std::move(arm));
-            auto* render = static_cast<RenderComponent*>(entity->addComponent<RenderComponent>());
-            if (!render) {
-                continue;
-            }
-            render->setLayers({layer->id()});
-            render->setCastShadows(false);
-            for (const auto& material : {_occludedMaterial, _material}) {
-                auto instance = std::make_unique<MeshInstance>(_mesh, std::static_pointer_cast<Material>(material),
-                    entity);
-                instance->setCull(false);
-                instance->setCastShadow(false);
-                render->addMeshInstance(std::move(instance));
-            }
-            _arms[static_cast<size_t>(i)] = entity;
-        }
     }
 
-    BoundingBoxGizmo::~BoundingBoxGizmo() = default;
-
-    void BoundingBoxGizmo::setTheme(const BoundingBoxGizmoThemePartial& partial)
+    void BoundingBoxGizmo::add(const BoundingBox& aabb)
     {
-        if (partial.base) {
-            _theme.base = *partial.base;
+        if (!_empty) {
+            _bounds.add(aabb);
+            return;
         }
-        if (partial.occluded) {
-            _theme.occluded = *partial.occluded;
-        }
+        _bounds = aabb;
+        _empty = false;
     }
 
     void BoundingBoxGizmo::addNode(GraphNode* node)
@@ -148,14 +62,8 @@ namespace visutwin::canvas
         if (auto* entity = dynamic_cast<Entity*>(node)) {
             if (auto* render = entity->findComponent<RenderComponent>(); render && render->enabled()) {
                 for (MeshInstance* meshInstance : render->meshInstances()) {
-                    if (!meshInstance || !meshInstance->visible()) {
-                        continue;
-                    }
-                    const BoundingBox aabb = meshInstance->aabb();
-                    if (_bounds) {
-                        _bounds->add(aabb);
-                    } else {
-                        _bounds = aabb;
+                    if (meshInstance && meshInstance->visible()) {
+                        add(meshInstance->aabb());
                     }
                 }
             }
@@ -163,53 +71,92 @@ namespace visutwin::canvas
         node->forEachChild([this](GraphNode* child) { addNode(child); });
     }
 
-    void BoundingBoxGizmo::prerender()
+    void BoundingBoxGizmo::drawShapes()
     {
-        if (!enabled() || !_box) {
-            return;
-        }
-
-        _bounds.reset();
+        _empty = true;
         for (GraphNode* node : _nodes) {
             addNode(node);
         }
-        _box->setEnabled(_bounds.has_value());
-        if (!_bounds) {
-            return;
-        }
-
-        if (_occludedMaterial && _material) {
-            _occludedMaterial->setColor(_theme.occluded);
-            _material->setColor(_theme.base);
-        }
-
-        // The world size of a canvas point, per unit of depth in perspective.
-        const Camera* camera = _camera ? _camera->camera() : nullptr;
-        if (!camera) {
-            return;
-        }
-        ArmLayout layout;
-        layout.center = _bounds->center();
-        layout.halfExtents = _bounds->halfExtents() + Vector3(padding, padding, padding);
-        layout.rootPosition = _root->position();
-        layout.armLength = armLength;
-        layout.armThickness = armThickness;
-        layout.perspective = camera->projection() == ProjectionType::Perspective;
-        const auto [width, height] = _engine ? _engine->canvasSize() : std::pair<int, int>{1, 1};
-        const float span = layout.perspective
-            ? 2.0f * std::tan(0.5f * camera->fov() * std::numbers::pi_v<float> / 180.0f)
-            : 2.0f * camera->orthoHeight();
-        layout.pixel = span / static_cast<float>(std::max(camera->horizontalFov() ? width : height, 1));
-        layout.cameraPosition = cameraPosition();
-        layout.cameraForward = cameraForward();
-        layout.nearClip = camera->nearClip();
-
-        const auto arms = armTransforms(layout);
-        for (size_t i = 0; i < arms.size(); ++i) {
-            if (Entity* arm = _arms[i]) {
-                arm->setLocalPosition(arms[i].position);
-                arm->setLocalScale(arms[i].scale.getX(), arms[i].scale.getY(), arms[i].scale.getZ());
+        if (!_empty) {
+            // a resize changes the nodes, so the box follows their bounds
+            _center = _bounds.center();
+            _halfExtents = _bounds.halfExtents() + Vector3(padding);
+            const auto& corners = boxCorners(_center, Quaternion(), _halfExtents);
+            drawBrackets(corners);
+            if (_theme.fill.a > 0.0f) {
+                // the bounds enclose other gizmos' shapes, so the fill leaves the depth to them
+                _renderer->box(_center, Quaternion(), _halfExtents * 2.0f)->setDepthWrite(false);
             }
+            boxHandles(_center, _halfExtents, *this, padding);
+        }
+        if (icon) {
+            for (GraphNode* node : _nodes) {
+                if (node->enabled()) {
+                    const Vector3 pos = node->position();
+                    _renderer->dot(pos, ORIGIN_DOT);
+                    _renderer->circle(pos, cameraForward(), _renderer->pixels(pos, ORIGIN_RING), 0.6f);
+                }
+            }
+        }
+    }
+
+    void BoundingBoxGizmo::drawBrackets(const std::array<Vector3, 8>& corners)
+    {
+        const Vector3& c = _center;
+        const Vector3& h = _halfExtents;
+        for (int x = -1; x <= 1; x += 2) {
+            for (int y = -1; y <= 1; y += 2) {
+                for (int z = -1; z <= 1; z += 2) {
+                    const Vector3 corner(c.getX() + h.getX() * static_cast<float>(x),
+                        c.getY() + h.getY() * static_cast<float>(y), c.getZ() + h.getZ() * static_cast<float>(z));
+                    for (int k = 0; k < 3; ++k) {
+                        const float sign = static_cast<float>(k == 0 ? x : k == 1 ? y : z);
+                        _renderer->arm(corner, k, sign, h[k] * armLength, armThickness);
+                    }
+                }
+            }
+        }
+        if (edges) {
+            for (int i = 0; i < 8; ++i) {
+                for (int bit = 1; bit < 8; bit <<= 1) {
+                    if (!(i & bit)) {
+                        _renderer->dashed(corners[static_cast<size_t>(i)], corners[static_cast<size_t>(i | bit)],
+                            0.5f, 0.45f);
+                    }
+                }
+            }
+        }
+    }
+
+    void BoundingBoxGizmo::startHandle(const GizmoHandle& /*handle*/)
+    {
+        _startCenter = _center;
+        _startHalfExtents = _halfExtents;
+        _startPositions.resize(_nodes.size());
+        _startScales.resize(_nodes.size());
+        for (size_t i = 0; i < _nodes.size(); ++i) {
+            _startPositions[i] = _nodes[i]->position();
+            _startScales[i] = _nodes[i]->localScale();
+        }
+    }
+
+    void BoundingBoxGizmo::moveHandle(const GizmoHandle& handle, const Vector3& point)
+    {
+        resizeBox(handle, point, Quaternion(), _startCenter, _startHalfExtents, *this, padding, _center, _halfExtents);
+        const Vector3& half = _halfExtents;
+        const Vector3& start = _startHalfExtents;
+        const float factor[3] = {fitFactor(half.getX(), start.getX(), padding),
+            fitFactor(half.getY(), start.getY(), padding), fitFactor(half.getZ(), start.getZ(), padding)};
+        const Vector3 factors(factor[0], factor[1], factor[2]);
+        for (size_t i = 0; i < _nodes.size() && i < _startPositions.size(); ++i) {
+            GraphNode* node = _nodes[i];
+            node->setPosition((_startPositions[i] - _startCenter) * factors + _center);
+
+            // each local axis scales by the factor of its nearest world axis
+            const Vector3& scale = _startScales[i];
+            node->setLocalScale(scale.getX() * factor[nearest(gizmoNodeRight(node))],
+                scale.getY() * factor[nearest(gizmoNodeUp(node))],
+                scale.getZ() * factor[nearest(gizmoNodeForward(node))]);
         }
     }
 }

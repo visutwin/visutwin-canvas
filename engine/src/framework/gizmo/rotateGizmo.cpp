@@ -47,7 +47,6 @@ namespace visutwin::canvas
     RotateGizmo::RotateGizmo(CameraComponent* camera, std::shared_ptr<Layer> layer)
         : TransformGizmo(camera, std::move(layer), "gizmo:rotate")
     {
-        snapIncrement = 5.0f;
 
         _arcs[2] = addShape<ArcShape>(GizmoAxis::Z, _engine, shapeArgs(GizmoAxis::Z, Vector3(90.0f, 0.0f, 90.0f)),
             ArcShapeArgs{.sectorAngle = 180.0f});
@@ -123,9 +122,7 @@ namespace visutwin::canvas
             } else {
                 // calculate angle axis and delta and update node rotations
                 float angleDelta = calculateArcAngle(point, x, y) - _selectionStartAngle;
-                if (snap) {
-                    angleDelta = std::round(angleDelta / snapIncrement) * snapIncrement;
-                }
+                angleDelta = snapAngle(angleDelta);
                 setNodeRotations(axis, dirFromAxis(axis), angleDelta);
 
                 // update guide points and show angle guide

@@ -15,11 +15,17 @@
 //   against closed-form answers: a camera on +Z looking down -Z, a 100 x 100 canvas,
 //   the attached box at the origin. Nothing renders (a stub device); the drags read
 //   only the CPU state the gizmo keeps.
+// - The handle gizmos (bounding box, shape, camera, light) and the icon gizmo: their handles
+//   placed once large on screen, drags that edit the values, snapping, labels, icons picked,
+//   a press claimed by the first gizmo it hits, and a cancelled press.
+// - The transform gizmos' glancing fade and translucent planes; the overlay's line pieces, the
+//   line batch's instance records, and the icon glyphs' coverage.
 // - Lifetime: an engine destroyed before the gizmo, and an attached node destroyed
 //   under it (run it under the sanitize preset).
 //
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <iostream>
 #include <memory>
 #include <numbers>
@@ -33,8 +39,18 @@
 #include "framework/components/render/renderComponentSystem.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
+#include "framework/components/light/lightComponent.h"
+#include "framework/components/light/lightComponentSystem.h"
 #include "framework/gizmo/boundingBoxGizmo.h"
+#include "framework/gizmo/cameraGizmo.h"
+#include "framework/gizmo/iconGizmo.h"
+#include "framework/gizmo/lightGizmo.h"
+#include "framework/gizmo/gizmoMaterial.h"
+#include "framework/gizmo/meshLineBatch.h"
 #include "framework/gizmo/meshSector.h"
+#include "framework/gizmo/overlay/iconGlyphs.h"
+#include "framework/gizmo/overlay/overlayRenderer.h"
+#include "framework/gizmo/shapeGizmos.h"
 #include "framework/gizmo/rotateGizmo.h"
 #include "framework/gizmo/scaleGizmo.h"
 #include "framework/gizmo/shape/shapes.h"
@@ -75,11 +91,11 @@ namespace
         std::shared_ptr<Layer> layer;
     };
 
-    GizmoScene makeScene()
+    GizmoScene makeScene(const int size = 100)
     {
         GizmoScene scene;
-        scene.engine = makeTestEngine<RenderComponentSystem, CameraComponentSystem>(
-            std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{.size = {100, 100}, .cpuBuffers = true}));
+        scene.engine = makeTestEngine<RenderComponentSystem, CameraComponentSystem, LightComponentSystem>(
+            std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{.size = {size, size}, .cpuBuffers = true}));
 
         Entity* cameraEntity = addEntity(*scene.engine);
         cameraEntity->setLocalPosition(0.0f, 0.0f, 10.0f);   // looking down -Z at the origin
@@ -381,67 +397,9 @@ namespace
     // The drag, snapping, layer and enabled-state behaviours a single drag of each gizmo
     // does not show.
     // The transform readout and the rotate gizmo's angle sector.
-    float axisOf(const Vector3& v, const int axis)
-    {
-        return axis == 0 ? v.getX() : (axis == 1 ? v.getY() : v.getZ());
-    }
-
     void boundingBox()
     {
         std::cout << "bounding box gizmo\n";
-        {
-            BoundingBoxGizmo::ArmLayout layout;
-            layout.center = Vector3(1.0f, 2.0f, 3.0f);
-            layout.halfExtents = Vector3(2.0f, 1.0f, 0.5f);
-            layout.rootPosition = Vector3(0.5f, 0.0f, -1.0f);
-            layout.armLength = 0.3f;
-            layout.armThickness = 2.0f;
-            layout.pixel = 0.01f;
-            layout.perspective = false;
-            const float t = 0.02f;
-            const auto arms = BoundingBoxGizmo::armTransforms(layout);
-            int good = 0;
-            size_t i = 0;
-            for (int x = -1; x <= 1; x += 2) {
-                for (int y = -1; y <= 1; y += 2) {
-                    for (int z = -1; z <= 1; z += 2) {
-                        const Vector3 corner = layout.center + Vector3(2.0f * x, 1.0f * y, 0.5f * z);
-                        const int signs[3] = {x, y, z};
-                        for (int k = 0; k < 3; ++k, ++i) {
-                            const Vector3 centre = arms[i].position + layout.rootPosition;
-                            const float half = 0.5f * axisOf(arms[i].scale, k);
-                            const float outer = axisOf(centre, k) + signs[k] * half;
-                            const float inner = axisOf(centre, k) - signs[k] * half;
-                            const float length = axisOf(layout.halfExtents, k) * layout.armLength;
-                            const bool across = std::abs(axisOf(arms[i].scale, (k + 1) % 3) - t) < 1e-6f &&
-                                std::abs(axisOf(arms[i].scale, (k + 2) % 3) - t) < 1e-6f;
-                            const bool onCorner = std::abs(axisOf(centre, (k + 1) % 3) - axisOf(corner, (k + 1) % 3)) < 1e-5f &&
-                                std::abs(axisOf(centre, (k + 2) % 3) - axisOf(corner, (k + 2) % 3)) < 1e-5f;
-                            if (across && onCorner &&
-                                std::abs(outer - (axisOf(corner, k) + signs[k] * 0.5f * t)) < 1e-5f &&
-                                std::abs(inner - (axisOf(corner, k) - signs[k] * length)) < 1e-5f) {
-                                ++good;
-                            }
-                        }
-                    }
-                }
-            }
-            check(good == BoundingBoxGizmo::kArmCount,
-                "every arm runs from half a thickness outside its corner to armLength of the half edge inside, "
-                "its thickness across: " + std::to_string(good) + " of 24");
-
-            layout.perspective = true;
-            layout.cameraPosition = Vector3(1.0f, 2.0f, 13.0f);
-            layout.cameraForward = Vector3(0.0f, 0.0f, -1.0f);
-            const auto far = BoundingBoxGizmo::armTransforms(layout);
-            // corner 0 is at z = 2.5, 10.5 in front of the camera; corner 1 at z = 3.5, 9.5
-            check(std::abs(far[0].scale.getY() - t * 10.5f) < 1e-5f && std::abs(far[3].scale.getY() - t * 9.5f) < 1e-5f,
-                "in perspective the thickness is pixels at the corner's depth: " + str(far[0].scale));
-            layout.cameraPosition = Vector3(1.0f, 2.0f, 2.0f);   // corners behind and level with the camera
-            layout.nearClip = 0.25f;
-            const auto close = BoundingBoxGizmo::armTransforms(layout);
-            check(std::abs(close[0].scale.getY() - t * 0.25f) < 1e-6f, "and never nearer than the near plane");
-        }
         {
             GizmoScene scene = makeScene();
             Entity* boxEntity = addEntity(*scene.engine);
@@ -463,12 +421,12 @@ namespace
             check(near(gizmo->root()->localScale(), Vector3(1.0f), 1e-6f), "the root keeps a unit scale");
             gizmo->attach(boxEntity);
             gizmo->prerender();
-            const auto& bounds = gizmo->bounds();
-            // the box spans x 1..3, y -0.5..0.5, z -0.5..0.5; the child (scale 2, 1, 1) x 1..3, y 2.5..3.5
-            check(bounds && near(bounds->center(), Vector3(2.0f, 1.5f, 0.0f), 1e-4f) &&
-                    near(bounds->halfExtents(), Vector3(1.0f, 2.0f, 0.5f), 1e-4f),
-                "the bounds take the attached entity and its descendants: " +
-                    (bounds ? str(bounds->center()) + " " + str(bounds->halfExtents()) : std::string("none")));
+            // the box spans x 1..3, y -0.5..0.5, z -0.5..0.5; the child (scale 2, 1, 1) x 1..3, y 2.5..3.5,
+            // padded by 0.01
+            check(gizmo->hasBounds() && near(gizmo->center(), Vector3(2.0f, 1.5f, 0.0f), 1e-4f) &&
+                    near(gizmo->halfExtents(), Vector3(1.01f, 2.01f, 0.51f), 1e-4f),
+                "the bounds take the attached entity and its descendants, padded: " + str(gizmo->center()) + " " +
+                    str(gizmo->halfExtents()));
             gizmo->update();
             check(near(gizmo->root()->localScale(), Vector3(1.0f), 1e-6f) &&
                     near(gizmo->root()->rotation() * Vector3(1.0f, 0.0f, 0.0f), Vector3(1.0f, 0.0f, 0.0f), 1e-6f),
@@ -476,11 +434,264 @@ namespace
 
             child->setEnabled(false);
             gizmo->prerender();
-            check(gizmo->bounds() && near(gizmo->bounds()->halfExtents(), Vector3(1.0f, 0.5f, 0.5f), 1e-4f),
+            check(gizmo->hasBounds() && near(gizmo->halfExtents(), Vector3(1.01f, 0.51f, 0.51f), 1e-4f),
                 "a disabled descendant adds nothing");
             boxEntity->setEnabled(false);
             gizmo->prerender();
-            check(!gizmo->bounds(), "nothing enabled, no bounds");
+            check(!gizmo->hasBounds(), "nothing enabled, no bounds");
+        }
+        {
+            // a face handle resizes the attached node, keeping the opposite face in place
+            GizmoScene scene = makeScene(800);
+            Entity* boxEntity = addEntity(*scene.engine);
+            boxEntity->setLocalScale(2.0f, 2.0f, 2.0f);
+            if (auto* render = static_cast<RenderComponent*>(boxEntity->addComponent<RenderComponent>())) {
+                render->setType("box");
+            }
+            auto gizmo = std::make_unique<BoundingBoxGizmo>(scene.camera, scene.layer);
+            gizmo->attach(boxEntity);
+            gizmo->prerender();
+            check(gizmo->handleCount() == 14, "six face and eight corner handles once large on screen: " +
+                std::to_string(gizmo->handleCount()));
+            const Vector3 face = screenOf(scene.camera, Vector3(1.01f, 0.0f, 0.0f));
+            gizmo->pointerDown(face.getX(), face.getY(), 0);
+            check(gizmo->dragging(), "a press on the +x face handle drags it");
+            const Vector3 to = screenOf(scene.camera, Vector3(1.51f, 0.0f, 0.0f));
+            gizmo->pointerMove(to.getX(), to.getY());
+            // the half extent goes from 1.01 to 1.26, the extent without padding from 2 to 2.5
+            check(near(boxEntity->localScale(), Vector3(2.5f, 2.0f, 2.0f), 2e-3f) &&
+                    near(boxEntity->position(), Vector3(0.25f, 0.0f, 0.0f), 2e-3f),
+                "the node grows by the resize and moves with the centre: " + str(boxEntity->localScale()) + " " +
+                    str(boxEntity->position()));
+            gizmo->pointerUp(to.getX(), to.getY(), 0);
+            check(!gizmo->dragging(), "the drag ends on release");
+        }
+    }
+
+    void handleGizmos()
+    {
+        std::cout << "handle gizmos\n";
+        {
+            // a shape gizmo draws without nodes; its radius handle drags the radius, snapped
+            GizmoScene scene = makeScene(800);
+            auto gizmo = std::make_unique<SphereGizmo>(scene.camera, scene.layer);
+            gizmo->radius = 1.0f;
+            check(gizmo->enabled(), "a shape gizmo is enabled without nodes");
+            gizmo->prerender();
+            check(gizmo->handleCount() == 6, "six radius handles: " + std::to_string(gizmo->handleCount()));
+            const Vector3 rim = screenOf(scene.camera, Vector3(1.0f, 0.0f, 0.0f));
+            gizmo->pointerDown(rim.getX(), rim.getY(), 0);
+            const Vector3 to = screenOf(scene.camera, Vector3(1.5f, 0.0f, 0.0f));
+            gizmo->pointerMove(to.getX(), to.getY());
+            check(near(gizmo->radius, 1.5f, 2e-3f), "the radius follows the handle: " + std::to_string(gizmo->radius));
+            gizmo->prerender();
+            check(!gizmo->labels().empty() && gizmo->labels()[0].markup.find("1.50") != std::string::npos,
+                "the dragged handle shows its value: " + (gizmo->labels().empty() ? "" : gizmo->labels()[0].markup));
+            gizmo->snap = true;
+            const Vector3 snapTo = screenOf(scene.camera, Vector3(1.7f, 0.0f, 0.0f));
+            gizmo->pointerMove(snapTo.getX(), snapTo.getY());
+            check(near(gizmo->radius, 2.0f, 1e-5f), "and snaps to the increment: " + std::to_string(gizmo->radius));
+            gizmo->pointerUp(snapTo.getX(), snapTo.getY(), 0);
+        }
+        {
+            // a small shape shows no handles
+            GizmoScene scene = makeScene(100);
+            auto gizmo = std::make_unique<BoxGizmo>(scene.camera, scene.layer);
+            gizmo->prerender();
+            check(gizmo->handleCount() == 0, "no handles while small on screen");
+            check(gizmo->renderer().lineBatch().lineCount() >= 12, "but the twelve edges draw");
+        }
+        {
+            // overlapping gizmos: the first created takes a press, the others leave it
+            GizmoScene scene = makeScene(800);
+            auto first = std::make_unique<SphereGizmo>(scene.camera, scene.layer);
+            auto second = std::make_unique<SphereGizmo>(scene.camera, scene.layer);
+            first->radius = second->radius = 1.0f;
+            first->prerender();
+            second->prerender();
+            const Vector3 rim = screenOf(scene.camera, Vector3(1.0f, 0.0f, 0.0f));
+            first->pointerDown(rim.getX(), rim.getY(), 0, 4242);
+            second->pointerDown(rim.getX(), rim.getY(), 0, 4242);
+            check(first->dragging() && !second->dragging(), "one press drags one gizmo");
+            first->pointerCancel();
+            check(!first->dragging(), "a cancelled press ends the drag");
+        }
+        {
+            // the frustum of another camera, with near, far and field of view handles
+            GizmoScene scene = makeScene(800);
+            Entity* subject = addEntity(*scene.engine);
+            subject->setLocalPosition(0.0f, 0.0f, 5.0f);
+            subject->setLocalEulerAngles(0.0f, 90.0f, 0.0f);   // looking down -x
+            auto* camera = static_cast<CameraComponent*>(subject->addComponent<CameraComponent>());
+            camera->camera()->setAspectRatio(1.0f);
+            camera->camera()->setNearClip(0.5f);
+            camera->camera()->setFarClip(4.0f);
+            auto gizmo = std::make_unique<CameraGizmo>(scene.camera, scene.layer);
+            gizmo->attach(subject);
+            gizmo->prerender();
+            check(gizmo->handleCount() == 3, "near, far and field of view handles: " +
+                std::to_string(gizmo->handleCount()));
+            check(gizmo->renderer().icons().count() == 1, "and a camera icon");
+            const Vector3 far = screenOf(scene.camera, Vector3(-4.0f, 0.0f, 5.0f));
+            gizmo->pointerDown(far.getX(), far.getY(), 0);
+            const Vector3 to = screenOf(scene.camera, Vector3(-6.0f, 0.0f, 5.0f));
+            gizmo->pointerMove(to.getX(), to.getY());
+            check(near(camera->camera()->farClip(), 6.0f, 1e-2f), "the far handle drags the far clip: " +
+                std::to_string(camera->camera()->farClip()));
+            gizmo->pointerUp(to.getX(), to.getY(), 0);
+        }
+        {
+            // an omni light's range sphere and its handles
+            GizmoScene scene = makeScene(800);
+            Entity* lightEntity = addEntity(*scene.engine);
+            auto* light = static_cast<LightComponent*>(lightEntity->addComponent<LightComponent>());
+            light->setType(LightType::LIGHTTYPE_OMNI);
+            light->setRange(1.0f);
+            auto gizmo = std::make_unique<LightGizmo>(scene.camera, scene.layer);
+            gizmo->attach(lightEntity);
+            gizmo->prerender();
+            check(gizmo->handleCount() == 6, "six range handles: " + std::to_string(gizmo->handleCount()));
+            const Vector3 rim = screenOf(scene.camera, Vector3(1.0f, 0.0f, 0.0f));
+            gizmo->pointerDown(rim.getX(), rim.getY(), 0);
+            const Vector3 to = screenOf(scene.camera, Vector3(1.75f, 0.0f, 0.0f));
+            gizmo->pointerMove(to.getX(), to.getY());
+            check(near(light->range(), 1.75f, 2e-3f), "the handle drags the range: " + std::to_string(light->range()));
+            gizmo->pointerUp(to.getX(), to.getY(), 0);
+        }
+        {
+            // icons mark entities with nothing else to click, and a click selects the entity
+            GizmoScene scene = makeScene(800);
+            Entity* lightEntity = addEntity(*scene.engine);
+            lightEntity->addComponent<LightComponent>();
+            Entity* boxEntity = addEntity(*scene.engine);
+            boxEntity->setLocalPosition(2.0f, 0.0f, 0.0f);
+            boxEntity->addComponent<LightComponent>();
+            if (auto* render = static_cast<RenderComponent*>(boxEntity->addComponent<RenderComponent>())) {
+                render->setType("box");
+            }
+            auto gizmo = std::make_unique<IconGizmo>(scene.camera, scene.layer);
+            gizmo->attach(std::vector<GraphNode*>{lightEntity, boxEntity});
+            check(gizmo->iconOf(lightEntity) == OverlayIcon::Light && !gizmo->iconOf(boxEntity),
+                "a light shows its icon, an entity drawing a mesh none");
+            gizmo->prerender();
+            check(gizmo->renderer().icons().count() == 1, "one icon placed");
+            GraphNode* selected = nullptr;
+            gizmo->on(IconGizmo::EVENT_ICONSELECT, [&selected](GraphNode* node) { selected = node; });
+            const Vector3 at = screenOf(scene.camera, Vector3(0.0f));
+            gizmo->pointerDown(at.getX(), at.getY(), 0);
+            check(selected == lightEntity, "clicking the icon selects its entity");
+        }
+    }
+
+    void transformStyle()
+    {
+        std::cout << "transform gizmo style\n";
+        {
+            // an axis fades out as the view nears it, and hides seen end on
+            GizmoScene scene = makeScene();
+            Entity* box = addEntity(*scene.engine);
+            auto gizmo = std::make_unique<TranslateGizmo>(scene.camera, scene.layer);
+            gizmo->attach(box);
+            gizmo->prerender();
+            check(!gizmo->shape(GizmoAxis::Z)->entity()->enabledLocal() && gizmo->shape(GizmoAxis::X)->fade() == 1.0f,
+                "seen down the z axis, its arrow hides and the x arrow is solid");
+            const float angle = 20.0f * std::numbers::pi_v<float> / 180.0f;
+            scene.camera->entity()->setLocalPosition(10.0f * std::cos(angle), 0.0f, 10.0f * std::sin(angle));
+            scene.camera->entity()->lookAt(Vector3(0.0f));
+            gizmo->prerender();
+            const float glance = std::acos(0.99f);
+            const float expected = (angle - glance) / (25.0f * std::numbers::pi_v<float> / 180.0f - glance);
+            check(near(gizmo->shape(GizmoAxis::X)->fade(), expected, 1e-3f),
+                "20 degrees off the x axis its arrow is part faded: " + std::to_string(gizmo->shape(GizmoAxis::X)->fade()));
+        }
+        {
+            // a plane is translucent with a solid outline
+            GizmoScene scene = makeScene();
+            auto gizmo = std::make_unique<TranslateGizmo>(scene.camera, scene.layer);
+            auto* plane = static_cast<PlaneShape*>(gizmo->shape(GizmoAxis::XY));
+            const Color base = gizmo->theme().shapeBase.z;
+            check(near(plane->material()->color().a, base.a * 0.35f, 1e-6f), "the plane fill takes 0.35 of the alpha");
+            gizmo->setAxisPlaneOpacity(0.5f);
+            check(near(plane->material()->color().a, base.a * 0.5f, 1e-6f), "as the opacity says");
+        }
+    }
+
+    void overlayPieces()
+    {
+        std::cout << "overlay pieces\n";
+        {
+            // a line deepening tenfold splits into pieces of a constant screen thickness
+            GizmoScene scene = makeScene(800);
+            auto gizmo = std::make_unique<BoxGizmo>(scene.camera, scene.layer);
+            OverlayRenderer& renderer = const_cast<OverlayRenderer&>(gizmo->renderer());
+            renderer.begin();
+            renderer.line(Vector3(0.0f, 0.0f, 9.0f), Vector3(0.0f, 0.0f, 0.0f));
+            renderer.end();
+            check(renderer.lineBatch().lineCount() == 6, "1.5x deeper a piece: ceil(log 10 / log 1.5) = 6 pieces, got " +
+                std::to_string(renderer.lineBatch().lineCount()));
+            renderer.begin();
+            renderer.line(Vector3(0.0f, 0.0f, 20.0f), Vector3(0.0f, 0.0f, 15.0f));
+            renderer.end();
+            check(renderer.lineBatch().lineCount() == 0, "a line behind the camera draws nothing");
+        }
+        {
+            // a line instance is the line's transform in three rows and its colours packed
+            GizmoScene scene = makeScene();
+            Entity* parent = addEntity(*scene.engine);
+            parent->setLocalPosition(1.0f, 0.0f, 0.0f);
+            MeshLineBatch batch(scene.engine.get(), scene.layer->id(), parent, 0);
+            const Vector3 eye(0.0f, 0.0f, 10.0f);
+            batch.setView(eye, Vector3(0.0f, 0.0f, -1.0f), false);
+            batch.begin();
+            const Color color(1.0f, 0.5f, 0.25f, 0.8f);
+            const Color occluded(0.2f, 0.4f, 0.6f, 0.1f);
+            batch.add(Vector3(0.0f, 1.0f, 0.0f), Vector3(0.0f, 3.0f, 0.0f), 0.1f, color, occluded);
+            batch.end();
+            const MeshInstance* instance = nullptr;
+            for (auto* render : parent->findComponents<RenderComponent>()) {
+                instance = render->meshInstances().back();
+            }
+            const auto& storage = instance ? instance->instancingData().vertexBuffer->storage() : std::vector<uint8_t>{};
+            if (check(storage.size() >= 64, "one 64-byte record")) {
+                float f[16];
+                std::memcpy(f, storage.data(), sizeof(f));
+                const auto apply = [&f](const Vector3& p) {
+                    return Vector3(f[0] * p.getX() + f[1] * p.getY() + f[2] * p.getZ() + f[3],
+                        f[4] * p.getX() + f[5] * p.getY() + f[6] * p.getZ() + f[7],
+                        f[8] * p.getX() + f[9] * p.getY() + f[10] * p.getZ() + f[11]);
+                };
+                // pulled toward the eye by 0.4% of the distance
+                const auto pulled = [&eye](const Vector3& p) { return eye + (p - eye) * (1.0f - 0.004f); };
+                check(near(apply(Vector3(0.0f, -0.5f, 0.0f)), pulled(Vector3(1.0f, 1.0f, 0.0f)), 1e-4f) &&
+                        near(apply(Vector3(0.0f, 0.5f, 0.0f)), pulled(Vector3(1.0f, 3.0f, 0.0f)), 1e-4f),
+                    "the unit cylinder's ends land on the line's, pulled toward the eye");
+                const auto unpack = [](const float v) {
+                    return std::pair<float, float>(std::floor(v / 256.0f) / 255.0f, (v - std::floor(v / 256.0f) * 256.0f) / 255.0f);
+                };
+                const auto [r, g] = unpack(f[12]);
+                const auto [b, a] = unpack(f[13]);
+                const auto [orr, og] = unpack(f[14]);
+                const auto [ob, oa] = unpack(f[15]);
+                check(near(r, 1.0f, 0.003f) && near(g, 0.5f, 0.003f) && near(b, 0.25f, 0.003f) && near(a, 0.8f, 0.003f) &&
+                        near(orr, 0.2f, 0.003f) && near(og, 0.4f, 0.003f) && near(ob, 0.6f, 0.003f) && near(oa, 0.1f, 0.003f),
+                    "both colours unpack to 8 bits");
+            }
+        }
+        {
+            // the icon glyphs cover what they draw
+            constexpr int size = 96;
+            const auto alpha = [](const std::vector<uint8_t>& pixels, const float x, const float y) {
+                const int px = static_cast<int>((x + 12.0f) / 24.0f * size);
+                const int py = static_cast<int>((y + 12.0f) / 24.0f * size);
+                return pixels[(static_cast<size_t>(py) * size + static_cast<size_t>(px)) * 4 + 3];
+            };
+            const auto light = rasterizeOverlayIcon(OverlayIcon::Light, size);
+            check(alpha(light, 0.0f, 0.0f) == 255 && alpha(light, 9.0f, 0.0f) == 255 && alpha(light, 6.0f, 0.0f) == 0 &&
+                    alpha(light, -11.5f, -11.5f) == 0,
+                "the sun: a solid dot, a spoke, the gap between and an empty corner");
+            const auto camera = rasterizeOverlayIcon(OverlayIcon::Camera, size);
+            check(alpha(camera, -8.0f, 0.0f) == 255 && alpha(camera, -3.0f, 0.0f) == 0 && alpha(camera, 8.0f, 0.0f) == 255,
+                "the camera: its outline, its hollow body and its lens");
         }
     }
 
@@ -769,6 +980,9 @@ int main()
     scaleDrags();
     readoutAndSector();
     boundingBox();
+    handleGizmos();
+    transformStyle();
+    overlayPieces();
     hardening();
     lifetime();
 

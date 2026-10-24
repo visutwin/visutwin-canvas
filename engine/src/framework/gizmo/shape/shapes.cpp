@@ -10,6 +10,10 @@
 //
 #include "shapes.h"
 
+#include <algorithm>
+
+#include "framework/components/componentSystem.h"
+#include "framework/components/render/renderComponent.h"
 #include "framework/entity.h"
 #include "framework/gizmo/gizmoMaterial.h"
 #include "scene/meshInstance.h"
@@ -107,6 +111,9 @@ namespace visutwin::canvas
                 _meshInstances[1]->setVisible(false);
                 break;
         }
+        for (size_t i = 0; i < _occludedMeshInstances.size() && i < _meshInstances.size(); ++i) {
+            _occludedMeshInstances[i]->setVisible(_meshInstances[i]->visible());
+        }
     }
 
     // ---------------------------------------------------------------- BoxShape
@@ -190,9 +197,55 @@ namespace visutwin::canvas
     PlaneShape::PlaneShape(Engine* engine, const ShapeArgs& args)
         : Shape(engine, "plane", doubleSided(args))
     {
-        addTriData(createPlaneGeometry());
+        addTriData(createPlaneGeometry(), 1);
         createRenderComponent(_entity, {createMesh(createPlaneGeometry())});
+
+        // the outlines along the two outer edges
+        _outlineMaterial = std::make_shared<GizmoMaterial>(_device);
+        _outlineMaterial->setDepth(_depth > 0.0f ? _depth : -1.0f);
+        _outlineMaterial->setCullMode(_cull);
+        const auto mesh = createMesh(createBoxGeometry());
+        for (size_t i = 0; i < _outlines.size(); ++i) {
+            Entity* outline = createChild(_entity, std::string("outline:") + gizmoAxisName(_axis) + ":" +
+                std::to_string(i));
+            auto* render = static_cast<RenderComponent*>(outline->addComponent<RenderComponent>());
+            if (!render) {
+                continue;
+            }
+            render->setLayers(_layers);
+            render->setCastShadows(false);
+            render->setReceiveShadows(false);
+            auto instance = std::make_unique<MeshInstance>(mesh, std::static_pointer_cast<Material>(_outlineMaterial),
+                outline);
+            instance->setCull(false);
+            instance->setCastShadow(false);
+            instance->setReceiveShadow(false);
+            instance->setVisible(_visible);
+            _outlines[i] = outline;
+            _outlineMeshInstances[i] = render->addMeshInstance(std::move(instance));
+        }
+
         update();
+        hover(false);
+    }
+
+    void PlaneShape::setVisible(const bool value)
+    {
+        Shape::setVisible(value);
+        for (MeshInstance* instance : _outlineMeshInstances) {
+            if (instance) {
+                instance->setVisible(value);
+            }
+        }
+    }
+
+    void PlaneShape::hover(const bool state)
+    {
+        _hovered = state;
+        _material->setColor(stateColor(_opacity));
+        if (_outlineMaterial) {
+            _outlineMaterial->setColor(stateColor());
+        }
     }
 
     void PlaneShape::setFlipped(const Vector3& value)
@@ -214,6 +267,26 @@ namespace visutwin::canvas
         _entity->setLocalPosition(_position);
         _entity->setLocalEulerAngles(_rotation.getX(), _rotation.getY(), _rotation.getZ());
         _entity->setLocalScale(_size, _size, _size);
+
+        // the outlines run along the edges away from the centre
+        const Vector3 outer = Quaternion::fromEulerAngles(_rotation.getX(), _rotation.getY(), _rotation.getZ())
+            .invert() * _position;
+        const float sx = outer.getX() < 0.0f ? -1.0f : 1.0f;
+        const float sz = outer.getZ() < 0.0f ? -1.0f : 1.0f;
+        const float t = _outlineThickness / _size;
+        for (Entity* outline : _outlines) {
+            if (outline) {
+                outline->setEnabled(t > 0.0f);
+            }
+        }
+        if (_outlines[0]) {
+            _outlines[0]->setLocalPosition(sx * 0.25f * t, 0.0f, sz * 0.5f);
+            _outlines[0]->setLocalScale(1.0f + 0.5f * t, t, t);
+        }
+        if (_outlines[1]) {
+            _outlines[1]->setLocalPosition(sx * 0.5f, 0.0f, sz * 0.25f * t);
+            _outlines[1]->setLocalScale(t, t, 1.0f + 0.5f * t);
+        }
     }
 
     // ---------------------------------------------------------------- SphereShape
@@ -230,5 +303,71 @@ namespace visutwin::canvas
     {
         const float scale = _radius * 2.0f;
         _entity->setLocalScale(scale, scale, scale);
+    }
+
+    // ---------------------------------------------------------------- CapsuleShape
+
+    CapsuleShape::CapsuleShape(Engine* engine, const ShapeArgs& args, const float height)
+        : Shape(engine, "capsule", args), _height(height)
+    {
+        addTriData(geometry());
+        createRenderComponent(_entity, {createMesh(geometry())});
+    }
+
+    PrimitiveGeometry CapsuleShape::geometry() const
+    {
+        // radius 1, the height caps included
+        const float height = std::max(_height, 2.0f);
+        return createConeBaseGeometry(1.0f, 1.0f, height - 2.0f, 1, 32, true);
+    }
+
+    void CapsuleShape::update()
+    {
+        replaceMeshes(_entity, {createMesh(geometry())});
+    }
+
+    // ---------------------------------------------------------------- ConeShape
+
+    ConeShape::ConeShape(Engine* engine, const ShapeArgs& args, const ConeShapeArgs& coneArgs)
+        : Shape(engine, "cone", args), _peakRadius(coneArgs.peakRadius), _segments(coneArgs.segments)
+    {
+        // hit-testing uses the initial peak radius
+        addTriData(geometry());
+        _body = createChild(_entity, std::string("body:") + gizmoAxisName(_axis));
+        _body->setLocalEulerAngles(0.0f, coneArgs.twist, 0.0f);
+        createRenderComponent(_body, {createMesh(geometry())});
+    }
+
+    PrimitiveGeometry ConeShape::geometry() const
+    {
+        return createConeBaseGeometry(0.5f, 0.5f * _peakRadius, 1.0f, 1, _segments, false);
+    }
+
+    void ConeShape::update()
+    {
+        replaceMeshes(_body, {createMesh(geometry())});
+    }
+
+    // ---------------------------------------------------------------- GlyphShape
+
+    namespace
+    {
+        ShapeArgs glyphArgs(ShapeArgs args)
+        {
+            if (!args.cull) {
+                args.cull = CullMode::CULLFACE_NONE;
+            }
+            return args;
+        }
+    }
+
+    GlyphShape::GlyphShape(Engine* engine, const ShapeArgs& args, Texture* texture)
+        : Shape(engine, "glyph", glyphArgs(args))
+    {
+        createRenderComponent(_entity, {createMesh(createPlaneGeometry())});
+        _material->setCoverageTexture(texture);
+        if (_occludedMaterial) {
+            _occludedMaterial->setCoverageTexture(texture);
+        }
     }
 }

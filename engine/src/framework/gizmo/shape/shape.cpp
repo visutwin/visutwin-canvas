@@ -31,6 +31,7 @@ namespace visutwin::canvas
         if (args.disabledColor) {
             _disabledColor = args.disabledColor;
         }
+        _occludedColor = args.occludedColor;
         _cull = args.cull.value_or(_cull);
         _depth = args.depth.value_or(_depth);
 
@@ -59,6 +60,42 @@ namespace visutwin::canvas
             std::find(_meshInstances.begin(), _meshInstances.end(), meshInstance) != _meshInstances.end();
     }
 
+    void Shape::setFade(const float value)
+    {
+        if (value == _fade) {
+            return;
+        }
+        _fade = value;
+        hover(_hovered);
+    }
+
+    Color Shape::stateColor(const float factor) const
+    {
+        Color color = _disabled ? *_disabledColor : _hovered ? *_hoverColor : *_defaultColor;
+        color.a *= _fade * factor;
+        return color;
+    }
+
+    void Shape::setDepthBias(const float value)
+    {
+        _material->setDepthBias(value);
+    }
+
+    float Shape::depthBias() const
+    {
+        return _material->depthBias();
+    }
+
+    void Shape::setDepthWrite(const bool value)
+    {
+        _material->setDepthWrite(value);
+    }
+
+    bool Shape::depthWrite() const
+    {
+        return _material->depthWrite();
+    }
+
     void Shape::setDisabled(const bool value)
     {
         _disabled = value;
@@ -73,13 +110,21 @@ namespace visutwin::canvas
         for (MeshInstance* meshInstance : _meshInstances) {
             meshInstance->setVisible(value);
         }
+        for (MeshInstance* meshInstance : _occludedMeshInstances) {
+            meshInstance->setVisible(value);
+        }
         _visible = value;
     }
 
     void Shape::hover(const bool state)
     {
-        const Color* color = _disabled ? _disabledColor : state ? _hoverColor : _defaultColor;
-        _material->setColor(*color);
+        _hovered = state;
+        _material->setColor(stateColor());
+        if (_occludedColor && _occludedMaterial) {
+            Color occluded = *_occludedColor;
+            occluded.a *= _fade;
+            _occludedMaterial->setColor(occluded);
+        }
     }
 
     std::shared_ptr<Mesh> Shape::createMesh(const PrimitiveGeometry& geometry) const
@@ -113,6 +158,14 @@ namespace visutwin::canvas
         _material->setColor(color);
         _material->setCullMode(_cull);
 
+        if (_occludedColor && !_occludedMaterial) {
+            _occludedMaterial = std::make_shared<GizmoMaterial>(_device);
+            _occludedMaterial->setColor(*_occludedColor);
+            _occludedMaterial->setCullMode(_cull);
+            _occludedMaterial->setDepthTest(false);
+            _occludedMaterial->setDepthWrite(false);
+        }
+
         auto* render = entity ? static_cast<RenderComponent*>(entity->addComponent<RenderComponent>()) : nullptr;
         if (!render) {
             return;
@@ -120,16 +173,31 @@ namespace visutwin::canvas
         render->setLayers(_layers);
         render->setCastShadows(false);
         render->setReceiveShadows(false);
-        for (const auto& mesh : meshes) {
-            if (!mesh) {
-                continue;
-            }
-            auto instance = std::make_unique<MeshInstance>(mesh, std::static_pointer_cast<Material>(_material), entity);
+        addMeshInstances(render, entity, meshes, {});
+    }
+
+    void Shape::addMeshInstances(RenderComponent* render, Entity* entity,
+        const std::vector<std::shared_ptr<Mesh>>& meshes, const std::vector<bool>& visibility)
+    {
+        const auto add = [&](const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<GizmoMaterial>& material,
+            const bool visible) {
+            auto instance = std::make_unique<MeshInstance>(mesh, std::static_pointer_cast<Material>(material), entity);
             instance->setCull(false);
             instance->setCastShadow(false);
             instance->setReceiveShadow(false);
-            instance->setVisible(_visible);
-            _meshInstances.push_back(render->addMeshInstance(std::move(instance)));
+            instance->setVisible(visible);
+            return render->addMeshInstance(std::move(instance));
+        };
+        // each occluded instance draws before its visible instance
+        for (size_t i = 0; i < meshes.size(); ++i) {
+            if (!meshes[i]) {
+                continue;
+            }
+            const bool visible = i < visibility.size() ? visibility[i] : _visible;
+            if (_occludedMaterial) {
+                _occludedMeshInstances.push_back(add(meshes[i], _occludedMaterial, visible));
+            }
+            _meshInstances.push_back(add(meshes[i], _material, visible));
         }
     }
 
@@ -140,24 +208,17 @@ namespace visutwin::canvas
             return;
         }
         std::vector<bool> visibility;
-        for (const MeshInstance* instance : render->meshInstances()) {
-            visibility.push_back(instance->visible());
-        }
-        std::erase_if(_meshInstances, [entity](const MeshInstance* instance) {
-            return instance->node() == entity;
-        });
-        render->clearMeshInstances();
-        for (size_t i = 0; i < meshes.size(); ++i) {
-            if (!meshes[i]) {
-                continue;
+        for (const MeshInstance* instance : _meshInstances) {
+            if (instance->node() == entity) {
+                visibility.push_back(instance->visible());
             }
-            auto instance = std::make_unique<MeshInstance>(meshes[i], std::static_pointer_cast<Material>(_material), entity);
-            instance->setCull(false);
-            instance->setCastShadow(false);
-            instance->setReceiveShadow(false);
-            instance->setVisible(i < visibility.size() ? visibility[i] : _visible);
-            _meshInstances.push_back(render->addMeshInstance(std::move(instance)));
         }
+        const auto onEntity = [entity](const MeshInstance* instance) { return instance->node() == entity; };
+        std::erase_if(_meshInstances, onEntity);
+        std::erase_if(_occludedMeshInstances, onEntity);
+        render->clearMeshInstances();
+        addMeshInstances(render, entity, meshes, visibility);
+        ++_meshVersion;
     }
 
     void Shape::update()

@@ -12,30 +12,27 @@
 #include "platform/graphics/depthState.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/shader.h"
+#include "platform/graphics/shaderFeatures.h"
 
 namespace visutwin::canvas
 {
     namespace
     {
-        // engine/shaders/slang/programs/gizmo.slang, cached on the device.
-        std::shared_ptr<Shader> sharedGizmoShader(const std::shared_ptr<GraphicsDevice>& device)
-        {
-            return getOrCreateSlangShader(device.get(), "gizmo");
-        }
+        // Feature word 0 of the gizmo program (programs/gizmo.slang: kGizmoTexture).
+        constexpr uint32_t kGizmoTexture = 1u << 0u;
     }
 
     GizmoMaterial::GizmoMaterial(const std::shared_ptr<GraphicsDevice>& device)
+        : _device(device)
     {
         setName("gizmo-unlit");
         // blendType BLEND_NORMAL, depth test and write left at their defaults,
         // back faces culled (the plane shape turns culling off).
         setBlendState(std::make_shared<BlendState>(BlendState::alphaBlend()));
-        setDepthState(std::make_shared<DepthState>());
+        updateDepthState();
         setCullMode(CullMode::CULLFACE_BACK);
         setTransparent(true);
-        if (device) {
-            setShaderOverride(sharedGizmoShader(device));
-        }
+        updateShader();
     }
 
     void GizmoMaterial::setColor(const Color& color)
@@ -55,9 +52,59 @@ namespace visutwin::canvas
         markUniformsDirty();
     }
 
+    void GizmoMaterial::setDepthTest(const bool value)
+    {
+        _depthTest = value;
+        updateDepthState();
+    }
+
+    void GizmoMaterial::setDepthWrite(const bool value)
+    {
+        _depthWrite = value;
+        updateDepthState();
+    }
+
+    void GizmoMaterial::setDepthBias(const float value)
+    {
+        _depthBias = value;
+        updateDepthState();
+    }
+
+    void GizmoMaterial::updateDepthState()
+    {
+        auto state = std::make_shared<DepthState>();
+        state->setDepthTest(_depthTest);
+        state->setDepthWrite(_depthWrite);
+        state->setDepthBias(_depthBias);
+        state->setSlopeDepthBias(_depthBias);
+        setDepthState(state);
+    }
+
+    void GizmoMaterial::setCoverageTexture(Texture* texture)
+    {
+        setBaseColorTexture(texture);
+        setHasBaseColorTexture(texture != nullptr);
+        if (_textured != (texture != nullptr)) {
+            _textured = texture != nullptr;
+            updateShader();
+        }
+    }
+
+    void GizmoMaterial::updateShader()
+    {
+        if (!_device) {
+            return;
+        }
+        ShaderFeatureSet features;
+        features.setWord(0, _textured ? kGizmoTexture : 0u);
+        setShaderOverride(getOrCreateSlangShader(_device.get(), "gizmo", {}, features));
+    }
+
     const void* GizmoMaterial::customUniformData(size_t& outSize) const
     {
-        outSize = sizeof(_block);
-        return &_block;
+        _drawn = _block;
+        _drawn.depth[1] = _device && _device->hdrPass() ? 1.0f : 0.0f;
+        outSize = sizeof(_drawn);
+        return &_drawn;
     }
 }

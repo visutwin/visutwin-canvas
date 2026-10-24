@@ -395,6 +395,12 @@ bindings like a program of the tree, so it needs the source tree at run time. Wh
   colour and depth grabs), and BOTH binders write it. A directional slot is a `depth2d` at 6
   / 35 or, under VSM, moments at 39 / 40: one of each pair per variant, chosen by
   `VT_FEATURE_VSM_SHADOWS`. A lane only one backend writes is a frame that is right on one.
+- **A program whose vertex entry is named `...InstancedVertex` is its own instanced stage on
+  Vulkan** (`createShaderFromCode`): a Vulkan pipeline adds the per-instance binding only for
+  a shader with an instanced vertex module, which the forward program names
+  `forwardInstancedVertex`. Read the instance vectors at Metal attributes 6-9 and Vulkan
+  locations 5-8 from the 64-byte instancing format (Vulkan's instance layout carries no
+  colour); `gizmo-line` is the example.
 - **Write `SV_VulkanVertexID` / `SV_VulkanInstanceID`, not `SV_VertexID` / `SV_InstanceID`.**
   The latter subtract the base vertex and instance (D3D's meaning), which on Vulkan declares
   the DrawParameters capability the device does not enable (a validation error), and differs
@@ -642,7 +648,12 @@ The engine owns the input DEVICES; the application owns the event loop.
 - **Losing window focus releases everything held.** A key or button held while
   focus moves away never sends its release, and would otherwise read as held for
   the rest of the process. The release EDGE is recorded too, so a caller watching
-  for it is not left waiting.
+  for it is not left waiting. No `keyup` / `mouseup` EVENT fires for them: the keyboard and
+  the mouse fire `blur` instead, after the release, so a listener that keeps its own state
+  from the events (KeyboardMouseSource's keys, a gizmo's drag) clears it there.
+- **Every MouseEvent carries a `serial`** no other mouse event of the process has, so
+  several listeners can tell they are handling the same event (the first gizmo hit claims a
+  press, the ones after it leave it).
 - **`Key` enumerators ARE SDL scancodes**, so a key the list does not name still
   works through a cast, and the list needs no translation table to get wrong. They
   are POSITIONAL: `Key::W` is the key left of `Key::S` whatever it types.
@@ -3796,6 +3807,12 @@ What stays HERE is only what bites during UNRELATED work.
   `element-states`). (3) `.basis` files do not load (libktx reads KTX2 only; `texture-basis`
   ships KTX2 re-encodes). (4) A custom shader material gets no skin or morph variant
   (`shaders/shader-hatch`).
+- **Slope-scaled depth bias under 4x MSAA differs between Metal and Vulkan (MoltenVK).** The
+  `light-gizmo` example's filled cone (bias 2 constant, 2 slope) seen at a grazing angle hides
+  a range-cap arc behind it on Metal, as upstream's thumbnail shows, and lets it through on
+  Vulkan: 121 pixels. Constant bias alone, no bias, or no MSAA agree to 3 counts, and both
+  backends hand the same values to `setDepthBias`. Not chased yet; a scene leaning on slope
+  bias in an MSAA target is where it shows (shadow maps are single-sampled).
 - **Queued — none a correctness bug:** the
   binding footprint exceeds WebGPU's defaults (Metal 43 texture slots, Vulkan 7 sets). The
   parsers derive tangents through one `generateTangents` / `tangentFromNormal`

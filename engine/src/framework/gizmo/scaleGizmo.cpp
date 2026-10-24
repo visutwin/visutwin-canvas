@@ -13,22 +13,10 @@
 
 namespace visutwin::canvas
 {
-    namespace
-    {
-
-
-        Vector3 roundVector(const Vector3& v)
-        {
-            return Vector3(std::round(v.getX()), std::round(v.getY()), std::round(v.getZ()));
-        }
-    }
-
     ScaleGizmo::ScaleGizmo(CameraComponent* camera, std::shared_ptr<Layer> layer)
         : TransformGizmo(camera, std::move(layer), "gizmo:scale")
     {
         _coordSpace = GizmoSpace::Local;
-        snapIncrement = 1.0f;
-
         _center = addShape<BoxShape>(GizmoAxis::XYZ, _engine, shapeArgs(GizmoAxis::XYZ));
         const auto planeArgs = [this](const GizmoAxis axis, const Vector3& rotation) {
             ShapeArgs args = shapeArgs(axis, rotation);
@@ -58,9 +46,7 @@ namespace visutwin::canvas
             // calculate scale delta and update node scales
             // Normalised by the gizmo's scale BEFORE snapping, so the snap is in scale units.
             Vector3 scaleDelta = (point - _selectionStartPoint) * (1.0f / _scale);
-            if (snap) {
-                scaleDelta = roundVector(scaleDelta * (1.0f / snapIncrement)) * snapIncrement;
-            }
+            scaleDelta = snapVector(scaleDelta, snapIncrement);
             const Vector3 factor = scaleDelta + Vector3(1.0f);
             setNodeScales(factor);
 
@@ -105,6 +91,17 @@ namespace visutwin::canvas
     void ScaleGizmo::setAxisPlaneGap(const float value) { for (auto* p : _planes) p->setGap(value); }
     float ScaleGizmo::axisCenterSize() const { return _center->size(); }
     void ScaleGizmo::setAxisCenterSize(const float value) { _center->setSize(value); }
+
+    float ScaleGizmo::axisPlaneOpacity() const { return _planes[0]->opacity(); }
+    void ScaleGizmo::setAxisPlaneOpacity(const float value) { for (auto* p : _planes) p->setOpacity(value); }
+    float ScaleGizmo::axisPlaneOutlineThickness() const { return _planes[0]->outlineThickness(); }
+    void ScaleGizmo::setAxisPlaneOutlineThickness(const float value) { for (auto* p : _planes) p->setOutlineThickness(value); }
+    float ScaleGizmo::axisFadeAngle() const { return _fadeAngle; }
+    void ScaleGizmo::setAxisFadeAngle(const float value)
+    {
+        _fadeAngle = value;
+        shapesLookAtCamera();
+    }
 
     void ScaleGizmo::shapesLookAtCamera()
     {

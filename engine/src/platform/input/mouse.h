@@ -26,6 +26,8 @@ namespace visutwin::canvas
      * here, because a frame can contain several move events and a drag wants each
      * one: summing them into a per-frame delta is the caller's choice, not the
      * device's. `deltaX()` and `deltaY()` offer that sum for callers that want it.
+     * `blur` (no payload) fires when the window loses focus, after every held button has
+     * been released: no `mouseup` arrives for them, so a drag in progress ends there.
      */
     class Mouse : public EventHandler
     {

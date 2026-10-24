@@ -12,6 +12,14 @@
 
 namespace visutwin::canvas
 {
+    namespace
+    {
+        uint64_t nextEventSerial()
+        {
+            static uint64_t serial = 0;
+            return ++serial;
+        }
+    }
 
     size_t Mouse::index(const MouseButton button)
     {
@@ -40,6 +48,7 @@ namespace visutwin::canvas
                 .button = MouseButton::None,
                 .modifiers = currentKeyModifiers(),
                 .fromTouch = event.motion.which == SDL_TOUCH_MOUSEID,
+                .serial = nextEventSerial(),
             });
             break;
         }
@@ -57,6 +66,7 @@ namespace visutwin::canvas
                 .x = event.button.x, .y = event.button.y,
                 .button = button, .modifiers = currentKeyModifiers(),
                 .fromTouch = event.button.which == SDL_TOUCH_MOUSEID,
+                .serial = nextEventSerial(),
             });
             break;
         }
@@ -75,6 +85,7 @@ namespace visutwin::canvas
                 .x = event.button.x, .y = event.button.y,
                 .button = button, .modifiers = currentKeyModifiers(),
                 .fromTouch = event.button.which == SDL_TOUCH_MOUSEID,
+                .serial = nextEventSerial(),
             });
             break;
         }
@@ -86,11 +97,13 @@ namespace visutwin::canvas
                 .wheelDelta = event.wheel.y,
                 .button = MouseButton::None,
                 .modifiers = currentKeyModifiers(),
+                .serial = nextEventSerial(),
             });
             break;
         }
         case SDL_EVENT_WINDOW_FOCUS_LOST:
             detach();
+            fire("blur");
             break;
         default:
             break;

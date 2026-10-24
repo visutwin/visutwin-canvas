@@ -6,14 +6,18 @@
 // The base of every gizmo.
 //
 // A gizmo is an interactive widget drawn over the scene in its own Layer —
-// `createLayer` makes one that clears depth and keeps collection order, and the
-// constructor adds it to the camera. It acts on the GraphNodes it is attached to, keeps
+// `createLayer` makes one that clears depth and keeps collection order (or, with `depth`,
+// one that keeps the scene depth and sorts its transparent draws by draw order, for the
+// overlay gizmos), and the constructor adds it to the camera. It acts on the GraphNodes it
+// is attached to, keeps
 // a constant apparent size as the camera moves (`size` scales it), follows the 'world'
 // or 'local' axes, and selects its shapes by intersecting the pointer ray with their
 // triangles (TriData). It updates itself from the engine's `update` and `prerender`
 // events, so it needs no per-frame call, and reads the pointer from the engine's mouse
 // device (`mousedown` / `mousemove` / `mouseup`, window points), so it needs no event
-// forwarding either.
+// forwarding either. Where gizmos overlap, a press goes to the first one created that it
+// hits, so create the gizmos that should win, such as transform gizmos, first. Losing the
+// window's focus (the mouse's `blur`) ends a drag as a release that hits nothing.
 //
 // Events: `pointer:down`, `pointer:move`, `pointer:up` (float x, float y,
 // MeshInstance* — null off the gizmo), `position:update` (Vector3), `rotation:update`
@@ -24,6 +28,7 @@
 
 #include <array>
 #include <climits>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -32,6 +37,7 @@
 #include "core/eventHandler.h"
 #include "core/math/quaternion.h"
 #include "core/math/vector3.h"
+#include "core/shape/ray.h"
 #include "framework/gizmo/gizmoConstants.h"
 
 namespace visutwin::canvas
@@ -65,10 +71,12 @@ namespace visutwin::canvas
         static constexpr const char* EVENT_NODESDETACH = "nodes:detach";
         static constexpr const char* EVENT_RENDERUPDATE = "render:update";
 
-        /// A layer that clears depth and sorts nothing,
-        /// inserted into the scene's composition at `layerIndex` (the end by default).
+        /// A layer inserted into the scene's composition at `layerIndex` (the end by default).
+        /// It clears depth and sorts nothing, drawing on top as transform gizmos need; with
+        /// `depth` it keeps the scene depth and sorts its transparent draws manually, as the
+        /// overlay gizmos need so their occluded parts draw faint.
         static std::shared_ptr<Layer> createLayer(Engine* engine, const std::string& layerName = "Gizmo",
-                                                  int layerIndex = INT_MAX);
+                                                  int layerIndex = INT_MAX, bool depth = false);
 
         Gizmo(CameraComponent* camera, std::shared_ptr<Layer> layer, const std::string& name = "gizmo");
         ~Gizmo() override;
@@ -121,15 +129,35 @@ namespace visutwin::canvas
         /// The pointer entry points the mouse device drives. `button` is
         /// 0 left, 1 middle, 2 right. Public so an application
         /// with its own input, or a test, can drive the gizmo directly.
-        void pointerDown(float x, float y, int button);
+        /// `press` names the press when several gizmos handle it (MouseEvent::serial): the
+        /// first one whose shapes it hits claims it, and the rest leave it. 0 claims nothing.
+        void pointerDown(float x, float y, int button, uint64_t press = 0);
         void pointerMove(float x, float y);
         void pointerUp(float x, float y, int button);
+        /// Ends a drag without a hit, as a cancelled pointer does (the window losing focus).
+        void pointerCancel();
 
         /// The first mesh instance of the nearest (or highest
         /// priority) shape under canvas point (x, y), or null.
         MeshInstance* getSelection(float x, float y) const;
 
+        /// Makes a shape pickable, or no longer: an owner of shapes it creates as it draws (an
+        /// overlay renderer) registers each and takes it out before freeing it.
+        void addIntersectShape(Shape* shape) { _intersectShapes.push_back(shape); }
+        void removeIntersectShape(const Shape* shape);
+
     protected:
+        /// Whether the gizmo shows only with attached nodes (a shape gizmo draws without).
+        /// Virtual calls do not reach a subclass from the base constructor, which never asks.
+        virtual bool requiresNodes() const { return true; }
+
+        /// The world scale keeping geometry at `position` a constant size on screen.
+        float getScreenScale(const Vector3& position) const;
+
+        /// The pointer ray through `mouseWPos`: from the camera in perspective, along its
+        /// forward from behind the scene in orthographic.
+        Ray createRay(const Vector3& mouseWPos) const;
+
         Vector3 facingDir() const;
         Vector3 cameraDir() const;
 
@@ -178,6 +206,8 @@ namespace visutwin::canvas
         DestroyWatch _cameraDestroyed;
         bool _destroyed = false;
         bool _captured = false;
+        // a press is held (between pointerDown and pointerUp or pointerCancel)
+        bool _held = false;
         // The enabled state last asked for; a layer or camera change keeps it.
         bool _enabledRequested = true;
     };

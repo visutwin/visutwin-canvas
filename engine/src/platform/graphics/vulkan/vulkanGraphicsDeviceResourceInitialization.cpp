@@ -989,7 +989,12 @@ namespace visutwin::canvas
         };
         const auto data = [](const std::vector<uint32_t>* words) { return words ? words->data() : nullptr; };
         const auto size = [](const std::vector<uint32_t>* words) { return words ? words->size() : size_t{0}; };
+        // A program whose vertex entry is named ...InstancedVertex (the gizmo line batch) reads
+        // per-instance attributes itself: it is its own instanced stage.
         const auto* instanced = family("forwardInstancedVertex");
+        if (!instanced && definition.vshader.ends_with("InstancedVertex") && !code.vertexSpirv.empty()) {
+            instanced = &code.vertexSpirv;
+        }
         const auto* sky = family("forwardSkyVertex");
         const auto* color = family("forwardColorVertex");
         const auto* point = family("forwardPointVertex");

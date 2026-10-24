@@ -5,91 +5,66 @@
 //
 // Port of upstream gizmos/bounding-box.
 //
-// Corner brackets outline the bounds of a default white box at the origin, faint where the box
-// hides them: a BoundingBoxGizmo drawn in a layer that keeps the scene's depth, over the default
-// infinite Grid, the box lit by a default directional light at euler (0, 0, -60) with ambient 0.2. The camera
-// starts at 4 x its aspect on each axis, orbiting the origin (zoom 2..10, pitch +/-89.999,
-// damping 0.95, no fly).
+// Corner brackets, dashed edges and a faint volume outline the bounds of a default white box at
+// the origin, faint where the box hides them: a BoundingBoxGizmo in a layer that keeps the scene's
+// depth, over the default infinite Grid, the box lit by a default directional light at euler
+// (0, 0, -60) with ambient 0.2. Once large on screen, face and corner handles resize the box,
+// labelled with its width, height and depth, and a marker shows its origin. The camera starts at
+// 4 x its aspect on each axis, orbiting the origin (zoom 2..10, pitch +/-89.999, damping 0.95, no
+// fly), and stops orbiting while a handle is dragged.
 //
 // Keys stand in for upstream's controls panel:
 //   [ / ]  arm length -/+ 0.05 (0.05..1)
 //   - / =  arm thickness -/+ 0.5 (1..10)
 //   , / .  padding -/+ 0.01 (0..0.5)
 //   O      occluded colour alpha, cycled 0.2 / 0.5 / 0
+//   D      dashed edges on / off
+//   F      face handles on / off
+//   C      corner handles on / off
+//   E      resize centred on / off
+//   U      corner handles scale uniformly on / off
+//   H      handles on / off
+//   R      readout on / off
+//   I      origin marker on / off
+//   S      snap on / off (lengths by 1)
 //   P      projection, perspective / orthographic
 //   9 / 0  fov -/+ 5 (30..100)
 //
 // DEVIATIONS:
-// - No controls panel; the theme is cycled by a key instead of two colour pickers.
+// - No controls panel; the occluded alpha is cycled by a key instead of the colour pickers.
 // - Upstream's Grid script is the Grid extra used directly (Grid::attach).
 // - The camera controls have no `sceneSize` here; with fly off it changes nothing upstream shows.
 //
 #include <algorithm>
 #include <memory>
 
-#include "../exampleApp.h"
-#include "extras/grid/grid.h"
-#include "extras/script/cameraControls.h"
+#include "../overlayGizmoExample.h"
 #include "framework/gizmo/boundingBoxGizmo.h"
-#include "scene/layer.h"
 #include "scene/materials/standardMaterial.h"
 
 using namespace visutwin::canvas;
 
-class BoundingBoxExample final : public ExampleApp
+class BoundingBoxExample final : public OverlayGizmoExample
 {
 public:
-    BoundingBoxExample() : ExampleApp({.title = "Bounding Box Gizmo"}) {}
+    BoundingBoxExample() : OverlayGizmoExample("Bounding Box Gizmo") {}
 
 protected:
     bool create() override
     {
-        scene()->setAmbientLight(0.2f, 0.2f, 0.2f);
+        if (!createStage(4.0f, Vector2(2.0f, 10.0f), "Bounds")) {
+            return false;
+        }
 
         _boxMaterial = std::make_shared<StandardMaterial>();
         auto* box = createPrimitive("box", _boxMaterial.get());
 
-        _cameraEntity = createCamera(Vector3(0.0f, 0.0f, 0.0f));
-        auto* camera = _cameraEntity->findComponent<CameraComponent>();
-        if (!camera || !camera->camera()) {
-            spdlog::error("Failed to create camera");
-            return false;
-        }
-        camera->camera()->setClearColor(Color(0.1f, 0.1f, 0.1f, 1.0f));
-        camera->camera()->setFarClip(1000.0f);
-        const float cameraOffset = 4.0f * camera->camera()->aspectRatio();
-        _cameraEntity->setPosition(Vector3(cameraOffset, cameraOffset, cameraOffset));
-
-        if (auto* controls = addOrbitControls(_cameraEntity, Vector3(0.0f, 0.0f, 0.0f))) {
-            controls->setRotateDamping(0.95f);
-            controls->setMoveDamping(0.95f);
-            controls->setZoomDamping(0.95f);
-            controls->setPitchRange(Vector2(-89.999f, 89.999f));
-            controls->setZoomRange(Vector2(2.0f, 10.0f));
-            controls->setEnableFly(false);
-            controls->storeResetState();
-        }
-
-        auto* light = new Entity();
-        light->setEngine(engine());
-        light->addComponent<LightComponent>();
-        root()->addChild(light);
-        light->setLocalEulerAngles(0.0f, 0.0f, -60.0f);
-
-        // The gizmo's layer keeps the scene depth, so the hidden parts draw in the occluded colour.
-        _layer = Gizmo::createLayer(engine(), "Bounds");
-        _layer->setClearDepthBuffer(false);
-        _gizmo = std::make_unique<BoundingBoxGizmo>(camera, _layer);
+        _gizmo = std::make_unique<BoundingBoxGizmo>(_camera, _layer);
+        watch(_gizmo.get());
         _gizmo->attach(box);
 
-        auto* gridEntity = new Entity();
-        gridEntity->setEngine(engine());
-        gridEntity->setName("grid");
-        root()->addChild(gridEntity);
-        _grid = std::make_unique<Grid>(device());
-        _grid->attach(gridEntity);
-
-        spdlog::info("Keys: [ ] arm length | - = thickness | , . padding | O occluded alpha | "
+        spdlog::info("Keys: [ ] arm length | - = thickness | , . padding | O occluded alpha | D edges | "
+                     "F face | C corner | E centred | U uniform | H handles | R readout | I origin | S snap | "
                      "P projection | 9 0 fov");
         return true;
     }
@@ -97,20 +72,20 @@ protected:
     void update(float /*dt*/) override
     {
         handleKeys();
+        updateStage(_gizmo ? _gizmo->labels() : std::vector<GizmoReadout>{});
     }
 
     void destroy() override
     {
         _gizmo.reset();
-        _grid.reset();
+        destroyStage();
     }
 
 private:
     void handleKeys()
     {
         const auto* keyboard = engine()->keyboard();
-        auto* cameraComponent = _cameraEntity ? _cameraEntity->findComponent<CameraComponent>() : nullptr;
-        Camera* camera = cameraComponent ? cameraComponent->camera() : nullptr;
+        Camera* camera = _camera ? _camera->camera() : nullptr;
         if (!keyboard || !_gizmo || !camera) {
             return;
         }
@@ -130,19 +105,22 @@ private:
             occluded.a = alphas[_occludedAlpha];
             _gizmo->setTheme({.occluded = occluded});
         }
-        if (keyboard->wasPressed(Key::P)) {
-            camera->setProjection(camera->projection() == ProjectionType::Perspective
-                ? ProjectionType::Orthographic : ProjectionType::Perspective);
-        }
+        if (keyboard->wasPressed(Key::D)) _gizmo->edges = !_gizmo->edges;
+        if (keyboard->wasPressed(Key::F)) _gizmo->faceHandles = !_gizmo->faceHandles;
+        if (keyboard->wasPressed(Key::C)) _gizmo->cornerHandles = !_gizmo->cornerHandles;
+        if (keyboard->wasPressed(Key::E)) _gizmo->centered = !_gizmo->centered;
+        if (keyboard->wasPressed(Key::U)) _gizmo->uniform = !_gizmo->uniform;
+        if (keyboard->wasPressed(Key::H)) _gizmo->handles = !_gizmo->handles;
+        if (keyboard->wasPressed(Key::R)) _gizmo->readout = !_gizmo->readout;
+        if (keyboard->wasPressed(Key::I)) _gizmo->icon = !_gizmo->icon;
+        if (keyboard->wasPressed(Key::S)) _gizmo->snap = !_gizmo->snap;
+        if (keyboard->wasPressed(Key::P)) toggleProjection();
         if (keyboard->wasPressed(Key::Digit9)) camera->setFov(std::max(camera->fov() - 5.0f, 30.0f));
         if (keyboard->wasPressed(Key::Digit0)) camera->setFov(std::min(camera->fov() + 5.0f, 100.0f));
     }
 
     std::shared_ptr<StandardMaterial> _boxMaterial;
-    std::shared_ptr<Layer> _layer;
     std::unique_ptr<BoundingBoxGizmo> _gizmo;
-    std::unique_ptr<Grid> _grid;
-    Entity* _cameraEntity = nullptr;
     int _occludedAlpha = 0;
 };
 

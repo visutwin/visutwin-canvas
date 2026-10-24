@@ -3,17 +3,20 @@
 //
 // Created by Arnis Lektauers on 02.10.2026
 //
-// The gizmo shapes: arrow, arc, box, box line, plane and sphere.
+// The gizmo shapes: arrow, arc, box, box line, plane, sphere, capsule, cone and icon glyph.
 //
 #pragma once
 
 #include <array>
+#include <memory>
 
 #include "framework/components/render/primitiveGeometry.h"
 #include "framework/gizmo/shape/shape.h"
 
 namespace visutwin::canvas
 {
+    class Texture;
+
     /// A cylinder line from `gap` out to `gap + lineLength`, capped
     /// by a cone head. Picked against the cone and a cylinder fattened by `tolerance`.
     class ArrowShape final : public Shape
@@ -78,6 +81,7 @@ namespace visutwin::canvas
         float ringRadius() const { return _ringRadius; }
         void setRingRadius(float value) { _ringRadius = value; update(); }
         float sectorAngle() const { return _sectorAngle; }
+        void setSectorAngle(float value) { _sectorAngle = value; update(); }
         float tolerance() const { return _tolerance; }
         void setTolerance(float value) { _tolerance = value; update(); }
 
@@ -151,7 +155,8 @@ namespace visutwin::canvas
     };
 
     /// The two-axis handle, a square offset from the centre into the
-    /// quadrant `flipped` selects. Drawn double sided.
+    /// quadrant `flipped` selects, drawn translucent and double sided, with an outline along
+    /// its two outer edges.
     class PlaneShape final : public Shape
     {
     public:
@@ -163,6 +168,16 @@ namespace visutwin::canvas
         void setSize(float value) { _size = value; update(); }
         float gap() const { return _gap; }
         void setGap(float value) { _gap = value; update(); }
+
+        /// A factor of the fill's alpha (the outline keeps the full colour). 0.35 by default.
+        float opacity() const { return _opacity; }
+        void setOpacity(float value) { _opacity = value; hover(_hovered); }
+        /// The outline thickness in the gizmo's units; 0 hides it. 0.01 by default.
+        float outlineThickness() const { return _outlineThickness; }
+        void setOutlineThickness(float value) { _outlineThickness = value; update(); }
+
+        void setVisible(bool value) override;
+        void hover(bool state) override;
 
         /// Per component, 1 flips the offset along that axis.
         const Vector3& flipped() const { return _flipped; }
@@ -178,6 +193,11 @@ namespace visutwin::canvas
         float _size = 0.16f;
         float _gap = 0.0f;
         Vector3 _flipped = Vector3(0.0f);
+        float _opacity = 0.35f;
+        float _outlineThickness = 0.01f;
+        std::shared_ptr<GizmoMaterial> _outlineMaterial;
+        std::array<Entity*, 2> _outlines{};
+        std::array<MeshInstance*, 2> _outlineMeshInstances{};
     };
 
     /// The translate gizmo's centre and the rotate gizmo's orbit sphere.
@@ -194,5 +214,63 @@ namespace visutwin::canvas
 
     private:
         float _radius = 0.03f;
+    };
+
+    /// A capsule along y of radius 1, `height` (caps included, at least 2) its height in
+    /// radii: the entity's scale sets the radius.
+    class CapsuleShape final : public Shape
+    {
+    public:
+        CapsuleShape(Engine* engine, const ShapeArgs& args, float height = 4.0f);
+
+        float height() const { return _height; }
+        void setHeight(float value) { _height = value; update(); }
+
+    protected:
+        void update() override;
+
+    private:
+        PrimitiveGeometry geometry() const;
+
+        float _height = 4.0f;
+    };
+
+    struct ConeShapeArgs
+    {
+        /// The peak radius as a fraction of the base radius: 0 a cone, 1 a cylinder.
+        float peakRadius = 0.0f;
+        /// The divisions around: 32 a round cone, 3 a triangle, 4 a square pyramid.
+        int segments = 32;
+        /// A turn about y, in degrees (45 sets a square pyramid's sides along the axes).
+        float twist = 0.0f;
+    };
+
+    /// A unit cone along y, its base of radius 0.5 at y = -0.5. Picking keeps the initial
+    /// peak radius.
+    class ConeShape final : public Shape
+    {
+    public:
+        ConeShape(Engine* engine, const ShapeArgs& args, const ConeShapeArgs& coneArgs = {});
+
+        float peakRadius() const { return _peakRadius; }
+        void setPeakRadius(float value) { _peakRadius = value; update(); }
+
+    protected:
+        void update() override;
+
+    private:
+        PrimitiveGeometry geometry() const;
+
+        float _peakRadius = 0.0f;
+        int _segments = 32;
+        Entity* _body = nullptr;
+    };
+
+    /// A unit square on the xz plane drawing a texture's coverage in the shape's colour, its
+    /// image's top row toward -z. Double sided, and not picked by itself.
+    class GlyphShape final : public Shape
+    {
+    public:
+        GlyphShape(Engine* engine, const ShapeArgs& args, Texture* texture);
     };
 }

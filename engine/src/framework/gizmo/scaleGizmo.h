@@ -53,6 +53,16 @@ namespace visutwin::canvas
         void setAxisPlaneSize(float value);
         float axisPlaneGap() const;
         void setAxisPlaneGap(float value);
+        /// A factor of the planes' fill alpha (0.35); their outlines keep the full colour.
+        float axisPlaneOpacity() const;
+        void setAxisPlaneOpacity(float value);
+        /// The thickness of the planes' outlines in the gizmo's units (0.01); 0 hides them.
+        float axisPlaneOutlineThickness() const;
+        void setAxisPlaneOutlineThickness(float value);
+        /// The angle in degrees between the view and an axis or plane below which it fades out
+        /// (25), before it hides seen end-on or edge-on.
+        float axisFadeAngle() const;
+        void setAxisFadeAngle(float value);
         float axisCenterSize() const;
         void setAxisCenterSize(float value);
 

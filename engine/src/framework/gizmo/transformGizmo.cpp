@@ -11,16 +11,19 @@
 #include <cstdlib>
 #include <limits>
 
+#include "core/math/defines.h"
 #include "framework/components/camera/cameraComponent.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
+#include "framework/gizmo/overlay/overlayRenderer.h"
 #include "framework/gizmo/shape/shapes.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "scene/camera.h"
+#include "scene/composition/layerComposition.h"
 #include "scene/constants.h"
-#include "scene/graphics/wideLineRenderer.h"
 #include "scene/layer.h"
 #include "scene/meshInstance.h"
+#include "scene/scene.h"
 
 namespace visutwin::canvas
 {
@@ -28,6 +31,7 @@ namespace visutwin::canvas
     {
         // How far from end-on (an axis) or edge-on (a plane) a shape is still drawn.
         constexpr float GLANCE_EPSILON = 0.01f;
+        const float GLANCE_ANGLE = std::acos(1.0f - GLANCE_EPSILON);
 
         bool isSingleAxis(const GizmoAxis key)
         {
@@ -67,8 +71,27 @@ namespace visutwin::canvas
     }
 
     TransformGizmo::TransformGizmo(CameraComponent* camera, std::shared_ptr<Layer> layer, const std::string& name)
-        : Gizmo(camera, std::move(layer), name)
+        : DragGizmo(camera, std::move(layer), name)
     {
+        // guides sit on an unrotated root in the Immediate layer, whose depth lets the scene hide
+        // them, or follow the gizmo layer without one
+        auto guideRoot = std::make_unique<Entity>();
+        _guideRoot = guideRoot.get();
+        _guideRoot->setEngine(_engine);
+        _guideRoot->setName("guides");
+        if (_engine && _engine->root()) {
+            _engine->root()->addChild(std::move(guideRoot));
+        } else {
+            guideRoot.release();   // owned by `_guideRoot`, freed in destroy()
+        }
+        std::shared_ptr<Layer> guideLayer;
+        if (_engine && _engine->scene() && _engine->scene()->layers()) {
+            guideLayer = _engine->scene()->layers()->getLayerById(LAYERID_IMMEDIATE);
+        }
+        _guides = std::make_unique<OverlayRenderer>(this,
+            OverlayRendererTheme{&_guideBase, &_guideOccluded, &_guideFill, nullptr}, _guideRoot, guideLayer);
+        _guides->lineThickness = 1.0f;
+
         // color.js and the theme defaults
         _theme.shapeBase = {GIZMO_COLOR_RED, GIZMO_COLOR_GREEN, GIZMO_COLOR_BLUE,
             Color(0.8f, 0.8f, 0.8f, 1.0f), Color(0.8f, 0.8f, 0.8f, 1.0f)};
@@ -159,6 +182,18 @@ namespace visutwin::canvas
         }
     }
 
+    float TransformGizmo::guideThickness() const
+    {
+        return _guides ? _guides->lineThickness : 1.0f;
+    }
+
+    void TransformGizmo::setGuideThickness(const float value)
+    {
+        if (_guides) {
+            _guides->lineThickness = value;
+        }
+    }
+
     std::string TransformGizmo::readoutLabel(const GizmoAxis axis) const
     {
         const Color* color = themeColor(_theme.shapeBase, axis);
@@ -166,13 +201,7 @@ namespace visutwin::canvas
         if (!color) {
             return letter;
         }
-        const auto channel = [](const float c) {
-            return static_cast<unsigned>(std::lround(std::clamp(c, 0.0f, 1.0f) * 255.0f));
-        };
-        char markup[48];
-        std::snprintf(markup, sizeof(markup), "[color=\"#%02x%02x%02x\"]%s[/color]", channel(color->r),
-            channel(color->g), channel(color->b), letter);
-        return markup;
+        return labelMarkup(letter, *color);
     }
 
     std::string TransformGizmo::readoutDelta(const float value, const int digits)
@@ -395,18 +424,6 @@ namespace visutwin::canvas
         }
     }
 
-    Ray TransformGizmo::createRay(const Vector3& mouseWPos) const
-    {
-        if (_camera && _camera->camera() && _camera->camera()->projection() == ProjectionType::Perspective) {
-            const Vector3 origin = cameraPosition();
-            return Ray(origin, (mouseWPos - origin).normalized());
-        }
-        const float orthoDepth = _camera && _camera->camera() ?
-            _camera->camera()->farClip() - _camera->camera()->nearClip() : 0.0f;
-        const Vector3 forward = cameraForward();
-        return Ray(mouseWPos - forward * orthoDepth, forward);
-    }
-
     Plane TransformGizmo::createPlane(const GizmoAxis axis, const bool isFacing, const bool isLine) const
     {
         const Vector3 facing = facingDir();
@@ -421,9 +438,10 @@ namespace visutwin::canvas
             normal = _rootStartRot * normal;
 
             if (isLine) {
-                // set plane normal to face camera but keep normal perpendicular to axis
-                const Vector3 v2 = normal.cross(facing).normalized();
-                normal = v2.cross(normal).normalized();
+                // face the camera but stay perpendicular to the axis
+                Vector3 lineNormalOut;
+                lineNormal(normal, facing, lineNormalOut);
+                normal = lineNormalOut;
             }
         }
 
@@ -496,94 +514,20 @@ namespace visutwin::canvas
         const Vector3 from = rot * (dir * (_camera->camera()->farClip() - _camera->camera()->nearClip())) + pos;
         const Vector3 to = rot * (dir * -(_camera->camera()->farClip() - _camera->camera()->nearClip())) + pos;
         _frameGuideLines.emplace_back(from, to);
-        if (_theme.guideOcclusion < 1.0f) {
-            Color occluded = *base;
-            occluded.a *= (1.0f - _theme.guideOcclusion);
-            _occludedLines.push_back({from, to, occluded});
-        }
-        if (base->a != 0.0f) {
-            _baseLines.push_back({from, to, *base});
-        }
+        _guides->line(from, to, 1.0f, base->a, base);
     }
 
-    void TransformGizmo::setLayer(const std::shared_ptr<Layer>& layer)
+    bool TransformGizmo::glance(Shape* shape, const float cos)
     {
-        Gizmo::setLayer(layer);
-        if (_occludedRenderer && layer) {
-            _occludedRenderer->setLayers({layer->id()});
+        const bool visible = 1.0f - cos > GLANCE_EPSILON;
+        const float range = _fadeAngle * DEG_TO_RAD - GLANCE_ANGLE;
+        shape->setFade(visible && range > 0.0f
+            ? std::clamp((std::acos(std::min(cos, 1.0f)) - GLANCE_ANGLE) / range, 0.0f, 1.0f) : 1.0f);
+        if (shape->entity()->enabledLocal() == visible) {
+            return false;
         }
-    }
-
-    void TransformGizmo::flushGuideLines()
-    {
-        if (!_engine || !_engine->graphicsDevice() || !_layer) {
-            return;
-        }
-        if (!_baseRenderer && _baseLines.empty() && _occludedLines.empty()) {
-            return;
-        }
-        if (!_baseRenderer) {
-            // created on first use, so their render components follow the shapes' in the
-            // gizmo layer's collection order
-            _baseRenderer = std::make_unique<WideLineRenderer>(_engine, _engine->graphicsDevice());
-            _baseRenderer->setLayers({LAYERID_IMMEDIATE});
-            _occludedRenderer = std::make_unique<WideLineRenderer>(_engine, _engine->graphicsDevice());
-            _occludedRenderer->setLayers({_layer->id()});
-            _occludedRenderer->setBlend(true);
-            _occludedRenderer->setDepthTest(false);
-        }
-
-        const auto [width, height] = _engine->graphicsDevice()->size();
-        _baseRenderer->setScreenSize(static_cast<float>(width), static_cast<float>(height));
-        _occludedRenderer->setScreenSize(static_cast<float>(width), static_cast<float>(height));
-
-        // A wide line is expanded in screen space, so a point behind the camera would fold
-        // the line back across the screen. Clip each to just in front of the near plane.
-        const Vector3 camPos = cameraPosition();
-        const Vector3 forward = cameraForward();
-        const float nearClip = _camera && _camera->camera() ? _camera->camera()->nearClip() * 1.01f : 0.0f;
-        const auto clip = [&](Vector3& a, Vector3& b) {
-            const float da = (a - camPos).dot(forward) - nearClip;
-            const float db = (b - camPos).dot(forward) - nearClip;
-            if (da < 0.0f && db < 0.0f) {
-                return false;
-            }
-            if (da < 0.0f) {
-                a = a + (b - a) * (da / (da - db));
-            } else if (db < 0.0f) {
-                b = b + (a - b) * (db / (db - da));
-            }
-            return true;
-        };
-
-        const auto sync = [&](WideLineRenderer& renderer, std::array<WideLine, 3>& wideLines, size_t& shown,
-            const std::vector<GuideLine>& lines) {
-            size_t count = 0;
-            for (const GuideLine& line : lines) {
-                if (count >= wideLines.size()) {
-                    break;
-                }
-                Vector3 a = line.from;
-                Vector3 b = line.to;
-                if (!clip(a, b)) {
-                    continue;
-                }
-                WideLine& wide = wideLines[count];
-                wide.setPoints({a, b}, line.color, 1.0f);
-                wide.setOpacity(line.color.a);
-                if (count >= shown) {
-                    renderer.add(&wide);
-                }
-                ++count;
-            }
-            for (size_t i = count; i < shown; ++i) {
-                renderer.remove(&wideLines[i]);
-            }
-            shown = count;
-            renderer.update();
-        };
-        sync(*_baseRenderer, _baseWideLines, _baseShown, _baseLines);
-        sync(*_occludedRenderer, _occludedWideLines, _occludedShown, _occludedLines);
+        shape->entity()->setEnabled(visible);
+        return true;
     }
 
     void TransformGizmo::createTransform()
@@ -644,32 +588,39 @@ namespace visutwin::canvas
     {
         Gizmo::prerender();
 
-        _baseLines.clear();
-        _occludedLines.clear();
         _frameGuideLines.clear();
-
-        if (enabled()) {
-            const Vector3 gizmoPos = _root->localPosition();
-            const Quaternion gizmoRot = _root->rotation();
-            const GizmoAxis activeAxis = _hoverAxis != GizmoAxis::None ? _hoverAxis : _selectedAxis;
-            const bool activeIsPlane = _hoverIsPlane || _selectedIsPlane;
-            drawGuideLines(gizmoPos, gizmoRot, activeAxis, activeIsPlane);
+        if (!_guides) {
+            return;
+        }
+        if (!enabled()) {
+            _guides->clear();
+            return;
         }
 
-        flushGuideLines();
-    }
-
-    void TransformGizmo::releaseGuideLines()
-    {
-        _baseRenderer.reset();
-        _occludedRenderer.reset();
-        _baseShown = 0;
-        _occludedShown = 0;
+        _guideOccluded.a = 1.0f - _theme.guideOcclusion;
+        _guides->begin();
+        const Vector3 gizmoPos = _root->localPosition();
+        const Quaternion gizmoRot = _root->rotation();
+        const GizmoAxis activeAxis = _hoverAxis != GizmoAxis::None ? _hoverAxis : _selectedAxis;
+        const bool activeIsPlane = _hoverIsPlane || _selectedIsPlane;
+        drawGuideLines(gizmoPos, gizmoRot, activeAxis, activeIsPlane);
+        _guides->end();
     }
 
     void TransformGizmo::destroy()
     {
-        releaseGuideLines();
+        if (_guides) {
+            _guides->destroy();
+            _guides.reset();
+        }
+        if (_guideRoot) {
+            if (_guideRoot->parent()) {
+                auto owned = _guideRoot->remove();
+            } else {
+                delete _guideRoot;
+            }
+            _guideRoot = nullptr;
+        }
         Gizmo::destroy();
     }
 
@@ -682,16 +633,9 @@ namespace visutwin::canvas
         const Vector3 forward = rootForward();
 
         // axes
-        bool changed = false;
-        const auto setEnabled = [&changed](Shape* s, const bool enabled) {
-            if (s->entity()->enabledLocal() != enabled) {
-                s->entity()->setEnabled(enabled);
-                changed = true;
-            }
-        };
-        setEnabled(axes[0], 1.0f - std::abs(dir.dot(right)) > GLANCE_EPSILON);
-        setEnabled(axes[1], 1.0f - std::abs(dir.dot(up)) > GLANCE_EPSILON);
-        setEnabled(axes[2], 1.0f - std::abs(dir.dot(forward)) > GLANCE_EPSILON);
+        bool changed = glance(axes[0], std::abs(dir.dot(right)));
+        changed = glance(axes[1], std::abs(dir.dot(up))) || changed;
+        changed = glance(axes[2], std::abs(dir.dot(forward))) || changed;
 
         // planes
         const auto setFlipped = [&changed](PlaneShape* plane, const Vector3& flipped) {
@@ -703,15 +647,15 @@ namespace visutwin::canvas
         const auto b = [](const bool v) { return v ? 1.0f : 0.0f; };
 
         Vector3 v1 = dir.cross(right);
-        setEnabled(planes[0], 1.0f - v1.length() > GLANCE_EPSILON);
+        changed = glance(planes[0], v1.length()) || changed;
         setFlipped(planes[0], flipPlanes ? Vector3(0.0f, b(v1.dot(forward) < 0.0f), b(v1.dot(up) < 0.0f)) : Vector3(0.0f));
 
         v1 = dir.cross(forward);
-        setEnabled(planes[2], 1.0f - v1.length() > GLANCE_EPSILON);
+        changed = glance(planes[2], v1.length()) || changed;
         setFlipped(planes[2], flipPlanes ? Vector3(b(v1.dot(up) < 0.0f), b(v1.dot(right) > 0.0f), 0.0f) : Vector3(0.0f));
 
         v1 = dir.cross(up);
-        setEnabled(planes[1], 1.0f - v1.length() > GLANCE_EPSILON);
+        changed = glance(planes[1], v1.length()) || changed;
         setFlipped(planes[1], flipPlanes ? Vector3(b(v1.dot(forward) > 0.0f), 0.0f, b(v1.dot(right) > 0.0f)) : Vector3(0.0f));
 
         if (changed) {

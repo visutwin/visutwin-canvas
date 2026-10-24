@@ -14,10 +14,7 @@
 // The example harness re-enables the camera controls at the top of every frame (for its
 // HUD), so the gizmo's pointer hold is re-applied in update().
 //
-// While dragging, the gizmo's transform readout shows below it: a near-black panel with the
-// delta in 12-point text, the axis labels in their colours, placed where the gizmo's readout
-// state says (GizmoReadout, in canvas points). DEVIATION: upstream's is an HTML element in
-// 12px monospace with bold labels; here it is a UI text element in Roboto, one weight.
+// While dragging, the gizmo's transform readout shows below it (gizmoLabels.h).
 //
 #pragma once
 
@@ -34,6 +31,7 @@
 #include "framework/gizmo/transformGizmo.h"
 #include "extras/grid/grid.h"
 #include "scene/materials/standardMaterial.h"
+#include "gizmoLabels.h"
 #include "uiElements.h"
 
 namespace visutwin::canvas
@@ -129,16 +127,13 @@ namespace visutwin::canvas
         void destroy() override
         {
             // Both own entities in the engine's hierarchy; the gizmo also leaves its layer.
-            _readoutPanel = nullptr;
-            _readoutText = nullptr;
+            _labels.reset();
             _gizmo.reset();
             _grid.reset();
         }
 
     private:
-        // The readout: a panel on a screen measured in canvas points (scale mode none), anchored
-        // at its top-left corner, its pivot the top of the panel's centre, so the gizmo's
-        // readout position places it directly.
+        // The readout: labels on a screen measured in canvas points (scale mode none).
         void createReadout()
         {
             _fontAsset = std::make_unique<Asset>("readout-font", AssetType::FONT, assetPath("fonts/roboto-regular.json"));
@@ -148,33 +143,14 @@ namespace visutwin::canvas
                 spdlog::warn("the gizmo readout needs fonts/roboto-regular.json");
                 return;
             }
-            _readoutPanel = createElement(engine(), screen->entity(), {.type = ElementType::Image,
-                .color = Color(0.0f, 0.0f, 0.0f, 1.0f), .opacity = 0.9f, .anchor = Vector4(0.0f, 1.0f, 0.0f, 1.0f),
-                .pivot = Vector2(0.5f, 1.0f), .width = 10.0f, .height = 10.0f});
-            _readoutText = createElement(engine(), _readoutPanel->entity(), {.type = ElementType::Text,
-                .color = Color(1.0f, 1.0f, 1.0f, 1.0f), .anchor = Vector4(0.5f, 0.5f, 0.5f, 0.5f),
-                .pivot = Vector2(0.5f, 0.5f), .font = font, .fontSize = 12, .enableMarkup = true});
-            _readoutPanel->entity()->setEnabled(false);
+            _labels = std::make_unique<GizmoLabels>(engine(), screen, font);
         }
 
         void updateReadout()
         {
-            if (!_readoutPanel || !_readoutText || !_gizmo) {
-                return;
+            if (_labels && _gizmo) {
+                _labels->update(_gizmo->readoutState());
             }
-            const GizmoReadout& readout = _gizmo->readoutState();
-            _readoutPanel->entity()->setEnabled(readout.visible);
-            if (!readout.visible) {
-                return;
-            }
-            if (readout.markup != _readoutMarkup) {
-                _readoutMarkup = readout.markup;
-                _readoutText->setText(readout.markup);
-            }
-            // upstream's padding: 2 points above and below, 6 at the sides
-            _readoutPanel->setWidth(_readoutText->width() + 12.0f);
-            _readoutPanel->setHeight(_readoutText->height() + 4.0f);
-            _readoutPanel->entity()->setLocalPosition(readout.x, -readout.y, 0.0f);
         }
 
         // Keep the gizmo size consistent to the canvas size (1024 / its height, or
@@ -199,8 +175,6 @@ namespace visutwin::canvas
         CameraControls* _controls = nullptr;
         bool _gizmoHasPointer = false;
         std::unique_ptr<Asset> _fontAsset;
-        ElementComponent* _readoutPanel = nullptr;
-        ElementComponent* _readoutText = nullptr;
-        std::string _readoutMarkup;
+        std::unique_ptr<GizmoLabels> _labels;
     };
 }

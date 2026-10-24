@@ -69,6 +69,10 @@ namespace visutwin::canvas
             return ids;
         }
 
+        // The press a gizmo last claimed: the first gizmo hit takes it, and the gizmos after it
+        // in subscription order (creation order) see it taken and leave it.
+        uint64_t claimedPress = 0;
+
         int unusedLayerId(const LayerComposition& layers)
         {
             int id = 1000;
@@ -132,16 +136,17 @@ namespace visutwin::canvas
         return Vector3(x, y, z) * RAD_TO_DEG;
     }
 
-    std::shared_ptr<Layer> Gizmo::createLayer(Engine* engine, const std::string& layerName, const int layerIndex)
+    std::shared_ptr<Layer> Gizmo::createLayer(Engine* engine, const std::string& layerName, const int layerIndex,
+        const bool depth)
     {
         if (!engine || !engine->scene() || !engine->scene()->layers()) {
             return nullptr;
         }
         const auto& layers = engine->scene()->layers();
         auto layer = std::make_shared<Layer>(layerName, unusedLayerId(*layers));
-        layer->setClearDepthBuffer(true);
+        layer->setClearDepthBuffer(!depth);
         layer->setOpaqueSortMode(SortMode::SORTMODE_NONE);
-        layer->setTransparentSortMode(SortMode::SORTMODE_NONE);
+        layer->setTransparentSortMode(depth ? SortMode::SORTMODE_MANUAL : SortMode::SORTMODE_NONE);
         layers->insert(layer, layerIndex);
         return layer;
     }
@@ -173,7 +178,7 @@ namespace visutwin::canvas
             if (Mouse* mouse = _engine->mouse()) {
                 _handles.push_back(mouse->on("mousedown", [this](const MouseEvent& e) {
                     if (const int button = buttonIndex(e.button); button >= 0) {
-                        pointerDown(e.x, e.y, button);
+                        pointerDown(e.x, e.y, button, e.serial);
                     }
                 }));
                 _handles.push_back(mouse->on("mousemove", [this](const MouseEvent& e) {
@@ -184,6 +189,7 @@ namespace visutwin::canvas
                         pointerUp(e.x, e.y, button);
                     }
                 }));
+                _handles.push_back(mouse->on("blur", [this]() { pointerCancel(); }));
             }
             _handles.push_back(_engine->on("prerender", [this]() { prerender(); }));
             _handles.push_back(_engine->on("update", [this]() { update(); }));
@@ -231,7 +237,9 @@ namespace visutwin::canvas
             return;
         }
         const float cameraDist = _camera ? _root->localPosition().distance(cameraPosition()) : 0.0f;
-        const bool enabled = state ? !_nodes.empty() && cameraDist > DIST_EPSILON : false;
+
+        // a gizmo without nodes draws away from the root, so the camera may sit on it
+        const bool enabled = state && (!requiresNodes() || (!_nodes.empty() && cameraDist > DIST_EPSILON));
         if (enabled != _root->enabledLocal()) {
             _root->setEnabled(enabled);
             _renderUpdate = true;
@@ -356,7 +364,7 @@ namespace visutwin::canvas
         return (cameraPosition() - rootPosition()).normalized();
     }
 
-    void Gizmo::pointerDown(const float x, const float y, const int button)
+    void Gizmo::pointerDown(const float x, const float y, const int button, const uint64_t press)
     {
         if (!enabled() || (_engine && _engine->mouse() && _engine->mouse()->relativeMode())) {
             return;
@@ -364,13 +372,22 @@ namespace visutwin::canvas
         if (button < 0 || button > 2 || !_mouseButtons[static_cast<size_t>(button)]) {
             return;
         }
+
+        // the first gizmo hit claims the press, so overlapping gizmos don't drag together
+        if (press != 0 && press == claimedPress) {
+            return;
+        }
         MeshInstance* selection = getSelection(x, y);
+        if (selection && press != 0) {
+            claimedPress = press;
+        }
 
         // Capture the pointer during the drag, so a drag that
         // leaves the window keeps reporting.
         if (!_captured) {
             _captured = SDL_CaptureMouse(true);
         }
+        _held = true;
 
         fire(EVENT_POINTERDOWN, x, y, selection);
     }
@@ -398,8 +415,22 @@ namespace visutwin::canvas
             SDL_CaptureMouse(false);
             _captured = false;
         }
+        _held = false;
 
         fire(EVENT_POINTERUP, x, y, selection);
+    }
+
+    void Gizmo::pointerCancel()
+    {
+        if (!_held) {
+            return;
+        }
+        if (_captured) {
+            SDL_CaptureMouse(false);
+            _captured = false;
+        }
+        _held = false;
+        fire(EVENT_POINTERUP, 0.0f, 0.0f, static_cast<MeshInstance*>(nullptr));
     }
 
     void Gizmo::updatePosition()
@@ -449,15 +480,35 @@ namespace visutwin::canvas
         _renderUpdate = true;
     }
 
+    float Gizmo::getScreenScale(const Vector3& position) const
+    {
+        if (!_camera || !_camera->camera()) {
+            return _scale;
+        }
+        const Camera* camera = _camera->camera();
+        const bool perspective = camera->projection() == ProjectionType::Perspective;
+        const float dist = perspective ? (position - cameraPosition()).dot(cameraForward()) : 0.0f;
+        return gizmoViewportScale(perspective, camera->fov(), dist, camera->orthoHeight(), _size);
+    }
+
+    Ray Gizmo::createRay(const Vector3& mouseWPos) const
+    {
+        if (_camera && _camera->camera() && _camera->camera()->projection() == ProjectionType::Perspective) {
+            const Vector3 origin = cameraPosition();
+            return Ray(origin, (mouseWPos - origin).normalized());
+        }
+        const float orthoDepth = _camera && _camera->camera() ?
+            _camera->camera()->farClip() - _camera->camera()->nearClip() : 0.0f;
+        const Vector3 forward = cameraForward();
+        return Ray(mouseWPos - forward * orthoDepth, forward);
+    }
+
     void Gizmo::updateScale()
     {
         if (!_root || !_camera || !_camera->camera()) {
             return;
         }
-        const Camera* camera = _camera->camera();
-        const bool perspective = camera->projection() == ProjectionType::Perspective;
-        const float dist = perspective ? (_root->localPosition() - cameraPosition()).dot(cameraForward()) : 0.0f;
-        _scale = gizmoViewportScale(perspective, camera->fov(), dist, camera->orthoHeight(), _size);
+        _scale = getScreenScale(_root->localPosition());
 
         if (std::abs(_scale - _root->localScale().getX()) < UPDATE_EPSILON) {
             return;
@@ -503,12 +554,10 @@ namespace visutwin::canvas
         if (selection.empty()) {
             return nullptr;
         }
-        // The hits order by this comparator and the first is taken: two prioritised
-        // hits order by priority, any other pair by distance. It is not a strict weak order
-        // (a sort may not be handed it), so the first is found by a scan that replaces the
-        // best only on "less".
+        // A hit replaces the best so far, in hit order: by priority when both are prioritised
+        // with different priorities, otherwise by distance.
         const auto less = [](const Hit& a, const Hit& b) {
-            if (a.priority != 0 && b.priority != 0) {
+            if (a.priority != 0 && b.priority != 0 && a.priority != b.priority) {
                 return b.priority < a.priority;
             }
             return a.dist < b.dist;
@@ -521,6 +570,11 @@ namespace visutwin::canvas
         }
         const auto& instances = selection[best].shape->meshInstances();
         return instances.empty() ? nullptr : instances.front();
+    }
+
+    void Gizmo::removeIntersectShape(const Shape* shape)
+    {
+        std::erase(_intersectShapes, shape);
     }
 
     void Gizmo::watchNodes()
@@ -589,6 +643,11 @@ namespace visutwin::canvas
 
     void Gizmo::update()
     {
+        // recheck a gizmo hidden only because the camera sat on it
+        if (_enabledRequested && _root && !_root->enabledLocal()) {
+            setEnabled(true);
+        }
+
         if (_renderUpdate) {
             _renderUpdate = false;
             fire(EVENT_RENDERUPDATE);

@@ -6,9 +6,9 @@
 // What the translate, rotate and scale gizmos
 // share — coloured X, Y and Z handles with plane and centre shapes, hover colouring by
 // theme, a drag that fires `transform:start` (Vector3 point, float x, float y),
-// `transform:move` (the same) and `transform:end`, snapping, the drag mode, and the
-// span guide lines drawn through the gizmo along the active axes, and a readout of the
-// transform delta while dragging.
+// `transform:move` (the same) and `transform:end`, snapping (DragGizmo), the drag mode, the
+// span guide lines drawn through the gizmo along the active axes, shapes that fade out
+// before they hide at glancing angles, and a readout of the transform delta while dragging.
 //
 // The subclasses decide what a drag does to the attached nodes.
 //
@@ -22,33 +22,17 @@
 
 #include "core/shape/plane.h"
 #include "core/shape/ray.h"
-#include "framework/gizmo/gizmo.h"
+#include "framework/gizmo/dragGizmo.h"
+#include "framework/gizmo/gizmoReadout.h"
 #include "framework/gizmo/shape/shape.h"
-#include "scene/graphics/wideLine.h"
 
 namespace visutwin::canvas
 {
     class PlaneShape;
 
-    /// The transform readout as a gizmo leaves it each frame, for the application to draw:
-    /// DEVIATION: upstream shows it as an HTML element over the canvas; here the gizmo only keeps
-    /// what to show and where, and the application draws it (the examples with a UI text element,
-    /// see examples/transformGizmoExample.h).
-    struct GizmoReadout
-    {
-        bool visible = false;
-        /// The text, the axis labels in their theme colour as text markup
-        /// (`[color="#rrggbb"]X[/color]`).
-        std::string markup;
-        /// Where it goes, in canvas points from the top-left: the horizontal centre of the text
-        /// and its top edge.
-        float x = 0.0f;
-        float y = 0.0f;
-    };
+    class OverlayRenderer;
 
-    class WideLineRenderer;
-
-    class TransformGizmo : public Gizmo
+    class TransformGizmo : public DragGizmo
     {
     public:
         static constexpr const char* EVENT_TRANSFORMSTART = "transform:start";
@@ -64,10 +48,6 @@ namespace visutwin::canvas
                        const std::string& name = "gizmo:transform");
         ~TransformGizmo() override;
 
-        /// Whether snapping is enabled.
-        bool snap = false;
-        /// The snapping increment (world units, degrees for rotation).
-        float snapIncrement = 1.0f;
         /// How the shapes show while dragging.
         GizmoDragMode dragMode = GizmoDragMode::Selected;
 
@@ -81,6 +61,10 @@ namespace visutwin::canvas
 
         /// The shape under a key, or null.
         Shape* shape(GizmoAxis key) const;
+
+        /// The thickness of the guide lines, in points (1 by default).
+        float guideThickness() const;
+        void setGuideThickness(float value);
 
         /// Whether the transform delta is shown in a readout just below the gizmo while dragging.
         /// On by default. Off, `transform:readout` still fires, for a UI of the application's own.
@@ -99,15 +83,12 @@ namespace visutwin::canvas
         const std::vector<std::pair<Vector3, Vector3>>& guideLines() const { return _frameGuideLines; }
 
         void prerender() override;
-        /// The occluded guide lines draw on the gizmo layer and move with it.
-        void setLayer(const std::shared_ptr<Layer>& layer) override;
         void destroy() override;
 
     protected:
         /// Where the pointer ray meets the drag plane.
         virtual Vector3 screenToPoint(float x, float y);
 
-        Ray createRay(const Vector3& mouseWPos) const;
         Plane createPlane(GizmoAxis axis, bool isFacing, bool isLine) const;
         Vector3 dirFromAxis(GizmoAxis axis) const;
         static Vector3 projectToAxis(const Vector3& point, GizmoAxis axis);
@@ -116,7 +97,12 @@ namespace visutwin::canvas
                                     bool activeIsPlane);
         void drawSpanLine(const Vector3& pos, const Quaternion& rot, GizmoAxis axis);
 
-        /// The axis-and-plane gizmos' (translate, scale) camera facing: hides an axis
+        /// Hides a shape when the view looks along its direction, fading it out over the fade
+        /// angle before. `cos` is the absolute cosine of the angle between the view and the
+        /// direction. True when its visibility changed.
+        bool glance(Shape* shape, float cos);
+
+        /// The axis-and-plane gizmos' (translate, scale) camera facing: fades and hides an axis
         /// seen end-on and a plane seen edge-on, and with `flipPlanes` turns each plane
         /// toward the camera. `axes` and `planes` are x/y/z and yz/xz/xy.
         void updateAxisAndPlaneShapes(const std::array<Shape*, 3>& axes, const std::array<PlaneShape*, 3>& planes,
@@ -168,38 +154,27 @@ namespace visutwin::canvas
         /// The last drag-plane hit: a plane the ray misses leaves the previous value.
         Vector3 _point = Vector3(0.0f);
 
+        /// The angle in degrees between the view and a shape below which it fades out.
+        float _fadeAngle = 25.0f;
+
     private:
         Shape* shapeOf(const MeshInstance* meshInstance) const;
         GizmoAxis axisOf(const MeshInstance* meshInstance) const;
         bool isPlaneOf(const MeshInstance* meshInstance) const;
         void hover(const MeshInstance* meshInstance);
-        void flushGuideLines();
-        void releaseGuideLines();
 
         std::vector<GizmoAxis> _hovering;
 
         bool _readoutEnabled = true;
         GizmoReadout _readout;
 
-        // Span guide lines. DEVIATION: upstream draws them with app.drawLine (one-pixel
-        // immediate lines) — the base colour depth-tested on the Immediate layer and the
-        // occluded colour untested on the gizmo layer. Here two WideLineRenderers draw the
-        // same two passes as one-pixel wide lines, clipped to the camera's near plane on
-        // the CPU (a wide line expands in screen space and has no near clip of its own).
-        struct GuideLine
-        {
-            Vector3 from;
-            Vector3 to;
-            Color color;
-        };
-        std::vector<GuideLine> _baseLines;
-        std::vector<GuideLine> _occludedLines;
+        // The guide lines, on an unrotated root in the Immediate layer, whose depth lets the
+        // scene hide them. The guide colours' rgb each guide replaces with its axis colour.
+        Color _guideBase = Color(1.0f, 1.0f, 1.0f, 1.0f);
+        Color _guideOccluded = Color(1.0f, 1.0f, 1.0f, 1.0f);
+        Color _guideFill = Color(1.0f, 1.0f, 1.0f, 0.0f);
+        Entity* _guideRoot = nullptr;
+        std::unique_ptr<OverlayRenderer> _guides;
         std::vector<std::pair<Vector3, Vector3>> _frameGuideLines;
-        std::unique_ptr<WideLineRenderer> _baseRenderer;
-        std::unique_ptr<WideLineRenderer> _occludedRenderer;
-        std::array<WideLine, 3> _baseWideLines;
-        std::array<WideLine, 3> _occludedWideLines;
-        size_t _baseShown = 0;
-        size_t _occludedShown = 0;
     };
 }

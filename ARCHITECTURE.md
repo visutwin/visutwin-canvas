@@ -14,7 +14,7 @@ vertex-color routing, spec-gloss and friends, scalar material maps, the material
 system. Lighting: ambient SH probes, reflection probes, LTC area lights, light
 cookies, lightmaps. Geometry and effects: skinning and morphs, the anim state
 graph, refraction, screen-space reflections, Gaussian splatting, particles,
-app-facing compute, extras, transform gizmos, the reference grid, the GPU profiler.
+app-facing compute, extras, gizmos, the reference grid, the GPU profiler.
 
 ### Hardware Instancing
 Two per-instance strides, both column-major `float4x4` model matrix first,
@@ -180,65 +180,113 @@ Upstream's light SHAPE: `LightComponent::setShape(LightShape::LIGHTSHAPE_RECT / 
 - An entity whose render component is not `active()` (its own flag, or a disabled entity or ancestor) draws no outline, as upstream 7c1e90f34.
 - Example: `outline-viewcube-example.cpp` (auto-cycling outline over three objects + view cube; includes an onClick scan self-test).
 
-### Transform Gizmos
+### Gizmos
 `framework/gizmo/` is upstream's `extras/gizmo` (view-cube.js excepted, a DOM widget;
-the ViewCube above stands in for it): `Gizmo` (gizmo.js), `TransformGizmo`
-(transform-gizmo.js), `TranslateGizmo`, `RotateGizmo`, `ScaleGizmo`, the shapes
-(`shape/shape.h`, `shape/shapes.h`: arrow, arc, box, box-line, plane, sphere), `TriData`,
-`MeshLine` and `GizmoMaterial` (shaders.js). Usage is upstream's:
+the ViewCube above stands in for it): `Gizmo` (gizmo.js), `DragGizmo` (drag-gizmo.js: snapping,
+drag maths, label markup), the transform gizmos `TransformGizmo`, `TranslateGizmo`,
+`RotateGizmo`, `ScaleGizmo`, the handle gizmos `HandleGizmo` (handle-gizmo.js) with
+`CameraGizmo`, `LightGizmo`, `BoundingBoxGizmo` and the shape gizmos (`shapeGizmos.h`: box,
+sphere, capsule, cone, cylinder), and `IconGizmo`; the shapes (`shape/shape.h`,
+`shape/shapes.h`: arrow, arc, box, box-line, plane, sphere, capsule, cone, glyph), `TriData`,
+`MeshLine`, `MeshSector`, `MeshLineBatch`, the overlay (`overlay/`: `OverlayRenderer`,
+`OverlayIcons`, `ShapePool`, the icon glyphs) and `GizmoMaterial` (shaders.js). Usage is
+upstream's:
 
     auto layer = Gizmo::createLayer(engine);            // clears depth, sorts nothing
     TranslateGizmo gizmo(cameraComponent, layer);       // adds the layer to the camera
     gizmo.on(Gizmo::EVENT_POINTERDOWN, [](float x, float y, MeshInstance* mi) { ... });
     gizmo.attach(entity);
 
+    auto overlays = Gizmo::createLayer(engine, "Overlays", INT_MAX, true);   // keeps the scene depth
+    LightGizmo lights(cameraComponent, overlays);
+    lights.attach(lightEntity);
+
 - The gizmo needs no per-frame call and no event forwarding: it subscribes to the
   engine's `update`, `prerender` and `destroy` events and to the engine MOUSE device's
-  `mousedown` / `mousemove` / `mouseup` (canvas points; SDL's touch-synthesised mouse
-  events make touch work too). `pointerDown` / `pointerMove` / `pointerUp` are public
-  for an application with its own input, and for `tests/gizmoTests.cpp`. Upstream's
-  `document.pointerLockElement` test is the mouse's relative mode, and pointer capture
-  is `SDL_CaptureMouse` for the length of a press.
-- Size: `gizmoViewportScale` is upstream's `_updateScale` (perspective `tan(fov / 2) x`
-  forward distance `x 0.3`, ortho `orthoHeight x 0.32`, times `size`), so the gizmo keeps
-  its size on screen; upstream's examples set `size = 1024 / canvas height`.
+  `mousedown` / `mousemove` / `mouseup` / `blur` (canvas points; SDL's touch-synthesised mouse
+  events make touch work too). `pointerDown` / `pointerMove` / `pointerUp` / `pointerCancel`
+  are public for an application with its own input, and for `tests/gizmoTests.cpp`.
+  Upstream's `document.pointerLockElement` test is the mouse's relative mode, pointer capture
+  is `SDL_CaptureMouse` for the length of a press, and upstream's `pointercancel` is the
+  mouse's `blur` (the window losing focus).
+- Overlapping gizmos: the first gizmo created whose shapes a press hits claims it, the rest
+  leave it. Upstream marks the DOM event; here the press is named by `MouseEvent::serial` and
+  the gizmo keeps the last claimed one (`pointerDown(x, y, button, press)`).
+- Size: `gizmoViewportScale` / `Gizmo::getScreenScale` is upstream's `_getScreenScale`
+  (perspective `tan(fov / 2) x` forward distance `x 0.3`, ortho `orthoHeight x 0.32`, times
+  `size`), so a transform gizmo keeps its size on screen; upstream's examples set
+  `size = 1024 / canvas height`. A gizmo whose root must stay world sized (the handle and
+  icon gizmos) overrides `updateScale` and puts the root's scale back in its constructor,
+  since the base constructor runs before a subclass exists.
 - Picking is upstream's: the pointer ray against each shape's TriData (unit
-  primitives placed by a transform inside the shape's entity), nearest hit first except
-  that two hits that both carry a priority order by priority (the centre sphere/box at 2
-  beats an arrow's line at 1). Upstream's sort comparator is not a strict weak order, so
-  the first element is found by a scan, which is what a sort would put first.
+  primitives placed by a transform inside the shape's entity); a hit replaces the best so
+  far by priority when both carry different priorities, otherwise by distance.
 - Shapes draw through `GizmoMaterial`, a Material with one Slang program (`gizmo`) shared per
   device: upstream's unlit gizmo shader — flat colour, alpha blended, discard below 1/255,
-  clip z clamped, and the fragment depth forced to `depth` when that is not negative (the
-  plane handles at 1, behind every other shape; the angle guide lines at 0, in front).
-  The colour block rides the material slot through `customUniformData`.
+  clip z clamped, the fragment depth forced to `depth` when that is not negative (the plane
+  handles at 1, behind every other shape; the angle guide lines at 0, in front), an icon
+  glyph's coverage texture (feature bit 0, its edge sharpened to a pixel with `fwidth`), and
+  the colour decoded for a linear HDR target (`hdrPass()` per draw). A shape with an occluded
+  colour draws each mesh twice, the occluded pass first without depth test; `fade` scales
+  every alpha; a filled overlay shape takes a depth bias of 2 (constant and slope) so lines on
+  its surface win. The colour block rides the material slot through `customUniformData`.
+- The transform gizmos fade an axis or plane out over `axisFadeAngle` (25 degrees) before it
+  hides seen end on (`TransformGizmo::glance`), draw their planes translucent
+  (`axisPlaneOpacity`, 0.35) with an outline along the two outer edges
+  (`axisPlaneOutlineThickness`), and draw the span guide lines through an OverlayRenderer on
+  an unrotated root in the Immediate layer, `guideThickness` points thick (1). Snapping is
+  DragGizmo's: lengths and scale factors to `snapIncrement`, angles to `snapAngleIncrement`
+  (5 degrees; RotateGizmo's `snapIncrement` is upstream's deprecated alias, not ported).
+- The handle gizmos draw everything again each prerender through an `OverlayRenderer`:
+  pooled shapes placed in world space under the gizmo root (`ShapePool`, hidden when unused),
+  lines and rings of a constant thickness on screen (a line split into pieces at most 1.5x
+  deeper than the last), handles of a constant size, filled volumes in the theme's `fill`, and
+  icons. In a manually sorted layer the volumes draw first, then everything in placement
+  order. Handles fade in between 60 and 100 points of on-screen radius and are picked, the
+  hovered or dragged one drawing its guide and value; a drag edits the value through
+  `moveHandle` along the handle's line or in its plane. A pooled shape that rebuilds its
+  geometry (an arc's tube, a capsule's height) rebuilds its mesh instances, so the pool
+  collects them again by the shape's `meshVersion` before it sets their draw order.
+- Lines (`MeshLineBatch`, the Slang program `gizmo-line`) are instanced unit cylinders, one
+  run of consecutive lines per instanced draw, each instance the 64-byte instancing record
+  (three rows of its transform and both colours packed two 8-bit channels a float), written
+  once a frame into one of `maxFramesInFlight()` buffers. The program's vertex entry is named
+  `gizmoLineInstancedVertex`, which a Vulkan pipeline takes as its own instanced stage.
+  DEVIATION: upstream pulls a line 0.4% of its view distance toward the camera in its vertex
+  stage; here the pull is baked into the instance transform for the gizmo's camera.
+- Labels (a transform gizmo's readout, a handle's value) are `GizmoReadout` records for the
+  application to draw: `TransformGizmo::readoutState()` and `HandleGizmo::labels()`;
+  `examples/gizmoLabels.h` draws them with UI text. DEVIATION: upstream's are HTML elements.
+- Icons (`overlay/iconGlyphs.h`): upstream's eight SVG glyphs spelled as strokes, arcs,
+  circles and polygons and rasterised on the CPU at 96 pixels, shared per device; an icon is
+  the glyph over a backdrop disc that is picked. `IconGizmo` marks attached entities with
+  nothing else to click (a camera, light, particle system, anim, animation or script without
+  a render or element component). DEVIATION: there are no audio listener or sound components.
 - The gizmo layer's depth clear needs the IN-PASS clear (`clearDepthInPass`, see Layers
   and depth state): the layer's render actions sit in the same forward pass as the
-  scene's, and a load action can only clear at a pass's start.
-- Span guide lines (hovering or dragging an axis): DEVIATION — upstream's `app.drawLine`
-  becomes two `WideLineRenderer`s of one-pixel lines, the base colour depth-tested on the
-  Immediate layer and the occluded colour (alpha `1 - guideOcclusion`) untested and
-  blended on the gizmo layer, each clipped to the camera's near plane on the CPU (a wide
-  line has no near clip of its own). The rotate gizmo's angle guides are upstream's
-  MeshLines.
+  scene's, and a load action can only clear at a pass's start. A layer created with `depth`
+  keeps the scene depth and sorts its transparent draws manually.
+- The rotate gizmo's angle guides are upstream's MeshLines.
 - C++ lifetime, where upstream relies on its garbage collector: the gizmo follows each
   attached Entity's `destroy` event and drops it (detaching once none is left), follows
   its camera's, and tears itself down on the engine's `destroy`. Each class's
   destructor runs `destroy()` while all of its members still exist, because `nodes:detach`
-  handlers of every level run inside it. Events whose arguments upstream leaves
-  undefined (`pointer:up` from a detach) carry `(0, 0, nullptr)`: a typed handler here is
-  skipped when arguments are missing.
+  handlers of every level run inside it; an overlay renderer frees its shapes, taking the
+  pickable ones out of the gizmo, before the gizmo's root goes. Events whose arguments
+  upstream leaves undefined (`pointer:up` from a detach or a cancel) carry `(0, 0, nullptr)`:
+  a typed handler here is skipped when arguments are missing. The handle events carry
+  `(GraphNode*, std::string)` and `icon:select` a `GraphNode*`, exactly those types.
 - Other DEVIATIONS, marked at the code: theme colours and axes are C++ types
-  (`GizmoTheme`, `GizmoThemePartial`, `GizmoAxis`) instead of string keys, with the
+  (`GizmoTheme`, `HandleGizmoTheme`, `GizmoAxis`, ...) instead of string keys, with the
   shape keyed by its handle (YZ) and reporting its plane's normal axis (X) as upstream's
   `plane:x`; `rotation:update` carries Euler angles (`gizmoEulerAngles`, upstream's
-  `getEulerAngles`); the arc shape rebuilds its two mesh instances on a radius change
-  (no `MeshInstance` mesh setter); the sphere and plane are the engine's 48-band and
-  one-quad primitives; the material writes the colour as given, right for the gamma back
-  buffer but not decoded for a camera frame's linear HDR target. The deprecated
-  `xAxisColor` / `colorAlpha` / `flipShapes` / `orbitRotation` accessors are not ported.
-- Examples: `transform-translate`, `transform-rotate`, `transform-scale` (upstream
-  gizmos/*), with upstream's layer, events, size rule and defaults; no controls panel.
+  `getEulerAngles`); a shape rebuilds its mesh instances on a geometry change (no
+  `MeshInstance` mesh setter); the sphere and plane are the engine's 48-band and one-quad
+  primitives. The deprecated `xAxisColor` / `colorAlpha` / `flipShapes` / `orbitRotation`
+  accessors are not ported.
+- Examples: `transform-translate`, `transform-rotate`, `transform-scale`, `bounding-box`,
+  `camera-gizmo`, `light-gizmo`, `shape-gizmo` and `icon-gizmo` (upstream gizmos/*), with
+  upstream's layers, events, size rule and defaults; keys stand in for the controls panel.
 
 ### Reference Grid
 `extras/grid/grid.h` is upstream's Grid extra (`graphics/grid` shows every setting; the gizmo

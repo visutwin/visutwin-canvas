@@ -115,6 +115,10 @@ namespace visutwin::canvas
         /// handler that also listens to the touch device skips these, as a browser page
         /// cancels the mouse events that follow a tap with `preventDefault`.
         bool fromTouch = false;
+        /// A number no other mouse event of the process carries (never 0), so several
+        /// listeners can tell whether they are handling the same event: the first gizmo hit
+        /// claims a press, and the gizmos after it, handling the same press, leave it.
+        uint64_t serial = 0;
     };
 
     struct Touch
