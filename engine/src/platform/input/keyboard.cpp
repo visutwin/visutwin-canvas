@@ -54,6 +54,7 @@ namespace visutwin::canvas
             // Keys held across a focus change never send their key-up, so they would
             // read as held for as long as the application runs.
             detach();
+            fire("blur");
             break;
         default:
             break;

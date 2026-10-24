@@ -5,7 +5,7 @@
 //
 // The scene the three transform gizmo examples share, which differ only in the gizmo
 // they attach: a default white box at the origin, lit by a default directional light
-// at euler (0, 0, -60) with ambient 0.2, over a 4x4 grid. The gizmo, drawn in its own
+// at euler (0, 0, -60) with ambient 0.2, over the default infinite Grid. The gizmo, drawn in its own
 // depth-cleared layer from Gizmo::createLayer, is attached to the box; its size is
 // 1024 / the canvas height, kept up to date as the window resizes, and the orbit camera
 // (focused on the origin, zoom 2..10, pitch +/-89.999) stops responding while the gizmo
@@ -32,7 +32,7 @@
 #include "framework/components/screen/screenComponent.h"
 #include "framework/gizmo/gizmo.h"
 #include "framework/gizmo/transformGizmo.h"
-#include "grid.h"
+#include "extras/grid/grid.h"
 #include "scene/materials/standardMaterial.h"
 #include "uiElements.h"
 
@@ -106,8 +106,12 @@ namespace visutwin::canvas
             _gizmo->attach(box);
             resize();
 
-            _grid = std::make_unique<Grid>(engine(), device(), static_cast<float>(windowWidth()),
-                                           static_cast<float>(windowHeight()), 4.0f, 4.0f);
+            auto* gridEntity = new Entity();
+            gridEntity->setEngine(engine());
+            gridEntity->setName("grid");
+            root()->addChild(gridEntity);
+            _grid = std::make_unique<Grid>(device());
+            _grid->attach(gridEntity);
 
             createReadout();
             return true;
@@ -118,9 +122,6 @@ namespace visutwin::canvas
             resize();
             if (_controls && _gizmoHasPointer) {
                 _controls->setInputBlocked(true);
-            }
-            if (_grid) {
-                _grid->update();
             }
             updateReadout();
         }

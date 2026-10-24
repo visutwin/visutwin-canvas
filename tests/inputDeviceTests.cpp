@@ -155,6 +155,20 @@ namespace
         keyboard.handleEvent(keyEvent(false, SDL_SCANCODE_K));
         check(downs == 1 && ups == 1, "keydown and keyup each fire once per event");
         check(lastKey == Key::K, "the event carries the key that changed");
+
+        // A key held across a focus loss sends no key-up; a listener keeping its own key
+        // state from the events is told through blur instead, once the key is released.
+        int blurs = 0;
+        bool heldAtBlur = true;
+        keyboard.on("blur", [&]() {
+            ++blurs;
+            heldAtBlur = keyboard.isPressed(Key::K);
+        });
+        keyboard.handleEvent(keyEvent(true, SDL_SCANCODE_K));
+        keyboard.handleEvent(focusLostEvent());
+        check(blurs == 1, "losing focus fires blur once");
+        check(!heldAtBlur, "blur fires after the held keys are released");
+        check(ups == 1, "losing focus fires no keyup");
     }
 
     void mouseButtonsPositionAndWheel()

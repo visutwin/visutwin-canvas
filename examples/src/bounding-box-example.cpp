@@ -6,8 +6,8 @@
 // Port of upstream gizmos/bounding-box.
 //
 // Corner brackets outline the bounds of a default white box at the origin, faint where the box
-// hides them: a BoundingBoxGizmo drawn in a layer that keeps the scene's depth, over a 4x4 grid,
-// the box lit by a default directional light at euler (0, 0, -60) with ambient 0.2. The camera
+// hides them: a BoundingBoxGizmo drawn in a layer that keeps the scene's depth, over the default
+// infinite Grid, the box lit by a default directional light at euler (0, 0, -60) with ambient 0.2. The camera
 // starts at 4 x its aspect on each axis, orbiting the origin (zoom 2..10, pitch +/-89.999,
 // damping 0.95, no fly).
 //
@@ -21,15 +21,14 @@
 //
 // DEVIATIONS:
 // - No controls panel; the theme is cycled by a key instead of two colour pickers.
-// - Upstream's Grid script is a pristine-grid shader on a blended plane; grid.h draws it with
-//   wide lines instead, over the scaled (4, 1, 4) extent.
+// - Upstream's Grid script is the Grid extra used directly (Grid::attach).
 // - The camera controls have no `sceneSize` here; with fly off it changes nothing upstream shows.
 //
 #include <algorithm>
 #include <memory>
 
 #include "../exampleApp.h"
-#include "../grid.h"
+#include "extras/grid/grid.h"
 #include "extras/script/cameraControls.h"
 #include "framework/gizmo/boundingBoxGizmo.h"
 #include "scene/layer.h"
@@ -83,8 +82,12 @@ protected:
         _gizmo = std::make_unique<BoundingBoxGizmo>(camera, _layer);
         _gizmo->attach(box);
 
-        _grid = std::make_unique<Grid>(engine(), device(), static_cast<float>(windowWidth()),
-            static_cast<float>(windowHeight()), 4.0f, 4.0f);
+        auto* gridEntity = new Entity();
+        gridEntity->setEngine(engine());
+        gridEntity->setName("grid");
+        root()->addChild(gridEntity);
+        _grid = std::make_unique<Grid>(device());
+        _grid->attach(gridEntity);
 
         spdlog::info("Keys: [ ] arm length | - = thickness | , . padding | O occluded alpha | "
                      "P projection | 9 0 fov");
@@ -94,9 +97,6 @@ protected:
     void update(float /*dt*/) override
     {
         handleKeys();
-        if (_grid) {
-            _grid->update();
-        }
     }
 
     void destroy() override

@@ -14,7 +14,7 @@ vertex-color routing, spec-gloss and friends, scalar material maps, the material
 system. Lighting: ambient SH probes, reflection probes, LTC area lights, light
 cookies, lightmaps. Geometry and effects: skinning and morphs, the anim state
 graph, refraction, screen-space reflections, Gaussian splatting, particles,
-app-facing compute, extras, transform gizmos, the GPU profiler.
+app-facing compute, extras, transform gizmos, the reference grid, the GPU profiler.
 
 ### Hardware Instancing
 Two per-instance strides, both column-major `float4x4` model matrix first,
@@ -239,6 +239,28 @@ the ViewCube above stands in for it): `Gizmo` (gizmo.js), `TransformGizmo`
   `xAxisColor` / `colorAlpha` / `flipShapes` / `orbitRotation` accessors are not ported.
 - Examples: `transform-translate`, `transform-rotate`, `transform-scale` (upstream
   gizmos/*), with upstream's layer, events, size rule and defaults; no controls panel.
+
+### Reference Grid
+`extras/grid/grid.h` is upstream's Grid extra (`graphics/grid` shows every setting; the gizmo
+examples stand on it): one plane quad per grid, moved in the vertex stage of the Slang program
+`grid`, with anti-aliased lines of constant width on screen in levels of `subdivisions` cells
+that fade in and turn major with the zoom, axis lines, a distance fade and a glancing-angle
+fade. `Grid::attach(entity)` puts its two mesh instances (the lines, and a pass that writes
+their depth while `depthWrite` is on) in the entity's render component, which owns them.
+
+- A mesh draw's vertex stage gets only the view-projection and the model matrix (`vtdraw`), so
+  the program RECOVERS the camera from the view-projection: a perspective eye is where clip x,
+  y and w vanish and its far distance where clip z = w; an orthographic camera has no position,
+  so the centre of its near plane stands in, and its view axis is the cross of the x and y
+  rows. The fragment stage takes both as flat varyings.
+- The per-frame values ride the material block through `customUniformData`, read per draw: the
+  line widths are scaled by `GraphicsDevice::pixelRatio()` and the output decodes the gamma
+  colours under `hdrPass()`, so the grid needs no update call and no resize event.
+- Feature word 0 is the program's own: contrast (the scene colour grab, so the camera must
+  `requestSceneColorMap`), the depth pass and its dither (interleaved gradient noise, where
+  upstream reads its blue noise texture).
+- Both materials are blended in draw bucket 255, so the grid is the first transparent draw and
+  its depth pass hides the transparent draws and splats behind its lines.
 
 ### Vertex Color Routing + Unlit Emissive
 `StandardMaterial::setDiffuseVertexColor` / `setEmissiveVertexColor` (upstream's

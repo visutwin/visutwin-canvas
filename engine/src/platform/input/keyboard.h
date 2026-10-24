@@ -31,6 +31,9 @@ namespace visutwin::canvas
      *
      * Events (`keydown`, `keyup`) carry a KeyboardEvent and fire as the input
      * arrives, for a caller that wants the character or the modifiers as well.
+     * `blur` (no payload) fires when the window loses focus, after every held key
+     * has been released: no `keyup` arrives for those keys, so a listener that keeps
+     * its own key state from the events clears it there.
      *
      * DEVIATION: upstream attaches to a DOM element and installs listeners. There
      * is no equivalent to subscribe to here — SDL delivers input by pumping one

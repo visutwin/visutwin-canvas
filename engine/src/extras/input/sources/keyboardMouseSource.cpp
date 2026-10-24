@@ -131,6 +131,11 @@ namespace visutwin::canvas
             _handles.push_back(keyboard->on("keyup", [this](const KeyboardEvent& e) {
                 setKey(static_cast<int>(e.key), 0.0f);
             }));
+            // The key-ups of keys held while focus moves away land in another window.
+            // Only the current state is cleared, so the next read reports the release.
+            _handles.push_back(keyboard->on("blur", [this]() {
+                _keyNow.fill(0.0f);
+            }));
         }
     }
 

@@ -90,7 +90,11 @@ namespace visutwin::canvas
         void update(float dt);
 
         /// Multiplier applied to every frame's time step: 0.5 runs the world at half speed,
-        /// 0 pauses everything that advances with time.
+        /// 0 freezes everything that advances with time. It does not pause scripts: their
+        /// update and postUpdate still run every frame with a dt of 0, so input handling,
+        /// spawning, impulses and any other logic not multiplied by dt carry on; give
+        /// gameplay code its own pause check. To pause physics alone, use
+        /// RigidBodyComponentSystem::setTimeScale.
         float timeScale() const { return _timeScale; }
         void setTimeScale(float scale) { _timeScale = scale; }
 

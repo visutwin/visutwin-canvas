@@ -15,8 +15,7 @@
 // DEVIATIONS:
 // - No controls panel: upstream's initial values apply (snap off, world space, the
 //   default theme, drag mode 'selected', perspective at 45 degrees).
-// - Upstream's Grid script is a pristine-grid shader on a blended plane; grid.h draws
-//   it with wide lines instead, over the scaled (4, 1, 4) extent.
+// - Upstream's Grid script is the Grid extra used directly (Grid::attach).
 // - The example harness re-enables the camera controls at the top of every frame (for
 //   its HUD), so the gizmo's pointer hold is re-applied in update().
 //

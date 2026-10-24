@@ -123,6 +123,9 @@ int main()
     checkBlock("particle-render", "particleFS", "params", sizeof(GpuParticleRenderParams));
     checkBlock("gsplat-render", "gsplatVS", "params", sizeof(GpuGSplatParams), "color");
     checkBlock("gsplat-render", "gsplatVS", "params", sizeof(GpuGSplatParams), "shadow");
+    // extras/grid/grid.cpp: GridBlock, asserted 144 bytes there.
+    checkBlock("grid", "gridVertex", "grid", 144);
+    checkBlock("grid", "gridFragment", "grid", 144);
 
     // A depth-only shadow pass keeps a fragment stage only when it writes nothing: the splat
     // shadow variant's discard is what shapes the footprint, its moments variant and the
