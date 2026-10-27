@@ -53,7 +53,8 @@ namespace visutwin::canvas::gpu
          * is a device command, and the reset has to be ordered ahead of this
          * frame's writes.
          */
-        void beginFrame(VkCommandBuffer cmd);
+        /// Starts the frame of the given device render version, recording into `cmd`.
+        void beginFrame(VkCommandBuffer cmd, int renderVersion);
 
         /** Record the opening timestamp for one pass. Call before vkCmdBeginRendering. */
         void beginPass(VkCommandBuffer cmd, const std::string& name);
@@ -75,6 +76,7 @@ namespace visutwin::canvas::gpu
             VkQueryPool queryPool = VK_NULL_HANDLE;
             std::vector<std::string> passNames;
             int passCount = 0;
+            int renderVersion = -1;
             bool submitted = false;
         };
 

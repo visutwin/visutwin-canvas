@@ -63,6 +63,11 @@ namespace visutwin::canvas
 
         /// True once the camera the handle belongs to has been destroyed.
         bool destroyed = false;
+
+        /// The size of the map in texels, 0 while there is none. Under a render scale or a
+        /// render target it is not the canvas size, so a dispatch over the map is sized by it.
+        uint32_t width() const;
+        uint32_t height() const;
     };
 
     /// The scene colour map a camera rendered most recently (Camera::sceneColorMapHandle).
@@ -77,5 +82,9 @@ namespace visutwin::canvas
 
         /// True once the camera the handle belongs to has been destroyed.
         bool destroyed = false;
+
+        /// The size of the map in texels, 0 while there is none (see the depth handle).
+        uint32_t width() const;
+        uint32_t height() const;
     };
 }

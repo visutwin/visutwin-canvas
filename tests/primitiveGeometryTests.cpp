@@ -28,6 +28,7 @@
 #include <cmath>
 #include <cstddef>
 #include <iostream>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -158,6 +159,7 @@ int main()
         {"cone", createConeGeometry()},
         {"capsule", createCapsuleGeometry()},
         {"torus", createTorusGeometry()},
+        {"rounded box", createRoundedBoxGeometry()},
     };
     for (const auto& [name, g] : primitives) {
         size_t tested = 0;
@@ -273,6 +275,16 @@ int main()
             grow(faces[std::min<size_t>(vertex / 4, 5)], box.uvs1[vertex * 2], box.uvs1[vertex * 2 + 1]);
         }
         checkCells("box faces", faces);
+
+        // The rounded box packs its faces into the box's cells.
+        const PrimitiveGeometry rounded = createRoundedBoxGeometry();
+        check(rounded.uvs1.size() == rounded.uvs.size(), "rounded box: carries its own UV1");
+        const size_t perFace = rounded.uvs1.size() / 2 / 6;
+        std::vector<Rect> roundedFaces(6);
+        for (size_t vertex = 0; vertex * 2 < rounded.uvs1.size(); ++vertex) {
+            grow(roundedFaces[std::min<size_t>(vertex / perFace, 5)], rounded.uvs1[vertex * 2], rounded.uvs1[vertex * 2 + 1]);
+        }
+        checkCells("rounded box faces", roundedFaces);
 
         // Cylinder: the body and the two flat caps, told apart by their normals.
         const PrimitiveGeometry cylinder = createCylinderGeometry();
@@ -421,6 +433,127 @@ int main()
         // Vertex 17 + 6 is at angle 3/4 turn: (0, -2), the -Z edge, v = 0 as on the plane.
         check(std::abs(circle.uvs[(17 + 6) * 2] - 0.5f) < 1e-5f && std::abs(circle.uvs[(17 + 6) * 2 + 1]) < 1e-5f,
             "UVs map the bounding square, v = 0 at -Z");
+    }
+
+    // The rounded box: every vertex at the radius from the inner box, triangles wound along the
+    // normals and none degenerate, seams shared bit for bit by the faces meeting there, a zero
+    // radius reproducing the box, and the radius clamped to the smallest half extent.
+    {
+        const auto vertexCountOf = [](const PrimitiveGeometry& g) { return g.positions.size() / 3; };
+        const auto distanceToInner = [](const PrimitiveGeometry& g, const size_t v, const float* inner) {
+            double lengthSq = 0.0;
+            for (int k = 0; k < 3; ++k) {
+                const double x = g.positions[v * 3 + static_cast<size_t>(k)];
+                const double d = x - std::max<double>(-inner[k], std::min<double>(inner[k], x));
+                lengthSq += d * d;
+            }
+            return std::sqrt(lengthSq);
+        };
+
+        RoundedBoxGeometryOptions options;
+        options.halfExtents[0] = 1.0f;
+        options.halfExtents[1] = 0.5f;
+        options.halfExtents[2] = 0.25f;
+        options.radius = 0.1f;
+        options.radiusSegments = 6;
+        options.widthSegments = 3;
+        options.heightSegments = 2;
+        const PrimitiveGeometry shaped = createRoundedBoxGeometry(options);
+        const float inner[3] = {0.9f, 0.4f, 0.15f};
+        int off = 0;
+        for (size_t v = 0; v < vertexCountOf(shaped); ++v) {
+            off += std::abs(distanceToInner(shaped, v, inner) - 0.1) < 1e-5 ? 0 : 1;
+        }
+        check(off == 0, "rounded box: every vertex lies at the radius from the inner box");
+
+        const auto windingAndArea = [](const PrimitiveGeometry& g, int& inward, int& degenerate) {
+            inward = 0;
+            degenerate = 0;
+            for (size_t t = 0; t < g.indices.size(); t += 3) {
+                const size_t a = g.indices[t], b = g.indices[t + 1], c = g.indices[t + 2];
+                double u[3], w[3];
+                for (int k = 0; k < 3; ++k) {
+                    u[k] = g.positions[b * 3 + static_cast<size_t>(k)] - g.positions[a * 3 + static_cast<size_t>(k)];
+                    w[k] = g.positions[c * 3 + static_cast<size_t>(k)] - g.positions[a * 3 + static_cast<size_t>(k)];
+                }
+                const double cross[3] = {u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]};
+                const double area = std::sqrt(cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]);
+                const double facing = cross[0] * g.normals[a * 3] + cross[1] * g.normals[a * 3 + 1] +
+                    cross[2] * g.normals[a * 3 + 2];
+                degenerate += area < 1e-9 ? 1 : 0;
+                inward += facing > 0.0 ? 0 : 1;
+            }
+        };
+        RoundedBoxGeometryOptions full;
+        full.radius = 0.5f;
+        RoundedBoxGeometryOptions slab;
+        slab.halfExtents[0] = 1.0f;
+        slab.halfExtents[1] = 0.25f;
+        slab.halfExtents[2] = 1.0f;
+        slab.radius = 0.25f;
+        slab.widthSegments = 2;
+        slab.heightSegments = 3;
+        for (const auto& [name, g] : std::vector<std::pair<const char*, PrimitiveGeometry>>{
+                 {"default", createRoundedBoxGeometry()}, {"fully rounded", createRoundedBoxGeometry(full)},
+                 {"rounded on one axis", createRoundedBoxGeometry(slab)}}) {
+            int inward = 0;
+            int degenerate = 0;
+            windingAndArea(g, inward, degenerate);
+            check(inward == 0 && degenerate == 0,
+                (std::string("rounded box (") + name + "): triangles face along the normals, none degenerate").c_str());
+        }
+
+        RoundedBoxGeometryOptions seams;
+        seams.radius = 0.2f;
+        seams.radiusSegments = 4;
+        const PrimitiveGeometry seamed = createRoundedBoxGeometry(seams);
+        std::map<std::array<float, 3>, std::array<float, 3>> normalAt;
+        int shared = 0;
+        bool sameNormal = true;
+        for (size_t v = 0; v < vertexCountOf(seamed); ++v) {
+            const std::array<float, 3> p = {seamed.positions[v * 3], seamed.positions[v * 3 + 1], seamed.positions[v * 3 + 2]};
+            const std::array<float, 3> n = {seamed.normals[v * 3], seamed.normals[v * 3 + 1], seamed.normals[v * 3 + 2]};
+            const auto [it, inserted] = normalAt.emplace(p, n);
+            if (!inserted) {
+                ++shared;
+                sameNormal = sameNormal && it->second == n;
+            }
+        }
+        // 12 edges with 4 seam vertices away from the corners shared by 2 faces, 8 corners by 3.
+        check(shared == 12 * 4 + 8 * 2 && sameNormal,
+            "rounded box: seam vertices are bit-identical on the faces meeting there");
+
+        RoundedBoxGeometryOptions square;
+        square.radius = 0.0f;
+        const PrimitiveGeometry flat = createRoundedBoxGeometry(square);
+        const PrimitiveGeometry box = createBoxGeometry();
+        const auto same = [](const std::vector<float>& a, const std::vector<float>& b) {
+            if (a.size() != b.size()) return false;
+            for (size_t i = 0; i < a.size(); ++i) {
+                if (std::abs(a[i] - b[i]) > 1e-6f) return false;
+            }
+            return true;
+        };
+        check(same(flat.positions, box.positions) && same(flat.normals, box.normals) && same(flat.uvs, box.uvs) &&
+            same(flat.uvs1, box.uvs1) && same(flat.tangents, box.tangents) && flat.indices == box.indices,
+            "rounded box with radius 0 is the box");
+
+        RoundedBoxGeometryOptions huge;
+        huge.radius = 2.0f;
+        const PrimitiveGeometry ball = createRoundedBoxGeometry(huge);
+        bool onSphere = true;
+        for (size_t v = 0; v < vertexCountOf(ball); ++v) {
+            onSphere = onSphere && std::abs(std::hypot(ball.positions[v * 3], ball.positions[v * 3 + 1],
+                ball.positions[v * 3 + 2]) - 0.5f) < 1e-5f;
+        }
+        check(onSphere, "rounded box: the radius is clamped to the smallest half extent");
+
+        RoundedBoxGeometryOptions odd;
+        odd.radiusSegments = 3;
+        RoundedBoxGeometryOptions even;
+        even.radiusSegments = 4;
+        check(createRoundedBoxGeometry(odd).positions == createRoundedBoxGeometry(even).positions,
+            "rounded box: an odd segment count is rounded up");
     }
 
     return finish("primitive geometry");

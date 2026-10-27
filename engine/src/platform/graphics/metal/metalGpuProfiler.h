@@ -33,7 +33,8 @@ namespace visutwin::canvas::gpu
         ~MetalGpuProfiler() override;
 
         /** Rotate to the next frame slot and resolve the slot from 2 frames ago. */
-        void beginFrame();
+        /// Starts the frame of the given device render version.
+        void beginFrame(int renderVersion);
 
         /** Attach timestamp sampling for one render pass to its descriptor. */
         void attachToRenderPass(MTL::RenderPassDescriptor* passDescriptor, const std::string& name);
@@ -52,6 +53,7 @@ namespace visutwin::canvas::gpu
             MTL::CounterSampleBuffer* sampleBuffer = nullptr;
             std::vector<std::string> passNames;
             int passCount = 0;
+            int renderVersion = -1;
         };
 
         MTL::Device* _device;

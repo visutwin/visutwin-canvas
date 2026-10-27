@@ -431,6 +431,9 @@ namespace visutwin::canvas
         std::vector<std::array<double, 11>> cpuSamples;
         // Per-pass GPU times of the same frames, by pass name in first-seen order.
         std::vector<std::pair<std::string, std::vector<double>>> gpuPassSamples;
+        // The frame the last pass timings collected describe: the profiler resolves a frame a
+        // few frames late and not necessarily once a CPU frame, so each is counted once.
+        int gpuPassVersion = -1;
         int frameIndex = 0;
 
         // A scripted capture (VISUTWIN_SCREENSHOT) ignores the person at the machine: a drag
@@ -494,7 +497,8 @@ namespace visutwin::canvas
                     profiler->setEnabled(true);
                 }
                 const double gpuMs = profiler ? profiler->frameMilliseconds() : 0.0;
-                if (profiler) {
+                if (profiler && profiler->renderVersion() >= 0 && profiler->renderVersion() != gpuPassVersion) {
+                    gpuPassVersion = profiler->renderVersion();
                     // A pass name can occur several times a frame (the two blur directions):
                     // each occurrence is its own column.
                     std::vector<std::string> seen;

@@ -504,7 +504,7 @@ namespace visutwin::canvas
 
         // GPU profiler: rotate frame slot + resolve the slot from 2 frames ago.
         if (_metalGpuProfiler) {
-            _metalGpuProfiler->beginFrame();
+            _metalGpuProfiler->beginFrame(renderVersion());
         }
 
         // Release the previous frame's cached drawable so the first back-buffer

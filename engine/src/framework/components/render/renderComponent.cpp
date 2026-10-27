@@ -258,6 +258,143 @@ namespace visutwin::canvas
             return withTangents(std::move(geometry));
         }
 
+        namespace
+        {
+            struct AxisSamples
+            {
+                std::vector<double> coords;     // position on the box before the rounding
+                std::vector<double> fractions;  // distance along the rounded surface / total
+            };
+
+            // Samples one axis of a face from -halfExtent to +halfExtent: each rounded end covers
+            // the 45 degrees of arc up to the seam with the neighbouring face at equal angles, the
+            // flat part between them evenly.
+            AxisSamples sampleRoundedAxis(const double halfExtent, const double radius, const int flatSegments,
+                const int roundSegments)
+            {
+                const double inner = halfExtent - radius;
+                const int flat = inner > 0.0 ? flatSegments : 0;
+                const double arc = radius * std::numbers::pi / 4.0;
+                const double length = 2.0 * (inner + arc);
+                const double invLength = length > 0.0 ? 1.0 / length : 0.0;
+
+                std::vector<double> roundCoords;
+                std::vector<double> arcs;
+                for (int i = 1; i <= roundSegments; ++i) {
+                    const double angle = static_cast<double>(i) / roundSegments * std::numbers::pi / 4.0;
+                    // The last sample sits exactly on the box's edge, so neighbouring faces build
+                    // bit-identical vertices along the seam.
+                    roundCoords.push_back(i == roundSegments ? halfExtent : inner + radius * std::tan(angle));
+                    arcs.push_back(radius * angle);
+                }
+
+                AxisSamples samples;
+                for (int i = roundSegments - 1; i >= 0; --i) {
+                    samples.coords.push_back(-roundCoords[static_cast<size_t>(i)]);
+                    samples.fractions.push_back((arc - arcs[static_cast<size_t>(i)]) * invLength);
+                }
+                for (int i = 0; i <= flat; ++i) {
+                    const double f = flat > 0 ? static_cast<double>(i) / flat : 0.0;
+                    samples.coords.push_back(-inner + 2.0 * inner * f);
+                    samples.fractions.push_back((arc + 2.0 * inner * f) * invLength);
+                }
+                for (int i = 0; i < roundSegments; ++i) {
+                    samples.coords.push_back(roundCoords[static_cast<size_t>(i)]);
+                    samples.fractions.push_back((arc + 2.0 * inner + arcs[static_cast<size_t>(i)]) * invLength);
+                }
+                return samples;
+            }
+        }
+
+        PrimitiveGeometry createRoundedBoxGeometry(const RoundedBoxGeometryOptions& options)
+        {
+            // The box's faces in its order and orientation: the axis and sign of the normal, of u
+            // and of v.
+            struct Face { int n, ns, u, us, v, vs; };
+            constexpr std::array<Face, 6> faces = {{
+                {2, 1, 0, 1, 1, 1},      // front
+                {2, -1, 0, -1, 1, 1},    // back
+                {1, 1, 0, 1, 2, -1},     // top
+                {1, -1, 0, -1, 2, -1},   // bottom
+                {0, 1, 2, -1, 1, 1},     // right
+                {0, -1, 2, 1, 1, 1}      // left
+            }};
+
+            const double he[3] = {options.halfExtents[0], options.halfExtents[1], options.halfExtents[2]};
+            const double radius = std::max(0.0, std::min({static_cast<double>(options.radius), he[0], he[1], he[2]}));
+            const int roundSegments = radius > 0.0
+                ? std::max(1, (std::max(options.radiusSegments, 0) + 1) / 2) : 0;
+            const double inner[3] = {he[0] - radius, he[1] - radius, he[2] - radius};
+            const std::array<AxisSamples, 3> samples = {
+                sampleRoundedAxis(he[0], radius, options.widthSegments, roundSegments),
+                sampleRoundedAxis(he[1], radius, options.heightSegments, roundSegments),
+                sampleRoundedAxis(he[2], radius, options.lengthSegments, roundSegments)
+            };
+
+            PrimitiveGeometry geometry;
+            uint32_t vertexCounter = 0;
+            double p[3] = {};
+            double c[3] = {};
+            double n[3] = {};
+            for (size_t side = 0; side < faces.size(); ++side) {
+                const Face& face = faces[side];
+                const AxisSamples& uSamples = samples[static_cast<size_t>(face.u)];
+                const AxisSamples& vSamples = samples[static_cast<size_t>(face.v)];
+                const int uSegments = static_cast<int>(uSamples.coords.size()) - 1;
+                const int vSegments = static_cast<int>(vSamples.coords.size()) - 1;
+
+                p[face.n] = face.ns * he[face.n];
+                for (int i = 0; i <= uSegments; ++i) {
+                    for (int j = 0; j <= vSegments; ++j) {
+                        p[face.u] = face.us * uSamples.coords[static_cast<size_t>(i)];
+                        p[face.v] = face.vs * vSamples.coords[static_cast<size_t>(j)];
+
+                        // Onto the rounded box: clamp to the inner box, then push back out by the
+                        // radius in the direction the point was clamped from.
+                        if (radius > 0.0) {
+                            double lengthSq = 0.0;
+                            for (int k = 0; k < 3; ++k) {
+                                c[k] = std::max(-inner[k], std::min(inner[k], p[k]));
+                                n[k] = p[k] - c[k];
+                                lengthSq += n[k] * n[k];
+                            }
+                            const double invLength = 1.0 / std::sqrt(lengthSq);
+                            for (int k = 0; k < 3; ++k) {
+                                n[k] *= invLength;
+                                c[k] += n[k] * radius;
+                            }
+                        } else {
+                            for (int k = 0; k < 3; ++k) {
+                                c[k] = p[k];
+                                n[k] = 0.0;
+                            }
+                            n[face.n] = face.ns;
+                        }
+
+                        const auto u = static_cast<float>(uSamples.fractions[static_cast<size_t>(i)]);
+                        const auto v = static_cast<float>(vSamples.fractions[static_cast<size_t>(j)]);
+                        pushVertex(geometry,
+                            static_cast<float>(c[0]), static_cast<float>(c[1] + options.yOffset), static_cast<float>(c[2]),
+                            static_cast<float>(n[0]), static_cast<float>(n[1]), static_cast<float>(n[2]),
+                            u, 1.0f - v);
+                        // the box's 3x2 cells
+                        pushUv1(geometry, u, v, 1.0f / 3.0f, 1.0f / 3.0f,
+                            static_cast<float>(side % 3) / 3.0f, static_cast<float>(side / 3) / 3.0f);
+
+                        if (i < uSegments && j < vSegments) {
+                            const auto row = static_cast<uint32_t>(vSegments + 1);
+                            geometry.indices.insert(geometry.indices.end(), {
+                                vertexCounter + row, vertexCounter + 1u, vertexCounter,
+                                vertexCounter + row, vertexCounter + row + 1u, vertexCounter + 1u});
+                        }
+                        vertexCounter++;
+                    }
+                }
+            }
+
+            return withTangents(std::move(geometry));
+        }
+
         PrimitiveGeometry createSphereGeometry()
         {
             return createSphereGeometry(0.5f, 48, 48);

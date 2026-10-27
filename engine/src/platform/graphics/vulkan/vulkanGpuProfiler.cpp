@@ -82,7 +82,7 @@ namespace visutwin::canvas::gpu
         return true;
     }
 
-    void VulkanGpuProfiler::beginFrame(const VkCommandBuffer cmd)
+    void VulkanGpuProfiler::beginFrame(const VkCommandBuffer cmd, const int renderVersion)
     {
         if (!_enabled || cmd == VK_NULL_HANDLE) {
             return;
@@ -105,6 +105,7 @@ namespace visutwin::canvas::gpu
         vkCmdResetQueryPool(cmd, slot.queryPool, 0, MAX_PASSES * SAMPLES_PER_PASS);
         slot.passCount = 0;
         slot.passNames.clear();
+        slot.renderVersion = renderVersion;
         slot.submitted = true;
         _openPass = -1;
     }
@@ -179,7 +180,7 @@ namespace visutwin::canvas::gpu
             pass.valid = results[startIndex + 1] != 0 && results[endIndex + 1] != 0;
             passes.push_back(std::move(pass));
         }
-        publishTimings(passes, static_cast<double>(_timestampPeriod) / 1.0e6);
+        publishTimings(passes, static_cast<double>(_timestampPeriod) / 1.0e6, slot.renderVersion);
 
         slot.passCount = 0;
     }

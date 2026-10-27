@@ -43,6 +43,14 @@ namespace visutwin::canvas
         /** Total GPU time of the most recently resolved frame (sum of pass times). */
         double frameMilliseconds() const { return _frameMilliseconds; }
 
+        /**
+         * The device render version of the frame passTimings() and frameMilliseconds()
+         * describe, -1 before any frame has resolved. Timings arrive a few frames late and not
+         * necessarily every frame, so a consumer collecting them per frame keys on this to
+         * count each frame once.
+         */
+        int renderVersion() const { return _renderVersion; }
+
     protected:
         /** One pass's raw samples, in submission order. */
         struct RawPass
@@ -83,9 +91,10 @@ namespace visutwin::canvas
          * What this cannot do is separate a drawable wait that falls INSIDE a pass's own
          * interval; a frame that outruns the display still carries that wait.
          */
-        void publishTimings(const std::vector<RawPass>& passes, double millisecondsPerTick);
+        void publishTimings(const std::vector<RawPass>& passes, double millisecondsPerTick, int renderVersion);
 
         bool _enabled = false;
+        int _renderVersion = -1;
         std::vector<PassTiming> _passTimings;
         double _frameMilliseconds = 0.0;
 

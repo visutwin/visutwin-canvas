@@ -12,9 +12,10 @@
 // it has no distribution, no visibility, no image-based lighting and takes no
 // energy from the base layer — it looks soft, but it is not sheen.
 
-// Charlie sheen distribution — an inverted Gaussian rather than GGX.
+// Charlie sheen distribution — an inverted Gaussian rather than GGX. Its width is
+// alpha = roughness^2; the floor on alpha keeps it finite as the roughness reaches zero.
 float sheenDistribution(float NoH, float roughness) {
-    float invR = 1.0 / max(roughness, 0.001);
+    float invR = 1.0 / max(roughness * roughness, 0.001);
     float cos2h = NoH * NoH;
     float sin2h = max(1.0 - cos2h, 0.0078125);   // keeps pow(0, x) off the table
     return (2.0 + invR) * pow(sin2h, invR * 0.5) / (2.0 * PI);

@@ -77,6 +77,7 @@ namespace
 
         check(handle == camera.sceneDepthMapHandle(), "the handle is the same object after a publication");
         check(handle->texture.lock() == texture && handle->renderVersion == 7, "the texture and render version");
+        check(handle->width() == 200 && handle->height() == 100, "the handle reports the map's size");
         check(!handle->linear && !handle->packed && !handle->reciprocal,
             "packed and reciprocal are recorded only with linear");
         check(handle->cameraParams[0] == 1.0f / 500.0f && handle->cameraParams[1] == 500.0f &&
@@ -110,6 +111,8 @@ namespace
         }
         check(depth->destroyed && color->destroyed, "the handles are marked destroyed with their camera");
         check(depth->texture.expired() && color->texture.expired(), "and name no map any more");
+        check(depth->width() == 0 && depth->height() == 0 && color->width() == 0 && color->height() == 0,
+            "a handle naming no map reports a size of 0");
     }
 
     void computeResolvesTheHandles(GraphicsDevice* device)

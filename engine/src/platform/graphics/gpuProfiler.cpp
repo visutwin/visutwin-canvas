@@ -9,10 +9,12 @@
 
 namespace visutwin::canvas
 {
-    void GpuProfiler::publishTimings(const std::vector<RawPass>& passes, const double millisecondsPerTick)
+    void GpuProfiler::publishTimings(const std::vector<RawPass>& passes, const double millisecondsPerTick,
+        const int renderVersion)
     {
         _passTimings.clear();
         _frameMilliseconds = 0.0;
+        _renderVersion = renderVersion;
 
         // The previous frame's last end anchors this frame's first pass (see the header).
         bool havePreviousEnd = _havePreviousFrameEnd;

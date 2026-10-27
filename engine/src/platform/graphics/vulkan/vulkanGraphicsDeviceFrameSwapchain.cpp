@@ -568,7 +568,7 @@ namespace visutwin::canvas
         // buffer, and resolve the slot from 2 frames ago. Must come after
         // vkBeginCommandBuffer — the reset is a recorded command.
         if (_vulkanGpuProfiler) {
-            _vulkanGpuProfiler->beginFrame(frame.commandBuffer);
+            _vulkanGpuProfiler->beginFrame(frame.commandBuffer, renderVersion());
         }
 
         // Recycle all pools and cached sets owned by this frame slot. The

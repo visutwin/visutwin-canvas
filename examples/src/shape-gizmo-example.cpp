@@ -21,7 +21,7 @@
 //   S      snap on / off (lengths by 1)
 //   [ / ]  line thickness -/+ 0.5 (0.5..8)
 //   P      projection, perspective / orthographic
-// VISUTWIN_GIZMO_SHAPE=0-4 starts with that shape, for a capture.
+// It starts on the capsule; VISUTWIN_GIZMO_SHAPE=0-4 starts with another shape, for a capture.
 //
 // DEVIATIONS:
 // - No controls panel: keys toggle the settings, and the theme keeps its defaults.
@@ -59,7 +59,7 @@ protected:
             watch(gizmo);
         }
         const char* shape = std::getenv("VISUTWIN_GIZMO_SHAPE");
-        show(shape ? static_cast<size_t>(std::clamp(std::atoi(shape), 0, 4)) : 0);
+        show(shape ? static_cast<size_t>(std::clamp(std::atoi(shape), 0, 4)) : 3);
 
         spdlog::info("Keys: 1-5 shape | F face handles | C corner handles | E centred | U uniform | H handles | "
                      "R readout | S snap | [ ] line thickness | P projection");

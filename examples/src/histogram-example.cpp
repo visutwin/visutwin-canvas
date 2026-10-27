@@ -179,6 +179,21 @@ protected:
         // frame the camera rendered
         _computePass = std::make_shared<ComputePass>(device(), std::vector<Compute*>{_clear.get(), _histogram.get()});
         _computePass->setName("HistogramPass");
+        // A thread for each texel of the colour map, sized as the pass runs: under a render
+        // scale or a render target the map is not the size of the canvas. Until the camera has
+        // rendered a map the pass dispatches nothing.
+        _computePass->setOnBefore([this](RenderPass& pass) {
+            const auto& handle = _camera->sceneColorMapHandle();
+            const uint32_t width = handle ? handle->width() : 0u;
+            const uint32_t height = handle ? handle->height() : 0u;
+            pass.setExecuteEnabled(width > 0u && height > 0u);
+            if (width == 0u || height == 0u) {
+                return;
+            }
+            _histogram->setupDispatchThreads(width, height);
+            const auto dispatch = _histogram->dispatchThreads();
+            _histogram->setUniformBlock(dispatch.data(), sizeof(dispatch));
+        });
         _camera->afterPasses().push_back(_computePass);
         return true;
     }
@@ -186,15 +201,6 @@ protected:
     void update(const float dt) override
     {
         _solid->rotate(5.0f * dt, 10.0f * dt, -15.0f * dt);
-
-        if (_histogram) {
-            // The size of the dispatch, a thread for each pixel, which the compute pass uses
-            const auto [width, height] = device()->size();
-            _histogram->setupDispatchThreads(static_cast<uint32_t>(std::max(width, 1)),
-                static_cast<uint32_t>(std::max(height, 1)));
-            const auto dispatch = _histogram->dispatchThreads();
-            _histogram->setUniformBlock(dispatch.data(), sizeof(dispatch));
-        }
 
         // Read back the histogram of the previous frame, which this waits for
         if (_bins && _computePass) {

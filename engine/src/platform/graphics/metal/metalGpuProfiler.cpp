@@ -99,7 +99,7 @@ namespace visutwin::canvas::gpu
         return ok;
     }
 
-    void MetalGpuProfiler::beginFrame()
+    void MetalGpuProfiler::beginFrame(const int renderVersion)
     {
         if (!_enabled) {
             return;
@@ -115,6 +115,7 @@ namespace visutwin::canvas::gpu
         auto& slot = _slots[_currentSlot];
         slot.passNames.clear();
         slot.passCount = 0;
+        slot.renderVersion = renderVersion;
     }
 
     void MetalGpuProfiler::attachToRenderPass(MTL::RenderPassDescriptor* passDescriptor,
@@ -175,7 +176,7 @@ namespace visutwin::canvas::gpu
                 pass.end != static_cast<uint64_t>(MTL::CounterErrorValue);
             passes.push_back(std::move(pass));
         }
-        publishTimings(passes, nsPerTick / 1.0e6);
+        publishTimings(passes, nsPerTick / 1.0e6, slot.renderVersion);
 
         slot.passCount = 0;
     }

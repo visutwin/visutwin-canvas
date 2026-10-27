@@ -41,6 +41,30 @@ namespace visutwin::canvas
     };
 
     PrimitiveGeometry createBoxGeometry();
+
+    struct RoundedBoxGeometryOptions
+    {
+        float halfExtents[3] = {0.5f, 0.5f, 0.5f};
+        /// Radius of the rounded edges and corners, clamped to the smallest half extent (fully
+        /// rounded on that axis); 0 gives the box's own layout.
+        float radius = 0.1f;
+        /// Segments across each rounded edge, which turns through 90 degrees. Neighbouring
+        /// faces meet half way round the edge, so an odd count is rounded up.
+        int radiusSegments = 8;
+        /// Divisions of the flat part along X, Z and Y.
+        int widthSegments = 1;
+        int lengthSegments = 1;
+        int heightSegments = 1;
+        /// Vertical offset in local space; 0.5 puts the pivot at the bottom face.
+        float yOffset = 0.0f;
+    };
+
+    /// A box with rounded edges and corners, its faces laid out as the box's (same order,
+    /// orientation, UV0 range and UV1 cells). Each face takes half of each rounded edge next to
+    /// it, sampled at equal angles; the UVs follow the distance along the rounded surface, so a
+    /// texture is not stretched over the rounding. The vertices along a seam are bit identical
+    /// on both faces.
+    PrimitiveGeometry createRoundedBoxGeometry(const RoundedBoxGeometryOptions& options = {});
     /// The 'sphere' primitive's geometry (radius 0.5, 48 x 48 bands).
     PrimitiveGeometry createSphereGeometry();
     /// A UV sphere with the given radius and band counts (the primitive's layout: the
