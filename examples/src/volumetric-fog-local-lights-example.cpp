@@ -11,7 +11,8 @@
 // shadowed spot lights with a linear falloff (volumetric scattering 15) and four omni
 // lights drifting above the terrain, each marked by an emissive sphere. The camera
 // frame renders with TAA, ACES, sharpening and a subtle bloom; the fog's local lights
-// sample the clustered shadow atlas (2048).
+// sample the clustered shadow atlas (2048). The camera orbits the tree "Arbol 2.002"
+// at (-4.47, 37.15, 27.63) from (-391.99, 86.28, 289.01), out to 600.
 //
 // Keys stand in for upstream's control panel:
 //   F fog on/off   O omni lights   S spot lights   H spot shadows   A animate lights
@@ -20,9 +21,6 @@
 // DEVIATIONS:
 // - The cloud order is shuffled with a fixed seed rather than Math.random(), so every run
 //   has the same layout (as shadow-cascades does).
-// - Orbit camera: upstream's orbit-camera script focuses the tree "Arbol 2.002" and on the
-//   first frame sets distance 470, yaw 304, pitch -6 (inertia 0.2, distanceMax 600). This
-//   port starts CameraControls at that pose and clamps zoom to 600.
 //
 // @credit Terrain Low Poly by Sketchfab, CC BY 4.0
 //
@@ -135,8 +133,8 @@ protected:
         pillar->setLocalPosition(180.0f, 50.0f, 110.0f);
         root()->addChild(pillar);
 
-        // The camera, orbiting a tree in the middle of the valley at the first-frame
-        // pose: distance 470, yaw 304, pitch -6.
+        // The camera, orbiting a tree in the middle of the valley at distance 470, yaw 304
+        // and pitch -6, framing the view over the lit valley.
         Vector3 focusPoint(0.0f, 0.0f, 0.0f);
         if (auto* tree = dynamic_cast<Entity*>(terrain->findByName("Arbol 2.002"))) {
             focusPoint = entityBounds(tree).center();
@@ -149,7 +147,8 @@ protected:
             _cameraComponent->camera()->setFarClip(1000.0f);
         }
         if (auto* controls = addOrbitControls(camera, focusPoint)) {
-            controls->setZoomRange(Vector2(0.0f, 600.0f));
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            controls->setZoomRange(Vector2(0.01f, 600.0f));
             controls->storeResetState();
         }
 

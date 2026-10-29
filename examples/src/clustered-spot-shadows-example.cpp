@@ -10,7 +10,7 @@
 // a handful of shadow-casting local lights at once; with it, each spot renders into
 // its own slice of the local shadow atlas and the clustered fragment shader samples
 // the slice the light says it owns. This is the only example that exercises that
-// atlas.
+// atlas. The camera starts at (0, 150, 300) and orbits the centre of the ground.
 //
 // DEVIATIONS from upstream: every light takes the heart cookie through its alpha
 // (upstream gives half the lights its channels.png test texture instead, on a random
@@ -129,8 +129,9 @@ protected:
             comp->camera()->setClearColor(Color(0.2f, 0.2f, 0.2f, 1.0f));
         }
         auto* controls = addOrbitControls(camera, Vector3(0.0f, 0.0f, 0.0f));
-        controls->setOrbitDistance(335.0f);
         controls->setMoveSpeed(200.0f);
+        controls->setPitchRange(Vector2(-90.0f, 90.0f));
+        controls->setZoomRange(Vector2(0.01f, 1200.0f));
         controls->storeResetState();
 
         spdlog::info("{} shadow-casting spot lights, each in its own slice of the "

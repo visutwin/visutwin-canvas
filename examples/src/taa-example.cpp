@@ -8,8 +8,8 @@
 // The PBR house (scaled 100x) under the table-mountain env atlas (skybox mip 0,
 // exposure 2.5), a shadow-casting directional light, and a cube orbiting the
 // house at radius 130 while it spins. The camera frame runs TAA (jitter 1),
-// ACES tone mapping, bloom 0.02 and sharpness 1; an orbit camera frames the
-// house on start.
+// ACES tone mapping, bloom 0.02 and sharpness 1. The camera orbits the house's
+// bounds centre (0, -1.15, -8.05) from (0, 43.33, -237.13), out to 400.
 //
 // The mode compares the full resolution with a lower one, set by the resolution, at which the
 // image is either upscaled with bilinear filtering or, with TAA upscaling, accumulated from the
@@ -25,13 +25,6 @@
 //   B      bloom on (0.02) / off
 // VISUTWIN_TAA_MODE=full|scaled|sharpen|temporal|temporalSharpen starts in that mode, for a
 // capture.
-//
-// DEVIATIONS:
-// - upstream's orbitCamera script (inertia 0.2, distanceMax 400, frameOnStart)
-//   is replaced by the examples' CameraControls in orbit mode. The start pose is
-//   computed the way frameOnStart does it: pivot at the house's AABB centre, the
-//   viewing direction from the authored camera position (0, 40, -220), distance
-//   1.5 * max half-extent / sin(fov / 2), clamped to 400. There is no inertia.
 //
 #include <algorithm>
 #include <array>
@@ -95,7 +88,8 @@ protected:
         houseEntity->setLocalScale(100, 100, 100);
         root()->addChild(houseEntity);
 
-        // Frame the house the way frameOnStart does.
+        // Frame the house: its bounds centre, seen from the direction of (0, 40, -220) at
+        // 1.5 x its largest half extent over sin(fov / 2).
         constexpr float fov = 80.0f;
         const auto houseBbox = entityBounds(houseEntity);
         const Vector3 pivot = houseBbox.center();
@@ -116,7 +110,8 @@ protected:
 
         auto* controls = addOrbitControls(camera, pivot);
         if (controls) {
-            controls->setZoomRange(Vector2(0.0f, 400.0f));
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            controls->setZoomRange(Vector2(0.01f, 400.0f));
             controls->storeResetState();
         }
 

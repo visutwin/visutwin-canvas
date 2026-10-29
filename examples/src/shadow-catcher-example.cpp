@@ -11,8 +11,9 @@
 // lights, a yellow one (PCSS) and a red one, by default do not light the scene at all: they
 // only cast the statue's shadows onto a 50 x 50 shadow catcher, an invisible plane just
 // above the dome's ground that multiplies the sky behind it by the shadow it receives. The
-// camera orbits the statue through a camera frame with ACES tone mapping and bokeh depth of
-// field, focused on the statue every frame; the shadow distance follows the camera distance
+// camera starts at (35, 12, -17) and orbits the centre of the statue's bounds (pitch within
+// +/-90 degrees, out to a distance of 500) through a camera frame with ACES tone mapping and
+// bokeh depth of field, focused on the statue every frame; the shadow distance follows the camera distance
 // so the shadows are never clipped.
 //
 // HDRI: "St Peter's Square Night" by Poly Haven, CC BY 4.0.
@@ -29,10 +30,6 @@
 //   per shader variant, so a second directional light whose shadow type differs from the
 //   first one's is left unshadowed, and the catcher would show the yellow light's shadow
 //   alone.
-// - upstream's orbitCamera script (inertia 0.2, distanceMax 500, frameOnStart off) is the
-//   examples' CameraControls in orbit mode: the pivot is the statue's bounds centre, the
-//   distance is the authored camera position's, the zoom is capped at 500 and the pitch
-//   at +/-90 degrees. Its damping is CameraControls' own, not the 0.2 s inertia.
 // - upstream asks for an HDR display and renders untonemapped on one; there is no HDR
 //   output here, so the scene takes upstream's SDR branch, ACES.
 //
@@ -106,7 +103,7 @@ protected:
         // Orbit the statue
         CameraControls* controls = addOrbitControls(_camera, entityBounds(_statue).center());
         controls->setPitchRange(Vector2(-90.0f, 90.0f));
-        controls->setZoomRange(Vector2(0.0f, 500.0f));
+        controls->setZoomRange(Vector2(0.01f, 500.0f));
         controls->storeResetState();
 
         // Convert the HDRI to a high resolution cubemap for the skybox, and generate an

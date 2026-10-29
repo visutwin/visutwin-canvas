@@ -12,7 +12,8 @@
 // first sweeps slowly, so its cone crosses the camera from time to time. The flares fade as the
 // walls cover their light, measured against the scene depth. The shapes of all flares are 15
 // textures of one shape library, which the effect copies into a texture array. The camera frame
-// renders with 4x MSAA, neutral tone mapping and a bloom of 0.02 over 6 levels.
+// renders with 4x MSAA, neutral tone mapping and a bloom of 0.02 over 6 levels. The camera orbits
+// the origin from (2, 4, 22), at a distance of 2 to 60.
 //
 // Keys stand in for upstream's controls panel:
 //   [ / ]  flare intensity -/+ 0.05, 0..3 (0.25 to begin with)
@@ -24,11 +25,6 @@
 //   1 2 3  the sun, the lamps, the spots on / off
 //   V      the view, cycled: none, lens flare, bloom, scene
 // VISUTWIN_LF_VIEW=name starts with that view, for a capture.
-//
-// DEVIATIONS:
-// - upstream's orbitCamera script (inertia 0.2, distance 2..60) is replaced by the examples'
-//   CameraControls in orbit mode, from the same start position. Its focus entity (at (0, 3, 0))
-//   holds no meshes, so the script's bounds are empty and it orbits the ORIGIN, as this port does.
 //
 #include <algorithm>
 #include <array>
@@ -132,7 +128,7 @@ protected:
         createSpot(Vector3(-12.0f, 7.0f, -10.0f), Vector3(1.0f, -0.25f, 1.0f), Color(1.0f, 1.0f, 0.9f, 1.0f), 25.0f);
         createSpot(Vector3(14.0f, 6.0f, -2.0f), Vector3(-1.0f, -0.15f, 0.4f), Color(0.6f, 0.8f, 1.0f, 1.0f), 20.0f);
 
-        // The camera, orbiting the origin (see the header).
+        // The camera, orbiting the origin.
         auto* camera = createCamera(Vector3(2.0f, 4.0f, 22.0f));
         _cameraComp = camera->findComponent<CameraComponent>();
         if (!_cameraComp || !_cameraComp->camera()) {
@@ -141,6 +137,7 @@ protected:
         _cameraComp->camera()->setFarClip(400.0f);
         _cameraComp->camera()->setFov(65.0f);
         if (auto* controls = addOrbitControls(camera, Vector3(0.0f, 0.0f, 0.0f))) {
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
             controls->setZoomRange(Vector2(2.0f, 60.0f));
             controls->storeResetState();
         }

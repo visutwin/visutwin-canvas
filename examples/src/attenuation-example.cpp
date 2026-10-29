@@ -13,9 +13,6 @@
 // against the camera's default grey clear colour. The model is turned 90 degrees, moved to
 // (0, 0, 1) and scaled by 0.8; the orbit camera frames it at yaw 90 and distance 24.
 //
-// DEVIATION: upstream's orbitCamera script is the examples' CameraControls in orbit mode, started at
-// the pose the script reaches (gltfShowcase.h); there is no inertia.
-//
 #include "../gltfShowcase.h"
 
 using namespace visutwin::canvas;

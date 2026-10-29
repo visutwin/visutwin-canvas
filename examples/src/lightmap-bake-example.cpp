@@ -14,12 +14,12 @@
 // out of realtime lighting (MASK_AFFECT_LIGHTMAPPED), so its whole look comes from
 // the bake. Upstream's HUD becomes keys, each re-baking as the HUD does; L toggles the
 // lightmaps ON/OFF. C runs the CPU ray-traced baker instead (a reference, not
-// upstream's). Esc quits.
+// upstream's). Esc quits. The camera starts at (41.67, 20.45, 41.67) and orbits the
+// centre of the house's bounds, out to a distance of 60.
 //
-// DEVIATIONS: upstream's orbit-camera script becomes CameraControls, starting where the
-// script's frame-on-start puts it; the HUD's numeric fields (sample counts, contrast,
-// brightness, filter range and smoothness) keep their default values, only its toggles
-// are keys; the lights' shadow bias is 0.05 where upstream's is 0.2 (see addBakeLight).
+// DEVIATIONS: the HUD's numeric fields (sample counts, contrast, brightness, filter range
+// and smoothness) keep their default values, only its toggles are keys; the lights'
+// shadow bias is 0.05 where upstream's is 0.2 (see addBakeLight).
 //
 #include <algorithm>
 #include <chrono>
@@ -198,10 +198,10 @@ protected:
         spdlog::info("Baking house lightmaps on the GPU ({} meshes)...", _houseMeshes.size());
         gpuRebake();
 
-        // JS: camera clearColor (0.4, 0.45, 0.5), farClip 100, nearClip 1, position (40, 20, 40),
-        //     orbiting the house.
-        // The orbit script frames the house on start: along the authored direction, at
-        // 1.5 x the largest half extent over sin(fov / 2), capped at distanceMax 60.
+        // JS: camera clearColor (0.4, 0.45, 0.5), farClip 100, nearClip 1, orbiting the house.
+        // The start position frames the house: along (40, 20, 40) from its centre, at 1.5 x
+        // the largest half extent over sin(fov / 2), capped at 60, which comes to
+        // (41.67, 20.45, 41.67).
         const Vector3 houseCenter = _houseBounds.center();
         const Vector3 houseHalf = _houseBounds.halfExtents();
         const float houseRadius = std::max({houseHalf.getX(), houseHalf.getY(), houseHalf.getZ()});
@@ -215,11 +215,11 @@ protected:
             cameraComponent->camera()->setFarClip(100.0f);
         }
 
-        // JS: camera.script.create('orbitCamera', { inertiaFactor: 0.2, focusEntity: house,
-        //     distanceMax: 60 }) + orbitCameraInputMouse/Touch — drag to orbit, wheel to zoom.
+        // Drag to orbit, wheel to zoom.
         camera->lookAt(_houseBounds.center());
         if (auto* cameraControls = addOrbitControls(camera, _houseBounds.center())) {
-            cameraControls->setZoomRange(Vector2(5.0f, 60.0f));   // JS: distanceMax 60
+            cameraControls->setPitchRange(Vector2(-90.0f, 90.0f));
+            cameraControls->setZoomRange(Vector2(0.01f, 60.0f));
         }
 
         // Keys stand in for the HUD panels; each one re-bakes.

@@ -42,11 +42,9 @@
 //   a bake runs.
 // - The omni's shadow bias is 0.05 rather than upstream's 0.2, as in the other lightmap
 //   examples (0.2 pushes small casters out of their baked shadows); light 3 keeps 0.2.
-// - Upstream's orbit-camera script becomes CameraControls in orbit mode, zoom capped at
-//   40. The script frames its focus entity (the ground) on start: it orbits the ground's
-//   centre at 6.5 x 1.5 / sin(22.5 degrees) = 25.5 units, looking along the authored
-//   (0, 5, 12) direction, which is where this camera starts (the pivot upstream passes is
-//   not one of the script's attributes, so it has no effect there either).
+//
+// The camera starts at (0, 9.8, 23.52), 25.5 units along (0, 5, 12) from the ground's centre,
+// and orbits that centre, zoom capped at 40.
 //
 #include <cmath>
 #include <iterator>
@@ -163,7 +161,7 @@ protected:
         _bakeOnlyLight->setLocalPosition(-3.5f, 2.0f, -2.8f);
         root()->addChild(_bakeOnlyLight);
 
-        // Where upstream's orbit script puts the camera on start (see the header).
+        // The start pose (see the header).
         const Vector3 pivot(0.0f, 0.0f, 0.0f);
         const float sinHalfFov = std::sin(22.5f * 3.14159265358979f / 180.0f);
         auto* camera = createCamera(Vector3(0.0f, 5.0f, 12.0f).normalized() * (6.5f * 1.5f / sinHalfFov));
@@ -177,7 +175,7 @@ protected:
         camera->lookAt(pivot);
         if (CameraControls* controls = addOrbitControls(camera, pivot)) {
             controls->setPitchRange(Vector2(-90.0f, 90.0f));
-            controls->setZoomRange(Vector2(0.0f, 40.0f));
+            controls->setZoomRange(Vector2(0.01f, 40.0f));
             controls->storeResetState();
         }
 

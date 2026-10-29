@@ -10,7 +10,8 @@
 // all with emissive marker geometry, plus one rotating shadow-casting directional
 // light. With Scene::setClusteredLightingEnabled(true) the unshadowed local lights
 // are bucketed into a 3D world-space grid (WorldClusters) so all 46 are evaluated
-// in a single forward pass.
+// in a single forward pass. The camera starts at (140, 140, 140) and orbits the centre
+// of the whole scene's bounds.
 //
 // Key standing in for upstream's control panel:
 //   L  light shapes on / off (off to begin with): each light's extent drawn in its own colour
@@ -293,6 +294,8 @@ protected:
         const Vector3 focusPoint = entityBounds(root()).center();
         auto* cameraControls = addOrbitControls(camera, focusPoint);
         cameraControls->setMoveSpeed(60.0f);
+        cameraControls->setPitchRange(Vector2(-90.0f, 90.0f));
+        cameraControls->setZoomRange(Vector2(0.01f, 400.0f));
         cameraControls->storeResetState();
 
         spdlog::info("*** Clustered Lighting Example ***");

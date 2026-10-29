@@ -13,7 +13,8 @@
 // time they render. A box, a sphere resting on it (its texture tiled twice around) and a 3 x 3
 // ground use the textures, under the helipad env atlas (mip 2, intensity 0.7), a directional
 // light (1.2, PCF3 at 2048, distance 12) and ACES. The two textures are shown in the bottom right
-// corner.
+// corner. The camera starts at (0.4, 2.2, 4.6) and orbits (0.4, 0.9, 0) between 5 and 80
+// degrees above the horizon, 2 to 12 units away.
 //
 // Keys stand in for upstream's controls panel:
 //   Space  animate on / off
@@ -33,8 +34,7 @@
 // - upstream's TextureRenderer is a TexturePreviewPass per preview (examples/texturePreview.h),
 //   appended to the frame with the rectangle as its viewport: the float colour texture is
 //   gamma-encoded for the screen, the 8-bit normal map shown as stored, as upstream's are.
-// - upstream's orbit-camera script is CameraControls in orbit mode with the same pitch and
-//   distance ranges; anisotropy is the engine's material sampler's, not the textures' own 8.
+// - anisotropy is the engine's material sampler's, not the textures' own 8.
 //
 #include <algorithm>
 #include <array>

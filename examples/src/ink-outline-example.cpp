@@ -13,7 +13,8 @@
 //
 // The house (scaled 100x) under the helipad env atlas (skybox mip 2, exposure 1.4), a warm
 // shadow-casting directional light, 20 iridescent bubbles rising around the house and 120
-// additive fireflies; neutral tone mapping and bloom 0.02.
+// additive fireflies; neutral tone mapping and bloom 0.02. The camera orbits the house's bounds
+// centre (0, 9.17, 0) from (28, 14, 28), out to 120.
 //
 // Keys stand in for upstream's controls panel, over the same parameters:
 //   O      outline on / off
@@ -22,8 +23,6 @@
 //   [ / ]  line width -/+ 1 pixel (1..4)
 //
 // DEVIATIONS:
-// - upstream's orbitCamera script is the examples' CameraControls in orbit mode around the
-//   house's bounds centre, starting at the authored position; there is no inertia.
 // - the depth is device depth, linearised in the shader with the camera's clip planes.
 // - the bubbles' iridescence has no minimum thickness (only a thickness map would read it).
 //
@@ -413,7 +412,8 @@ protected:
         _cameraComp->camera()->setFarClip(500.0f);
         _cameraComp->camera()->setFov(50.0f);
         if (auto* controls = addOrbitControls(camera, entityBounds(house).center())) {
-            controls->setZoomRange(Vector2(0.0f, 120.0f));
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            controls->setZoomRange(Vector2(0.01f, 120.0f));
             controls->storeResetState();
         }
 

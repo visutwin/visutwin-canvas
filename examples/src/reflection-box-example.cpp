@@ -15,7 +15,9 @@
 // with the room as the view moves; the sphere's does not. A white omni light (intensity 0.2, range
 // 1000) and its marker sphere circle the ceiling on an Excluded layer, which the probe does not
 // capture. Every frame both materials take the controls' gloss 0.8, metalness 0.9, bumpiness 0.2
-// and reflectivity 0.5. The camera (fov 100, far 1500) orbits the room from (270, 90, -260).
+// and reflectivity 0.5. The camera (fov 100, far 1500) looks from (270, 90, -260) at
+// (0, 200, 1.25), the centre of the walls and the screen, and orbits it with the pitch held to
+// +/-90 degrees and the distance capped at 390, which pulls the start in by 1.5 units.
 //
 // Controls:
 //   [ / ]  probe update frequency -/+ 1 frame (0 = every frame)
@@ -30,10 +32,6 @@
 // - The atlas is RGBP, the engine's atlas encoding, where upstream asks for RGBM.
 // - There is no cubemap preview (upstream's showCubemap draws the probe's faces with its
 //   TextureRenderer).
-// - Upstream's orbit-camera script becomes CameraControls in orbit mode, distance capped at 390,
-//   started where the script starts: looking from (270, 90, -260) at its pivot, (0, 200, 1.25) as
-//   the live script reports it (the centre of the walls and the screen; its bounds leave out the
-//   ceiling beams reaching y = 410), at that distance clamped to 390.
 //
 #include <algorithm>
 #include <cmath>
@@ -176,7 +174,7 @@ protected:
         light->setIntensity(0.2f);
         light->setRange(1000.0f);
 
-        // The camera, posed where the orbit script starts (see the header)
+        // The camera, looking at the room's centre from at most 390 units (see the header)
         const Vector3 pivot(0.0f, 200.0f, 1.25f);
         const Vector3 authored(270.0f, 90.0f, -260.0f);
         const float distance = std::min((authored - pivot).length(), 390.0f);
@@ -188,7 +186,8 @@ protected:
         cameraComponent->camera()->setFov(100.0f);
         cameraComponent->camera()->setFarClip(1500.0f);
         if (CameraControls* controls = addOrbitControls(camera, pivot)) {
-            controls->setZoomRange(Vector2(0.0f, 390.0f));
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            controls->setZoomRange(Vector2(0.01f, 390.0f));
             controls->storeResetState();
         }
 

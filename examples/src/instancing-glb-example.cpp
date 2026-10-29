@@ -11,18 +11,13 @@
 // directional light (intensity 2, euler (60, 30, 0)) casts a 2048 shadow out to 100
 // units onto a grey 50 x 1 x 50 box ground at y = -2, and the table-mountain env atlas
 // lights the scene and is shown as the skybox at mip 1. The camera (clear colour
-// (0.2, 0.1, 0.1), far clip 100, ACES) starts at (15, 15, -25) and orbits the model's
-// origin.
+// (0.2, 0.1, 0.1), far clip 100, ACES) starts at (15, 15, -25) and orbits the instanced
+// cube's own bounds centre, (0.5, 0.5, 0.5), with the pitch held to +/-90 degrees and the
+// zoom capped at 60.
 //
 // LMB / RMB orbit, Shift / MMB pan, Wheel / Pinch zoom, R reset, Esc quit.
 //
 // DEVIATIONS:
-// - upstream's orbitCamera script (inertia 0.2, distanceMax 60, frameOnStart off) is the
-//   examples' CameraControls in orbit mode: the pivot is the instanced cube's OWN bounds
-//   centre, (0.5, 0.5, 0.5) — upstream's mesh instance reports the base mesh's box, not the
-//   instances' union, and its orbit camera aims there — the distance is the authored camera
-//   position's, the zoom is capped at 60 and the
-//   pitch at +/-90 degrees. Its damping is CameraControls' own, not the 0.2 s inertia.
 // - upstream caps the pixel ratio at 2; the examples render at one pixel per point.
 //
 #include <memory>
@@ -94,7 +89,8 @@ protected:
             comp->setToneMapping(TONEMAP_ACES);
         }
 
-        // Orbit the instanced cube's own bounds centre (see the header) with mouse and touch
+        // Orbit the instanced cube's own bounds centre (the base mesh's box, not the instances'
+        // union) with mouse and touch
         Vector3 pivot(0.5f, 0.5f, 0.5f);
         for (auto* render : entity->findComponents<RenderComponent>()) {
             for (auto* meshInstance : render->meshInstances()) {
@@ -107,7 +103,7 @@ protected:
         camera->lookAt(pivot);
         if (auto* controls = addOrbitControls(camera, pivot)) {
             controls->setPitchRange(Vector2(-90.0f, 90.0f));
-            controls->setZoomRange(Vector2(0.0f, 60.0f));
+            controls->setZoomRange(Vector2(0.01f, 60.0f));
             controls->storeResetState();
         }
 

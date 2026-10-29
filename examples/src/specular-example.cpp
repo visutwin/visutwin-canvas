@@ -13,9 +13,6 @@
 // clears to dark grey with ACES; the orbit camera frames the model, then is set level with it
 // (pitch 0) at yaw 0.
 //
-// DEVIATION: upstream's orbitCamera script is the examples' CameraControls in orbit mode, started at
-// the pose the script reaches (gltfShowcase.h); there is no inertia.
-//
 #include "../gltfShowcase.h"
 
 using namespace visutwin::canvas;

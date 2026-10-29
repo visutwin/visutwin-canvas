@@ -12,7 +12,8 @@
 // moving rings and spokes, regenerated every 10 frames; the other two (white) project
 // a stand-in for a video, a 16:9 animated test pattern uploaded every frame. Every
 // clustered cookie lives in one shared cookie atlas (2048), which is drawn in the
-// bottom-left corner so the copies into it can be seen directly.
+// bottom-left corner so the copies into it can be seen directly. The camera starts at
+// (0, 50, 70) and orbits the centre of the board's bounds.
 //
 // Keys: upstream has no control panel. The orbit camera takes the mouse (drag to
 // orbit, wheel to zoom) and R resets the view.
@@ -28,9 +29,6 @@
 //   exists (the first frame with a cookie light creates it). The copy shows the atlas's
 //   raw values, where upstream's texture renderer gamma-encodes the linear atlas for
 //   display, so the preview reads darker in its mid-tones.
-// - orbitCamera is CameraControls around the board's bounds centre, from the
-//   camera's authored position; distanceMax 200 becomes the zoom range, and
-//   CameraControls has no inertia factor.
 //
 #include <algorithm>
 #include <array>
@@ -176,7 +174,8 @@ protected:
         const Vector3 focus = entityBounds(board).center();
         camera->lookAt(focus);
         auto* controls = addOrbitControls(camera, focus);
-        controls->setZoomRange(Vector2(0.0f, 200.0f));
+        controls->setPitchRange(Vector2(-90.0f, 90.0f));
+        controls->setZoomRange(Vector2(0.01f, 200.0f));
         controls->storeResetState();
 
         spdlog::info("Four cookie spot lights, two procedural and two animated, "

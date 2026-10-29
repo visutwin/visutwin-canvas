@@ -12,7 +12,8 @@
 // a cookie. Under clustered lighting each omni renders its six faces into its own slot
 // of the packed shadow atlas, and its cookie is copied into the matching slot of the
 // cookie atlas. Every surface has the same grey, normal-mapped metalness material;
-// the camera (ACES, fov 80) orbits the room's centre.
+// the camera (ACES, fov 80) starts at (300, 120, 25) and orbits (0, 190.71, 0), the
+// centre of the scene's bounds (the tumbled towers reach below the floor).
 //
 // Keys (upstream's settings panel):
 //   1      toggle shadows (Shadows On)
@@ -27,10 +28,6 @@
 //   only filter there is to show.
 // - The towers' tumble comes from a fixed-seed generator instead of Math.random(), so
 //   every run shows the same towers and screenshots are comparable.
-// - Upstream's orbit camera focuses the bounding box of everything in the scene when
-//   it starts (about (0, 190, 0): the tumbled towers reach below the floor) and keeps
-//   the authored camera position; this port orbits that point from the same position. distanceMax 1200 becomes the
-//   zoom range; CameraControls has no inertia factor.
 // - The atlas debug overlay upstream draws on WebGPU is left out.
 //
 #include <algorithm>
@@ -143,8 +140,8 @@ protected:
             comp->camera()->setFarClip(1500.0f);
             comp->setToneMapping(TONEMAP_ACES);
         }
-        // The centre of the scene's bounds.
-        if (auto* controls = addOrbitControls(camera, entityBounds(root()).center())) {
+        if (auto* controls = addOrbitControls(camera, Vector3(0.0f, 190.71f, 0.0f))) {
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
             controls->setZoomRange(Vector2(0.01f, 1200.0f));
             controls->storeResetState();
         }

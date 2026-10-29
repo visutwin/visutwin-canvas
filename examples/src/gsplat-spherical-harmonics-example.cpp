@@ -29,9 +29,6 @@
 //   key for it.
 // - upstream sets its splat alpha clip of 0.1 scene-wide; here it is the skull's own
 //   (GSplatComponent::setAlphaClip). It applies to the shadow alone, as there.
-// - upstream's orbitCamera script (inertia 0.2, distanceMax 60) is the examples'
-//   CameraControls in orbit mode around the same pivot from the same pose; there is no
-//   inertia.
 // - upstream caps the pixel ratio at 2; the examples render at one pixel per point.
 //
 #include <cmath>
@@ -135,7 +132,8 @@ protected:
         }
 
         if (auto* controls = addOrbitControls(cameraEntity, _pivot)) {
-            controls->setZoomRange(Vector2(0.0f, kOrbitDistanceMax));
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            controls->setZoomRange(Vector2(0.01f, kOrbitDistanceMax));
             controls->storeResetState();
         }
 

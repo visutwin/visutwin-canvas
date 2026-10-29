@@ -47,7 +47,8 @@ protected:
             _camera->camera()->setClearColor(Color(0.0f, 0.0f, 0.0f, 1.0f));
         }
         if (auto* controls = addOrbitControls(camera, Vector3(0.0f, 0.0f, 0.0f))) {
-            controls->setZoomRange(Vector2(0.0f, 190.0f));
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            controls->setZoomRange(Vector2(0.01f, 190.0f));
             controls->storeResetState();
         }
 

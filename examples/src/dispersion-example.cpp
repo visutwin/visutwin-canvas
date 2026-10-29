@@ -10,9 +10,6 @@
 // white light into fringes of colour. Helipad sky (mip 1), ACES, a dark clear colour, a close
 // camera (near 0.01, far 2) framing the model from above and in front, within 0.15 units.
 //
-// DEVIATION: upstream's orbitCamera script is the examples' CameraControls in orbit mode, started at
-// the pose the script reaches (gltfShowcase.h); there is no inertia.
-//
 #include "../gltfShowcase.h"
 
 using namespace visutwin::canvas;

@@ -9,7 +9,8 @@
 // circling over the valley, and an orange pillar casting a long shaft, in an amber height fog lit
 // by a low sun: a directional light with PCSS soft shadows, so the terrain, the trees and the
 // clouds cast long shafts through the fog. The camera frame renders ACES, sharpening 0.5, a
-// subtle bloom (0.01) and the volumetric fog.
+// subtle bloom (0.01) and the volumetric fog. The camera orbits the tree "Arbol 2.002"
+// at (-4.47, 37.15, 27.63) from (-351.34, 73.76, 261.6), out to 600.
 //
 // Keys stand in for upstream's controls panel, over the same parameters:
 //   F fog on / off     T TAA     S soft (PCSS) / hard (PCF3) shadows
@@ -19,9 +20,6 @@
 // DEVIATIONS:
 // - The cloud order is shuffled with a fixed seed rather than Math.random(), so every run has
 //   the same layout.
-// - Orbit camera: upstream's orbit-camera script focuses the tree "Arbol 2.002" and on the first
-//   frame sets distance 420, yaw 304, pitch -5 (inertia 0.2, distanceMax 600). This port starts
-//   CameraControls at that pose and clamps zoom to 600.
 //
 // @credit Terrain Low Poly by Sketchfab, CC BY 4.0
 //
@@ -110,7 +108,8 @@ protected:
             Vector3(10.0f, 130.0f, 10.0f));
         pillar->setName("pillar");
 
-        // The camera, orbiting a tree in the middle at the first-frame pose
+        // The camera, orbiting a tree in the middle at distance 420, yaw 304 and pitch -5,
+        // looking towards the low sun, where the light shafts through the fog show the most
         Vector3 focusPoint(0.0f, 0.0f, 0.0f);
         if (auto* tree = dynamic_cast<Entity*>(terrain->findByName("Arbol 2.002"))) {
             focusPoint = entityBounds(tree).center();
@@ -124,7 +123,8 @@ protected:
         _cameraComponent->camera()->setClearColor(Color(0.9f, 0.9f, 0.9f, 1.0f));
         _cameraComponent->camera()->setFarClip(1000.0f);
         if (auto* controls = addOrbitControls(camera, focusPoint)) {
-            controls->setZoomRange(Vector2(0.0f, 600.0f));
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            controls->setZoomRange(Vector2(0.01f, 600.0f));
             controls->storeResetState();
         }
 

@@ -11,9 +11,9 @@
 // and the twelve, in a shuffled order, circle the valley at height 4 on radii between 5 and
 // 13. A white directional light at (75, 120, 20) casts soft PCSS shadows (bias 0.3, normal
 // offset bias 0.2, distance 1000, 2048 map, penumbra size 0.03, falloff 4, 16 samples, 16
-// blocker samples). The camera (clear (0.9, 0.9, 0.9), far 1000, ACES) orbits the tree
-// "Arbol 2.002" from the direction of (-500, 160, 300), at the distance of 470 upstream sets
-// on the first frame.
+// blocker samples). The camera (clear (0.9, 0.9, 0.9), far 1000, ACES) starts at
+// (-406.96, 136.93, 248.86), 470 units from the centre of the tree "Arbol 2.002" in the
+// direction of (-500, 160, 300), and orbits that centre out to a distance of 600.
 //
 // Keys stand in for upstream's control panel:
 //   S        Soft Shadows: PCSS / PCF3 (default PCSS)
@@ -25,9 +25,6 @@
 //
 // @credit Terrain Low Poly by Sketchfab, CC BY 4.0
 //
-// DEVIATION: upstream's orbitCamera script (inertia 0.2, distanceMax 600) frames the tree on
-// start and then eases to a distance of 470; this port starts CameraControls at that final
-// pose, with the zoom capped at 600. Its damping is CameraControls' own.
 // DEVIATION: a blocker sample count of 0 is taken as 1: the light component clamps it.
 //
 #include <algorithm>
@@ -129,9 +126,8 @@ protected:
             spdlog::warn("The terrain has no tree named Arbol 2.002");
         }
 
-        // Create an Entity with a camera component, positioned where the orbit script leaves
-        // it after the first frame: in the direction of (-500, 160, 300) from the tree, 470
-        // away from it
+        // Create an Entity with a camera component, in the direction of (-500, 160, 300) from
+        // the tree, 470 away from it
         const Vector3 direction = (Vector3(-500.0f, 160.0f, 300.0f) - focusPoint).normalized();
         auto* camera = createCamera(focusPoint + direction * 470.0f);
         auto* cameraComponent = camera->findComponent<CameraComponent>();
@@ -143,7 +139,8 @@ protected:
         cameraComponent->camera()->setFarClip(1000.0f);
         cameraComponent->setToneMapping(TONEMAP_ACES);
         if (auto* controls = addOrbitControls(camera, focusPoint)) {
-            controls->setZoomRange(Vector2(0.0f, 600.0f));
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            controls->setZoomRange(Vector2(0.01f, 600.0f));
             controls->storeResetState();
         }
 

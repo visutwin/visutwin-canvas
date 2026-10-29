@@ -4,12 +4,11 @@
 // Created by Arnis Lektauers on 13.10.2026
 //
 // The shape several material examples share: one glTF model placed in the scene, lit by an
-// environment atlas (and optionally a directional light), seen by an orbit camera. Upstream
-// builds these with its orbit-camera script and no focus entity, which frames the whole scene:
-// the pivot is the centre of the scene's bounds, the camera first looks at it from where it was
-// authored (which sets the pitch), and the example then sets the pitch, yaw and distance, or keeps
-// the framing distance (1.5 x the largest half extent over sin(fov / 2), clamped to the script's
-// maximum). This starts the examples' CameraControls in orbit mode at that pose.
+// environment atlas (and optionally a directional light), seen by an orbit camera that frames
+// the whole scene: the pivot is the centre of the scene's bounds, the camera first looks at it
+// from where it was authored (which sets the pitch), and the example then sets the pitch, yaw and
+// distance, or keeps the framing distance (1.5 x the largest half extent over sin(fov / 2),
+// clamped to the maximum zoom). CameraControls starts in orbit mode at that pose.
 //
 #pragma once
 
@@ -46,7 +45,7 @@ namespace visutwin::canvas
         std::optional<float> cameraPitch;          // set after the framing, degrees
         std::optional<float> cameraYaw;            // set after the framing, degrees
         std::optional<float> cameraDistance;       // set after the framing; unset keeps it
-        float distanceMax = 1e6f;                  // the orbit script's distanceMax
+        float distanceMax = 1e6f;                  // the maximum zoom distance
         float fov = 45.0f;
         float nearClip = 0.1f;
         float farClip = 1000.0f;
@@ -101,8 +100,8 @@ namespace visutwin::canvas
             _model->setLocalScale(o.modelScale.getX(), o.modelScale.getY(), o.modelScale.getZ());
             root()->addChild(_model);
 
-            // The orbit script's start: the pivot at the scene's centre, the pitch from looking at it
-            // from the authored position, then the example's yaw and distance.
+            // The start: the pivot at the scene's centre, the pitch from looking at it from the
+            // authored position, then the example's yaw and distance.
             const BoundingBox bounds = entityBounds(_model);
             const Vector3 pivot = bounds.center();
             const Vector3 toPivot = (pivot - o.cameraPosition).normalized();
@@ -131,7 +130,8 @@ namespace visutwin::canvas
                 _cameraComponent->requestSceneColorMap(true);
             }
             if (auto* controls = addOrbitControls(camera, pivot)) {
-                controls->setZoomRange(Vector2(0.0f, o.distanceMax));
+                controls->setPitchRange(Vector2(-90.0f, 90.0f));
+                controls->setZoomRange(Vector2(0.01f, o.distanceMax));
                 controls->storeResetState();
             }
 

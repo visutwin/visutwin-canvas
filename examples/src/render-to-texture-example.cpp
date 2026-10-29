@@ -13,7 +13,9 @@
 // as a small preview in the bottom-right corner. Every 5 seconds the texture camera
 // switches between perspective and orthographic projection. A red-blue-yellow
 // sphere, cone and box sit on a checkerboard ground, a particle system sprays
-// above the box, and a white sphere marks the texture camera's position.
+// above the box, and a white sphere marks the texture camera's position. The main
+// camera starts at (0, 9, 15) and orbits the plane's centre at the origin, pitch
+// held to +/-90 degrees and zoom capped at 20.
 //
 // DEVIATIONS from upstream:
 //  - the render texture is PIXELFORMAT_RGBA8, not SRGBA8: the engine has no sRGB
@@ -26,11 +28,6 @@
 //    The preview is a RenderPassDownsample appended to the frame graph with the
 //    same viewport-fraction rectangle, so it draws over everything rather than
 //    straight after the skybox, and does not follow a window resize.
-//  - orbitCamera is CameraControls. Upstream's orbit camera re-aims the camera at
-//    its focus entity's bounds centre (the plane, at the origin) when it starts,
-//    replacing the example's lookAt(1, 4, 0), and keeps its position (0, 9, 15);
-//    the camera here starts at that pose. distanceMax 20 becomes the zoom range;
-//    CameraControls has no inertia factor.
 //
 #include <algorithm>
 #include <cmath>
@@ -134,7 +131,7 @@ protected:
         createParticleSystem(Vector3(2.0f, 3.0f, 0.0f));
 
         // Create main camera, which renders entities in world, excluded and skybox layers.
-        // translate(0, 9, 15); the orbit camera then aims it at the plane's centre.
+        // It looks from (0, 9, 15) at the plane's centre and orbits it.
         auto* camera = createCamera(Vector3(0.0f, 9.0f, 15.0f));
         camera->setName("Camera");
         auto* cameraComp = camera->findComponent<CameraComponent>();
@@ -144,7 +141,9 @@ protected:
         camera->lookAt(Vector3(0.0f, 0.0f, 0.0f));
 
         if (auto* controls = addOrbitControls(camera, Vector3(0.0f, 0.0f, 0.0f))) {
-            controls->setZoomRange(Vector2(0.0f, 20.0f));
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            controls->setZoomRange(Vector2(0.01f, 20.0f));
+            controls->storeResetState();
         }
 
         // Create texture camera, which renders entities in world and skybox layers into the texture

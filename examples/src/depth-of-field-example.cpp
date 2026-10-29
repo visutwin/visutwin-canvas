@@ -8,7 +8,8 @@
 // An apartment interior lit purely by the helipad environment atlas, with an
 // Egyptian cat statue on the floor at the focus plane and an emissive neon "love"
 // sign blooming on the far wall. Bokeh DOF keeps the cat razor-sharp while the
-// near furniture and the far end of the room dissolve into blur.
+// near furniture and the far end of the room dissolve into blur. The camera orbits
+// the cat's bounds centre (-80, 80, -20) from (-50, 100, 220), out to 500.
 //
 // Upstream drives DOF from a control panel; this port maps the same settings onto
 // keys (listed at startup), all going through CameraComponent::dof().
@@ -200,9 +201,8 @@ protected:
             _cameraComp->setRendering(rendering);
         }
 
-        // The orbit camera aims at the focus entity's AABB centre, keeping the camera
-        // position and deriving the orbit distance from it — which is exactly what
-        // setFocusPoint does.
+        // The camera orbits the cat's bounds centre from where it stands; setFocusPoint
+        // keeps the position and derives the orbit distance from it.
         const BoundingBox catBbox = entityAabb(catEntity);
         _focusPoint = catBbox.center();
         const float sceneRadius = std::max(catBbox.halfExtents().length(), 1.0f);
@@ -211,6 +211,8 @@ protected:
         _controls->setMoveSpeed(2 * sceneRadius);
         _controls->setMoveFastSpeed(4 * sceneRadius);
         _controls->setMoveSlowSpeed(sceneRadius);
+        _controls->setPitchRange(Vector2(-90.0f, 90.0f));
+        _controls->setZoomRange(Vector2(0.01f, 500.0f));
         _controls->storeResetState();
         _orbitDistance = camera->position().distance(_focusPoint);
 

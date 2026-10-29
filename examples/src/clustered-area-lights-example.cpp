@@ -15,8 +15,8 @@
 // (sphere, flattened cylinder, flattened box) at ten times its intensity, and a spot a
 // black copy over its back. Clustered lighting runs a 30 x 2 x 30 grid with up to 20
 // lights per cell, area lights on and shadows off. The camera frame multisamples 4x,
-// blooms at 0.01 over 4 levels and tone-maps NEUTRAL; an orbit camera starts at
-// (3, 3, 12) looking at the ground's centre, out to a distance of 60.
+// blooms at 0.01 over 4 levels and tone-maps NEUTRAL. The camera starts at (3, 3, 12)
+// and orbits the ground's centre, pitch within +/-90 degrees, out to a distance of 60.
 //
 // Keys stand in for upstream's control panel (the ground material):
 //   [ / ]  gloss -/+ 0.05, 0..1
@@ -26,8 +26,6 @@
 // - upstream loads the LTC LUTs from a JSON asset; this engine has them built in.
 // - the colours and shapes come from a SEEDED generator in place of upstream's
 //   Math.random(), so the grid is the same in every run (and comparable across runs).
-// - upstream's orbitCamera script (inertia 0.2, distanceMax 60) is the examples'
-//   CameraControls in orbit mode around the same pivot; there is no inertia.
 // - upstream asks for an HDR display format and skips tone mapping on an HDR display;
 //   the port always renders to a standard display with NEUTRAL tone mapping.
 // - upstream caps the pixel ratio at 2; the examples render at one pixel per point.
@@ -134,7 +132,8 @@ protected:
             cameraComp->setRendering(rendering);
         }
         if (auto* controls = addOrbitControls(camera, Vector3(0.0f, 0.0f, 0.0f))) {
-            controls->setZoomRange(Vector2(0.0f, 60.0f));
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            controls->setZoomRange(Vector2(0.01f, 60.0f));
             controls->storeResetState();
         }
 

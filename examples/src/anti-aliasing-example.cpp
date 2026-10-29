@@ -9,7 +9,8 @@
 // atlas (skybox mip 0, exposure 2.5), a shadow-casting directional light, a cube orbiting the
 // house — plus a sign of thin slanted light bars on a dark board in front of the house, a high
 // contrast test of how well each method smooths edges. The camera frame tone maps with ACES;
-// SMAA (SmaaEffect) is registered on the camera and enabled when a method uses it.
+// SMAA (SmaaEffect) is registered on the camera and enabled when a method uses it. The camera
+// orbits the house's bounds centre (0, -1.15, -8.05) from (0, 43.33, -237.13), out to 400.
 //
 // Keys stand in for upstream's controls panel, over the same parameters:
 //   M      the method, cycled: none, SMAA low / medium / high / ultra, TAA, TAA upscale (from
@@ -21,10 +22,6 @@
 //   B      bloom on (0.02) / off
 // VISUTWIN_AA_METHOD=n and VISUTWIN_AA_DEBUG=n start at method n and debug view n of those
 // lists, for a capture, which no key reaches.
-//
-// DEVIATIONS:
-// - upstream's orbitCamera script is replaced by the examples' CameraControls in orbit mode,
-//   the start pose computed as frameOnStart does it (see taa-example.cpp). There is no inertia.
 //
 #include <algorithm>
 #include <array>
@@ -116,7 +113,8 @@ protected:
         houseEntity->setLocalScale(100, 100, 100);
         root()->addChild(houseEntity);
 
-        // Frame the house the way frameOnStart does.
+        // Frame the house: its bounds centre, seen from the direction of (0, 40, -220) at
+        // 1.5 x its largest half extent over sin(fov / 2).
         constexpr float fov = 80.0f;
         const auto houseBbox = entityBounds(houseEntity);
         const Vector3 pivot = houseBbox.center();
@@ -134,7 +132,8 @@ protected:
             _cameraComp->camera()->setFov(fov);
         }
         if (auto* controls = addOrbitControls(camera, pivot)) {
-            controls->setZoomRange(Vector2(0.0f, 400.0f));
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            controls->setZoomRange(Vector2(0.01f, 400.0f));
             controls->storeResetState();
         }
 

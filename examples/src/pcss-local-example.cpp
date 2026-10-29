@@ -9,8 +9,8 @@
 // metallic plane under the dimmed helipad environment. Three PCSS shadow casters
 // take turns every 5 seconds: a green "area" spot with a bright emissive plane
 // showing its source, a white one-cascade directional light, and a red omni with a
-// small emissive sphere. All three circle the arm. The camera orbits the arm at a
-// distance of 25.
+// small emissive sphere. All three circle the arm. The camera starts at
+// (-1, 9.35, 23.75) and orbits (0.85, 1.3, 0.16), the centre of the arm, 25 units away.
 //
 // Model credit: "Black Honey Robotic Arm" (Sketchfab), CC BY 4.0,
 // https://sketchfab.com/3d-models/black-honey-robotic-arm-c50671f2a8e74de2a2e687103fdc93ab
@@ -40,9 +40,6 @@
 // LUTs are built into this engine, and upstream never uses the cube, so neither is
 // loaded. upstream's ambientLuminance = 0 has no counterpart here: the ambient
 // colour is already black.
-// DEVIATION: upstream's orbit camera pivots on the arm's AABB centre, keeps the
-// direction from its start position (0, 5, 11), and sets the distance to 25 on
-// the first update. CameraControls is given the same pivot and distance.
 //
 #include <cmath>
 #include <memory>
@@ -216,15 +213,15 @@ protected:
         root()->addChild(_omniLight);
 
         // ------ Camera ------
-        auto* camera = createCamera(Vector3(0.0f, 5.0f, 11.0f));
+        auto* camera = createCamera(Vector3(-1.0f, 9.35f, 23.75f));
         if (auto* cameraComponent = camera->findComponent<CameraComponent>()) {
             cameraComponent->camera()->setClearColor(Color(0.4f, 0.45f, 0.5f, 1.0f));
             cameraComponent->setToneMapping(TONEMAP_ACES);
             cameraComponent->requestSceneColorMap(true);
         }
-        const Vector3 pivot = entityBounds(_occluder).center();
-        if (auto* controls = addOrbitControls(camera, pivot)) {
-            controls->setOrbitDistance(25.0f);
+        if (auto* controls = addOrbitControls(camera, Vector3(0.85f, 1.3f, 0.16f))) {
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            controls->setZoomRange(Vector2(0.01f, 500.0f));
             controls->storeResetState();
         }
 

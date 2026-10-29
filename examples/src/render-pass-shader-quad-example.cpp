@@ -12,7 +12,8 @@
 // keeps a border clear. Five brushes follow Lissajous curves in hues that drift over time. The
 // texture is cleared only on the first frame and when C is pressed, and is the emissive map of a
 // dark, polished, partly metallic cube turning under the studio env atlas (mip 2), seen with
-// neutral tone mapping. The texture is shown in the bottom right corner.
+// neutral tone mapping. The texture is shown in the bottom right corner. The camera starts at
+// (0.85, 1.25, 5.08) and orbits the cube 2.5 to 12 units away.
 //
 // Keys stand in for upstream's controls panel:
 //   S / A  brush count +/- 1 (1 .. 8)
@@ -30,8 +31,7 @@
 //   an sRGB 8-bit format, which this engine does not have.
 // - upstream's TextureRenderer is a TexturePreviewPass (examples/texturePreview.h) appended to the
 //   frame, its viewport the preview rectangle, gamma-encoding the float canvas as upstream's
-//   preview does; the orbit-camera script is CameraControls in orbit mode with the same
-//   distance range; anisotropy is the engine's material sampler's.
+//   preview does; anisotropy is the engine's material sampler's.
 //
 #include <algorithm>
 #include <array>
@@ -304,6 +304,7 @@ protected:
         }
         if (auto* controls = addOrbitControls(camera, Vector3(0.0f, 0.0f, 0.0f))) {
             controls->setEnableFly(false);
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
             controls->setZoomRange(Vector2(2.5f, 12.0f));
             controls->storeResetState();
         }

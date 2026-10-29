@@ -17,8 +17,9 @@
 // bottom-right quarter of the window. The helipad environment (mip 3, turned -70 degrees) lights
 // the terrain but the sky is not drawn: the camera clears to (150, 213, 63) / 255, with a far clip
 // of 1000 and ACES tone mapping. A directional light at euler (45, 350, 20) casts PCF3 shadows
-// (resolution 2048, distance 1000, bias 0.3, normal offset 0.2). The camera orbits the tree
-// "Arbol 2.002" from 320 units away, in the direction of its authored position (-200, 120, 225).
+// (resolution 2048, distance 1000, bias 0.3, normal offset 0.2). The camera starts at
+// (-220.29, 128.6, 245.48) and orbits the bounds centre of the tree "Arbol 2.002",
+// (-4.47, 37.15, 27.63), 320 units away, pitch held to +/-90 degrees and zoom capped at 600.
 //
 // Keys stand in for upstream's controls panel:
 //   S  softness on / off (on to begin with)
@@ -32,9 +33,6 @@
 //   perspective camera.
 // - The depth preview is a quad pass of its own appended to the frame, with the viewport upstream's
 //   texture renderer draws its quad into (0.725, 0.725, 0.25, 0.25 of the window).
-// - Orbit camera: upstream's orbit-camera script frames the tree, then sets distance 320 on the
-//   first frame (inertia 0.2, distanceMax 600). This port starts CameraControls at that pose and
-//   clamps zoom to 600; CameraControls has no inertia factor.
 //
 // @credit Terrain Low Poly by Sketchfab, CC BY 4.0
 //
@@ -394,7 +392,8 @@ protected:
         _cameraComponent->setToneMapping(TONEMAP_ACES);
         camera->lookAt(focusPoint);
         if (auto* controls = addOrbitControls(camera, focusPoint)) {
-            controls->setZoomRange(Vector2(0.0f, 600.0f));
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            controls->setZoomRange(Vector2(0.01f, 600.0f));
             controls->storeResetState();
         }
 

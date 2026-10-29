@@ -10,9 +10,6 @@
 // (turned 70 degrees, intensity 1.5), a white directional light, ACES, the scene colour grab,
 // the camera at yaw 90 and distance 2.
 //
-// DEVIATION: upstream's orbitCamera script is the examples' CameraControls in orbit mode, started at
-// the pose the script reaches (gltfShowcase.h); there is no inertia.
-//
 #include "../gltfShowcase.h"
 
 using namespace visutwin::canvas;

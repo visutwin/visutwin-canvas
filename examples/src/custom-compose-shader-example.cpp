@@ -12,7 +12,8 @@
 //
 // The apartment (scaled 30x) under the helipad env atlas (exposure 1.2), with the neon "love"
 // sign lit yellow at emissive intensity 200 so it blooms; the camera frame renders 4x MSAA,
-// neutral tone mapping, bloom 0.03 over 7 levels and a vignette (0.5, 1, 0.5, 0.8).
+// neutral tone mapping, bloom 0.03 over 7 levels and a vignette (0.5, 1, 0.5, 0.8). The camera
+// orbits the origin from (-50, 100, 220), out to 500.
 //
 // Keys stand in for upstream's controls panel, over the same parameters:
 //   [ / ]  tile size -/+ 2 pixels (2..32)
@@ -20,9 +21,6 @@
 //   T      tone mapping, cycled through linear, filmic, ACES, ACES2, neutral, none
 //
 // DEVIATIONS:
-// - upstream's orbitCamera script is the examples' CameraControls in orbit mode from the authored
-//   position; no inertia. Its focus entity (at (-80, 80, -20)) has no meshes and is not in the
-//   scene, so the script's bounds are empty and it orbits the ORIGIN, as this port does.
 // - the chunk is Slang, reads its uniforms by name without declaring them, and measures the
 //   tiles from the bottom-left corner of the frame, where upstream's uv starts.
 //
@@ -164,7 +162,8 @@ protected:
         _cameraComp->camera()->setFarClip(1500.0f);
         _cameraComp->camera()->setFov(80.0f);
         if (auto* controls = addOrbitControls(camera, Vector3(0.0f, 0.0f, 0.0f))) {
-            controls->setZoomRange(Vector2(0.0f, 500.0f));
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            controls->setZoomRange(Vector2(0.01f, 500.0f));
             controls->storeResetState();
         }
 

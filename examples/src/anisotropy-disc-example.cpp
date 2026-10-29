@@ -10,9 +10,6 @@
 // so the highlight sweeps around each disc. Morning sky (turned 70 degrees, intensity 1.5), a
 // yellow directional light, ACES, the camera at yaw 90 and distance 6.
 //
-// DEVIATION: upstream's orbitCamera script is the examples' CameraControls in orbit mode, started at
-// the pose the script reaches (gltfShowcase.h); there is no inertia.
-//
 #include "../gltfShowcase.h"
 
 using namespace visutwin::canvas;

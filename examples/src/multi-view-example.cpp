@@ -216,8 +216,8 @@ protected:
             _topCam->camera()->setClearDepthBuffer(false);
             _topCam->camera()->setClearStencilBuffer(false);
         }
-        // Upstream's orbit script (focusEntity root, no frame on start) re-aims the camera at
-        // the scene's bounds centre when it starts, replacing the example's lookAt(0, 7, 0).
+        // The top camera aims at the board's bounds centre, about (11.04, 20.45, 0), not at
+        // (0, 7, 0).
         topCamEntity->lookAt(entityBounds(root()).center());
 
         // Guard against unintended extra cameras rendering full-screen.

@@ -27,7 +27,6 @@
 // - The shader is Slang (one source for both backends) over the base-colour slot declared as an
 //   array.
 // - Upstream places the impostors with Math.random; this port uses a fixed-seed std::mt19937.
-// - Upstream's orbitCamera (inertia 0.2) is the examples' CameraControls in orbit mode.
 //
 #include <algorithm>
 #include <cmath>
@@ -400,7 +399,7 @@ protected:
             center.getZ() * 2.0f + startDistance * std::cos(startPitch)));
         if (auto* controls = addOrbitControls(_cameraEntity, renderBounds(_statue).center())) {
             controls->setPitchRange(Vector2(-85.0f, 0.0f));
-            controls->setZoomRange(Vector2(0.0f, spacing * kGridSize));
+            controls->setZoomRange(Vector2(0.01f, spacing * kGridSize));
             controls->setEnableFly(false);
             controls->storeResetState();
         }

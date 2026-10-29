@@ -9,10 +9,10 @@
 // exposure 2.5), every material made opaque with depth writes and its baked AO map removed,
 // so the occlusion comes from SSAO alone. A directional light at (70, 135, 0) casts the
 // shadows (4096 map, bias 0.4, normal offset bias 0.06, distance 600). The camera (clear
-// (0.4, 0.45, 0.5), near 1, far 600, NEUTRAL tone mapping) orbits the laboratory from
-// (-60, 30, 60), framing it as upstream's orbit script does on start, through a camera frame
-// with 4x MSAA and lighting-mode SSAO (radius 30, 12 samples, intensity 0.4, power 6, min
-// angle 10, blurred, not randomized). Volumetric fog lit by the directional light (tint
+// (0.4, 0.45, 0.5), near 1, far 600, NEUTRAL tone mapping) starts at (-200, 100, 200) and
+// orbits the laboratory's centre at the origin (pitch +/-90 degrees, zoom up to 300),
+// through a camera frame with 4x MSAA and lighting-mode SSAO (radius 30, 12 samples,
+// intensity 0.4, power 6, min angle 10, blurred, not randomized). Volumetric fog lit by the directional light (tint
 // (1, 0.92, 0.8), density 0.01 below height -30, falloff 0.05, ambient 0.005, 600 units,
 // 32 steps) is available but off. Three objects carry coloured outlines: the globe
 // "Weltkugel" red, the chair "Stuhl" white and the telescope "Teleskop" green.
@@ -28,10 +28,6 @@
 // tone mapping and fog do not touch them. The engine's OutlineRenderer blends its outline
 // texture over the back buffer after the whole frame, which keeps them out of the tone
 // mapping and the fog as well, but draws them over the UI layer too.
-// DEVIATION: upstream's orbitCamera script (inertia 0.2, distanceMax 300, framing the
-// laboratory on start) is the examples' CameraControls in orbit mode, started at the pose
-// that framing reaches (the bounds centre, 1.5 x the largest half extent over sin(fov / 2),
-// at most 300) and zoom capped at 300; its damping is CameraControls' own.
 //
 #include <algorithm>
 #include <cmath>
@@ -130,7 +126,8 @@ protected:
         _cameraComponent->camera()->setFarClip(600.0f);
         _cameraComponent->setToneMapping(TONEMAP_NEUTRAL);
 
-        // Orbit the laboratory, framed as the orbit script frames its focus entity on start
+        // Orbit the laboratory's bounds centre from 1.5 x its largest half extent over
+        // sin(fov / 2), at most 300: (-200, 100, 200) around the origin
         const BoundingBox bounds = entityBounds(_laboratory);
         const Vector3 focusPoint = bounds.center();
         const Vector3& halfExtents = bounds.halfExtents();
@@ -140,7 +137,8 @@ protected:
         const Vector3 direction = (camera->position() - focusPoint).normalized();
         camera->setPosition(focusPoint + direction * distance);
         if (auto* controls = addOrbitControls(camera, focusPoint)) {
-            controls->setZoomRange(Vector2(0.0f, kDistanceMax));
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            controls->setZoomRange(Vector2(0.01f, kDistanceMax));
             controls->storeResetState();
         }
 

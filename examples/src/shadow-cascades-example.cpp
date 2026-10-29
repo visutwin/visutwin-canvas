@@ -9,8 +9,9 @@
 // directional light casting four cascaded PCF shadow maps over a 1000-unit shadow
 // distance. The terrain's clouds (every node whose name contains "Icosphere") stop
 // receiving shadows, are each cloned three more times, and circle over the valley
-// every frame. The camera orbits a tree in the middle of the terrain ("Arbol 2.002")
-// at a distance of 470, under ACES tone mapping and a light-grey clear.
+// every frame. The camera starts at (431.37, 213, 23.86), 470 units from the centre of
+// a tree in the middle of the terrain ("Arbol 2.002"), and orbits that centre under ACES
+// tone mapping and a light-grey clear.
 //
 // Keys stand in for upstream's control panel, over its parameters and ranges:
 //   1-4  cascade count                 D / C  cascade distribution +/- (0..1)
@@ -28,10 +29,6 @@
 //   engine implements the 32F PCF kernels, VSM_16F and PCSS_32F, so T cycles those five.
 // - The cloud order is shuffled with a fixed seed rather than Math.random(), so the
 //   cloud layout is the same on every run and screenshots are comparable.
-// - Orbit camera: upstream's orbit-camera script focuses the tree's bounding box, and
-//   on the first frame sets the distance to 470 (distanceMax 1800, inertia 0.2). This
-//   port orbits the centre of the tree's AABB from the same starting position at 470,
-//   clamps zoom to 1800, and CameraControls has no inertia setting.
 //
 // @credit Terrain Low Poly by Sketchfab, CC BY 4.0
 //
@@ -148,7 +145,8 @@ protected:
 
         _controls = addOrbitControls(camera, focusPoint);
         if (_controls) {
-            _controls->setZoomRange(Vector2(0.0f, 1800.0f));
+            _controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            _controls->setZoomRange(Vector2(0.01f, 1800.0f));
             // move the camera further away from the focus tree
             _controls->setOrbitDistance(470.0f);
             _controls->storeResetState();

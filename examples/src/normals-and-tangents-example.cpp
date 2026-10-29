@@ -12,9 +12,6 @@
 // 2048 map). The model is turned 90 degrees, moved to (0, 0, 1) and scaled by 0.8; the orbit
 // camera is set level with it (pitch 0) at yaw 90 and distance 3.
 //
-// DEVIATION: upstream's orbitCamera script is the examples' CameraControls in orbit mode, started at
-// the pose the script reaches (gltfShowcase.h); there is no inertia.
-//
 #include "../gltfShowcase.h"
 
 using namespace visutwin::canvas;

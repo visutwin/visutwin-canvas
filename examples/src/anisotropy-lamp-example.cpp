@@ -11,9 +11,6 @@
 // Morning sky (turned 70 degrees, intensity 0.5, mip 1), ACES, a close camera at yaw 90 and
 // distance 0.3, no light of its own.
 //
-// DEVIATION: upstream's orbitCamera script is the examples' CameraControls in orbit mode, started at
-// the pose the script reaches (gltfShowcase.h); there is no inertia.
-//
 #include "../gltfShowcase.h"
 
 using namespace visutwin::canvas;

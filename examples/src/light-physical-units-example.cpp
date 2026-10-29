@@ -21,7 +21,7 @@
 // The ambient is red (1, 0, 0) at a luminance of 20000 and the sky at 20000; physical units
 // are on. The camera at (0, 5, 11) clears to (0.4, 0.45, 0.5), exposes at f/16, 1/1000 s and
 // ISO 1000, requests the scene colour map, and orbits the first chair's bounds centre
-// (distance 1 to 400). Area lights are enabled for the clustered lighting.
+// (distance 1 to 400, pitch within +/-90 degrees). Area lights are enabled for the clustered lighting.
 //
 // Keys stand in for upstream's control panel:
 //   1 / 2   rect luminance -/+ 50000, 0..800000
@@ -47,8 +47,6 @@
 // is authored so that it decodes to (20000, 0, 0) (to (1, 0, 0) without).
 // DEVIATION: the chairs' KHR_materials_sheen textures are ignored (the engine applies the
 // extension's factors only), so the velvet's sheen is uniform across the fabric.
-// DEVIATION: upstream's orbitCamera script (inertia 0.2) is the examples' CameraControls in
-// orbit mode around the same pivot, with its own damping.
 // DEVIATION: upstream caps the pixel ratio at 2; the examples render at one pixel per point.
 //
 // Upstream's settings name ACES tone mapping but never apply it, so the camera keeps the
@@ -291,6 +289,7 @@ protected:
         const Vector3 pivot = entityBounds(sheen1).center();
         camera->lookAt(pivot);
         if (auto* controls = addOrbitControls(camera, pivot)) {
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
             controls->setZoomRange(Vector2(1.0f, 400.0f));
             controls->storeResetState();
         }

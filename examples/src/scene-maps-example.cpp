@@ -12,7 +12,8 @@
 // helipad env atlas, its torches and a shadow-casting sun, with eight characters walking
 // around it in both directions. The kernel runs in a ComputePass among the camera's after
 // passes, so it reads the maps of the frame the camera just rendered, and draws into a
-// half-resolution overlay that a second camera adds over the final image.
+// half-resolution overlay that a second camera adds over the final image. The camera orbits
+// the laboratory's bounds centre (the origin) from (-233.33, 116.67, 233.33), out to 350.
 //
 // The camera renders its scene maps either through the forward renderer, which renders them
 // on request (the depth copied from the depth buffer, the colour gamma-encoded), or through a
@@ -41,9 +42,6 @@
 // - Upstream's camera frame is enabled with nothing else on; here that is
 //   RenderingSettings::useCameraFrame, and the frame's scene maps come from the camera's
 //   requests (requestSceneColorMap / requestSceneDepthMap), as everything else's do.
-// - The orbit camera is the engine's CameraControls framing the laboratory as the orbit
-//   script does (clamped to its distanceMax of 350), with its own damping for upstream's
-//   inertia factor of 0.2.
 // - The back buffer is one pixel per point, as every example here; upstream caps the pixel
 //   ratio at 2.
 //
@@ -341,8 +339,8 @@ protected:
         _camera->camera()->setFarClip(600.0f);
         _camera->setToneMapping(TONEMAP_NEUTRAL);
 
-        // The orbit camera frames the laboratory: 1.5 x its largest half extent over
-        // sin(fov / 2), clamped to the distanceMax of 350.
+        // The camera frames the laboratory: 1.5 x its largest half extent over sin(fov / 2),
+        // clamped to 350.
         const Vector3 focus = bounds.center();
         const auto& he = bounds.halfExtents();
         const float fovRad = _camera->camera()->fov() * (std::numbers::pi_v<float> / 180.0f);
@@ -354,6 +352,8 @@ protected:
             controls->setMoveFastSpeed(4 * sceneRadius);
             controls->setMoveSlowSpeed(sceneRadius);
             controls->setOrbitDistance(distance);
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            controls->setZoomRange(Vector2(0.01f, 350.0f));
             controls->storeResetState();
         }
 

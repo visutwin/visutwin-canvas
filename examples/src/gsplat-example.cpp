@@ -5,9 +5,9 @@
 //
 // Gaussian splatting example — port of upstream's gaussian-splatting/simple:
 // a captured splat on a shadow-receiving ground plane under a PCSS directional
-// light, viewed with an orbit camera. Rendered via the classic gsplat path:
-// instanced screen-space EWA quads with a background CPU depth sorter for
-// back-to-front blending.
+// light. Rendered via the classic gsplat path: instanced screen-space EWA quads
+// with a background CPU depth sorter for back-to-front blending. The camera orbits
+// a pivot above the subject from a distance of 4 at yaw 32 and pitch -10, out to 60.
 //
 // DEVIATION: upstream uses its own `biker` capture, whose licence is not
 // documented. This uses a CC-BY-4.0 capture instead (see tamiya-dt03.txt), so
@@ -149,6 +149,11 @@ protected:
         }
 
         _controls = addOrbitControls(cameraEntity, _pivot);
+        if (_controls) {
+            _controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            _controls->setZoomRange(Vector2(0.01f, 60.0f));
+            _controls->storeResetState();
+        }
 
         spdlog::info("Controls: LMB/RMB orbit, Shift/MMB pan, Wheel zoom, F focus, R reset, Esc quit");
         return true;

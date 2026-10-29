@@ -15,9 +15,7 @@
 // across the top, and in the middle the texture blended over the red by its own alpha. Where
 // alpha is right the composite shows the towers on red with no green at all; the alpha
 // preview is white on the towers and black elsewhere. The scene camera starts at
-// (300 sin 0.3, 150, 300 cos 0.3) and orbits the origin: upstream names an empty entity at
-// (0, 35, 0) as the orbit's focus, but its orbit script pivots on the bounds of the models under
-// that entity, and an entity with none gives the origin.
+// (300 sin 0.3, 150, 300 cos 0.3) and orbits the origin, out to 1200.
 //
 // Controls:
 //   T      TAA on / off (sharpness 1 with it, 0 without)
@@ -235,7 +233,8 @@ protected:
         _sceneCameraComponent->camera()->setRenderTarget(_sceneTarget);
         _sceneCameraComponent->setToneMapping(TONEMAP_ACES);
         if (CameraControls* controls = addOrbitControls(_sceneCamera, focus)) {
-            controls->setZoomRange(Vector2(0.0f, 1200.0f));
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            controls->setZoomRange(Vector2(0.01f, 1200.0f));
             controls->storeResetState();
         }
         applySettings();

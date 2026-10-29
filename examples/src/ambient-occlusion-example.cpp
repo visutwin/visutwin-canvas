@@ -7,7 +7,8 @@
 // interior lit by the helipad env atlas, torch omni lights and a shadow-casting
 // directional light, with screen-space ambient occlusion applied through the
 // camera frame. Every SSAO parameter is bound to a key so its effect can be
-// isolated at runtime.
+// isolated at runtime. The camera orbits the laboratory's bounds centre (the origin)
+// from (-233.33, 116.67, 233.33), out to 350.
 //
 #include <algorithm>
 #include <cmath>
@@ -192,7 +193,7 @@ protected:
             _cameraComp->setRendering(rendering);
         }
 
-        // Setup orbit camera controls focused on laboratory
+        // Orbit camera controls focused on the laboratory
         const auto labBbox = entityBounds(labEntity);
         _focusPoint = labBbox.center();
         const float sceneRadius = std::max(labBbox.halfExtents().length(), 1.0f);
@@ -210,6 +211,8 @@ protected:
         _controls->setMoveFastSpeed(4 * sceneRadius);
         _controls->setMoveSlowSpeed(sceneRadius);
         _controls->setOrbitDistance(_orbitDistance);
+        _controls->setPitchRange(Vector2(-90.0f, 90.0f));
+        _controls->setZoomRange(Vector2(0.01f, 350.0f));
         _controls->storeResetState();
 
         spdlog::info("Orbit controls: LMB/RMB orbit, Shift/MMB pan, Wheel/Pinch zoom, F focus, R reset");

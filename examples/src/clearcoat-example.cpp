@@ -13,13 +13,9 @@
 // The GLB's materials author clearcoat via KHR_materials_clearcoat (factors +
 // intensity/roughness/normal textures), parsed by glbParser::applyClearcoat.
 //
-// The camera starts where upstream's orbit-camera script puts it: the script frames the
-// whole scene on start, so it orbits the model's bounds centre, at the pitch of the line
-// from the camera's original position (the origin) to that centre, before the example
-// sets yaw 90 and distance 12.
-//
-// DEVIATION: upstream's orbitCamera script (inertia 0.2) becomes the examples'
-// CameraControls in orbit mode, with CameraControls' own damping.
+// The camera orbits the model's bounds centre, about (0.4, 0.24, 2.7), from 12 units away at
+// yaw 90, at the pitch of the line from the origin to that centre: it starts at about
+// (12.35, -0.82, 2.7).
 //
 #include <cmath>
 #include <memory>
@@ -93,7 +89,10 @@ protected:
         const Vector3 offset(std::cos(pitch) * distance, -std::sin(pitch) * distance, 0.0f);
         auto* camera = createCamera(pivot + offset);
         camera->lookAt(pivot);
-        addOrbitControls(camera, pivot);
+        if (CameraControls* controls = addOrbitControls(camera, pivot)) {
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            controls->storeResetState();
+        }
 
         spdlog::info("Clear coat: ClearCoatTest.glb (KHR_materials_clearcoat) — the Coated column "
                      "carries highlights from both Base and Coating layers.");

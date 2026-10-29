@@ -143,9 +143,7 @@ protected:
         root()->addChild(statue);
 
         // -----------------------------------------------------------------------
-        // Camera at (0, 15, 35), orbiting the centre of the statue's bounds: the orbit
-        // pivots on whatever is renderable when it starts, which is the statue alone,
-        // since the ground and the lights are added after the camera.
+        // Camera at (0, 15, 35), orbiting the centre of the statue's bounds.
         // -----------------------------------------------------------------------
         _camera = createCamera(Vector3(0.0f, 15.0f, 35.0f));
         if (auto* cameraComp = _camera->findComponent<CameraComponent>();
@@ -154,7 +152,8 @@ protected:
         }
 
         _controls = addOrbitControls(_camera, kStatueCenter);
-        _controls->setZoomRange(Vector2(1.0f, 500.0f));
+        _controls->setPitchRange(Vector2(-90.0f, 90.0f));
+        _controls->setZoomRange(Vector2(0.01f, 500.0f));
         _controls->storeResetState();
 
         // -----------------------------------------------------------------------

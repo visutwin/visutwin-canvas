@@ -12,7 +12,7 @@
 // (intensity 1, shadow bias 0.1, normal bias 0.05, distance 20, intensity 0.5, 2048 maps,
 // PCF5) are pitched 55 degrees at azimuths 30, 210, 90, 270, 150 and 330, the first two on,
 // and turn together at 20 degrees a second. The camera (fov 60, ACES, white clear) orbits the
-// first model from (-3, 2, 4), out to 10.
+// first model's bounds centre from (-3, 2, 4), out to 10.
 //
 // Keys stand in for upstream's control panel:
 //   0-6    number of lights
@@ -35,8 +35,6 @@
 //   counterpart: the splat program has no chunk to override.
 // - upstream's control panel picks its splat renderer (CPU or GPU sort); this engine has the
 //   one.
-// - upstream's orbitCamera script (inertia 0.2) is the examples' CameraControls in orbit mode,
-//   with no inertia, around the first model's bounds centre.
 //
 #include <algorithm>
 #include <array>
@@ -135,7 +133,8 @@ protected:
             cameraComponent->setToneMapping(TONEMAP_ACES);
         }
         if (CameraControls* controls = addOrbitControls(camera, pivot)) {
-            controls->setZoomRange(Vector2(0.0f, 10.0f));
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            controls->setZoomRange(Vector2(0.01f, 10.0f));
             controls->storeResetState();
         }
 

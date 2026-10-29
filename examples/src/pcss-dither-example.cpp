@@ -14,7 +14,9 @@
 //
 // Values are frozen at upstream's initial state (opacity 0.5, alphaDither 0.5, TAA off).
 // Upstream drives them from sliders, and at these values both tables deliberately look
-// identical — the difference only appears once a slider moves.
+// identical — the difference only appears once a slider moves. The camera starts at
+// (-14, 12, 20) and orbits the scene's centre, pitch held to +/-90 degrees and zoom capped
+// at 40.
 //
 // DEVIATION: the shadow dither runs in the Metal shadow fragment shader, which serves both
 // the PCF and VSM paths. On Vulkan the PCF shadow pass is depth-only and omits the fragment
@@ -124,7 +126,7 @@ protected:
         // Camera.
         auto* cameraEntity = createCamera(Vector3(-14.0f, 12.0f, 20.0f));
 
-        // Upstream's orbit script aims at the scene's bounds centre when it starts.
+        // The camera orbits the scene's bounds centre, (0, 1.88, 0).
         const Vector3 focusPoint = entityBounds(root()).center();
         if (auto* cameraComponent = cameraEntity->findComponent<CameraComponent>()) {
             if (cameraComponent->camera()) {
@@ -144,7 +146,11 @@ protected:
         }
         cameraEntity->lookAt(focusPoint);
 
-        addOrbitControls(cameraEntity, focusPoint);
+        if (auto* controls = addOrbitControls(cameraEntity, focusPoint)) {
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            controls->setZoomRange(Vector2(0.01f, 40.0f));
+            controls->storeResetState();
+        }
 
         spdlog::info("Dithered transparency: left = dither coupled to opacity, right = decoupled "
                      "(alphaDither {:.2f}). Esc quits.", INITIAL_ALPHA_DITHER);

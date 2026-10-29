@@ -10,8 +10,9 @@
 // atlas for the lighting. Three presets: "Street Dome" (the default), the wide-street HDRI on
 // a dome (scale 200, tripod at height 0.05); "Street Infinite", the same HDRI at infinity;
 // and "Room", the small-empty-room HDRI on a box (scale 44 x 24 x 28, tripod 0.6, turned 50
-// degrees). All of them at exposure 0.7. The camera (far 500, fov 60, ACES) orbits the
-// statue from (-4, 5, 22). The camera frame's colour enhance (shadows, highlights,
+// degrees). All of them at exposure 0.7. The camera (far 500, fov 60, ACES) starts at
+// (-4, 5, 22) and orbits the statue's bounds centre, (0.17, 7.52, 0.02), pitch held to +/-90
+// degrees and zoom capped at 500. The camera frame's colour enhance (shadows, highlights,
 // midtones, vibrance, dehaze) is available, off and at zero by default.
 //
 // Keys stand in for upstream's control panel:
@@ -38,10 +39,6 @@
 // DEVIATION: upstream renders through a camera frame whose effects are all off; here the
 // camera renders directly until colour enhance changes the image, which the camera frame
 // then applies. The two images agree.
-// DEVIATION: upstream's orbitCamera script (inertia 0.2, distanceMax 500, frameOnStart off)
-// is the examples' CameraControls in orbit mode around the statue's bounds centre, at the
-// authored camera position's distance, zoom capped at 500. Its damping is CameraControls'
-// own.
 //
 #include <algorithm>
 #include <array>
@@ -125,7 +122,8 @@ protected:
 
         // Orbit the statue
         if (auto* controls = addOrbitControls(camera, entityBounds(_statue).center())) {
-            controls->setZoomRange(Vector2(0.0f, 500.0f));
+            controls->setPitchRange(Vector2(-90.0f, 90.0f));
+            controls->setZoomRange(Vector2(0.01f, 500.0f));
             controls->storeResetState();
         }
 

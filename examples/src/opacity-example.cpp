@@ -20,17 +20,11 @@
 // Upstream's example has no control panel, so there are no keys beyond the orbit camera:
 //   R reset camera | F1 HUD | Esc quit | LMB/RMB orbit, Shift/MMB pan, Wheel zoom
 //
-// Upstream's orbit camera starts at (10, 6, 22) and initializes while the scene is still
-// empty, so it frames an empty bounding box: it looks at the origin and its framing
-// distance is clamped up to its 12-unit minimum. The port starts it there, 12 units from
-// the origin along (10, 6, 22).
+// The camera starts 12 units from the origin along (10, 6, 22), at about (4.82, 2.89, 10.6),
+// and orbits the origin between 12 and 100 units, its pitch held within +/-90 degrees.
 //
-// DEVIATIONS:
-// - upstream's orbitCamera script (inertia 0.2, distance 12-100) is the examples'
-//   CameraControls in orbit mode, with the same zoom range and the pitch at +/-90 degrees;
-//   its damping is CameraControls' own, not the 0.2 s inertia.
-// - ElementComponent::setFontSize takes an int, so upstream's font size of 0.5 is font
-//   size 64 on an entity scaled by 0.5 / 64: the same size in world units.
+// DEVIATION: ElementComponent::setFontSize takes an int, so upstream's font size of 0.5 is font
+// size 64 on an entity scaled by 0.5 / 64: the same size in world units.
 //
 #include <memory>
 #include <string>

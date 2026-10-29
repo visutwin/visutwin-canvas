@@ -19,8 +19,10 @@
 // The markers are unlit (emissive intensity 5) and cast no shadows. The scene ambient is
 // black and there is no sky, so the lightmaps are everything the grid and the ground show.
 // The bake is BAKE_COLOR at lightmap size multiplier 32, max resolution 2048. The camera
-// clears to (0.4, 0.45, 0.5), near 0.05, far 100, and orbits the scene from where the orbit
-// script's frame-on-start puts it.
+// clears to (0.4, 0.45, 0.5), near 0.05, far 100, starts at (9.37, 9.28, -9.37) and orbits
+// the centre of the scene's bounds, out to a distance of 15. That start frames the whole
+// scene: from (1, 3, -1) it looks at the bounds centre, then backs off along that line to
+// 1.5 x the largest half extent / sin(22.5 degrees), clamped to 15.
 //
 // Keys stand in for upstream's control panel, each a toggle that re-bakes:
 //   1  omni light    2  spot light    3  directional light (all on at start)
@@ -37,10 +39,6 @@
 //   cast shadows only while a bake runs.
 // - The lights' shadow bias is 0.05 rather than upstream's 0.2, as in the other lightmap
 //   examples (0.2 pushes small casters out of their baked shadows).
-// - Upstream's orbit-camera script (inertia 0.2, distanceMax 15) becomes CameraControls in
-//   orbit mode, zoom capped at 15. The script frames the whole scene on start: from the
-//   authored position (1, 3, -1) it looks at the scene's bounds centre, then backs off along
-//   that line to 1.5 x the largest half extent / sin(22.5 degrees), clamped to 15.
 //
 #include <algorithm>
 #include <array>
@@ -171,7 +169,7 @@ protected:
         }
         if (CameraControls* controls = addOrbitControls(camera, pivot)) {
             controls->setPitchRange(Vector2(-90.0f, 90.0f));
-            controls->setZoomRange(Vector2(0.0f, 15.0f));
+            controls->setZoomRange(Vector2(0.01f, 15.0f));
             controls->storeResetState();
         }
 

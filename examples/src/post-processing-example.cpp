@@ -10,7 +10,9 @@
 // dynamically refracting material, so the camera frame grabs the scene colour)
 // and three emissive boxes pulsing in size so their bloom breathes. The skydome
 // is disabled; the helipad atlas only provides IBL and the camera clears to a
-// bright HDR tint of the light colour. Two text labels sit on the screen.
+// bright HDR tint of the light colour. Two text labels sit on the screen. The
+// camera orbits the mosquito's bounds centre (-0.59, 20.78, -4.28) from
+// (-0.07, 37.64, -193.53), out to 190.
 //
 // Initial settings: render scale 1.8, background 6, emissive 200, ACES, bloom on at
 // intensity 5 (-> 0.005) with blur level 16, and grading, colour enhance,
@@ -38,8 +40,6 @@
 //    switches every compose setting off (scale 1, no bloom, no TAA) so the
 //    camera falls back to the plain forward path, which is what upstream's
 //    disabled CameraFrame renders.
-//  - The orbit camera script is CameraControls in orbit mode, aimed at the
-//    mosquito's bounds centre, with the zoom range capped at a distanceMax of 190.
 //
 #include <algorithm>
 #include <array>
@@ -217,9 +217,12 @@ protected:
         _cameraComp->camera()->setFov(80.0f);
         cameraEntity->lookAt(0.0f, 0.0f, 100.0f);
 
+        // Orbiting the mosquito's bounds centre; the zoom range pulls the camera in from
+        // (0, 40, -220) to 190 from it.
         const Vector3 focusPoint = entityBounds(_mosquitoEntity).center();
         _controls = addOrbitControls(cameraEntity, focusPoint);
-        _controls->setZoomRange(Vector2(0.0f, 190.0f));
+        _controls->setPitchRange(Vector2(-90.0f, 90.0f));
+        _controls->setZoomRange(Vector2(0.01f, 190.0f));
         _controls->storeResetState();
 
         // Shadow casting directional light
