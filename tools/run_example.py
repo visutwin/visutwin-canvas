@@ -16,8 +16,17 @@ capture with env vars:
 
 Prints DIED(<code>) if the example exited on its own, ALIVE if it was still
 running at the deadline and had to be killed.
+
+The run never outlasts the deadline by more than a few seconds, however much the
+child logs: at the deadline it gets SIGTERM and GRACE seconds to exit, then
+SIGKILL, and every read of what is left is capped in time. (An open-ended drain
+that waited for the output to go quiet never ended on an example logging every
+frame.)
 """
 import os, pty, sys, signal, time, select
+
+GRACE = 2.0   # seconds between SIGTERM and SIGKILL
+TAIL = 1.0    # seconds to collect output already buffered once the child is gone
 
 if len(sys.argv) != 4:
     sys.exit(__doc__)
@@ -27,33 +36,59 @@ out = open(logpath, 'wb')
 pid, fd = pty.fork()
 if pid == 0:
     os.execv(binpath, [binpath])
-deadline = time.time() + secs
-alive = True
-while time.time() < deadline:
-    r, _, _ = select.select([fd], [], [], 0.2)
-    if r:
+
+
+def pump(until, pid_to_reap=None):
+    """Copy the child's output until `until` or EOF; return its exit status if it was reaped."""
+    eof = False
+    while time.time() < until:
+        if eof:
+            # The pty closed (the child is exiting); keep polling for its status.
+            if pid_to_reap is None:
+                break
+            time.sleep(0.05)
+        else:
+            r, _, _ = select.select([fd], [], [], 0.2)
+            if r:
+                try:
+                    data = os.read(fd, 65536)
+                except OSError:
+                    data = b''
+                if data:
+                    out.write(data); out.flush()
+                else:
+                    eof = True
+        if pid_to_reap is not None:
+            wpid, status = os.waitpid(pid_to_reap, os.WNOHANG)
+            if wpid == pid_to_reap:
+                return status
+    return None
+
+
+status = pump(time.time() + secs, pid)
+if status is not None:
+    pump(time.time() + TAIL)
+    print(f"DIED({os.waitstatus_to_exitcode(status)})")
+else:
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    status = pump(time.time() + GRACE, pid)
+    if status is None:
         try:
-            data = os.read(fd, 65536)
-        except OSError:
-            break
-        if not data: break
-        out.write(data); out.flush()
-    wpid, status = os.waitpid(pid, os.WNOHANG)
-    if wpid == pid:
-        alive = False
-        code = os.waitstatus_to_exitcode(status)
-        print(f"DIED({code})")
-        break
-if alive:
-    # drain remaining
-    while True:
-        r, _, _ = select.select([fd], [], [], 0.3)
-        if not r: break
-        try: data = os.read(fd, 65536)
-        except OSError: break
-        if not data: break
-        out.write(data); out.flush()
-    os.kill(pid, signal.SIGKILL)
-    os.waitpid(pid, 0)
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        # A killed child cannot finish exiting while its pty output is undrained (the
+        # last close of a tty waits for the output to drain), so keep reading while
+        # reaping; past TAIL, closing our end hangs the pty up and releases it.
+        status = pump(time.time() + TAIL, pid)
+        if status is None:
+            os.close(fd)
+            fd = -1
+            os.waitpid(pid, 0)
+    if fd >= 0:
+        pump(time.time() + TAIL)
     print("ALIVE")
 out.close()
