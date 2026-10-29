@@ -71,6 +71,8 @@ namespace visutwin::canvas
 
         // Cycles the ray-march dither so TAA converges it.
         int _frameIndex = 0;
+        // The march shader is the VSM variant (the light stores EVSM moments).
+        bool _marchVsmVariant = false;
 
         std::shared_ptr<Texture> _fogTexture;
         std::shared_ptr<RenderTarget> _fogRenderTarget;

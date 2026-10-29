@@ -4,7 +4,7 @@
 // Created by Arnis Lektauers on 07.10.2026
 //
 // The compose pass, the end of a camera frame's post chain:
-//   CAS -> Fringing -> DOF -> SSAO -> Bloom -> ColorEnhance -> Grading -> ToneMap
+//   Fringing -> CAS -> DOF -> SSAO -> Bloom -> ColorEnhance -> Grading -> ToneMap
 //   -> ColorLUT -> Vignette -> display gamma
 // Inputs: 0 scene, 1 bloom, 2 ssao, 3 depth, 4 colour LUT, 5 colour LUT 2, 6 CoC, 7 DOF
 // blur (the last two only with the multi-pass depth of field; dofMultipass says which).
@@ -13,15 +13,15 @@
 //
 // Order notes. DOF runs BEFORE SSAO, so occlusion multiplies the already-defocused colour
 // and keeps full strength out of focus; where DOF is not blurring the order cannot matter.
-// Fringing runs right after CAS, on the scene image: it re-samples the scene for red and
-// blue, so anything applied before it would survive in green only (bloom), and anything
-// it ran after would be overwritten in red and blue (SSAO's occlusion, DOF's blur). The CAS weight is NEGATIVE (the CPU remaps the user
+// Fringing runs FIRST, on the scene image: it re-samples the scene for red and blue, so
+// anything applied before it would survive in green only (CAS's sharpening, bloom), and
+// anything it ran after would be overwritten in red and blue (SSAO's occlusion, DOF's blur). The CAS weight is NEGATIVE (the CPU remaps the user
 // sharpness to lerp(-0.125, -0.2, s)); a positive one turns the kernel into a blur.
 // Tone mapping NONE applies neither the curve nor exposure. The 3D LUT is a 256x16 strip
 // loaded non-sRGB, so its sample is decoded here (DEVIATION: upstream lets the sampler).
 //
 // Compose effects (CameraFrameEffect with a ComposeSlot) are called through four hooks of
-// compose/compose-effects.slang: Scene after fringing, Hdr after grading, Ldr after the
+// compose/compose-effects.slang: Scene after CAS, Hdr after grading, Ldr after the
 // vignette, Output after gamma. The file in the tree makes each the identity, and it is
 // what the bundle compiles; with effects, RenderPassCompose serves a generated one
 // (buildComposeEffects) and compiles this program at run time. The output alpha is the
@@ -513,14 +513,14 @@ float4 composeFragment(QuadVarying input) : SV_Target0
         : sceneTexture.Sample(uv).rgb;
     float alpha = sceneTexture.Sample(uv).a;
 
-    // 1. CAS (negative = on).
-    if (composeSwitch(kComposeSwitchCas) && u.sharpness < 0.0) {
-        result = applyCas(result, uv, u.sharpness, invRes);
-    }
-
-    // 2. Fringing, on the scene image ahead of the other effects.
+    // 1. Fringing, on the scene image ahead of the other effects.
     if (composeSwitch(kComposeSwitchFringing) && u.fringingIntensity > 0.0) {
         result = applyFringing(result, uv, u.fringingIntensity);
+    }
+
+    // 2. CAS (negative = on), sharpening the fringed image.
+    if (composeSwitch(kComposeSwitchCas) && u.sharpness < 0.0) {
+        result = applyCas(result, uv, u.sharpness, invRes);
     }
 
     // Compose effects at the scene slot.

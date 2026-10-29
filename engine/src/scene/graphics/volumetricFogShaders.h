@@ -26,7 +26,7 @@ namespace visutwin::canvas::volumetric_fog
         float projScale[4];                // offset 352  xy
         float tint[4];                     // offset 368  xyz
         float lightColor[4];               // offset 384  xyz
-        float lightDirection[4];           // offset 400  xyz
+        float lightDirection[4];           // offset 400  xyz, w=VSM bias
         float ambient[4];                  // offset 416  xyz
         float fogParams[4];                // offset 432  x=density y=heightBase z=heightFalloff w=maxDistance
         float scatterParams[4];            // offset 448  x=anisotropy y=steps z=noiseOffset w=shadowIntensity

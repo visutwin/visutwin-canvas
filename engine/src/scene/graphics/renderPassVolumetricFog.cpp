@@ -78,6 +78,10 @@ namespace visutwin::canvas
             float shadowCascadeCount = 1.0f;
             float shadowBias = 0.0f;
             float shadowDistance = 0.0f;
+            // The map holds EVSM moments (a VSM light), tested with the forward pass's
+            // Chebyshev bound and this variance bias instead of a depth comparison.
+            bool vsmShadows = false;
+            float vsmBias = 0.0f;
         };
 
         // Depth-aware upsample of the fog texture, blended over the scene as
@@ -246,7 +250,7 @@ namespace visutwin::canvas
                 // The palette holds 4 column-major matrices back to back, each already baking in
                 // projection, view, the atlas viewport remap and the [0,1] depth mapping.
                 // The fit this camera samples (its own for a realtime shadow).
-                const Camera* fogCamera = _cameraComponent ? _cameraComponent->camera() : nullptr;
+                Camera* fogCamera = _cameraComponent ? _cameraComponent->camera() : nullptr;
                 const auto& palette = sceneLight->shadowMatrixPalette(fogCamera);
                 for (int cascade = 0; cascade < 4; ++cascade) {
                     // The palette is column-major, 16 floats per cascade: Matrix4's own layout.
@@ -265,6 +269,14 @@ namespace visutwin::canvas
                 // A shadow with shadow bounds covers them at any distance (its split distances
                 // are 1e30 too).
                 params.shadowDistance = sceneLight->shadowBounds() ? 1e30f : sceneLight->shadowDistance();
+                // The forward pass's directional VSM bias: over the first cascade's fitted range.
+                if (sceneLight->shadowType() == SHADOW_VSM_16F) {
+                    params.vsmShadows = true;
+                    const LightRenderData* renderData =
+                        sceneLight->getRenderData(sceneLight->directionalFitCamera(fogCamera), 0);
+                    const float farClip = renderData && renderData->shadowCamera ? renderData->shadowCamera->farClip() : 0.0f;
+                    params.vsmBias = sceneLight->vsmBias() / (std::max(farClip, 1e-4f) / 7.0f);
+                }
             }
         }
 
@@ -292,6 +304,7 @@ namespace visutwin::canvas
             uniforms.lightDirection[i] = params.lightDirection[i];
             uniforms.ambient[i] = params.ambient[i];
         }
+        uniforms.lightDirection[3] = params.vsmBias;
         uniforms.projScale[0] = params.projScaleX;
         uniforms.projScale[1] = params.projScaleY;
         uniforms.fogParams[0] = params.density;
@@ -314,8 +327,11 @@ namespace visutwin::canvas
         uniforms.cameraParams[2] = params.extinction;
         uniforms.cameraParams[3] = params.shadowTexture ? static_cast<float>(params.shadowTexture->width()) : 1.0f;
 
-        if (!shader()) {
-            setShader(getOrCreateSlangShader(gd.get(), "fog-march"));
+        // The variant follows the light's shadow type, which may change at run time.
+        const bool vsmVariant = params.shadowTexture && params.vsmShadows;
+        if (!shader() || vsmVariant != _marchVsmVariant) {
+            setShader(getOrCreateSlangShader(gd.get(), "fog-march", vsmVariant ? "vsm" : "depth"));
+            _marchVsmVariant = vsmVariant;
         }
         if (!shader()) {
             return;

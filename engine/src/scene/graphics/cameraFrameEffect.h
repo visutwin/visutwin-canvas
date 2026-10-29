@@ -90,7 +90,7 @@ namespace visutwin::canvas
     };
 
     /// Where in the compose pass an effect's chunk is called. In chain order: Scene right after
-    /// the scene sample (after CAS and fringing), Hdr in linear scene-referred colour before
+    /// the scene sample (after fringing and CAS), Hdr in linear scene-referred colour before
     /// tone mapping (after grading), Ldr after tone mapping, the colour LUT and the vignette,
     /// before gamma, Output after gamma.
     enum class ComposeSlot

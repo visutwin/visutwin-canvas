@@ -1602,7 +1602,7 @@ shared by a composition) as `Texture2D`s through `quadSampler`.
   Only for a camera that renders through its frame: outside one no effect runs.
 - **Compose slots** (`ComposeSlot`, `CameraFrameEffectOptions{slot, slang, debugViews,
   entryPoint}`): `programs/compose.slang` includes `compose/compose-effects.slang` and calls
-  four hooks, Scene after fringing (on a float4), Hdr after grading, Ldr after the
+  four hooks, Scene after fringing and CAS (on a float4), Hdr after grading, Ldr after the
   vignette, Output after gamma. The file in the tree makes each the identity, and the
   bundled compose is built with it, so with no compose effect the composition is the
   bundled program, bit for bit. With effects, `RenderPassCompose::prepareShaders` runs

@@ -9,7 +9,12 @@
 // rgb = in-scattered light, a = transmittance. Inputs: 0 scene depth (point sampled),
 // 1 the cascaded shadow map. The quad's v runs DOWN the screen, so NDC y is 1 - 2v. The
 // depth buffer stores distance along the view axis, so the ray length divides by the ray's
-// projection on the forward vector. The shadow tap is a bilinear comparison (VT_SHADOW_COMPARE).
+// projection on the forward vector. The shadow tap is a bilinear comparison (VT_SHADOW_COMPARE)
+// of a depth map, or, under FOG_SHADOW_VSM, the EVSM test the forward pass applies to the
+// moments a VSM light stores (a depth comparison against moments shadows the fog wherever the
+// cleared map holds zero and lights it behind distant casters).
+// @variant depth: FOG_SHADOW_DEPTH=1
+// @variant vsm: FOG_SHADOW_VSM=1
 import vtquad;
 import vtfog;
 #include "bindings.slang"
@@ -23,7 +28,7 @@ struct FogUniforms
     float4 projScale;
     float4 tint;
     float4 lightColor;
-    float4 lightDirection;
+    float4 lightDirection;         // xyz towards the light, w VSM bias
     float4 ambient;
     float4 fogParams;              // x density, y height base, z height falloff, w max distance
     float4 scatterParams;          // x anisotropy, y steps, z noise offset, w shadow intensity
@@ -33,8 +38,26 @@ struct FogUniforms
 };
 VT_DECLARE_QUAD_UNIFORMS(FogUniforms, u)
 VT_DECLARE_QUAD_DEPTH_INPUT0(depthTexture)
+#if defined(FOG_SHADOW_VSM)
+VT_DECLARE_QUAD_INPUT1(shadowTexture)
+
+// The forward pass's EVSM_16F test (sampleShadowVSM16): exponent 5.54, cleared texels
+// (moments.z == 0) read as fully lit, reduceLightBleeding(0.1).
+float fogShadowEVSM(float3 moments, float receiverZ, float vsmBias)
+{
+    const float VSM_EXPONENT = 5.54;
+    const float warped = exp(VSM_EXPONENT * (2.0 * receiverZ - 1.0));
+    const float2 stored = moments.xy + float2(warped, warped * warped) * (1.0 - moments.z);
+    const float depthScale = vsmBias * VSM_EXPONENT * warped;
+    const float variance = max(stored.y - stored.x * stored.x, depthScale * depthScale);
+    const float d = warped - stored.x;
+    const float pMax = clamp((variance / (variance + d * d) - 0.1) / 0.9, 0.0, 1.0);
+    return (warped <= stored.x) ? 1.0 : pMax;
+}
+#else
 VT_DECLARE_QUAD_SHADOW_INPUT1(shadowTexture)
 VT_DECLARE_QUAD_COMPARE_SAMPLER
+#endif
 
 // The cascade is the first whose split distance exceeds the view depth, as the forward
 // pass picks it.
@@ -56,7 +79,12 @@ float sampleFogShadow(float3 worldPos, float viewDepth)
         return 1.0;
     }
     // Clamped after the bias, so fog beyond the shadow's far plane stays lit.
-    return VT_SHADOW_COMPARE(shadowTexture, coord.xy, min(coord.z - u.shadowParams.y, 0.9999), u.cameraParams.w);
+    const float z = min(coord.z - u.shadowParams.y, 0.9999);
+#if defined(FOG_SHADOW_VSM)
+    return fogShadowEVSM(shadowTexture.SampleLevel(coord.xy, 0.0).xyz, z, max(u.lightDirection.w, 1e-4));
+#else
+    return VT_SHADOW_COMPARE(shadowTexture, coord.xy, z, u.cameraParams.w);
+#endif
 }
 
 [shader("vertex")]

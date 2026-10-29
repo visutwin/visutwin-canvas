@@ -786,7 +786,7 @@ systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
 Forward PBR renderer with frame graph:
 `Engine::render()` -> `ForwardRenderer::buildFrameGraph()` -> `FrameGraph::compile()` -> `FrameGraph::render()`
 
-**Compose pass effect chain** (upstream's order): CAS → **fringing** → DOF → SSAO →
+**Compose pass effect chain** (upstream's order): **fringing** → CAS → DOF → SSAO →
 bloom → **color enhance** → **color grading** → tonemap → **3D color LUT** →
 vignette → gamma. Configured via
 `CameraComponent::RenderingSettings` → CameraFrameOptions → RenderPassCompose →
@@ -808,10 +808,10 @@ stages, and a stage gated on its uniform alone costs every frame its registers.
   a positive weight turns the same kernel into a 5-tap blur. Verify a sharpness change
   with gradient energy over
   a static crop, not by eye.
-- Fringing (chromatic aberration, user intensity /1024) **runs right after CAS, on
-  the scene image**: it overwrites R and B with fresh samples of the scene texture,
-  so whatever ran before it survives in green only. After bloom it kept bloom in
-  green; after SSAO and DOF (the order until upstream moved it) it painted magenta
+- Fringing (chromatic aberration, user intensity /1024) **runs FIRST, on the scene
+  image**: it overwrites R and B with fresh samples of the scene texture, so whatever
+  ran before it survives in green only. After CAS it kept the sharpening in green
+  only; after bloom it kept bloom in green; after SSAO and DOF (the order until upstream moved it) it painted magenta
   over every occluded pixel and undid the blur in two channels.
 - **Bloom has a THRESHOLD** (`RenderingSettings::bloomThreshold`, upstream
   `CameraFrame.bloom.threshold`, 192121560): a soft-knee high pass (knee = half the
