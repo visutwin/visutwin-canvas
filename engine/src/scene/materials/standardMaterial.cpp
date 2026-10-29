@@ -112,6 +112,13 @@ namespace visutwin::canvas
         _iridescenceMapUv = 0;
         _iridescenceThicknessMap = nullptr;
         _iridescenceThicknessMapUv = 0;
+        _diffuseTransmission = 0.0f;
+        _diffuseTransmissionColor = Color(1.0f, 1.0f, 1.0f, 1.0f);
+        _diffuseTransmissionMap = nullptr;
+        _diffuseTransmissionMapChannel = MapChannel::MAP_CHANNEL_G;
+        _diffuseTransmissionMapUv = 0;
+        _diffuseTransmissionColorMap = nullptr;
+        _diffuseTransmissionColorMapUv = 0;
         _specGlossMap = nullptr;
         _detailNormalScale = 1.0f;
         _detailNormalMap = nullptr;
@@ -434,6 +441,15 @@ namespace visutwin::canvas
         uniforms.iridescenceMapParams[0] = _iridescenceMapUv == 1 ? 1.0f : 0.0f;
         uniforms.iridescenceMapParams[1] = _iridescenceThicknessMapUv == 1 ? 1.0f : 0.0f;
 
+        // diffuse transmission (KHR_materials_diffuse_transmission).
+        uniforms.diffuseTransmission[0] = toLinear(_diffuseTransmissionColor.r);
+        uniforms.diffuseTransmission[1] = toLinear(_diffuseTransmissionColor.g);
+        uniforms.diffuseTransmission[2] = toLinear(_diffuseTransmissionColor.b);
+        uniforms.diffuseTransmission[3] = _diffuseTransmission;
+        uniforms.diffuseTransmissionMapParams[0] = _diffuseTransmissionMapUv == 1 ? 1.0f : 0.0f;
+        uniforms.diffuseTransmissionMapParams[1] = static_cast<float>(_diffuseTransmissionMapChannel);
+        uniforms.diffuseTransmissionMapParams[2] = _diffuseTransmissionColorMapUv == 1 ? 1.0f : 0.0f;
+
         // detail normals + displacement.
         uniforms.detailDisplacementParams[0] = _detailNormalScale;
         uniforms.detailDisplacementParams[1] = _displacementScale;
@@ -535,6 +551,8 @@ namespace visutwin::canvas
         overrideSlot(45, _envAtlas);
         overrideSlot(47, _iridescenceMap);
         overrideSlot(48, _iridescenceThicknessMap);
+        overrideSlot(49, _diffuseTransmissionMap);
+        overrideSlot(50, _diffuseTransmissionColorMap);
         // Vertex displacement map: a VERTEX-stage texture (the binding table's slot,
         // MetalTextureBinder::bindMaterialTextures).
         overrideSlot(kDisplacementMapMetalSlot, _displacementMap);

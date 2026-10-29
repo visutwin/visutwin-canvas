@@ -1828,6 +1828,7 @@ namespace visutwin::canvas
             "KHR_lights_punctual",
             "KHR_materials_anisotropy",
             "KHR_materials_clearcoat",
+            "KHR_materials_diffuse_transmission",
             "KHR_materials_dispersion",
             "KHR_materials_emissive_strength",
             "KHR_materials_ior",
@@ -2196,6 +2197,44 @@ namespace visutwin::canvas
     }
 
     /**
+     * KHR_materials_diffuse_transmission: the fraction of the diffuse light passing through the
+     * surface and the colour it is tinted by (stored in gamma space, as every material colour),
+     * with their textures on the UV sets the file names: the fraction in the texture's ALPHA,
+     * the colour in its rgb (sRGB).
+     */
+    static void applyDiffuseTransmission(const tinygltf::Material& srcMaterial, StandardMaterial* material,
+        const std::function<std::shared_ptr<Texture>(int)>& getOrCreateTexture)
+    {
+        const auto* ext = materialExtension(srcMaterial, "KHR_materials_diffuse_transmission");
+        if (!ext) {
+            return;
+        }
+        material->setDiffuseTransmission(extensionNumber(*ext, "diffuseTransmissionFactor", 0.0f));
+        Color color = extensionColor(*ext, "diffuseTransmissionColorFactor", Color(1.0f, 1.0f, 1.0f, 1.0f));
+        color.gamma();
+        material->setDiffuseTransmissionColor(color);
+        const auto textureOf = [&](const char* name, int& uv) -> std::shared_ptr<Texture> {
+            if (!ext->Has(name)) {
+                return nullptr;
+            }
+            const auto info = ext->Get(name);
+            const int index = info.IsObject() && info.Has("index") ? info.Get("index").GetNumberAsInt() : -1;
+            uv = info.IsObject() && info.Has("texCoord") && info.Get("texCoord").GetNumberAsInt() == 1 ? 1 : 0;
+            return index >= 0 ? getOrCreateTexture(index) : nullptr;
+        };
+        int uv = 0;
+        if (const auto texture = textureOf("diffuseTransmissionTexture", uv)) {
+            material->setDiffuseTransmissionMap(texture.get());
+            material->setDiffuseTransmissionMapChannel(MapChannel::MAP_CHANNEL_A);
+            material->setDiffuseTransmissionMapUv(uv);
+        }
+        if (const auto texture = textureOf("diffuseTransmissionColorTexture", uv)) {
+            material->setDiffuseTransmissionColorMap(texture.get());
+            material->setDiffuseTransmissionColorMapUv(uv);
+        }
+    }
+
+    /**
      * KHR_materials_anisotropy: the strength, the rotation (radians in the file, degrees on
      * the material, from the tangent toward the bitangent) and the anisotropy texture
      * (direction in rg, strength in b) on its texture coordinate set.
@@ -2395,6 +2434,7 @@ namespace visutwin::canvas
         applySheen(srcMaterial, material.get());
         applySpecularExtension(srcMaterial, material.get(), getOrCreateTexture);
         applyIridescence(srcMaterial, material.get(), getOrCreateTexture);
+        applyDiffuseTransmission(srcMaterial, material.get(), getOrCreateTexture);
         applyAnisotropyExtension(srcMaterial, material.get(), getOrCreateTexture);
         applyEmissiveStrength(srcMaterial, material.get());
         applyTextureTransforms(srcMaterial, material.get());

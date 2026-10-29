@@ -173,5 +173,26 @@ int main()
             "maps on a material without iridescence are not read");
     }
 
+    std::cout << "\ndiffuse transmission is a feature only while its fraction is above zero\n";
+    {
+        StandardMaterial leaf;
+        leaf.setDiffuseTransmissionMap(&texture);
+        leaf.setDiffuseTransmissionColorMap(&texture);
+        const auto off = library.getForwardShader(&leaf, false);
+        leaf.setDiffuseTransmission(0.5f);
+        const auto on = library.getForwardShader(&leaf, false);
+        leaf.setDiffuseTransmission(0.75f);
+        const auto stillOn = library.getForwardShader(&leaf, false);
+        check(off && !off->features().test(ShaderFeature::DiffuseTransmission) &&
+                  !off->features().test(ShaderFeature::DiffuseTransmissionMap) &&
+                  !off->features().test(ShaderFeature::DiffuseTransmissionColorMap),
+            "a fraction of 0 keeps it, and its maps, out of the shader");
+        check(on && on->features().test(ShaderFeature::DiffuseTransmission) &&
+                  on->features().test(ShaderFeature::DiffuseTransmissionMap) &&
+                  on->features().test(ShaderFeature::DiffuseTransmissionColorMap),
+            "above 0 the transmission and both maps are features");
+        check(stillOn == on, "another fraction above 0 is the same variant (only a uniform changes)");
+    }
+
     return finish("forward shader memo");
 }

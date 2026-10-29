@@ -123,3 +123,27 @@ float3 getReflDirAniso(float3 N, float3 V, float3 B, float gloss, float anisotro
         : N;
     return reflect(-V, bentNormal);
 }
+
+// A light's diffuse term at the normal n: Lambert, or the fast qualitative Oren-Nayar for a
+// rough surface (the light loops inline the same expression for the shading normal). Diffuse
+// transmission evaluates it at the flipped normal, for the light arriving at the back.
+float lightDiffuseTerm(float3 n, float3 v, float3 l, float roughness, bool orenNayar) {
+    float nl = max(dot(n, l), 0.0);
+    if (!orenNayar) {
+        return nl;
+    }
+    float nv = max(dot(n, v), 0.0);
+    float sigma2 = roughness * roughness;
+    float onA = 1.0 - 0.5 * sigma2 / (sigma2 + 0.33);
+    float onB = 0.45 * sigma2 / (sigma2 + 0.09);
+    float sTerm = dot(l, v) - nl * nv;
+    float tTerm = sTerm <= 0.0 ? 1.0 : max(max(nl, nv), 1e-4);
+    return nl * (onA + onB * sTerm / tTerm);
+}
+
+// The normal a shadow lookup offsets the receiver along: the side of the surface facing the
+// light. A surface lit from behind (diffuse transmission) would otherwise move its sample away
+// from the light and into its own shadow.
+float3 shadowNormalToward(float3 n, float3 l) {
+    return (vtFeatureEnabled(VT_FEATURE_DIFFUSE_TRANSMISSION_BIT) && dot(n, l) < 0.0) ? -n : n;
+}

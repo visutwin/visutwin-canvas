@@ -126,6 +126,8 @@ VT_DECLARE_specularityFactorMap
 VT_DECLARE_materialEnvAtlas
 VT_DECLARE_iridescenceMap
 VT_DECLARE_iridescenceThicknessMap
+VT_DECLARE_diffuseTransmissionMap
+VT_DECLARE_diffuseTransmissionColorMap
 
 // ---- Scene samplers. Vulkan set 3 bindings 12 / 13; on Metal the forward draw binds the
 // same states at fragment samplers 7 / 8 (MetalGraphicsDevice::bindDrawSampler), and the

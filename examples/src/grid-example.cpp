@@ -266,7 +266,7 @@ private:
         _grid->setPlane(_plane);
         applySize();
         if (ortho) {
-            _camera->camera()->setProjection(ProjectionType::Orthographic);
+            setProjection(*_camera->camera(), ProjectionType::Orthographic);
         }
         setContrast(contrast != 0);
     }
@@ -323,14 +323,24 @@ private:
         if (keyboard->wasPressed(Key::W)) _grid->setDepthWrite(!_grid->depthWrite());
         if (keyboard->wasPressed(Key::D)) _grid->setDepthDither(!_grid->depthDither());
         if (keyboard->wasPressed(Key::P)) {
-            camera->setProjection(camera->projection() == ProjectionType::Perspective
+            setProjection(*camera, camera->projection() == ProjectionType::Perspective
                 ? ProjectionType::Orthographic : ProjectionType::Perspective);
         }
         if (keyboard->wasPressed(Key::F)) {
             constexpr float fars[] = {1000.0f, 100.0f, 2000.0f};
             _farIndex = (_farIndex + 1) % 3;
             camera->setFarClip(fars[_farIndex]);
+            if (camera->projection() != ProjectionType::Perspective) {
+                camera->setNearClip(-fars[_farIndex]);
+            }
         }
+    }
+
+    // An orthographic view has no depth cue, so it keeps what lies behind the camera visible.
+    static void setProjection(Camera& camera, const ProjectionType projection)
+    {
+        camera.setProjection(projection);
+        camera.setNearClip(projection == ProjectionType::Perspective ? 0.1f : -camera.farClip());
     }
 
     std::vector<std::shared_ptr<StandardMaterial>> _materials;

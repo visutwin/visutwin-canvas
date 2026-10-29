@@ -6,7 +6,7 @@
 // These glTF extensions, checked through BOTH halves of the load pipeline on a model
 // built in memory:
 //
-//  - KHR_materials_sheen / _specular / _iridescence / _anisotropy land on the
+//  - KHR_materials_sheen / _specular / _iridescence / _diffuse_transmission / _anisotropy land on the
 //    StandardMaterial, and the two uniforms they feed pack as the shaders expect:
 //    the metalness workflow's non-metal F0 and the
 //    anisotropy direction (cos, sin). The defaults must pack to EXACTLY 0.04 and
@@ -81,6 +81,11 @@ namespace
             {"iridescenceThicknessMaximum", number(500.0)},
             {"iridescenceTexture", object({{"index", Value(0)}})},
             {"iridescenceThicknessTexture", object({{"index", Value(0)}, {"texCoord", Value(1)}})}});
+        base.extensions["KHR_materials_diffuse_transmission"] = object({
+            {"diffuseTransmissionFactor", number(0.75)},
+            {"diffuseTransmissionColorFactor", array({number(1.0), number(0.5), number(0.0)})},
+            {"diffuseTransmissionTexture", object({{"index", Value(0)}, {"texCoord", Value(1)}})},
+            {"diffuseTransmissionColorTexture", object({{"index", Value(0)}})}});
         base.extensions["KHR_materials_anisotropy"] = object({
             {"anisotropyStrength", number(0.6)},
             {"anisotropyRotation", number(kPi / 6.0)},
@@ -213,6 +218,25 @@ namespace
             check(nearStrict(packed.iridescenceParams[2], 50.0f, kTolerance) &&
                       packed.iridescenceMapParams[0] == 0.0f && packed.iridescenceMapParams[1] == 1.0f,
                 "the minimum and the maps' UV sets pack for the shader");
+            const Color& transmissionColor = material->diffuseTransmissionColor();
+            check(nearStrict(material->diffuseTransmission(), 0.75f, kTolerance) &&
+                      nearStrict(transmissionColor.r, 1.0f, kTolerance) &&
+                      nearStrict(transmissionColor.g, std::pow(0.5f, 1.0f / 2.2f), kTolerance) &&
+                      nearStrict(transmissionColor.b, 0.0f, kTolerance),
+                "diffuse transmission: the factor, and the colour stored gamma-encoded");
+            check(material->diffuseTransmissionMap() != nullptr &&
+                      material->diffuseTransmissionMapChannel() == MapChannel::MAP_CHANNEL_A &&
+                      material->diffuseTransmissionMapUv() == 1 &&
+                      material->diffuseTransmissionColorMap() != nullptr &&
+                      material->diffuseTransmissionColorMapUv() == 0,
+                "diffuse transmission: the fraction texture read from alpha, both textures on their UV sets");
+            check(nearStrict(packed.diffuseTransmission[0], 1.0f, 1e-5f) &&
+                      nearStrict(packed.diffuseTransmission[1], 0.5f, 1e-5f) &&
+                      nearStrict(packed.diffuseTransmission[3], 0.75f, kTolerance) &&
+                      packed.diffuseTransmissionMapParams[0] == 1.0f &&
+                      packed.diffuseTransmissionMapParams[1] == 3.0f &&
+                      packed.diffuseTransmissionMapParams[2] == 0.0f,
+                "diffuse transmission packs the colour linear, the fraction, the UV sets and the channel");
             check(nearStrict(material->anisotropy(), 0.6f, kTolerance) &&
                   nearStrict(material->anisotropyRotation(), 30.0f, kTolerance),
                 "anisotropy: strength, rotation in degrees");

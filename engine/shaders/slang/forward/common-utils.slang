@@ -138,3 +138,32 @@ float3 sampleEnvAtlas(float3 dir, float roughness) {
     return lerp(envA, envB, level - l0);
 }
 
+
+// The ambient diffuse irradiance arriving along the normal n: the SH light probes, else the
+// environment atlas' Lambert rect (the material's own or the scene's), else the flat ambient.
+// The ambient chunk reads it along the shading normal, and diffuse transmission along the
+// flipped one, for the light arriving at the back of the surface.
+float3 ambientIrradianceToward(float3 n) {
+    if (vtFeatureEnabled(VT_FEATURE_LIGHT_PROBES_BIT)) {
+        // 9-coefficient irradiance in the normal direction (coefficients premultiplied).
+        float3 shN = cubeMapRotate(n);
+        return max(
+            lighting.ambientSH[0].rgb +
+            lighting.ambientSH[1].rgb * shN.x +
+            lighting.ambientSH[2].rgb * shN.y +
+            lighting.ambientSH[3].rgb * shN.z +
+            lighting.ambientSH[4].rgb * (shN.x * shN.z) +
+            lighting.ambientSH[5].rgb * (shN.z * shN.y) +
+            lighting.ambientSH[6].rgb * (shN.y * shN.x) +
+            lighting.ambientSH[7].rgb * (3.0 * shN.z * shN.z - 1.0) +
+            lighting.ambientSH[8].rgb * (shN.x * shN.x - shN.y * shN.y),
+            float3(0.0));
+    }
+    if (envAvailable()) {
+        // The negate-X matches the engine's atlas lookup handedness.
+        float3 envN = envRotate(n);
+        float3 diffDir = float3(-envN.x, envN.y, envN.z);
+        return envFetch(mapAmbientUv(dirToEquirect(diffDir))) * envIntensity();
+    }
+    return lighting.ambient.rgb;
+}

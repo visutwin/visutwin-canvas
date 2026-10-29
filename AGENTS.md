@@ -567,12 +567,12 @@ reflected bindings fall outside the table. The rules the rows encode:
   `textureSamplerState`, the same mapping Vulkan's per-texture samplers use) — exactly the
   maps Vulkan binds as combined samplers. A new map Vulkan binds as a combined sampler needs
   `ownSampler` and a Metal sampler slot within the budget comment in `metalTextureBinder.h`;
-  a separate-image map keeps `defaultSampler` on both. Slots 0-40 and 42-48 are taken today
+  a separate-image map keeps `defaultSampler` on both. Slots 0-40 and 42-50 are taken today
   (31-33 the gloss, thickness and refraction maps, 34 the opacity map, 42 the anisotropy map,
   which skips 41 for the displacement map's vertex slot below, 43-44 the specular colour and
   specularity factor maps (Vulkan 36-37), 45 the material's own environment atlas (Vulkan 38), 46 the scene's user map (Vulkan set 3
   binding 24, `Scene::setUserShaderData`), 47-48 the iridescence intensity and thickness maps
-  (Vulkan 39-40);
+  (Vulkan 39-40), 49-50 the diffuse transmission and its colour maps (Vulkan 41-42);
   35 is the second
   directional shadow map, 36 the clustered cookie atlas, 37-38 the VSM spot moments and 39-40
   the two directional maps AGAIN as VSM moments, scene slots, not material ones: the Slang
@@ -609,7 +609,7 @@ reflected bindings fall outside the table. The rules the rows encode:
 ### Metal buffer slots
 
 0=vertex, 1=index (the scene block, vertex AND fragment), 2=model, 3=material,
-4=lighting, 5=scene, 6=palette (dynamic batch + skinning, **mutually exclusive**),
+4=lighting (fragment, and vertex for a program reading the camera from it: the grid), 5=scene, 6=palette (dynamic batch + skinning, **mutually exclusive**),
 7-8=clustered (fragment) / gsplat data and order, particle pool and sort order (vertex),
 9=morph deltas / a mesh emitter's vertices (vertex only; the atmosphere the fragment stage
 once took there is inside the lighting block), 10=morph params, 11=gsplat / particle params
@@ -971,7 +971,7 @@ sampler. A quad pass may draw a vertex buffer of its own instead of the fullscre
 (`RenderPassShaderQuad::setGeometry`, a triangle list in the standard 56-byte layout, written
 per frame into a ring of `maxFramesInFlight` buffers). The block rides the per-draw MATERIAL slot (Metal buffer 3 / Vulkan
 set 0 binding 0) via `GraphicsDevice::setQuadUniformData`; `kPerDrawUniformCapacity`
-(944; `MaterialUniforms` itself is 944 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
+(976; `MaterialUniforms` itself is 976 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
 allocation behind it. A smaller block is copied into the front of a full-size
 allocation, so never shorten the allocation. Quad passes draw an oversized
 fullscreen TRIANGLE and, on Metal, bind `_postSampler` (linear, clamp, no anisotropy),

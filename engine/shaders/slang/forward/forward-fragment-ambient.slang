@@ -24,25 +24,7 @@
     // a scene carrying both would lose every environment reflection the moment its
     // probes were enabled. Diffuse and specular are kept apart so ambient
     // occlusion can treat them separately (see the occlusion block below).
-    float3 ambientIrradiance;
-    if (vtFeatureEnabled(VT_FEATURE_LIGHT_PROBES_BIT)) {
-        // 9-coefficient irradiance in the world normal direction (coefficients
-        // premultiplied).
-        float3 shN = cubeMapRotate(N);
-        ambientIrradiance = max(
-            lighting.ambientSH[0].rgb +
-            lighting.ambientSH[1].rgb * shN.x +
-            lighting.ambientSH[2].rgb * shN.y +
-            lighting.ambientSH[3].rgb * shN.z +
-            lighting.ambientSH[4].rgb * (shN.x * shN.z) +
-            lighting.ambientSH[5].rgb * (shN.z * shN.y) +
-            lighting.ambientSH[6].rgb * (shN.y * shN.x) +
-            lighting.ambientSH[7].rgb * (3.0 * shN.z * shN.z - 1.0) +
-            lighting.ambientSH[8].rgb * (shN.x * shN.x - shN.y * shN.y),
-            float3(0.0));
-    } else {
-        ambientIrradiance = lighting.ambient.rgb;
-    }
+    float3 ambientIrradiance = ambientIrradianceToward(N);
     // Mirrors the specular part of the indirect contribution exactly as it lands
     // in `color` below, AO factor included. SSR replaces that term where the
     // reflection ray hits on-screen geometry, so it only has to add the
@@ -52,14 +34,6 @@
     // useSkybox off: it keeps the probe or flat ambient above and takes no scene reflection).
     if (envAvailable()) {
         float intensity = envIntensity();
-
-        if (!vtFeatureEnabled(VT_FEATURE_LIGHT_PROBES_BIT)) {
-            // Diffuse irradiance from the atlas' Lambert rect (the negate-X matches
-            // the engine's atlas lookup handedness). Probes take priority over it.
-            float3 envN = envRotate(N);
-            float3 diffDir = float3(-envN.x, envN.y, envN.z);
-            ambientIrradiance = envFetch(mapAmbientUv(dirToEquirect(diffDir))) * intensity;
-        }
 
         // Specular: reflect, pick a mip, trilinear between levels, with the shiny
         // path for a mirror. Anisotropic materials bend the normal first
@@ -166,6 +140,14 @@
     // bake accumulator above it keeps the untinted ambient, and a lightmap below
     // replaces the tinted term.
     float3 indirectDiffuse = ambientIrradiance * material.ambientTint.rgb * diffuseAlbedo;
+    // Diffuse transmission: the ambient arriving at the back of the surface, scaled and tinted as
+    // the ambient diffuse is (the colour applies when it is composed, below). A lightmap, which
+    // replaces the ambient, leaves none.
+    float3 dtAmbient = float3(0.0);
+    if (vtFeatureEnabled(VT_FEATURE_DIFFUSE_TRANSMISSION_BIT) && !vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BIT)) {
+        dtAmbient = ambientIrradianceToward(-N) * lerp(float3(1.0), float3(1.0) - F0, specularOn) *
+            material.ambientTint.rgb;
+    }
     bakeDiffuseLight += ambientIrradiance;
     // Sheen image-based lighting: sample the atlas along the reflection at the
     // sheen roughness, scaled by the analytical directional albedo instead of the
@@ -196,6 +178,7 @@
     // bake and the direct light are occluded only under occludeDirect — handled
     // in the occlusion block after the specular terms are final.
     indirectDiffuse *= ao;
+    dtAmbient *= ao;
     if (vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BIT)) {
         // The bake REPLACES the ambient diffuse rather than adding to it, so that a lightmapped surface is not lit twice by what the bake already
         // contains.
@@ -385,6 +368,17 @@
             sheenSpecularDirect *= specOcc;
             sheenSpecularIndirect *= specOcc;
         }
+    }
+    // Diffuse transmission takes dtIntensity of the diffuse light entering the surface, tinted by
+    // its colour, and the diffuse reflection keeps the rest: the reflection already in `color`
+    // (occluded as above) gives up its share. It composes before refraction, which replaces it
+    // as it replaces the diffuse reflection, and before the layers and emission in the tail.
+    if (vtFeatureEnabled(VT_FEATURE_DIFFUSE_TRANSMISSION_BIT)) {
+        const float directOcclusion = (material.flags & FLAG_OCCLUDE_DIRECT) != 0u ? ao : 1.0;
+        const float3 diffuseReflection = directDiffuse * directOcclusion +
+            indirectDiffuse * (vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BIT) ? directOcclusion : 1.0);
+        const float3 transmitted = dtColor * (dtAmbient + dtDirect * directOcclusion);
+        color += dtIntensity * (transmitted - diffuseReflection);
     }
     if (vtFeatureEnabled(VT_FEATURE_TRANSMISSION_BIT)) {
         // The scalar maps modulate their factors per pixel, sampled once for both refraction paths.

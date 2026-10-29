@@ -13,10 +13,12 @@
 // and white over dark ones, from the scene colour grab), the depth pass (no colour, writes the
 // depth of the lines where they cover more than half a pixel), and its dither.
 //
-// The camera is recovered from the view-projection, which is all a mesh draw hands its vertex
-// stage: a perspective camera sits where clip x, y and w vanish; an orthographic one has no
-// position, so the centre of its near plane stands in for it, and its far distance is
-// measured from there.
+// A perspective camera is recovered from the view-projection a mesh draw hands its vertex stage:
+// it sits where clip x, y and w vanish. An orthographic one cannot be: its view-projection does
+// not say where along its view axis it sits (its near plane may lie behind it, as with a near
+// clip of -far, which keeps what lies behind an orthographic camera visible). Its position is
+// read from the forward pass's lighting block, which the forward renderer fills for the camera
+// drawing the layer, and its far distance is measured from it.
 import vtdraw;
 #include "bindings.slang"
 
@@ -35,6 +37,14 @@ struct GridData
 VT_DECLARE_MATERIAL_UNIFORMS(GridData, grid)
 
 VT_DECLARE_sceneColorGrab
+// The head of the forward lighting block (LightingBlock, forward-fragment-head's LightingData):
+// only the camera position is read.
+struct GridCameraData
+{
+    float4 ambient;
+    float4 cameraPosExposure;   // xyz the camera's world position
+};
+[[vk::binding(0, 2)]] ConstantBuffer<GridCameraData> gridCamera : register(b4);
 // The forward pass's clamping sampler, at the Metal slot it binds it to.
 [[vk::binding(12, 3)]] SamplerState linearClampSampler : register(s7);
 
@@ -94,11 +104,13 @@ Varyings gridVertex(VertexIn input)
     float far;
     float3 back = float3(0.0);
     if (ortho) {
-        // On the view axis at the near plane (GL clip z = -1), and at the far plane (z = 1).
-        eye = solvePlanes(row0.xyz, row1.xyz, row2.xyz, float3(-row0.w, -row1.w, -1.0 - row2.w));
+        // The view axis through the near plane (GL clip z = -1) and the far plane (z = 1); the
+        // camera sits on it, and the far distance is measured from the camera.
+        const float3 nearPoint = solvePlanes(row0.xyz, row1.xyz, row2.xyz, float3(-row0.w, -row1.w, -1.0 - row2.w));
         const float3 farPoint = solvePlanes(row0.xyz, row1.xyz, row2.xyz, float3(-row0.w, -row1.w, 1.0 - row2.w));
-        far = length(farPoint - eye);
-        back = normalize(eye - farPoint);
+        back = normalize(nearPoint - farPoint);
+        eye = gridCamera.cameraPosExposure.xyz;
+        far = dot(eye - farPoint, back);
     } else {
         eye = solvePlanes(row0.xyz, row1.xyz, row3.xyz, float3(-row0.w, -row1.w, -row3.w));
         // On the view axis where clip z = w.

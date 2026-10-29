@@ -334,12 +334,15 @@ namespace visutwin::canvas
                 // A growth here leaves slot 3's cached offsets in the old buffer: drop them.
                 syncUniformRing(uniformRing);
                 std::memcpy(&_lastLightingUniforms, &_lightingUniforms, sizeof(LightingUniforms));
-                // Slot 4's offset is moved only here, so it needs setting only on upload.
+                // Slot 4's offset is moved only here, so it needs setting only on upload. The
+                // vertex stage gets it too, for a program that reads the camera from it (grid).
                 if (uniformRing->buffer() != _encoderLightingBuffer) {
                     encoder->setFragmentBuffer(uniformRing->buffer(), _lastLightingOffset, 4);
+                    encoder->setVertexBuffer(uniformRing->buffer(), _lastLightingOffset, 4);
                     _encoderLightingBuffer = uniformRing->buffer();
                 } else {
                     encoder->setFragmentBufferOffset(_lastLightingOffset, 4);
+                    encoder->setVertexBufferOffset(_lastLightingOffset, 4);
                 }
                 _lightingBoundThisPass = true;
             }

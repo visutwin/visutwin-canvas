@@ -41,7 +41,9 @@
                 // scaled by N.L), so it costs no shadow lookup and no BRDF. Without it a
                 // room lit by a few shadowed torches sampled the shadow atlas for every
                 // light facing away (ambient-occlusion's forward pass: 0.96 -> 0.89 ms).
-                if (clShape == 0u && dot(N, L) <= 0.0) continue;
+                // Diffuse transmission is lit from behind too, so it keeps the light.
+                if (clShape == 0u && dot(N, L) <= 0.0 &&
+                    !vtFeatureEnabled(VT_FEATURE_DIFFUSE_TRANSMISSION_BIT)) continue;
 
                 // Clustered shadow: each shadow-casting light owns a rect of the
                 // atlas. shadowData = {castShadows, normalOffsetBias, intensity,
@@ -57,6 +59,7 @@
                         // (1 - NdotL) * distance to the light.
                         float3 Ng = normalize(fragWorldNormal);
                         if (dot(Ng, N) < 0.0) Ng = -Ng;
+                        Ng = shadowNormalToward(Ng, L);
                         float grazing = clamp(1.0 - dot(Ng, L), 0.0, 1.0);
                         float3 shadowPosW = fragWorldPos + Ng * (cl.shadowData.y * grazing * distance);
                         float vis = getShadowOmniClusteredPCF3(cl.shadowMatrix[0], cl.shadowMatrix[1],
@@ -64,7 +67,7 @@
                         atten *= lerp(1.0, vis, clamp(cl.shadowData.z, 0.0, 1.0));
                     } else {
                         // A spot keeps the flat normalBias.
-                        float3 shadowPosW = fragWorldPos + N * cl.shadowData.y;
+                        float3 shadowPosW = fragWorldPos + shadowNormalToward(N, L) * cl.shadowData.y;
                         float4 sc = mul(float4(shadowPosW, 1.0), cl.shadowMatrix);
                         if (sc.w > 0.0) {
                             float3 scoord = sc.xyz / sc.w;
@@ -120,6 +123,11 @@
                     color += areaDiffuse + areaSpecular;
                     directDiffuse += areaDiffuse;
                     directSpecular += areaSpecular;
+                    if (vtFeatureEnabled(VT_FEATURE_DIFFUSE_TRANSMISSION_BIT)) {
+                        dtDirect += areaRadiance * (float3(1.0) - specFres) *
+                            ltcAreaDiffuse(clShape, sphereRadius, cl.positionRange.xyz, -N, V, fragWorldPos,
+                                p0, p1, p2, p3);
+                    }
                     if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
                         ccSpecularLight += areaRadiance *
                             ltcSpecularFresnel(ccNormalW, V, 1.0 - ccGlossiness, float3(0.04)) *
@@ -127,6 +135,19 @@
                                 p0, p1, p2, p3);
                     }
                     continue;
+                }
+
+                float3 radiance = cl.colorIntensity.rgb *
+                    cl.colorIntensity.w * atten * cookieMask;
+                // With area lights in the variant, a punctual light's diffuse
+                // is scaled by (1 - specularity).
+                float3 clDiffuseScale = (vtFeatureEnabled(VT_FEATURE_AREA_LIGHTS_BIT) && specularOn > 0.0)
+                    ? float3(1.0) - F0 : float3(1.0);
+                // The light arriving at the back of the surface, scaled as the diffuse reflection.
+                if (vtFeatureEnabled(VT_FEATURE_DIFFUSE_TRANSMISSION_BIT)) {
+                    dtDirect += radiance * clDiffuseScale *
+                        lightDiffuseTerm(-N, V, L, roughness, vtFeatureEnabled(VT_FEATURE_OREN_NAYAR_BIT));
+                    if (dot(N, L) <= 0.0) continue;
                 }
 
                 float nl = max(dot(N, L), 0.0);
@@ -148,8 +169,6 @@
                 if (vtFeatureEnabled(VT_FEATURE_IRIDESCENCE_BIT)) {
                     F = lerp(F, iridFresnel, iridIntensity);
                 }
-                float3 radiance = cl.colorIntensity.rgb *
-                    cl.colorIntensity.w * atten * cookieMask;
                 // Oren-Nayar, iridescence, clearcoat and sheen below are the main
                 // loop's terms (forward-fragment-lights.slang). With clustered
                 // lighting the default, this is the loop EVERY spot and omni light
@@ -167,10 +186,6 @@
                 // Same convention as the punctual path: no 1/PI, no kD, and no
                 // explicit 1/(4 NdotL NdotV) because the visibility term carries it.
                 float3 clusteredSpecular = D * Vis * F * specularOn;
-                // With area lights in the variant, a punctual light's diffuse
-                // is scaled by (1 - specularity).
-                float3 clDiffuseScale = (vtFeatureEnabled(VT_FEATURE_AREA_LIGHTS_BIT) && specularOn > 0.0)
-                    ? float3(1.0) - F0 : float3(1.0);
                 color += (diffuseAlbedo * diffuseTerm * clDiffuseScale + clusteredSpecular) * radiance * nl;
                 directSpecular += clusteredSpecular * radiance * nl;
                 directDiffuse += diffuseAlbedo * diffuseTerm * clDiffuseScale * radiance * nl;

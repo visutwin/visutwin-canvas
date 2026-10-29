@@ -109,7 +109,10 @@
     X(ClipPlanesMesh,            "VT_FEATURE_CLIP_PLANES_MESH") \
     X(ClipPlanesCamera,          "VT_FEATURE_CLIP_PLANES_CAMERA") \
     X(IridescenceMap,            "VT_FEATURE_IRIDESCENCE_MAP") \
-    X(IridescenceThicknessMap,   "VT_FEATURE_IRIDESCENCE_THICKNESS_MAP")
+    X(IridescenceThicknessMap,   "VT_FEATURE_IRIDESCENCE_THICKNESS_MAP") \
+    X(DiffuseTransmission,       "VT_FEATURE_DIFFUSE_TRANSMISSION") \
+    X(DiffuseTransmissionMap,    "VT_FEATURE_DIFFUSE_TRANSMISSION_MAP") \
+    X(DiffuseTransmissionColorMap, "VT_FEATURE_DIFFUSE_TRANSMISSION_COLOR_MAP")
 
 namespace visutwin::canvas
 {

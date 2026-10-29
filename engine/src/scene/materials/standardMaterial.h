@@ -547,6 +547,28 @@ namespace visutwin::canvas
         void setIridescenceThicknessMap(Texture* texture) { _iridescenceThicknessMap = texture; markUniformsDirty(); }
         int iridescenceThicknessMapUv() const { return _iridescenceThicknessMapUv; }
         void setIridescenceThicknessMapUv(const int uv) { _iridescenceThicknessMapUv = uv; markUniformsDirty(); }
+        // --- Diffuse transmission (KHR_materials_diffuse_transmission) ---
+        // The fraction of the diffuse light entering the surface that passes through it, lighting
+        // it from behind as a leaf or a lampshade is. The diffuse reflection keeps the rest; 0
+        // keeps the transmission out of the shader.
+        float diffuseTransmission() const { return _diffuseTransmission; }
+        void setDiffuseTransmission(const float value) { _diffuseTransmission = value; markUniformsDirty(); }
+        /// The colour tinting the transmitted light, authored in gamma space.
+        const Color& diffuseTransmissionColor() const { return _diffuseTransmissionColor; }
+        void setDiffuseTransmissionColor(const Color& value) { _diffuseTransmissionColor = value; markUniformsDirty(); }
+        /// The intensity map (its channel scales the fraction, g by default; glTF stores it in a)
+        /// and the colour map (rgb, sRGB, tints the colour), each read on UV set 0 or 1.
+        /// DEVIATION: neither map has a transform of its own.
+        Texture* diffuseTransmissionMap() const { return _diffuseTransmissionMap; }
+        void setDiffuseTransmissionMap(Texture* texture) { _diffuseTransmissionMap = texture; markUniformsDirty(); }
+        MapChannel diffuseTransmissionMapChannel() const { return _diffuseTransmissionMapChannel; }
+        void setDiffuseTransmissionMapChannel(const MapChannel value) { _diffuseTransmissionMapChannel = value; markUniformsDirty(); }
+        int diffuseTransmissionMapUv() const { return _diffuseTransmissionMapUv; }
+        void setDiffuseTransmissionMapUv(const int uv) { _diffuseTransmissionMapUv = uv; markUniformsDirty(); }
+        Texture* diffuseTransmissionColorMap() const { return _diffuseTransmissionColorMap; }
+        void setDiffuseTransmissionColorMap(Texture* texture) { _diffuseTransmissionColorMap = texture; markUniformsDirty(); }
+        int diffuseTransmissionColorMapUv() const { return _diffuseTransmissionColorMapUv; }
+        void setDiffuseTransmissionColorMapUv(const int uv) { _diffuseTransmissionColorMapUv = uv; markUniformsDirty(); }
         // --- Spec-Gloss map (KHR_materials_pbrSpecularGlossiness) ---
         // The specular workflow itself is specular() + gloss() with useMetalness
         // false; this map adds rgb = specular colour (sRGB), a = gloss.
@@ -726,6 +748,15 @@ namespace visutwin::canvas
         int _iridescenceMapUv = 0;
         Texture* _iridescenceThicknessMap = nullptr;
         int _iridescenceThicknessMapUv = 0;
+
+        // diffuse transmission properties (KHR_materials_diffuse_transmission).
+        float _diffuseTransmission = 0.0f;
+        Color _diffuseTransmissionColor = Color(1.0f, 1.0f, 1.0f, 1.0f);
+        Texture* _diffuseTransmissionMap = nullptr;
+        MapChannel _diffuseTransmissionMapChannel = MapChannel::MAP_CHANNEL_G;
+        int _diffuseTransmissionMapUv = 0;
+        Texture* _diffuseTransmissionColorMap = nullptr;
+        int _diffuseTransmissionColorMapUv = 0;
 
         // spec-gloss properties (KHR_materials_pbrSpecularGlossiness).
         Texture* _specGlossMap = nullptr;

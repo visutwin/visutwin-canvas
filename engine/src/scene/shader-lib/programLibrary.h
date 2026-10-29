@@ -230,6 +230,9 @@ namespace visutwin::canvas
             bool anisotropyMap = false;
             bool iridescenceMap = false;          // the intensity map scales the iridescence
             bool iridescenceThicknessMap = false; // the thickness map blends min .. max
+            bool diffuseTransmission = false;     // part of the diffuse light passes through
+            bool diffuseTransmissionMap = false;  // the map scales the transmitted fraction
+            bool diffuseTransmissionColorMap = false; // the map tints the transmitted light
             bool opacityKeepsSpecular = false;   // the specular's luminance adds to the opacity
             bool specularColorMap = false;       // the metalness specular colour map
             bool specularityFactorMap = false;   // the specularity factor map

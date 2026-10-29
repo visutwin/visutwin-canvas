@@ -359,12 +359,13 @@ namespace visutwin::canvas
         createSetLayout(
             textureLayoutInfo, _textureSetLayout, "texture");
 
-        // Set 2: per-pass lighting/environment UBO (dynamic).
+        // Set 2: per-pass lighting/environment UBO (dynamic). The vertex stage sees it too, for a
+        // program that reads the camera from it (grid).
         VkDescriptorSetLayoutBinding lightingBinding{};
         lightingBinding.binding = 0;
         lightingBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
         lightingBinding.descriptorCount = 1;
-        lightingBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        lightingBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
         VkDescriptorSetLayoutCreateInfo lightingLayoutInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         lightingLayoutInfo.bindingCount = 1;

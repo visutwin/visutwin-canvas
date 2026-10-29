@@ -166,4 +166,11 @@
     /* --- Iridescence maps, read only under VT_FEATURE_IRIDESCENCE_MAP / _THICKNESS_MAP --- */ \
     /* x = the UV set of the intensity map (r scales the intensity), y = of the thickness map */ \
     /* (g blends from iridescenceParams.z, the minimum, to .w, the maximum), zw = pad. */ \
-    X(vec4, iridescenceMapParams, {0, 0, 0, 0})
+    X(vec4, iridescenceMapParams, {0, 0, 0, 0}) \
+    /* --- Diffuse transmission, read only under VT_FEATURE_DIFFUSE_TRANSMISSION --- */ \
+    /* rgb = the colour tinting the transmitted light (linear), w = the fraction of the diffuse */ \
+    /* light that is transmitted. */ \
+    X(vec4, diffuseTransmission, {1, 1, 1, 0}) \
+    /* x = the UV set of the intensity map, y = its channel (0=r,1=g,2=b,3=a), z = the UV set */ \
+    /* of the colour map (rgb, sRGB), w = pad. */ \
+    X(vec4, diffuseTransmissionMapParams, {0, 1, 0, 0})

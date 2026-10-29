@@ -2308,6 +2308,7 @@ namespace visutwin::canvas
         _renderPassEncoder->setFragmentBuffer(_uniformRing->buffer(), 0, 3);
         _renderPassEncoder->setVertexBuffer(_uniformRing->buffer(), 0, 3);
         _renderPassEncoder->setFragmentBuffer(_uniformRing->buffer(), 0, 4);
+        _renderPassEncoder->setVertexBuffer(_uniformRing->buffer(), 0, 4);
         _renderPassEncoder->setVertexBuffer(_paletteRing->buffer(), 0, 6);
         _uniformBinder.noteRingBuffersBound(_transformRing->buffer(), _uniformRing->buffer());
 

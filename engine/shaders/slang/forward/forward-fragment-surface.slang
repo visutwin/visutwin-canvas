@@ -597,6 +597,33 @@ float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) 
     float3 sheenSpecularIndirect = float3(0.0);
     float3 diffuseAlbedo = albedo.rgb * (1.0 - metallic);
 
+    // Diffuse transmission: dtIntensity of the diffuse light entering the surface passes through
+    // it, tinted by dtColor, and the diffuse reflection keeps the rest. The light loops gather
+    // the light arriving at the back of the surface into dtDirect (its diffuse term at -N,
+    // without the colour); the ambient chunk adds the ambient from behind and composes it.
+    float dtIntensity = 0.0;
+    float3 dtColor = float3(0.0);
+    float3 dtDirect = float3(0.0);
+    if (vtFeatureEnabled(VT_FEATURE_DIFFUSE_TRANSMISSION_BIT)) {
+        dtIntensity = material.diffuseTransmission.w;
+        if (vtFeatureEnabled(VT_FEATURE_DIFFUSE_TRANSMISSION_MAP_BIT)) {
+            const float2 uvDt = material.diffuseTransmissionMapParams.x > 0.5 ? fragUV1 : fragUV0;
+            dtIntensity *= diffuseTransmissionMap.Sample(materialSampler, uvDt)[
+                int(material.diffuseTransmissionMapParams.y + 0.5)];
+        }
+        dtColor = material.diffuseTransmission.rgb;
+        if (vtFeatureEnabled(VT_FEATURE_DIFFUSE_TRANSMISSION_COLOR_MAP_BIT)) {
+            const float2 uvDtColor = material.diffuseTransmissionMapParams.z > 0.5 ? fragUV1 : fragUV0;
+            dtColor *= srgbToLinear(diffuseTransmissionColorMap.Sample(materialSampler, uvDtColor).rgb);
+        }
+        if (vtFeatureEnabled(VT_FEATURE_DEBUG_PASS_BIT) &&
+            lighting.flagsAndPad[1] == VT_DEBUGPASS_LIGHTING) {
+            dtColor = float3(0.5);
+        }
+        // A dielectric lobe, like the diffuse reflection: metalness scales it as it does the albedo.
+        dtColor *= 1.0 - metallic;
+    }
+
     // Lightmap bake (VT_FEATURE_LIGHTMAP_BAKE): the diffuse LIGHT reaching this texel,
     // accumulated without albedo — the runtime multiplies the sampled lightmap by the
     // surface's own diffuse colour. This shader folds albedo in at each accumulation

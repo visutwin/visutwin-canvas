@@ -124,8 +124,10 @@ namespace visutwin::canvas
         {
             Camera* camera = _camera ? _camera->camera() : nullptr;
             if (camera) {
-                camera->setProjection(camera->projection() == ProjectionType::Perspective
-                    ? ProjectionType::Orthographic : ProjectionType::Perspective);
+                const bool ortho = camera->projection() == ProjectionType::Perspective;
+                camera->setProjection(ortho ? ProjectionType::Orthographic : ProjectionType::Perspective);
+                // An orthographic view has no depth cue, so keep what lies behind the camera visible.
+                camera->setNearClip(ortho ? -camera->farClip() : 0.1f);
             }
         }
 

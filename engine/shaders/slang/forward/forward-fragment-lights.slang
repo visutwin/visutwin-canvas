@@ -39,10 +39,11 @@
             // and selects in every copy, and that cost Metal's forward pass 15% (the
             // hand-written MSL calls once per slot the same way).
             if (vtFeatureEnabled(VT_FEATURE_SHADOWS_BIT) && light.coneParams.w >= 0.0) {
+                const float3 shadowN = shadowNormalToward(N, L);
                 if (int(light.coneParams.w + 0.5) == 0) {
-                    atten = sampleDirectionalShadow(0, fragWorldPos, fragViewDepth, N, L);
+                    atten = sampleDirectionalShadow(0, fragWorldPos, fragViewDepth, shadowN, L);
                 } else {
-                    atten = sampleDirectionalShadow(1, fragWorldPos, fragViewDepth, N, L);
+                    atten = sampleDirectionalShadow(1, fragWorldPos, fragViewDepth, shadowN, L);
                 }
             }
             // Parallax self-shadowing: the height field casts onto itself, which
@@ -111,10 +112,11 @@
                     }
                 } else if (type == 2u && vtFeatureEnabled(VT_FEATURE_LOCAL_SHADOWS_BIT)) {
                     const float lightDistance = distance(light.positionRange.xyz, fragWorldPos);
+                    const float3 shadowN = shadowNormalToward(N, L);
                     if (slot == 0) {
-                        atten *= sampleSpotShadow(0, fragWorldPos, N, L, lightDistance);
+                        atten *= sampleSpotShadow(0, fragWorldPos, shadowN, L, lightDistance);
                     } else {
-                        atten *= sampleSpotShadow(1, fragWorldPos, N, L, lightDistance);
+                        atten *= sampleSpotShadow(1, fragWorldPos, shadowN, L, lightDistance);
                     }
                 }
             }
@@ -140,6 +142,13 @@
             float3 areaDiffuse = diffuseAlbedo * areaRadiance * ltcDiffuse * (float3(1.0) - specFres);
             color += areaDiffuse;
             directDiffuse += areaDiffuse;
+            if (vtFeatureEnabled(VT_FEATURE_DIFFUSE_TRANSMISSION_BIT)) {
+                // The same shape seen from the back of the surface.
+                float ltcBack = (type == 0u)
+                    ? max(dot(-N, L), 0.0)
+                    : ltcAreaDiffuse(lightShape, sphereRadius, lightPos, -N, V, fragWorldPos, p0, p1, p2, p3);
+                dtDirect += areaRadiance * ltcBack * (float3(1.0) - specFres);
+            }
 
             float3 areaSpecular = areaRadiance * specFres * specularOn *
                 ltcAreaSpecular(lightShape, N, V, fragWorldPos, roughness, p0, p1, p2, p3);
@@ -154,6 +163,15 @@
                     ltcAreaSpecular(lightShape, ccNormalW, V, fragWorldPos, 1.0 - ccGlossiness, p0, p1, p2, p3);
             }
             continue;
+        }
+
+        // The light arriving at the back of the surface, gathered before the early-out below,
+        // which skips a light behind the surface; scaled as the diffuse reflection is.
+        if (vtFeatureEnabled(VT_FEATURE_DIFFUSE_TRANSMISSION_BIT) && atten > 0.0) {
+            float3 backScale = (vtFeatureEnabled(VT_FEATURE_AREA_LIGHTS_BIT) && specularOn > 0.0)
+                ? float3(1.0) - F0 : float3(1.0);
+            dtDirect += light.colorIntensity.rgb * cookieMask * light.colorIntensity.w * atten * backScale *
+                lightDiffuseTerm(-N, V, L, roughness, vtFeatureEnabled(VT_FEATURE_OREN_NAYAR_BIT));
         }
 
         float NdotL = max(dot(N, L), 0.0);
