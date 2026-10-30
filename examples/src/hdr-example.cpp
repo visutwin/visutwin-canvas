@@ -13,7 +13,7 @@
 //
 // Keys stand in for upstream's controls panel, over the same parameters:
 //   H      the camera frame on / off (off renders the scene straight to the window)
-//   T      tone mapping, cycled through linear, filmic, ACES, ACES2, neutral, none
+//   T      tone mapping, cycled through linear, filmic, ACES, ACES2, neutral, AgX, AgX punchy, none
 //   - / =  colour LUT intensity -/+ 0.1
 //   B      bloom on / off          [ / ]  bloom intensity -/+ 0.01
 //   , / .  bloom blur level -/+ 1  ; / '  bloom threshold -/+ 0.5
@@ -57,8 +57,8 @@ namespace
         }
     }
 
-    constexpr std::array<int, 6> kToneMappings = {TONEMAP_LINEAR, TONEMAP_FILMIC, TONEMAP_ACES, TONEMAP_ACES2,
-        TONEMAP_NEUTRAL, TONEMAP_NONE};
+    constexpr std::array<int, 8> kToneMappings = {TONEMAP_LINEAR, TONEMAP_FILMIC, TONEMAP_ACES, TONEMAP_ACES2,
+        TONEMAP_NEUTRAL, TONEMAP_AGX, TONEMAP_AGX_PUNCHY, TONEMAP_NONE};
 }
 
 class HdrExample final : public ExampleApp

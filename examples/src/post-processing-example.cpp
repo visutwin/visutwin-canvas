@@ -116,6 +116,8 @@ namespace
         case TONEMAP_ACES: return "ACES";
         case TONEMAP_ACES2: return "ACES2";
         case TONEMAP_NEUTRAL: return "NEUTRAL";
+        case TONEMAP_AGX: return "AGX";
+        case TONEMAP_AGX_PUNCHY: return "AGX_PUNCHY";
         default: return "?";
         }
     }
@@ -259,8 +261,8 @@ protected:
         switch (event.key.key) {
         case SDLK_E: s.enabled = !s.enabled; break;
         case SDLK_M: {
-            static constexpr std::array<int, 6> modes = {
-                TONEMAP_LINEAR, TONEMAP_FILMIC, TONEMAP_HEJL, TONEMAP_ACES, TONEMAP_ACES2, TONEMAP_NEUTRAL};
+            static constexpr std::array<int, 8> modes = {TONEMAP_LINEAR, TONEMAP_FILMIC, TONEMAP_HEJL,
+                TONEMAP_ACES, TONEMAP_ACES2, TONEMAP_NEUTRAL, TONEMAP_AGX, TONEMAP_AGX_PUNCHY};
             const auto it = std::find(modes.begin(), modes.end(), s.tonemapping);
             const size_t index = it == modes.end() ? 0 : static_cast<size_t>(it - modes.begin()) + 1;
             s.tonemapping = modes[index % modes.size()];

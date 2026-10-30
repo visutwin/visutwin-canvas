@@ -17,6 +17,8 @@
 // moments writer for a VSM light (the one shadow pass with a colour attachment), the
 // opacity frontend for a caster that needs it, and no fragment stage at all otherwise.
 
+import vtshadowevsm;
+
 // Discards the fragment when the caster's material says the surface is not there.
 void applyShadowOpacity(ForwardVertexOut input)
 {
@@ -89,7 +91,7 @@ void shadowOpacityFragment(ForwardVertexOut input)
     applyShadowOpacity(input);
 }
 
-// EVSM_16F moments: (exp(c z'), exp(c z')^2, 1, 1) with c = 5.54 and z' = 2 depth - 1. The
+// EVSM_16F moments: (exp(c z'), exp(c z')^2, 1, 1) with c = kVsmExponent16F and z' = 2 depth - 1. The
 // .z = 1 marks "rendered"; cleared texels stay (0, 0, 0, 0) and read as fully lit.
 [shader("fragment")]
 float4 shadowVsmFragment(ForwardVertexOut input) : SV_Target0
@@ -108,7 +110,7 @@ float4 shadowVsmFragment(ForwardVertexOut input) : SV_Target0
     if (isNan || depth < 0.0 || depth > 1.0) {
         discard;
     }
-    const float VSM_EXPONENT = 5.54;
+    const float VSM_EXPONENT = kVsmExponent16F;
     const float warped = exp(VSM_EXPONENT * (2.0 * depth - 1.0));
     return float4(warped, warped * warped, 1.0, 1.0);
 }

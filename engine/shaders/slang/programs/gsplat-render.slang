@@ -22,6 +22,7 @@
 // @variant color: VT_GSPLAT_COLOR=1
 // @variant shadow: VT_GSPLAT_SHADOW=1
 // @variant shadow-vsm: VT_GSPLAT_SHADOW=1 VT_GSPLAT_SHADOW_VSM=1
+import vtshadowevsm;
 #include "bindings.slang"
 
 // The forward pass's tone mapping operators, without its lighting-block dispatch.
@@ -319,7 +320,7 @@ GSPLAT_FRAGMENT_RESULT gsplatFS(GSplatVaryings input) GSPLAT_FRAGMENT_TARGET
     }
 #if defined(VT_GSPLAT_SHADOW_VSM)
     // EVSM_16F moments, as the mesh casters write them (shadowVsmFragment).
-    const float VSM_EXPONENT = 5.54;
+    const float VSM_EXPONENT = kVsmExponent16F;
     const float warped = exp(VSM_EXPONENT * (2.0 * input.color.r - 1.0));
     return float4(warped, warped * warped, 1.0, 1.0);
 #endif

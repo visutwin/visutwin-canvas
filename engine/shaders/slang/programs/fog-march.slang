@@ -17,6 +17,7 @@
 // @variant vsm: FOG_SHADOW_VSM=1
 import vtquad;
 import vtfog;
+import vtshadowevsm;
 #include "bindings.slang"
 
 struct FogUniforms
@@ -41,11 +42,11 @@ VT_DECLARE_QUAD_DEPTH_INPUT0(depthTexture)
 #if defined(FOG_SHADOW_VSM)
 VT_DECLARE_QUAD_INPUT1(shadowTexture)
 
-// The forward pass's EVSM_16F test (sampleShadowVSM16): exponent 5.54, cleared texels
+// The forward pass's EVSM_16F test (sampleShadowVSM16): exponent kVsmExponent16F, cleared texels
 // (moments.z == 0) read as fully lit, reduceLightBleeding(0.1).
 float fogShadowEVSM(float3 moments, float receiverZ, float vsmBias)
 {
-    const float VSM_EXPONENT = 5.54;
+    const float VSM_EXPONENT = kVsmExponent16F;
     const float warped = exp(VSM_EXPONENT * (2.0 * receiverZ - 1.0));
     const float2 stored = moments.xy + float2(warped, warped * warped) * (1.0 - moments.z);
     const float depthScale = vsmBias * VSM_EXPONENT * warped;

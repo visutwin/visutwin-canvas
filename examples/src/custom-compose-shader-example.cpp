@@ -18,7 +18,7 @@
 // Keys stand in for upstream's controls panel, over the same parameters:
 //   [ / ]  tile size -/+ 2 pixels (2..32)
 //   - / =  pixelation intensity -/+ 0.1 (0 leaves the effect out of the shader)
-//   T      tone mapping, cycled through linear, filmic, ACES, ACES2, neutral, none
+//   T      tone mapping, cycled through linear, filmic, ACES, ACES2, neutral, AgX, AgX punchy, none
 //
 // DEVIATIONS:
 // - the chunk is Slang, reads its uniforms by name without declaring them, and measures the
@@ -96,8 +96,8 @@ float3 applyPixelation(float3 color, float2 uv)
         }
     }
 
-    constexpr std::array<int, 6> kToneMappings = {TONEMAP_LINEAR, TONEMAP_FILMIC, TONEMAP_ACES, TONEMAP_ACES2,
-        TONEMAP_NEUTRAL, TONEMAP_NONE};
+    constexpr std::array<int, 8> kToneMappings = {TONEMAP_LINEAR, TONEMAP_FILMIC, TONEMAP_ACES, TONEMAP_ACES2,
+        TONEMAP_NEUTRAL, TONEMAP_AGX, TONEMAP_AGX_PUNCHY, TONEMAP_NONE};
 }
 
 class CustomComposeShaderExample final : public ExampleApp

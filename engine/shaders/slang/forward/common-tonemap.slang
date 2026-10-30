@@ -5,7 +5,9 @@
 //
 // ── Tonemapping ──
 // Modes match scene/constants.h: 0=linear, 1=filmic, 2=hejl, 3=aces,
-// 4=aces2, 5=neutral, 6=none. Applied before display-gamma encode.
+// 4=aces2, 5=neutral, 6=none, 7=agx, 8=agx punchy. Applied before display-gamma encode.
+
+import vttonemapagx;
 
 float3 toneMapAcesFit(float3 x) {
     const float tA = 2.51, tB = 0.03, tC = 2.43, tD = 0.59, tE = 0.14;
@@ -78,6 +80,7 @@ float3 toneMapByMode(float3 color, int mode) {
     if (mode == 3) return toneMapAcesFit(color);
     if (mode == 4) return toneMapAces2(color);
     if (mode == 5) return toneMapNeutral(color);
+    if (mode == 7 || mode == 8) return toneMapAgx(color, mode == 8);
     return color; // LINEAR (0) and NONE (6): exposure only
 }
 

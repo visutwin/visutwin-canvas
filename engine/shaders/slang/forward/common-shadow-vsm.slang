@@ -5,8 +5,10 @@
 //
 // ── EVSM_16F sampling ──
 // One-tailed Chebyshev upper bound with reduceLightBleeding(0.1), fed by
-// exponentially-warped moments (c = 5.54). Cleared pixels (moments.z == 0)
+// exponentially-warped moments (kVsmExponent16F). Cleared pixels (moments.z == 0)
 // synthesize fully-lit moments.
+
+import vtshadowevsm;
 
 float chebyshevUpperBound(float2 moments, float mean, float minVariance) {
     float variance = max(moments.y - moments.x * moments.x, minVariance);
@@ -17,7 +19,7 @@ float chebyshevUpperBound(float2 moments, float mean, float minVariance) {
 }
 
 float sampleShadowVSM16(int slot, float2 uv, float receiverZ, float vsmBias) {
-    const float VSM_EXPONENT = 5.54;
+    const float VSM_EXPONENT = kVsmExponent16F;
     float3 moments = directionalShadowTexel(slot, uv).xyz;
     float warped = exp(VSM_EXPONENT * (2.0 * receiverZ - 1.0));
     float2 stored = moments.xy + float2(warped, warped * warped) * (1.0 - moments.z);
@@ -157,7 +159,7 @@ float sampleDirectionalShadow(int slot, float3 worldPos, float viewDepth, float3
 // EVSM visibility from a VSM spot light's moments: the
 // receiver is its distance over the range, the map's own sampler filters linearly.
 float sampleSpotShadowVSM16(int slot, float2 uv, float receiverZ, float vsmBias) {
-    const float VSM_EXPONENT = 5.54;
+    const float VSM_EXPONENT = kVsmExponent16F;
     float3 m = localShadowMoments(slot, uv).xyz;
     float warped = exp(VSM_EXPONENT * (2.0 * receiverZ - 1.0));
     float2 stored = m.xy + float2(warped, warped * warped) * (1.0 - m.z);

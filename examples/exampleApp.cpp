@@ -230,6 +230,26 @@ namespace visutwin::canvas
             }
         }
 
+        // VISUTWIN_TONE_MAPPING=n sets Tonemap n (the enum value) on the scene and every
+        // camera, reaching both the forward tail and a camera frame's compose. An example
+        // that sets its tone mapping again later (from a key, or every frame) overrides it.
+        if (const char* mode = std::getenv("VISUTWIN_TONE_MAPPING"); mode && *mode) {
+            int value = -2;
+            if (std::sscanf(mode, "%d", &value) == 1 && value >= TONEMAP_LINEAR && value <= TONEMAP_AGX_PUNCHY) {
+                _engine->scene()->setToneMapping(value);
+                int cameras = 0;
+                for (auto* camera : _engine->components().instances<CameraComponent>()) {
+                    if (camera) {
+                        camera->setToneMapping(value);
+                        ++cameras;
+                    }
+                }
+                spdlog::info("Tone mapping {} on the scene and {} camera(s) from VISUTWIN_TONE_MAPPING", value, cameras);
+            } else {
+                spdlog::warn("VISUTWIN_TONE_MAPPING='{}' is not a Tonemap value; ignored", mode);
+            }
+        }
+
         // VISUTWIN_CLIP_PLANE=nx,ny,nz,d[,camera] clips the scene by one world-space plane
         // (what is behind it, dot(n, p) + d < 0, is discarded): through every render
         // component's mesh instances, or with camera = 1 through every camera. The frame

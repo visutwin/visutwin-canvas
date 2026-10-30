@@ -29,6 +29,7 @@
 // its uncovered pixels transparent.
 import vtquad;
 import vttonemapreversible;
+import vttonemapagx;
 #include "bindings.slang"
 
 struct ComposeUniforms
@@ -577,6 +578,8 @@ float4 composeFragment(QuadVarying input) : SV_Target0
         result = toneMapAces2(result, u.exposure);
     } else if (tonemapMode == 5u) {    // NEUTRAL
         result = toneMapNeutral(result, u.exposure);
+    } else if (tonemapMode == 7u || tonemapMode == 8u) {    // AGX, AGX_PUNCHY
+        result = toneMapAgx(result * u.exposure, tonemapMode == 8u);
     } else if (tonemapMode == 6u) {    // NONE: no curve, no exposure
     } else {                             // LINEAR (default)
         result = result * u.exposure;

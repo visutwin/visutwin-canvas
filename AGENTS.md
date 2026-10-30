@@ -861,8 +861,11 @@ the pass rendered (the auto exposure's histogram, the lens flare's last shape co
 propagation, merging, before-pass order, the callbacks and the undo; `tests/shaderCompositionTests.cpp` holds the forward chunk
 registry against the files the programs include, override precedence and variant keys.
 
-**Tone mapping.** 6 modes dispatched in `forward/common-tonemap.slang :: toneMapByMode`: LINEAR (0),
-FILMIC (1), ACES (3), ACES2 (4, Stephen Hill RRT+ODT fit), NEUTRAL (5), NONE (6).
+**Tone mapping.** Modes dispatched in `forward/common-tonemap.slang :: toneMapByMode`: LINEAR (0),
+FILMIC (1), HEJL (2), ACES (3), ACES2 (4, Stephen Hill RRT+ODT fit), NEUTRAL (5), NONE (6), AGX (7)
+and AGX_PUNCHY (8). The compose pass keeps its own copy of each curve and specialises on the mode
+(4 bits of `composeSwitches`); AgX alone is one module (`vttonemapagx`) both import, imported from
+inside the tonemap chunk, which works: a chunk may import a module.
 Set scene-wide with `Scene::setToneMapping` or per camera with
 `CameraComponent::setToneMapping` (defaults to `TONEMAP_INHERIT` = -1), which a camera
 frame's compose uses too. There is no separate camera-frame tone mapping: the
@@ -3652,6 +3655,9 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
     (`dot(n, p) + d < 0` is discarded): through every render component's mesh instances, or
     with `camera` 1 through every camera. Mesh planes clip the shadows too, camera planes do
     not; the two backends must agree on both frames.
+17. `VISUTWIN_TONE_MAPPING=n` sets `Tonemap` n on the scene and every camera, so the forward
+    tail and a camera frame's compose both take it (an example that sets its tone mapping
+    again later wins). `sky` drives the forward tail, `hdr` the compose.
 
 Animated examples cannot be screenshot-diffed across shader changes unless they run
 under `VISUTWIN_FIXED_DT`.
@@ -3807,12 +3813,6 @@ What stays HERE is only what bites during UNRELATED work.
   `element-states`). (3) `.basis` files do not load (libktx reads KTX2 only; `texture-basis`
   ships KTX2 re-encodes). (4) A custom shader material gets no skin or morph variant
   (`shaders/shader-hatch`).
-- **Slope-scaled depth bias under 4x MSAA differs between Metal and Vulkan (MoltenVK).** The
-  `light-gizmo` example's filled cone (bias 2 constant, 2 slope) seen at a grazing angle hides
-  a range-cap arc behind it on Metal, as upstream's thumbnail shows, and lets it through on
-  Vulkan: 121 pixels. Constant bias alone, no bias, or no MSAA agree to 3 counts, and both
-  backends hand the same values to `setDepthBias`. Not chased yet; a scene leaning on slope
-  bias in an MSAA target is where it shows (shadow maps are single-sampled).
 - **Queued — none a correctness bug:** the
   binding footprint exceeds WebGPU's defaults (Metal 43 texture slots, Vulkan 7 sets). The
   parsers derive tangents through one `generateTangents` / `tangentFromNormal`

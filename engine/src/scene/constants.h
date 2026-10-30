@@ -158,10 +158,20 @@ namespace visutwin::canvas
         TONEMAP_LINEAR = 0,
         TONEMAP_FILMIC = 1,
         TONEMAP_HEJL = 2,
+        // Krzysztof Narkowicz's ACES fit: one curve per channel, without the colour space
+        // conversions of the ACES transforms.
         TONEMAP_ACES = 3,
+        // Stephen Hill's fit of the ACES 1.x RRT + ODT, colour space conversions included;
+        // closer to the ACES reference than TONEMAP_ACES. Not ACES 2.0, despite the name.
         TONEMAP_ACES2 = 4,
         TONEMAP_NEUTRAL = 5,
         TONEMAP_NONE = 6,
+        // Blender's AgX view transform (Filament's implementation, a sigmoid fit that reaches
+        // white): bright saturated colours desaturate towards white, with lower contrast and
+        // saturation than ACES2, a neutral base for grading.
+        TONEMAP_AGX = 7,
+        // AgX with the Punchy look: more contrast and saturation.
+        TONEMAP_AGX_PUNCHY = 8,
     };
 
     // Opacity dither patterns. Selects the threshold pattern used to render

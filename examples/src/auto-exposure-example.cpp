@@ -15,7 +15,7 @@
 // Keys stand in for upstream's controls panel:
 //   WASD / mouse  fly (see DEVIATIONS)
 //   E      auto exposure on / off
-//   T      tone mapping, cycled: ACES2, ACES, Neutral, Linear, None
+//   T      tone mapping, cycled: ACES2, ACES, Neutral, AgX, AgX Punchy, Linear, None
 //   [ / ]  compensation -/+ 0.1 EV
 //   H      the histogram debug view on / off
 // The exposure relative to the scene's is logged twice a second, as upstream's readout shows it.
@@ -46,9 +46,10 @@ using namespace visutwin::canvas;
 
 namespace
 {
-    constexpr std::array<int, 5> kToneMappings = {TONEMAP_ACES2, TONEMAP_ACES, TONEMAP_NEUTRAL, TONEMAP_LINEAR,
-        TONEMAP_NONE};
-    constexpr std::array<const char*, 5> kToneMappingNames = {"ACES2", "ACES", "Neutral", "Linear", "None"};
+    constexpr std::array<int, 7> kToneMappings = {TONEMAP_ACES2, TONEMAP_ACES, TONEMAP_NEUTRAL, TONEMAP_AGX,
+        TONEMAP_AGX_PUNCHY, TONEMAP_LINEAR, TONEMAP_NONE};
+    constexpr std::array<const char*, 7> kToneMappingNames = {"ACES2", "ACES", "Neutral", "AgX", "AgX Punchy",
+        "Linear", "None"};
 }
 
 class AutoExposureExample final: public ExampleApp
