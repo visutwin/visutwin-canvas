@@ -2253,6 +2253,9 @@ namespace visutwin::canvas
         programLibrary.setEnvAtlasEncoding(
             sceneEnvEncodingOf(_scene ? _scene->envAtlas() : nullptr, _scene ? _scene->skybox() : nullptr));
         programLibrary.setSkyboxReflectionEnabled(_scene && !_scene->envAtlas() && _scene->skybox());
+        const int toneMapping = camera.toneMapping() != TONEMAP_INHERIT ? camera.toneMapping()
+            : (_scene ? _scene->toneMapping() : TONEMAP_LINEAR);
+        programLibrary.setToneMapAgxEnabled(toneMapping == TONEMAP_AGX || toneMapping == TONEMAP_AGX_PUNCHY);
         programLibrary.setReflectionProbeEnabled(_scene && _scene->reflectionProbe() != nullptr);
 
         // Atmosphere scattering: when enabled on the scene, compile skybox shaders

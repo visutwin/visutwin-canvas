@@ -288,6 +288,7 @@ namespace visutwin::canvas
         options.envAtlasRgbp = _envAtlasEncoding == EnvAtlasEncoding::Rgbp;
         options.envAtlasRgbm = _envAtlasEncoding == EnvAtlasEncoding::Rgbm;
         options.skyboxReflection = _skyboxReflectionEnabled;
+        options.toneMapAgx = _toneMapAgxEnabled;
         options.reflectionProbe = _reflectionProbeEnabled;
         options.lightClustering = _clusteredLightingEnabled || variantBit(variantBits, 18);
         options.ssao = _ssaoEnabled || variantBit(variantBits, 19);
@@ -377,6 +378,7 @@ namespace visutwin::canvas
         set(ShaderFeature::EnvAtlasRgbp, options.envAtlasRgbp);
         set(ShaderFeature::EnvAtlasRgbm, options.envAtlasRgbm);
         set(ShaderFeature::SkyboxReflection, options.skyboxReflection);
+        set(ShaderFeature::ToneMapAgx, options.toneMapAgx);
         set(ShaderFeature::Parallax, options.parallax);
         set(ShaderFeature::Clearcoat, options.clearcoat);
         set(ShaderFeature::Anisotropy, options.anisotropy);
@@ -652,6 +654,7 @@ namespace visutwin::canvas
         add(_envAtlasEncoding == EnvAtlasEncoding::Rgbp);
         add(_envAtlasEncoding == EnvAtlasEncoding::Rgbm);
         add(_skyboxReflectionEnabled);
+        add(_toneMapAgxEnabled);
         return bits;
     }
 

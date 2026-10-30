@@ -865,7 +865,11 @@ registry against the files the programs include, override precedence and variant
 FILMIC (1), HEJL (2), ACES (3), ACES2 (4, Stephen Hill RRT+ODT fit), NEUTRAL (5), NONE (6), AGX (7)
 and AGX_PUNCHY (8). The compose pass keeps its own copy of each curve and specialises on the mode
 (4 bits of `composeSwitches`); AgX alone is one module (`vttonemapagx`) both import, imported from
-inside the tonemap chunk, which works: a chunk may import a module.
+inside the tonemap chunk, which works: a chunk may import a module. The forward tail dispatches the
+mode at run time, so its AgX branch is gated on a frame switch (`VT_FEATURE_TONEMAP_AGX`,
+`ProgramLibrary::setToneMapAgxEnabled`, from the camera's resolved mode): kept in every variant it
+cost every forward draw 3-4% (`ambient-occlusion`, `sky`). The particle, splat and sky programs keep
+it unconditionally (`VT_TONEMAP_OPERATORS_ONLY`), being outside the forward variants.
 Set scene-wide with `Scene::setToneMapping` or per camera with
 `CameraComponent::setToneMapping` (defaults to `TONEMAP_INHERIT` = -1), which a camera
 frame's compose uses too. There is no separate camera-frame tone mapping: the

@@ -73,6 +73,18 @@ float3 toneMapNeutral(float3 color) {
     return lerp(color, float3(newPeak), g);
 }
 
+// Whether AgX is compiled in. The forward program takes it from the camera's variant
+// (VT_FEATURE_TONEMAP_AGX): its branch kept in every forward variant cost the pass 3-4%
+// whatever the mode. The particle, splat and sky programs are not specialised per forward
+// variant, so they keep it.
+bool toneMapAgxCompiled() {
+#if defined(VT_TONEMAP_OPERATORS_ONLY)
+    return true;
+#else
+    return vtFeatureEnabled(VT_FEATURE_TONEMAP_AGX_BIT);
+#endif
+}
+
 // Exposure-scaled color -> tonemapped color, by mode.
 float3 toneMapByMode(float3 color, int mode) {
     if (mode == 1) return toneMapFilmic(color);
@@ -80,7 +92,7 @@ float3 toneMapByMode(float3 color, int mode) {
     if (mode == 3) return toneMapAcesFit(color);
     if (mode == 4) return toneMapAces2(color);
     if (mode == 5) return toneMapNeutral(color);
-    if (mode == 7 || mode == 8) return toneMapAgx(color, mode == 8);
+    if ((mode == 7 || mode == 8) && toneMapAgxCompiled()) return toneMapAgx(color, mode == 8);
     return color; // LINEAR (0) and NONE (6): exposure only
 }
 

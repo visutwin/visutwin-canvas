@@ -92,6 +92,9 @@ int main()
         library.setSkyboxReflectionEnabled(true);
         check(library.forwardFrameBits() != frameBits, "so is a skybox reflected without an atlas");
         library.setSkyboxReflectionEnabled(false);
+        library.setToneMapAgxEnabled(true);
+        check(library.forwardFrameBits() != frameBits, "and an AgX tone mapping");
+        library.setToneMapAgxEnabled(false);
 
         // The chunk registry.
         // An override is compiled, so it is the chunk's own source with a change that alters

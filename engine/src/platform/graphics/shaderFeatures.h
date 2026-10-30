@@ -106,6 +106,7 @@
     X(OpacityMap,                "VT_FEATURE_OPACITY_MAP") \
     X(EnvAtlasRgbp,              "VT_FEATURE_ENV_ATLAS_RGBP") \
     X(EnvAtlasRgbm,              "VT_FEATURE_ENV_ATLAS_RGBM") \
+    X(ToneMapAgx,                "VT_FEATURE_TONEMAP_AGX") \
     X(ClipPlanesMesh,            "VT_FEATURE_CLIP_PLANES_MESH") \
     X(ClipPlanesCamera,          "VT_FEATURE_CLIP_PLANES_CAMERA") \
     X(IridescenceMap,            "VT_FEATURE_IRIDESCENCE_MAP") \
