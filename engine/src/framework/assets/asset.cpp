@@ -17,6 +17,7 @@
 #include "framework/parsers/glbParser.h"
 #include "framework/parsers/objParser.h"
 #include "framework/parsers/stlParser.h"
+#include "framework/parsers/texture/ddsParser.h"
 #include "framework/parsers/texture/ktx2Transcoder.h"
 // TexHint, for tagging loaded textures into the asset VRAM bucket. Reachable
 // transitively through the parser headers, but named directly here.
@@ -227,7 +228,61 @@ namespace visutwin::canvas
                 const bool isKtx2 = _file.size() >= 5 &&
                     _file.compare(_file.size() - 5, 5, ".ktx2") == 0;
 
-                if (isKtx2) {
+                const bool isDds = _file.size() >= 4 &&
+                    (_file.compare(_file.size() - 4, 4, ".dds") == 0 || _file.compare(_file.size() - 4, 4, ".DDS") == 0);
+
+                if (isDds) {
+                    // DDS path: the file's own level data, block-compressed or not. A block format
+                    // the device cannot sample is decoded to RGBA8 here.
+                    std::ifstream ddsFile(_file, std::ios::binary | std::ios::ate);
+                    if (!ddsFile) {
+                        spdlog::error("Cannot open DDS texture asset '{}' from '{}'", _name, _file);
+                        return std::nullopt;
+                    }
+                    const auto fileSize = ddsFile.tellg();
+                    ddsFile.seekg(0);
+                    std::vector<uint8_t> ddsBytes(static_cast<size_t>(fileSize));
+                    ddsFile.read(reinterpret_cast<char*>(ddsBytes.data()), fileSize);
+                    DdsImage dds = DdsParser::parse(ddsBytes.data(), ddsBytes.size(), _file);
+                    if (!dds.valid) {
+                        return std::nullopt;
+                    }
+                    if (isCompressedPixelFormat(dds.format) && !graphicsDevice->supportsCompressedFormat(dds.format)) {
+                        for (auto& face : dds.faces) {
+                            for (size_t level = 0; level < face.size(); ++level) {
+                                std::vector<uint8_t> rgba;
+                                DdsParser::decodeBlocks(dds.format, face[level].data(), face[level].size(),
+                                    std::max(1u, dds.width >> level), std::max(1u, dds.height >> level), rgba);
+                                face[level] = std::move(rgba);
+                            }
+                        }
+                        dds.format = PixelFormat::PIXELFORMAT_RGBA8;
+                    }
+
+                    TextureOptions options;
+                    options.profilerHint = TexHint::TEXHINT_ASSET;
+                    options.width = dds.width;
+                    options.height = dds.height;
+                    options.format = dds.format;
+                    options.cubemap = dds.cubemap;
+                    options.mipmaps = dds.levelCount() > 1;
+                    options.numLevels = dds.levelCount();
+                    options.name = _name;
+
+                    auto texture = std::make_unique<Texture>(graphicsDevice.get(), options);
+                    texture->setEncoding(textureEncodingFor(_data.type, isFloatPixelFormat(dds.format)));
+                    for (size_t face = 0; face < dds.faces.size(); ++face) {
+                        for (size_t level = 0; level < dds.faces[face].size(); ++level) {
+                            texture->setLevelData(static_cast<uint32_t>(level), dds.faces[face][level].data(),
+                                dds.faces[face][level].size(), static_cast<uint32_t>(face));
+                        }
+                    }
+                    texture->upload();
+
+                    spdlog::info("Loaded DDS texture '{}': {}x{} ({} mips{})", _name, dds.width, dds.height,
+                        dds.levelCount(), dds.cubemap ? ", cubemap" : "");
+                    _resources.emplace_back(std::move(texture));
+                } else if (isKtx2) {
                     // KTX2 path: transcode Basis Universal to a GPU compressed format.
                     std::ifstream ktxFile(_file, std::ios::binary | std::ios::ate);
                     if (!ktxFile) {

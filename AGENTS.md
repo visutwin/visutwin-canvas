@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 182 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 185 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -2683,6 +2683,21 @@ present, but the rule below never depends on reading it.
   KosmicKrisp blits by the spec. The sampler's W address mode is the volume's own
   (`TextureSamplerState::addressW`). `tests/textureCopyTests.cpp` (`gpu`) holds every piece, the
   mips exactly enough to fail if the MoltenVK compensation stops being right.
+- **A texture asset may be DDS** (`framework/parsers/texture/ddsParser.h`, by extension in
+  `asset.cpp`'s texture path): DXT1/3/5, half and float RGBA, 24/32-bit RGB(A) or BGR(A) (widened /
+  reordered to RGBA8), mips and cubemaps; DX10 headers, ETC1 and PVRTC are refused. A block format
+  the device cannot sample (`supportsCompressedFormat`) is decoded to RGBA8 as it loads
+  (`DdsParser::decodeBlocks`). Rows are taken top first, as every loader here.
+  `tests/ddsParserTests.cpp` builds the files in memory; `texture-formats` shows PNG, DDS and KTX2
+  of one image alike.
+- **`SceneDepthReader` reads a camera's scene depth back over a grid of samples** (normalized
+  region from the viewport's BOTTOM-left, rows from the bottom up, linear depth in world units,
+  infinity at the far clip), through a compute pass among the camera's after passes (the Slang
+  program `scene-depth-read` over `vtscenemaps`, one R32F storage texture per read) and
+  `Texture::readAsync`, delivering to a callback at a later frame. `read` refuses after a frame in
+  which the camera rendered no depth (that frame's queued reads come back all infinity), so the
+  camera must request a depth or have a camera frame with a depth consumer. `scene-depth-read`
+  runs it against the depth grab, a camera frame's scene pass and its MSAA prepass.
 - **A Texture may itself be MULTISAMPLED (`TextureOptions::samples`), and a render target over one
   renders into it directly.** Such a texture has one level, no host data and no filtering (Metal
   `Texture2DMultisample`, private; Vulkan an image of N samples). A target whose colour or depth
@@ -3882,7 +3897,9 @@ What stays HERE is only what bites during UNRELATED work.
   (sheen, specular colour ...) still decode any format. (2) No `CanvasFont` (`text-emojis`, `element-colors`,
   `element-states`). (3) `.basis` files do not load (libktx reads KTX2 only; `texture-basis`
   ships KTX2 re-encodes). (4) A custom shader material gets no skin or morph variant
-  (`shaders/shader-hatch`).
+  (`shaders/shader-hatch`). (5) `test/texture-copy-read-layered` is not an example: its checks are
+  `tests/textureCopyTests.cpp` (`gpu`), except its sRGB mip filtering (no sRGB formats here) and its
+  float32 mip exactness at odd sizes.
 - **Queued — none a correctness bug:** the
   binding footprint exceeds WebGPU's defaults (Metal 43 texture slots, Vulkan 7 sets). The
   parsers derive tangents through one `generateTangents` / `tangentFromNormal`

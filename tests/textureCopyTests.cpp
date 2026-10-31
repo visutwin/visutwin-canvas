@@ -17,7 +17,9 @@
 // texture test (test/texture-copy-read-layered), each texel unique to its slice. Integer
 // formats upload, clear to raw values and read back, and a re-upload under a render target
 // keeps the target rendering into the texture. A multisampled texture renders and resolves into
-// a target's resolve buffer.
+// a target's resolve buffer. Every cube face reads back its own texels, a quarter of one face
+// copies to the opposite quarter, and each face's mips are regenerated after rendering into it
+// (upstream's test/texture-copy-read-layered, whose remaining checks are the ones above).
 //
 // It needs a GPU and a window, so it carries the `gpu` label, which the CI test presets
 // exclude; run it with `ctest --preset gpu` (or `ctest -L gpu` in a Vulkan build).
@@ -302,6 +304,82 @@ int main()
                 copied == quadrants(kCube, {kRed, kGreen, kBlue, kYellow}), "face 3 holds the source's face 3");
             check(dest->read(untouched, 0, 0, 0, 0, 0, 2) && untouched == solid(kCube, kGrey),
                 "face 2 is untouched");
+        }
+
+        // ── Every cube face, a face's sub-region, and a face's mips after rendering ──
+        {
+            constexpr uint32_t kCube = 8;
+            auto cube = makeTexture(device.get(), "cube-faces", kCube, false, true);
+            auto dest = makeTexture(device.get(), "cube-faces-dest", kCube, false, true);
+            for (uint32_t face = 0; face < 6; ++face) {
+                fill(*cube, slicePixels(kCube, face, 1), face);
+                fill(*dest, slicePixels(kCube, face, 7), face);
+            }
+            cube->upload();
+            dest->upload();
+            int facesRead = 0;
+            for (uint32_t face = 0; face < 6; ++face) {
+                std::vector<uint8_t> actual;
+                facesRead += cube->read(actual, 0, 0, 0, 0, 0, face) && actual == slicePixels(kCube, face, 1);
+            }
+            check(facesRead == 6, "cube: every face reads back its own texels (" + std::to_string(facesRead) + " of 6)");
+
+            // the top-left quarter of face 5 into the bottom-right quarter
+            constexpr uint32_t kHalf = kCube / 2;
+            Texture::CopyOptions quarter;
+            quarter.face = 5;
+            quarter.sourceX = 0;
+            quarter.sourceY = 0;
+            quarter.width = kHalf;
+            quarter.height = kHalf;
+            quarter.destX = kHalf;
+            quarter.destY = kHalf;
+            std::vector<uint8_t> face5;
+            const bool copied = dest->copy(*cube, quarter) && dest->read(face5, 0, 0, 0, 0, 0, 5);
+            const auto source5 = slicePixels(kCube, 5, 1);
+            const auto before5 = slicePixels(kCube, 5, 7);
+            bool regionRight = copied && face5.size() == source5.size();
+            for (uint32_t y = 0; regionRight && y < kCube; ++y) {
+                for (uint32_t x = 0; regionRight && x < kCube; ++x) {
+                    const bool inside = x >= kHalf && y >= kHalf;
+                    const size_t at = (static_cast<size_t>(y) * kCube + x) * 4;
+                    const size_t from = (static_cast<size_t>(y - (inside ? kHalf : 0)) * kCube + (x - (inside ? kHalf : 0))) * 4;
+                    regionRight = std::memcmp(face5.data() + at, (inside ? source5 : before5).data() + (inside ? from : at), 4) == 0;
+                }
+            }
+            check(regionRight, "cube: a quarter of face 5 copies to the opposite quarter, the rest untouched");
+
+            // each face rendered by its own target, which regenerates the face's mips after it renders
+            auto mipCube = makeTexture(device.get(), "cube-mips", kCube, true, true);
+            for (uint32_t face = 0; face < 6; ++face) {
+                fill(*mipCube, solid(kCube, kGrey), face);
+            }
+            mipCube->upload();
+            const std::shared_ptr<GraphicsDevice> shared(device.get(), [](GraphicsDevice*) {});
+            const std::array<Rgba, 6> faceColors{kRed, kGreen, kBlue, kYellow, kGrey, Rgba{200, 100, 50, 255}};
+            for (uint32_t face = 0; face < 6; ++face) {
+                RenderTargetOptions targetOptions;
+                targetOptions.graphicsDevice = device.get();
+                targetOptions.colorBuffer = mipCube.get();
+                targetOptions.face = static_cast<int>(face);
+                targetOptions.name = "cube-face-target";
+                const auto target = device->createRenderTarget(targetOptions);
+                auto pass = std::make_shared<RenderPass>(shared);
+                pass->init(target);
+                const Rgba c = faceColors[face];
+                const Color clear(c[0] / 255.0f, c[1] / 255.0f, c[2] / 255.0f, 1.0f);
+                pass->setClearColor(&clear);
+                pass->colorOps()->genMipmaps = true;
+                device->frameStart();
+                pass->render();
+                device->frameEnd();
+            }
+            int mipsRight = 0;
+            for (uint32_t face = 0; face < 6; ++face) {
+                std::vector<uint8_t> mip1;
+                mipsRight += mipCube->read(mip1, 0, 0, 0, 0, 1, face) && close(mip1, solid(kCube / 2, faceColors[face]));
+            }
+            check(mipsRight == 6, "cube: each face's mip 1 is its rendered colour (" + std::to_string(mipsRight) + " of 6)");
         }
 
         // ── Array layers ─────────────────────────────────────────────────────
