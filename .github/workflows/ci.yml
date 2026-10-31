@@ -41,7 +41,7 @@ concurrency:
 
 env:
   # Must match builtin-baseline in vcpkg.json; the cache key hashes both.
-  VCPKG_COMMIT: f05ff9f0adbd630c4fada9072b4a68eeeb7d738a
+  VCPKG_COMMIT: 9a5dfef5d1a0438a7d24856a85bd60f309d355e9
 
 jobs:
   simd-backends:
