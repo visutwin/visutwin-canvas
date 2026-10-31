@@ -121,6 +121,13 @@ namespace visutwin::canvas
         bool castShadow() const { return _castShadow; }
         void setCastShadow(const bool value) { _castShadow = value; }
 
+        /// How the mesh is drawn (RenderStyle): its triangles, or their edges as lines. Setting
+        /// RENDERSTYLE_WIREFRAME builds the mesh's line list (Mesh::generateWireframe), which
+        /// every instance of the mesh then shares; a style the mesh has no geometry for draws
+        /// solid. Forward and depth-only draws both take it.
+        int renderStyle() const { return _renderStyle; }
+        void setRenderStyle(int style);
+
         //receiveShadow getter/setter.
         // When false, the SHADERDEF_NOSHADOW flag is set on the shader defs.
         bool receiveShadow() const { return _receiveShadow; }
@@ -535,6 +542,7 @@ namespace visutwin::canvas
         GpuCullingCount _gpuCullingCount;
 
         bool _castShadow = true;
+        int _renderStyle = 0;  // RENDERSTYLE_SOLID
         bool _receiveShadow = true;
         std::shared_ptr<Texture> _lightMap;
 

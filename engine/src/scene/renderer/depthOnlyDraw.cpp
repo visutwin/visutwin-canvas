@@ -147,7 +147,8 @@ namespace visutwin::canvas
             // Instances live in the node's space (matrix_model * instance).
             device->setTransformUniforms(viewProjection, meshInstance->node()
                 ? meshInstance->node()->worldTransform() : Matrix4::identity());
-            device->draw(mesh->getPrimitive(), mesh->getIndexBuffer(), instancing.count, -1, true, true);
+            device->draw(mesh->getPrimitive(mesh->drawStyle(meshInstance->renderStyle())),
+                mesh->getIndexBuffer(mesh->drawStyle(meshInstance->renderStyle())), instancing.count, -1, true, true);
             // Unbind the per-instance buffer — the backends pick the instancing vertex
             // layout by scanning the bound slots, so a leftover binding would follow the
             // next, non-instanced caster into its pipeline.
@@ -163,7 +164,8 @@ namespace visutwin::canvas
                     sbi->paletteVersion());
             }
             device->setTransformUniforms(viewProjection, Matrix4::identity());
-            device->draw(mesh->getPrimitive(), mesh->getIndexBuffer(), 1, -1, true, true);
+            device->draw(mesh->getPrimitive(mesh->drawStyle(meshInstance->renderStyle())),
+                mesh->getIndexBuffer(mesh->drawStyle(meshInstance->renderStyle())), 1, -1, true, true);
             device->setShader(shaders.plain);
         } else if (meshInstance->skinInstance() || meshInstance->morphInstance()) {
             // Skinned/morphed caster: switch to the matching variant, bind the bone
@@ -202,7 +204,8 @@ namespace visutwin::canvas
             const auto modelMatrix = meshInstance->node()
                 ? meshInstance->node()->worldTransform() : Matrix4::identity();
             device->setTransformUniforms(viewProjection, modelMatrix);
-            device->draw(mesh->getPrimitive(), mesh->getIndexBuffer(), 1, -1, true, true);
+            device->draw(mesh->getPrimitive(mesh->drawStyle(meshInstance->renderStyle())),
+                mesh->getIndexBuffer(mesh->drawStyle(meshInstance->renderStyle())), 1, -1, true, true);
             device->setShader(shaders.plain);
         } else {
             // The pass-wide shader is already bound; a caster with an opacity frontend
@@ -216,7 +219,8 @@ namespace visutwin::canvas
             const auto modelMatrix = meshInstance->node()
                 ? meshInstance->node()->worldTransform() : Matrix4::identity();
             device->setTransformUniforms(viewProjection, modelMatrix);
-            device->draw(mesh->getPrimitive(), mesh->getIndexBuffer(), 1, -1, true, true);
+            device->draw(mesh->getPrimitive(mesh->drawStyle(meshInstance->renderStyle())),
+                mesh->getIndexBuffer(mesh->drawStyle(meshInstance->renderStyle())), 1, -1, true, true);
             if (frontendMaterial || clip) {
                 device->setShader(shaders.plain);
             }

@@ -116,6 +116,7 @@ visutwin_add_unit_test(visutwin-entity-lifecycle-tests entity-lifecycle entityLi
 visutwin_add_unit_test(visutwin-component-registry-tests component-registry componentRegistryTests.cpp)
 visutwin_add_unit_test(visutwin-component-instance-list-tests component-instance-list componentInstanceListTests.cpp)
 visutwin_add_unit_test(visutwin-primitive-mesh-sharing-tests primitive-mesh-sharing primitiveMeshSharingTests.cpp)
+visutwin_add_unit_test(visutwin-render-style-tests render-style renderStyleTests.cpp)
 visutwin_add_unit_test(visutwin-local-shadow-caster-tests local-shadow-casters localShadowCasterTests.cpp)
 add_test(NAME local-shadow-casters-non-clustered COMMAND visutwin-local-shadow-caster-tests --non-clustered)
 

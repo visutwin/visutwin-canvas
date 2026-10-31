@@ -122,6 +122,10 @@ namespace visutwin::canvas
                                  static_cast<int>(mi->mesh()->getPrimitive().type));
                     return false;
                 }
+                // A batch draws triangles; an instance drawn as its edges is left unbatched.
+                if (mi->renderStyle() != RENDERSTYLE_SOLID) {
+                    return false;
+                }
             }
             return true;
         }

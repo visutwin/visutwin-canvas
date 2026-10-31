@@ -111,6 +111,7 @@ namespace visutwin::canvas
         clone->_meshOwned = _meshOwned;
         clone->_materialOwned = _materialOwned;
         clone->_castShadow = _castShadow;
+        clone->_renderStyle = _renderStyle;
         clone->_receiveShadow = _receiveShadow;
         clone->_cull = _cull;
         clone->_drawOncePerFrame = _drawOncePerFrame;
@@ -400,5 +401,13 @@ namespace visutwin::canvas
         }
 
         return _aabb;
+    }
+
+    void MeshInstance::setRenderStyle(const int style)
+    {
+        _renderStyle = style;
+        if (style == RENDERSTYLE_WIREFRAME && _mesh) {
+            _mesh->generateWireframe();
+        }
     }
 }

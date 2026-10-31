@@ -61,6 +61,11 @@ namespace visutwin::canvas
         bool castShadows() const { return _castShadows; }
         void setCastShadows(bool value);
 
+        /// The render style (RenderStyle) of every mesh instance the component has and gets: a
+        /// mesh instance added later takes it too (MeshInstance::setRenderStyle). A clone copies it.
+        int renderStyle() const { return _renderStyle; }
+        void setRenderStyle(int style);
+
         /**
          *
          * Clones mesh instances (sharing mesh/material), layers, type, shadow flags.
@@ -111,6 +116,7 @@ namespace visutwin::canvas
 
         bool _receiveShadows = true;
         bool _castShadows = true;
+        int _renderStyle = 0;  // RENDERSTYLE_SOLID
         int _batchGroupId = -1;  // BatchGroup::NOID
         ClipPlanes _clip;
 

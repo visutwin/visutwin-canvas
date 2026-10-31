@@ -1109,8 +1109,9 @@ namespace visutwin::canvas
                     continue;
                 }
                 entry->vertexBuffer = vertexBuffer;
-                entry->indexBuffer = mesh->getIndexBuffer();
-                entry->primitive = mesh->getPrimitive();
+                const size_t style = mesh->drawStyle(static_cast<size_t>(meshInstance->renderStyle()));
+                entry->indexBuffer = mesh->getIndexBuffer(style);
+                entry->primitive = mesh->getPrimitive(style);
                 entry->sortKey = makeOpaqueSortKey(meshInstance);
 
                 const auto worldBounds = meshInstance->aabb();

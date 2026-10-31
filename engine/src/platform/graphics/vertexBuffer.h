@@ -62,6 +62,8 @@ namespace visutwin::canvas
         /// Size of the GPU buffer in bytes (also for a zero-copy buffer, whose storage() is empty).
         int numBytes() const { return _numBytes; }
         BufferUsage usage() const { return _usage; }
+        /// The device the buffer belongs to; null once it has been detached from a device it outlived.
+        GraphicsDevice* device() const { return _device; }
 
         virtual void* nativeBuffer() const { return nullptr; }
 

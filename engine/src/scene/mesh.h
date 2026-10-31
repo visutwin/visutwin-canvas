@@ -134,6 +134,20 @@ namespace visutwin::canvas
             return style < _primitive.size() ? _primitive[style] : Primitive{};
         }
 
+        /// Builds render style 1's (RENDERSTYLE_WIREFRAME) index buffer and primitive from the
+        /// solid ones: a line list holding every edge of the triangles once (each triangle's three
+        /// edges, unindexed, for a mesh without an index buffer). A mesh with no triangles gets
+        /// none. Run it again after the solid geometry changes. The index buffer is created on the
+        /// vertex buffer's device.
+        void generateWireframe();
+
+        /// The style a draw of this mesh in `style` takes: `style` once that style has geometry,
+        /// the solid one otherwise.
+        size_t drawStyle(const size_t style) const
+        {
+            return style < _primitive.size() && _primitive[style].count > 0 ? style : 0;
+        }
+
     private:
         void initGeometryData();
 

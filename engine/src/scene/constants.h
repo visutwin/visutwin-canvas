@@ -73,6 +73,16 @@ namespace visutwin::canvas
         CUBEPROJ_BOX
     };
 
+    // How a mesh instance draws its mesh (MeshInstance::setRenderStyle,
+    // RenderComponent::setRenderStyle): its triangles, or each edge of them once as a line
+    // list (Mesh::generateWireframe). DEVIATION: there is no points style; a mesh draws its
+    // vertices as points through a point-list primitive of its own.
+    enum RenderStyle
+    {
+        RENDERSTYLE_SOLID = 0,
+        RENDERSTYLE_WIREFRAME = 1,
+    };
+
     enum SkyType
     {
         SKYTYPE_INFINITE,

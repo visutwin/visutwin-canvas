@@ -861,6 +861,7 @@ namespace visutwin::canvas
         auto* meshInstanceRaw = meshInstance.get();
         // The component's clipping replaces the instance's own, also when there is none.
         meshInstanceRaw->setClipping(_clip);
+        meshInstanceRaw->setRenderStyle(_renderStyle);
         _meshInstances.push_back(std::move(meshInstance));
         _meshInstanceViewDirty = true;
         // A new source for the group.
@@ -992,6 +993,16 @@ namespace visutwin::canvas
         }
     }
 
+    void RenderComponent::setRenderStyle(const int style)
+    {
+        _renderStyle = style;
+        for (const auto& mi : _meshInstances) {
+            if (mi) {
+                mi->setRenderStyle(style);
+            }
+        }
+    }
+
     void RenderComponent::setClippingPlanes(const std::span<const Plane> planes)
     {
         _clip.setPlanes(planes);
@@ -1038,6 +1049,7 @@ namespace visutwin::canvas
         _material = src->_material;
         _receiveShadows = src->_receiveShadows;
         _castShadows = src->_castShadows;
+        _renderStyle = src->_renderStyle;
         _batchGroupId = src->_batchGroupId;
         _clip = src->_clip;
         setEnabled(src->enabled());
