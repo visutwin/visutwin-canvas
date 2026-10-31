@@ -201,6 +201,9 @@
         color = lerp(lighting.fogColorDensity.rgb, color, f);
     }
 
+    vtOutputNormal = N;
+    vtOutputGloss = 1.0 - roughness;
+
     if (vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BAKE_BIT)) {
         // Bake output: light only, sRGB-encoded for the RGBA8 target and the pow(2.2)
         // decode on the sampling side. No exposure or tonemap — the lightmap feeds the

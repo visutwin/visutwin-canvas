@@ -1129,6 +1129,10 @@ namespace visutwin::canvas
         /// would be invalid.
         virtual bool supportsDualSourceBlending() const { return false; }
 
+        /// True when each colour attachment can take its own blend state and write mask
+        /// (BlendState::setAttachment); without it every attachment uses attachment 0's.
+        virtual bool supportsIndependentBlending() const { return false; }
+
         /// True when textures of this block-compressed format can be created and sampled
         /// on this device. ASTC is native to Apple GPUs, BC to desktop GPUs, and neither is
         /// universal: a transcoder must ask before choosing its target, or the image

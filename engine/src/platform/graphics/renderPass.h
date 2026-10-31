@@ -126,6 +126,9 @@ namespace visutwin::canvas
         void clearAfterPasses();
 
         void setClearColor(const Color* color = nullptr);
+        /// Clears colour attachment `attachment` alone, to `color` (an attachment the target does
+        /// not have is ignored).
+        void setClearColor(const Color& color, int attachment);
         void setClearDepth(const float* depthValue = nullptr);
         void setClearStencil(const int* stencilValue = nullptr);
 

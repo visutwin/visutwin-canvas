@@ -89,5 +89,11 @@ namespace visutwin::canvas
         /// fields) as `name_N`. compile() applies it to its MSL; the shader bundle's generator
         /// (tools/generate_slang_bundle.py, const_read_only_buffers) does the same: change both.
         [[nodiscard]] static std::string constReadOnlyBuffers(std::string msl, const std::vector<std::string>& readOnly);
+
+        /// Puts each fragment output named `dualSourceSecondary` at colour 0, index 1 in Slang's
+        /// MSL, where Metal's dual-source blending reads the second source: Slang emits an
+        /// SV_Target1 output as [[color(1)]] whatever its vk::index. compile() applies it; the
+        /// bundle's generator (dual_source_outputs) does the same: change both.
+        [[nodiscard]] static std::string dualSourceOutputs(std::string msl);
     };
 }

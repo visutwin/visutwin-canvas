@@ -504,6 +504,7 @@ namespace visutwin::canvas
         mix(vertexFormat ? vertexFormat->renderingHash() : 0);
         mix(shader ? static_cast<uint64_t>(shader->id()) : 0);
         mix(blendState ? blendState->key() : 0);
+        mix(blendState ? blendState->attachmentsKey() : 0);
         mix(depthState ? depthState->key() : 0);
         mix(static_cast<uint64_t>(cullMode));
         mix(stencilEnabled ? 1ull : 0ull);
@@ -718,6 +719,10 @@ namespace visutwin::canvas
         // --- Multisample ---
         VkPipelineMultisampleStateCreateInfo multisampling{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
         multisampling.rasterizationSamples = samples;
+        // The fragment's alpha decides the samples it covers, on a multisampled target only: a
+        // single-sampled one would threshold the alpha at a half and cut the fragment out.
+        multisampling.alphaToCoverageEnable = blendState && blendState->alphaToCoverage() &&
+            samples != VK_SAMPLE_COUNT_1_BIT ? VK_TRUE : VK_FALSE;
 
         // --- Depth/stencil ---
         VkPipelineDepthStencilStateCreateInfo depthStencil{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
@@ -777,51 +782,62 @@ namespace visutwin::canvas
         // An empty color-format list means depth-only (e.g. shadow map pass).
         // The pipeline must have zero colour attachments to match the render
         // pass attached at draw time (VUID-vkCmdDrawIndexed-colorAttachmentCount-06179).
-        VkPipelineColorBlendAttachmentState blendAttachment{};
-        if (blendState && blendState->enabled()) {
-            // VK_BLEND_FACTOR_SRC1_* is only legal when the dualSrcBlend feature was
-            // enabled at device creation; a pipeline using it otherwise is invalid.
-            // Callers are expected to gate on supportsDualSourceBlending(), so reaching
-            // here means a caller bug — say so loudly and degrade to the single-source
-            // equivalent rather than handing the driver an invalid pipeline.
-            const bool dualSrcOk = !blendState->usesDualSourceBlending() ||
-                _device->supportsDualSourceBlending();
-            if (!dualSrcOk) {
-                spdlog::error("Vulkan: blend state uses dual-source factors but the device "
-                    "has no dualSrcBlend support — degrading to single-source blending. "
-                    "Check GraphicsDevice::supportsDualSourceBlending() before building "
-                    "a BLENDMODE_SRC1_* blend state.");
-            }
-            const auto mapFactor = [dualSrcOk](const int factor) {
-                return vulkanMapBlendFactor(dualSrcOk ? factor : blendFactorWithoutSrc1(factor));
-            };
+        // Attachment i takes the blend state's own state for it (attachment 0's unless it gave
+        // one), on a device with independent blending; otherwise every attachment takes 0's.
+        const bool independent = blendState && blendState->hasAttachmentStates() &&
+            _device->supportsIndependentBlending();
+        const auto attachmentState = [&](const BlendState* state) {
+            VkPipelineColorBlendAttachmentState attachment{};
+            if (state && state->enabled()) {
+                // VK_BLEND_FACTOR_SRC1_* is only legal when the dualSrcBlend feature was
+                // enabled at device creation; a pipeline using it otherwise is invalid.
+                // Callers are expected to gate on supportsDualSourceBlending(), so reaching
+                // here means a caller bug — say so loudly and degrade to the single-source
+                // equivalent rather than handing the driver an invalid pipeline.
+                const bool dualSrcOk = !state->usesDualSourceBlending() ||
+                    _device->supportsDualSourceBlending();
+                if (!dualSrcOk) {
+                    spdlog::error("Vulkan: blend state uses dual-source factors but the device "
+                        "has no dualSrcBlend support — degrading to single-source blending. "
+                        "Check GraphicsDevice::supportsDualSourceBlending() before building "
+                        "a BLENDMODE_SRC1_* blend state.");
+                }
+                const auto mapFactor = [dualSrcOk](const int factor) {
+                    return vulkanMapBlendFactor(dualSrcOk ? factor : blendFactorWithoutSrc1(factor));
+                };
 
-            blendAttachment.blendEnable = VK_TRUE;
-            blendAttachment.srcColorBlendFactor = mapFactor(blendState->colorSrcFactor());
-            blendAttachment.dstColorBlendFactor = mapFactor(blendState->colorDstFactor());
-            blendAttachment.colorBlendOp = vulkanMapBlendOp(blendState->colorOp());
-            blendAttachment.srcAlphaBlendFactor = mapFactor(blendState->alphaSrcFactor());
-            blendAttachment.dstAlphaBlendFactor = mapFactor(blendState->alphaDstFactor());
-            blendAttachment.alphaBlendOp = vulkanMapBlendOp(blendState->alphaOp());
-        }
-        if (!blendState || blendState->redWrite()) {
-            blendAttachment.colorWriteMask |= VK_COLOR_COMPONENT_R_BIT;
-        }
-        if (!blendState || blendState->greenWrite()) {
-            blendAttachment.colorWriteMask |= VK_COLOR_COMPONENT_G_BIT;
-        }
-        if (!blendState || blendState->blueWrite()) {
-            blendAttachment.colorWriteMask |= VK_COLOR_COMPONENT_B_BIT;
-        }
-        if (!blendState || blendState->alphaWrite()) {
-            blendAttachment.colorWriteMask |= VK_COLOR_COMPONENT_A_BIT;
-        }
+                attachment.blendEnable = VK_TRUE;
+                attachment.srcColorBlendFactor = mapFactor(state->colorSrcFactor());
+                attachment.dstColorBlendFactor = mapFactor(state->colorDstFactor());
+                attachment.colorBlendOp = vulkanMapBlendOp(state->colorOp());
+                attachment.srcAlphaBlendFactor = mapFactor(state->alphaSrcFactor());
+                attachment.dstAlphaBlendFactor = mapFactor(state->alphaDstFactor());
+                attachment.alphaBlendOp = vulkanMapBlendOp(state->alphaOp());
+            }
+            if (!state || state->redWrite()) {
+                attachment.colorWriteMask |= VK_COLOR_COMPONENT_R_BIT;
+            }
+            if (!state || state->greenWrite()) {
+                attachment.colorWriteMask |= VK_COLOR_COMPONENT_G_BIT;
+            }
+            if (!state || state->blueWrite()) {
+                attachment.colorWriteMask |= VK_COLOR_COMPONENT_B_BIT;
+            }
+            if (!state || state->alphaWrite()) {
+                attachment.colorWriteMask |= VK_COLOR_COMPONENT_A_BIT;
+            }
+            return attachment;
+        };
 
         // Dynamic rendering requires the pipeline to declare the same ordered
         // color attachment list as VkRenderingInfo. The shader may write only
         // a subset of locations; unwritten attachments retain their load value.
         std::vector<VkPipelineColorBlendAttachmentState> blendAttachments(
-            colorFormats.size(), blendAttachment);
+            colorFormats.size(), attachmentState(blendState.get()));
+        for (size_t i = 1; independent && i < blendAttachments.size(); ++i) {
+            const BlendState state = blendState->attachment(static_cast<int>(i));
+            blendAttachments[i] = attachmentState(&state);
+        }
         VkPipelineColorBlendStateCreateInfo colorBlend{
             VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
         colorBlend.attachmentCount =

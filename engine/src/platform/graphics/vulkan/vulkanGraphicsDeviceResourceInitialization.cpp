@@ -895,6 +895,8 @@ namespace visutwin::canvas
         // hardware offers it; supportsDualSourceBlending() reports the result so
         // callers can check before building such a blend state.
         _dualSrcBlendEnabled = supported.dualSrcBlend == VK_TRUE;
+        // A blend state and write mask per colour attachment (BlendState::setAttachment).
+        _independentBlendEnabled = supported.independentBlend == VK_TRUE;
         _textureCompressionAstcLdr = supported.textureCompressionASTC_LDR == VK_TRUE;
         _textureCompressionBc = supported.textureCompressionBC == VK_TRUE;
         _maxDualSrcDrawBuffers = _dualSrcBlendEnabled
@@ -910,6 +912,7 @@ namespace visutwin::canvas
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
         features2.features.samplerAnisotropy = _samplerAnisotropyEnabled ? VK_TRUE : VK_FALSE;
         features2.features.dualSrcBlend = _dualSrcBlendEnabled ? VK_TRUE : VK_FALSE;
+        features2.features.independentBlend = _independentBlendEnabled ? VK_TRUE : VK_FALSE;
 
         // A portability-subset driver (vk-bootstrap enables the extension where it is offered)
         // allows only the features enabled through its own struct: a 2D view of one depth

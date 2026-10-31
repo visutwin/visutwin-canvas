@@ -6,7 +6,9 @@
 #pragma once
 
 #include "shaderChunks.h"
+
 #include "scene/clipPlanes.h"
+#include <algorithm>
 #include <array>
 #include <unordered_map>
 #include <string>
@@ -181,6 +183,9 @@ namespace visutwin::canvas
         /// The camera tone-maps with AgX (either look): a variant, so the forward tail of every
         /// other camera carries no AgX code (a dead branch there cost the pass 3-4%).
         void setToneMapAgxEnabled(const bool value) { _toneMapAgxEnabled = value; }
+        // The colour attachments of the target the forward pass draws into (1-4): a variant
+        // writes one fragment output per attachment (forwardFragmentMrt2/3/4).
+        void setColorOutputCount(const int count) { _colorOutputCount = std::clamp(count, 1, 4); }
 
         /// The scene has a skybox and no environment atlas: materials reflect the skybox
         /// cube itself (a single lookup, no prefiltering by gloss), as upstream does in that
@@ -224,6 +229,8 @@ namespace visutwin::canvas
             bool envAtlasRgbm = false;
             bool skyboxReflection = false;
             bool toneMapAgx = false;     // the camera tone-maps with AgX (setToneMapAgxEnabled)
+            int colorOutputs = 1;        // fragment outputs, one per colour attachment (setColorOutputCount)
+            bool dualSourceOutput = false;   // the material's blend state reads a second source colour
 
             // Feature toggles for future shader chunk ports.
             bool shadowMapping = false;
@@ -418,6 +425,7 @@ namespace visutwin::canvas
         bool _envAtlasEnabled = true;
         bool _skyboxReflectionEnabled = false;
         bool _toneMapAgxEnabled = false;
+        int _colorOutputCount = 1;
         EnvAtlasEncoding _envAtlasEncoding = EnvAtlasEncoding::Srgb;
         bool _reflectionProbeEnabled = false;
     };

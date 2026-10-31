@@ -81,6 +81,10 @@ namespace visutwin::canvas
         if (clearColor) {
             const auto clear = camera->clearColor();
             setClearColor(&clear);
+            // A target with several colour attachments clears each to the camera's colour for it.
+            for (int attachment = 1; attachment < 4; ++attachment) {
+                setClearColor(camera->clearColor(attachment), attachment);
+            }
         } else {
             setClearColor(nullptr);
         }
@@ -147,7 +151,8 @@ namespace visutwin::canvas
         }
         for (const auto* renderAction : _renderActions) {
             if (renderAction && renderAction->camera) {
-                _renderer->prepareForwardShaders(renderAction->camera->camera(), renderAction->layer,
+                _renderer->prepareForwardShaders(renderAction->camera->camera(), renderTarget().get(),
+                    renderAction->layer,
                     renderAction->transparent);
             }
         }

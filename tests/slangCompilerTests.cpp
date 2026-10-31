@@ -235,6 +235,22 @@ float4 bufferFragment(float4 pos : SV_Position) : SV_Target0 { written[uint(pos.
         check(contains(done, "float4 device* data_10x"), "a longer name that only starts the same is left alone");
     }
 
+    // A dual-source output is at colour 0, index 1 in the MSL: Slang emits it as colour 1.
+    {
+        std::cout << "\nthe dual-source output on Metal\n";
+        const std::string sample =
+            "struct ForwardDualSourceOut_0 {\n"
+            "    float4 color_0 [[color(0)]];\n"
+            "    float4 dualSourceSecondary_0 [[color(1)]];\n"
+            "};\n"
+            "struct ForwardMrt2Out_0 { float4 color0_0 [[color(0)]]; float4 color1_0 [[color(1)]]; };\n";
+        const std::string done = SlangCompiler::dualSourceOutputs(sample);
+        check(contains(done, "float4 dualSourceSecondary_0 [[color(0), index(1)]];"),
+            "the second source goes to colour 0, index 1");
+        check(contains(done, "float4 color_0 [[color(0)]];") && contains(done, "float4 color1_0 [[color(1)]];"),
+            "another output, colour 1 of a second attachment included, is left alone");
+    }
+
     // VISUTWIN_SLANG_TIME_MODULE=<file.slang> [VISUTWIN_SLANG_TIME_ENTRY=<name>]: compile that
     // module in-process to SPIR-V and MSL twice each and print the times, for sizing the
     // front end on a real module without the CLI's process start and core-module load.

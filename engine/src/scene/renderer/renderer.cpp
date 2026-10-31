@@ -2201,8 +2201,11 @@ namespace visutwin::canvas
     }
 
     void Renderer::configureForwardShaderFeatures(ProgramLibrary& programLibrary, const Camera& camera,
-        const bool clusteredEnabled)
+        const RenderTarget* renderTarget, const bool clusteredEnabled)
     {
+        // One fragment output per colour attachment of the target (the back buffer has one).
+        programLibrary.setColorOutputCount(renderTarget ? std::max(renderTarget->colorBufferCount(), 1) : 1);
+
         // tell ProgramLibrary whether a skybox cubemap is available
         // so skybox shaders compile with VT_FEATURE_SKY_CUBEMAP.
         programLibrary.setSkyCubemapAvailable(_scene && _scene->skybox() != nullptr);
@@ -2328,7 +2331,8 @@ namespace visutwin::canvas
         return _shaderPreparationDue;
     }
 
-    void Renderer::prepareForwardShaders(Camera* camera, Layer* layer, const bool transparent)
+    void Renderer::prepareForwardShaders(Camera* camera, const RenderTarget* renderTarget, Layer* layer,
+        const bool transparent)
     {
         if (!camera || !layer || !_device || !forwardShaderPreparationDue()) {
             return;
@@ -2341,7 +2345,7 @@ namespace visutwin::canvas
         // of them can still change before it runs (the lighting-mode SSAO texture is
         // published by a pass of this frame); renderForwardLayer resolves again, with
         // the switches as they then are.
-        configureForwardShaderFeatures(*programLibrary, *camera, _scene && _scene->clusteredLightingEnabled());
+        configureForwardShaderFeatures(*programLibrary, *camera, renderTarget, _scene && _scene->clusteredLightingEnabled());
         const CulledInstances& visible = culledInstances(camera, camera->node(), layer);
         const auto defaultMaterial = getDefaultMaterial(_device);
         resolveNewForwardShaders(*programLibrary, defaultMaterial.get(), transparent, !camera->clipping().empty(),
@@ -2366,7 +2370,7 @@ namespace visutwin::canvas
         }
 
         const bool clusteredEnabled = _scene && _scene->clusteredLightingEnabled();
-        configureForwardShaderFeatures(*programLibrary, *camera, clusteredEnabled);
+        configureForwardShaderFeatures(*programLibrary, *camera, renderTarget, clusteredEnabled);
         if (clusteredEnabled) {
             resolveClusterConfig();
         }

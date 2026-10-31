@@ -58,7 +58,7 @@ namespace visutwin::canvas
         /// itself, exactly, right before it draws; this one exists so that a frame's new
         /// variants start compiling together, before its shadow and effect passes, and
         /// not one layer at a time.
-        void prepareForwardShaders(Camera* camera, Layer* layer, bool transparent);
+        void prepareForwardShaders(Camera* camera, const RenderTarget* renderTarget, Layer* layer, bool transparent);
 
         // Collects directional shadow-casting lights for a camera, allocates shadow maps,
         // and calls ShadowRendererDirectional::cull() to position shadow cameras.
@@ -305,7 +305,7 @@ namespace visutwin::canvas
         uint64_t _shaderPreparationVariantsSeen = 0;
 
         void configureForwardShaderFeatures(ProgramLibrary& programLibrary, const Camera& camera,
-            bool clusteredEnabled);
+            const RenderTarget* renderTarget, bool clusteredEnabled);
 
         void resolveClusterConfig();
 

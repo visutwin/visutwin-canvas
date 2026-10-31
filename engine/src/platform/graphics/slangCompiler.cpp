@@ -336,7 +336,7 @@ namespace visutwin::canvas
                         }
                     }
                 }
-                const std::string text = constReadOnlyBuffers(result.programText(), readOnly);
+                const std::string text = dualSourceOutputs(constReadOnlyBuffers(result.programText(), readOnly));
                 result.programCode.assign(text.begin(), text.end());
             }
         }
@@ -383,5 +383,11 @@ namespace visutwin::canvas
                 "const device*$1");
         }
         return msl;
+    }
+
+    std::string SlangCompiler::dualSourceOutputs(std::string msl)
+    {
+        static const std::regex secondary("(\\bdualSourceSecondary_\\d+\\s*)\\[\\[color\\(1\\)\\]\\]");
+        return std::regex_replace(msl, secondary, "$1[[color(0), index(1)]]");
     }
 }

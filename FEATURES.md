@@ -19,7 +19,8 @@ the [README](README.md).
 - **Vertex colors**, **point-size** primitives, **opacity dither** (Bayer8 order-independent transparency), and **lightmap** (UV1) sampling
 - **Wireframe render style** (`RENDERSTYLE_WIREFRAME` on a mesh instance or render component): the mesh's triangle edges, each once, as a line list built on demand and shared by every instance of the mesh
 - **GPU instancing** with per-instance colour (Metal; Vulkan instances take the material colour) and optional per-frame GPU frustum culling (compute-driven indirect draw), plus **dynamic batching** with a bone-index matrix palette
-- **MSAA** on the back buffer (4x, on by default, resolved per pass, colour and depth grabs included) and on the offscreen scene target, and **dual-source blending** (`BLENDMODE_SRC1_*`) for custom blend setups
+- **MSAA** on the back buffer (4x, on by default, resolved per pass, colour and depth grabs included) and on the offscreen scene target, with **alpha to coverage** per material (`Material::setAlphaToCoverage`, multisampled targets only)
+- **Dual-source blending** (`BLENDMODE_SRC1_*`), **independent blending** (a blend state and write mask per colour attachment, `BlendState::setAttachment`), **per-attachment clear colours** (`RenderPass::setClearColor(color, attachment)`, `Camera::setClearColor(attachment, color)`) and **multiple render targets from the forward shader**: a chunk override of `forward-fragment-output` writes the second source or a colour per attachment
 
 ## Lighting & shadows
 - **Cascaded shadow maps** (one cascade by default as upstream, up to four PSSM cascades with cross-cascade blending and distance fade); receivers beyond the caster-fitted range are shadowed, so a receive-only ground works; or **shadow bounds**: one directional shadow map fitted to a world box (a subject's), rendered once and shared by every camera, sharp at any camera distance

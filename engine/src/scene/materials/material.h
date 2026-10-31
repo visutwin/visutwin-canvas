@@ -192,6 +192,16 @@ namespace visutwin::canvas
         void setShaderOverride(const std::shared_ptr<Shader>& shader) { _shaderOverride = shader; markUniformsDirty(); }
         const std::shared_ptr<BlendState>& blendState() const { return _blendState; }
         void setBlendState(const std::shared_ptr<BlendState>& blendState) { _blendState = blendState; markUniformsDirty(); }
+
+        /// The fragment's alpha decides how many samples of a multisampled target it covers: a
+        /// soft edge or a partial opacity without blending (blending stays as the blend state
+        /// says, normally off). Nothing happens on a single-sampled target.
+        bool alphaToCoverage() const { return _alphaToCoverage; }
+        void setAlphaToCoverage(const bool value) { _alphaToCoverage = value; markUniformsDirty(); }
+
+        /// The blend state a draw of this material binds: blendState(), with alpha to coverage
+        /// on when the material asks for it (a copy, so a shared blend state is not changed).
+        const std::shared_ptr<BlendState>& drawBlendState() const;
         const std::shared_ptr<DepthState>& depthState() const { return _depthState; }
         void setDepthState(const std::shared_ptr<DepthState>& depthState) { _depthState = depthState; markUniformsDirty(); }
         CullMode cullMode() const { return _cullMode; }
@@ -422,6 +432,12 @@ namespace visutwin::canvas
 
         // Material render states used by the renderer when binding draw calls.
         std::shared_ptr<BlendState> _blendState;
+        bool _alphaToCoverage = false;
+        // drawBlendState()'s copy with alpha to coverage, and the state and key it was made from.
+        mutable std::shared_ptr<BlendState> _coverageBlendState;
+        mutable const BlendState* _coverageSource = nullptr;
+        mutable uint32_t _coverageSourceKey = 0;
+        mutable uint32_t _coverageSourceAttachments = 0;
         std::shared_ptr<DepthState> _depthState;
         CullMode _cullMode = CullMode::CULLFACE_BACK;
 

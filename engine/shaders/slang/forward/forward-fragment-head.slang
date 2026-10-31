@@ -259,6 +259,22 @@ static const float PI = 3.14159265359;
 static float4 vtFragCoord;
 static bool vtFrontFacing;
 
+// What a fragment's extra outputs may be made of (forward-fragment-output): the shading normal
+// and gloss as the lit path left them, set where it finishes. A path that returns earlier (the
+// sky, the unlit output) leaves these defaults.
+static float3 vtOutputNormal = float3(0.0, 0.0, 1.0);
+static float vtOutputGloss = 0.0;
+
+// The outputs of a fragment beyond its first colour: one colour per further attachment of the
+// target, and the second source colour a dual-source blend reads.
+struct ForwardFragmentOutputs
+{
+    float4 color1;
+    float4 color2;
+    float4 color3;
+    float4 secondary;
+};
+
 // GLSL's mod, which floors (Slang's fmod truncates toward zero).
 float glslMod(float x, float y) { return x - y * floor(x / y); }
 float2 glslMod(float2 x, float2 y) { return x - y * floor(x / y); }

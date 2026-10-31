@@ -177,6 +177,8 @@ namespace visutwin::canvas
 
         // Dual-source blending is core Metal — supported on every device that runs this backend.
         bool supportsDualSourceBlending() const override { return true; }
+        // So is a blend state per colour attachment.
+        bool supportsIndependentBlending() const override { return true; }
 
         /// ASTC on the Apple GPU families, BC where the device reports it (every Mac,
         /// Apple silicon included); nothing else is block-compressed here.

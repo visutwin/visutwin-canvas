@@ -9,6 +9,7 @@
 #include <cmath>
 #include <functional>
 #include <numbers>
+#include <optional>
 
 #include "clipPlanes.h"
 #include "constants.h"
@@ -198,6 +199,22 @@ namespace visutwin::canvas
         const Color& clearColor() const { return _clearColor; }
         void setClearColor(const Color& value) { _clearColor = value; }
 
+        /// The clear colour of colour attachment `attachment` (1-3) of a target with several:
+        /// its own when set, otherwise clearColor().
+        const Color& clearColor(const int attachment) const
+        {
+            return attachment >= 1 && attachment <= 3 && _attachmentClearColors[attachment - 1]
+                ? *_attachmentClearColors[attachment - 1] : _clearColor;
+        }
+        void setClearColor(const int attachment, const Color& value)
+        {
+            if (attachment == 0) {
+                _clearColor = value;
+            } else if (attachment >= 1 && attachment <= 3) {
+                _attachmentClearColors[attachment - 1] = value;
+            }
+        }
+
         // Per-camera tone mapping. TONEMAP_INHERIT
         // keeps the scene-wide Scene::toneMapping value; any other value overrides it for
         // everything this camera renders.
@@ -286,6 +303,7 @@ namespace visutwin::canvas
             _cullingMask = other._cullingMask;
             _exposureScale = other._exposureScale;
             _clearColor = other._clearColor;
+            _attachmentClearColors = other._attachmentClearColors;
             _clearColorBuffer = other._clearColorBuffer;
             _clearDepthBuffer = other._clearDepthBuffer;
             _clearStencilBuffer = other._clearStencilBuffer;
@@ -431,6 +449,7 @@ namespace visutwin::canvas
         std::shared_ptr<RenderTarget> _renderTarget;
 
         Color _clearColor = Color(0.75f, 0.75f, 0.75f, 1.0f);
+        std::array<std::optional<Color>, 3> _attachmentClearColors;
         int _toneMapping = TONEMAP_INHERIT;
         Vector4 _rect = Vector4(0.0f, 0.0f, 1.0f, 1.0f);
         Vector4 _scissorRect = Vector4(0.0f, 0.0f, 1.0f, 1.0f);

@@ -108,6 +108,10 @@ namespace visutwin::canvas
         applyDrawOptions(options, variantBits, dynamicBatch, skinning, morphing, instancing, instancingColor,
             instanceLightmap);
         applyFrameOptions(options, variantBits);
+        // A blend state reading a second source colour gets a fragment stage that writes one, on
+        // a device that can blend with it (without, the pipeline blends with the first).
+        options.dualSourceOutput = material && material->blendState() &&
+            material->blendState()->usesDualSourceBlending() && _device && _device->supportsDualSourceBlending();
         // The scene's reflection probe replaces only the specular of a material that
         // asks for it, as a cube is given to one material at a time.
         options.reflectionProbe = options.reflectionProbe && material && material->useReflectionProbe();
@@ -289,6 +293,7 @@ namespace visutwin::canvas
         options.envAtlasRgbm = _envAtlasEncoding == EnvAtlasEncoding::Rgbm;
         options.skyboxReflection = _skyboxReflectionEnabled;
         options.toneMapAgx = _toneMapAgxEnabled;
+        options.colorOutputs = _colorOutputCount;
         options.reflectionProbe = _reflectionProbeEnabled;
         options.lightClustering = _clusteredLightingEnabled || variantBit(variantBits, 18);
         options.ssao = _ssaoEnabled || variantBit(variantBits, 19);
@@ -379,6 +384,10 @@ namespace visutwin::canvas
         set(ShaderFeature::EnvAtlasRgbm, options.envAtlasRgbm);
         set(ShaderFeature::SkyboxReflection, options.skyboxReflection);
         set(ShaderFeature::ToneMapAgx, options.toneMapAgx);
+        set(ShaderFeature::DualSourceOutput, options.dualSourceOutput);
+        set(ShaderFeature::ColorOutputs2, options.colorOutputs == 2);
+        set(ShaderFeature::ColorOutputs3, options.colorOutputs == 3);
+        set(ShaderFeature::ColorOutputs4, options.colorOutputs == 4);
         set(ShaderFeature::Parallax, options.parallax);
         set(ShaderFeature::Clearcoat, options.clearcoat);
         set(ShaderFeature::Anisotropy, options.anisotropy);
@@ -578,7 +587,11 @@ namespace visutwin::canvas
             definition.fshader = options.vsmShadows ? "shadowVsmFragment"
                 : (needsOpacity || metal) ? "shadowOpacityFragment" : "";
         } else {
-            definition.fshader = "forwardFragment";
+            // One output per colour attachment, or the first colour and the blend's second source.
+            static constexpr const char* kMultipleTargetEntries[] = {"forwardFragmentMrt2",
+                "forwardFragmentMrt3", "forwardFragmentMrt4"};
+            definition.fshader = options.dualSourceOutput ? "forwardFragmentDualSource"
+                : options.colorOutputs > 1 ? kMultipleTargetEntries[options.colorOutputs - 2] : "forwardFragment";
         }
 
         ShaderCode code;
@@ -655,6 +668,9 @@ namespace visutwin::canvas
         add(_envAtlasEncoding == EnvAtlasEncoding::Rgbm);
         add(_skyboxReflectionEnabled);
         add(_toneMapAgxEnabled);
+        // The pass's colour attachment count, 1-4, in two bits.
+        add(((_colorOutputCount - 1) & 1) != 0);
+        add(((_colorOutputCount - 1) & 2) != 0);
         return bits;
     }
 
@@ -883,7 +899,7 @@ namespace visutwin::canvas
                 instancing, instancingColor, instanceLightmap, screenSpace, clipPlanes);
         }
 
-        auto blendState = material ? material->blendState() : nullptr;
+        auto blendState = material ? material->drawBlendState() : nullptr;
         auto depthState = material ? material->depthState() : nullptr;
 
         if (shader) {

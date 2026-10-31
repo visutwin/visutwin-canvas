@@ -163,6 +163,14 @@ def const_read_only_buffers(msl: str, names: list[str]) -> str:
     return msl
 
 
+def dual_source_outputs(msl: str) -> str:
+    """Puts each fragment output named `dualSourceSecondary` at colour 0, index 1, where Metal's
+    dual-source blending reads its second source. slangc emits an SV_Target1 output as
+    [[color(1)]] whatever its vk::index. SlangCompiler::dualSourceOutputs is the twin of this
+    for the run-time compile: change both."""
+    return re.sub(r"(\bdualSourceSecondary_\d+\s*)\[\[color\(1\)\]\]", r"\1[[color(0), index(1)]]", msl)
+
+
 def used_descriptors(spirv: bytes) -> tuple[list[tuple[str, int, int]], list[str]]:
     """(name, set, binding) of every descriptor variable a SPIR-V module declares (Slang
     drops the globals an entry does not use), and the names of its push-constant variables."""
@@ -333,7 +341,8 @@ def main() -> None:
                     command += ["-entry", entry, "-stage", STAGE_FLAG[stage]]
                 run(command)
                 record_thread_group_sizes(thread_group_sizes(msl_reflection), group_sizes, str(program))
-                msl_path.write_text(const_read_only_buffers(msl_path.read_text(), read_only_buffers(msl_reflection)))
+                msl_path.write_text(dual_source_outputs(
+                    const_read_only_buffers(msl_path.read_text(), read_only_buffers(msl_reflection))))
                 out.append(f"    inline constexpr char {ident}Msl[] = {raw_string(msl_path.read_text())};")
                 fields["metalSource"] = f"{ident}Msl"
                 # The same MSL compiled by Apple's compiler, so the Metal backend loads a library

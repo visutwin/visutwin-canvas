@@ -307,6 +307,11 @@ namespace visutwin::canvas
             return _dualSrcBlendEnabled;
         }
 
+        [[nodiscard]] bool supportsIndependentBlending() const override
+        {
+            return _independentBlendEnabled;
+        }
+
         // Engine-supplied shader source must be GLSL; createShader compiles it
         // with shaderc at runtime and rejects MSL outright.
         [[nodiscard]] ShaderLanguage shaderLanguage() const override
@@ -991,6 +996,7 @@ namespace visutwin::canvas
         // as maxAnisotropy(), which both backends' samplers read.
         bool _samplerAnisotropyEnabled = false;
         bool _dualSrcBlendEnabled = false;
+        bool _independentBlendEnabled = false;
         bool _textureCompressionAstcLdr = false;
         bool _textureCompressionBc = false;
         uint32_t _maxDualSrcDrawBuffers = 0;

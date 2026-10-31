@@ -18,6 +18,7 @@
 #include <memory>
 #include <string>
 
+#include "platform/graphics/blendState.h"
 #include "platform/graphics/shader.h"
 #include "platform/graphics/texture.h"
 #include "scene/materials/standardMaterial.h"
@@ -27,6 +28,16 @@
 
 using namespace visutwin::canvas;
 using namespace visutwin::canvas::test;
+
+namespace
+{
+    // A device that blends with a second source colour.
+    class DualSourceStubDevice final : public StubGraphicsDevice
+    {
+    public:
+        bool supportsDualSourceBlending() const override { return true; }
+    };
+}
 
 int main()
 {
@@ -95,6 +106,9 @@ int main()
         library.setToneMapAgxEnabled(true);
         check(library.forwardFrameBits() != frameBits, "and an AgX tone mapping");
         library.setToneMapAgxEnabled(false);
+        library.setColorOutputCount(3);
+        check(library.forwardFrameBits() != frameBits, "and the colour attachment count of the pass");
+        library.setColorOutputCount(1);
 
         // The chunk registry.
         // An override is compiled, so it is the chunk's own source with a change that alters
@@ -195,6 +209,40 @@ int main()
                   on->features().test(ShaderFeature::DiffuseTransmissionColorMap),
             "above 0 the transmission and both maps are features");
         check(stillOn == on, "another fraction above 0 is the same variant (only a uniform changes)");
+    }
+
+    std::cout << "\nthe fragment entry writes what the target and the blend take\n";
+    {
+        ProgramLibrary outputs(device);
+        StandardMaterial plain;
+        const auto single = outputs.getForwardShader(&plain, false);
+        check(single && single->fragmentEntry() == "forwardFragment", "one attachment: forwardFragment");
+        outputs.setColorOutputCount(3);
+        const auto three = outputs.getForwardShader(&plain, false);
+        check(three && three->fragmentEntry() == "forwardFragmentMrt3", "three attachments: forwardFragmentMrt3");
+        outputs.setColorOutputCount(2);
+        const auto two = outputs.getForwardShader(&plain, false);
+        check(two && two->fragmentEntry() == "forwardFragmentMrt2", "two: forwardFragmentMrt2");
+        outputs.setColorOutputCount(1);
+        check(outputs.getForwardShader(&plain, false) == single, "back to one: the first shader again");
+
+        StandardMaterial dual;
+        auto blend = std::make_shared<BlendState>();
+        blend->setEnabled(true);
+        blend->setColorSrcFactor(BLENDMODE_ONE);
+        blend->setColorDstFactor(BLENDMODE_SRC1_COLOR);
+        dual.setBlendState(blend);
+        const auto withoutSupport = outputs.getForwardShader(&dual, false);
+        check(withoutSupport && withoutSupport->fragmentEntry() == "forwardFragment",
+            "a second-source blend on a device without dual-source blending writes one colour");
+
+        auto dualDevice = std::make_shared<DualSourceStubDevice>();
+        ProgramLibrary dualLibrary(dualDevice);
+        const auto dualShader = dualLibrary.getForwardShader(&dual, false);
+        check(dualShader && dualShader->fragmentEntry() == "forwardFragmentDualSource",
+            "with it, the entry writing the second source");
+        check(dualLibrary.getForwardShader(&plain, false)->fragmentEntry() == "forwardFragment",
+            "a blend without a second source keeps forwardFragment");
     }
 
     return finish("forward shader memo");

@@ -3,8 +3,9 @@
 //
 // Created by Arnis Lektauers on 07.10.2026
 //
-[shader("fragment")]
-float4 forwardFragment(ForwardVarying input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
+// The lit, unlit or sky colour of a fragment; the entries in forward-fragment-entries write it
+// out with whatever else their targets take (forward-fragment-output).
+float4 forwardShade(ForwardVarying input, bool isFrontFace)
 {
     // The inputs under the names every chunk reads them by.
     float4 outColor = float4(0.0, 0.0, 0.0, 0.0);

@@ -78,7 +78,8 @@ namespace visutwin::canvas
         );
 
         // Set the blend state configuration
-        void setBlend(MTL::RenderPipelineColorAttachmentDescriptor* colorAttachment, const std::shared_ptr<BlendState>& blendState);
+        static MTL::ColorWriteMask writeMaskOf(const BlendState& blendState);
+        void setBlend(MTL::RenderPipelineColorAttachmentDescriptor* colorAttachment, const BlendState& blendState);
 
         MTL::RenderPipelineState* _pipeline;
 

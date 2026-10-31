@@ -5,6 +5,7 @@
 //
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <memory>
 
@@ -56,7 +57,12 @@ namespace visutwin::canvas
     public:
         BlendState();
 
-        uint32_t key() const {  return _target0.to_ulong(); }
+        /// Attachment 0's blend and write mask, and alpha to coverage.
+        uint32_t key() const {  return static_cast<uint32_t>(_target0.to_ulong()); }
+
+        /// The blend states of attachments 1-3 that differ from attachment 0's (0 when none
+        /// does): what a pipeline adds to key() for a target with more colour attachments.
+        uint32_t attachmentsKey() const;
 
         bool enabled() const;
 
@@ -75,6 +81,22 @@ namespace visutwin::canvas
 
         // True if any of the four factors reads the fragment shader's secondary color output.
         bool usesDualSourceBlending() const;
+
+        /// The fragment's alpha decides how many of a multisampled pixel's samples it covers,
+        /// instead of (or as well as) blending. Nothing happens on a single-sampled target.
+        bool alphaToCoverage() const;
+        void setAlphaToCoverage(bool value);
+
+        /// The blend and write mask of colour attachment `index` (0-3): attachment 0 is this
+        /// state's own; another is its own state when setAttachment gave it one, otherwise
+        /// attachment 0's.
+        BlendState attachment(int index) const;
+
+        /// Gives colour attachment `index` (1-3) a blend and write mask of its own: `state`'s
+        /// attachment 0 (its alpha to coverage and attachments are not used). A device without
+        /// independent blending applies attachment 0's to every attachment.
+        void setAttachment(int index, const BlendState& state);
+        bool hasAttachmentStates() const { return _attachmentsSet != 0; }
 
         // Setters for configuring blend state
         void setEnabled(bool value);
@@ -108,6 +130,11 @@ namespace visutwin::canvas
     private:
         // Bit field representing the blend state for render target 0
         BitPacking _target0;
+
+        // Attachments 1-3 that have a state of their own: their attachment-0 bits, alpha to
+        // coverage cleared, and one bit each in _attachmentsSet.
+        std::array<uint32_t, 3> _attachments{};
+        uint32_t _attachmentsSet = 0;
 
         uint32_t getField(const BitPacking& bits, const int shift, const uint32_t mask) const {
             return ((bits.to_ulong() >> shift) & mask);

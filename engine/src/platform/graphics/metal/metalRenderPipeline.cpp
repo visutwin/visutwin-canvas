@@ -210,7 +210,7 @@ namespace visutwin::canvas
         _lookupHashes[8] = bindGroupFormats.size() > 0 && bindGroupFormats[0] ? bindGroupFormats[0]->key() : 0;
         _lookupHashes[9] = bindGroupFormats.size() > 1 && bindGroupFormats[1] ? bindGroupFormats[1]->key() : 0;
         _lookupHashes[10] = bindGroupFormats.size() > 2 && bindGroupFormats[2] ? bindGroupFormats[2]->key() : 0;
-        _lookupHashes[11] = 0;
+        _lookupHashes[11] = blendState->attachmentsKey();
         _lookupHashes[12] = 0;
         _lookupHashes[13] = ibFormat != -1 ? ibFormat : 0;
         _lookupHashes[14] = (instancingFormat && instancingFormat->isInstancing())
@@ -327,19 +327,15 @@ namespace visutwin::canvas
         {
             const auto colorAttachments = metalTarget->colorAttachments();
 
-            MTL::ColorWriteMask writeMask = MTL::ColorWriteMaskNone;
-            if (blendState->redWrite())   writeMask |= MTL::ColorWriteMaskRed;
-            if (blendState->greenWrite()) writeMask |= MTL::ColorWriteMaskGreen;
-            if (blendState->blueWrite())  writeMask |= MTL::ColorWriteMaskBlue;
-            if (blendState->alphaWrite()) writeMask |= MTL::ColorWriteMaskAlpha;
-
+            // Each attachment its own blend and write mask (attachment 0's unless the blend
+            // state gives it one).
             for (size_t i = 0; i < colorAttachments.size(); ++i)
             {
                 auto* colorAttachment = pipelineDescriptor->colorAttachments()->object(i);
                 colorAttachment->setPixelFormat(colorAttachments[i]->pixelFormat);
-                colorAttachment->setWriteMask(writeMask);
-
-                setBlend(colorAttachment, blendState);
+                const BlendState attachmentState = blendState->attachment(static_cast<int>(i));
+                colorAttachment->setWriteMask(writeMaskOf(attachmentState));
+                setBlend(colorAttachment, attachmentState);
             }
 
             // Set depth/stencil pixel format from the render target's depth attachment
@@ -359,19 +355,19 @@ namespace visutwin::canvas
             auto* colorAttachment = pipelineDescriptor->colorAttachments()->object(0);
             colorAttachment->setPixelFormat(MTL::PixelFormatBGRA8Unorm);
             // A mask draws into the stencil alone, with every colour channel off.
-            MTL::ColorWriteMask writeMask = MTL::ColorWriteMaskNone;
-            if (blendState->redWrite())   writeMask |= MTL::ColorWriteMaskRed;
-            if (blendState->greenWrite()) writeMask |= MTL::ColorWriteMaskGreen;
-            if (blendState->blueWrite())  writeMask |= MTL::ColorWriteMaskBlue;
-            if (blendState->alphaWrite()) writeMask |= MTL::ColorWriteMaskAlpha;
-            colorAttachment->setWriteMask(writeMask);
-            setBlend(colorAttachment, blendState);
+            colorAttachment->setWriteMask(writeMaskOf(*blendState));
+            setBlend(colorAttachment, *blendState);
             pipelineDescriptor->setDepthAttachmentPixelFormat(metal::kBackBufferDepthFormat);
             pipelineDescriptor->setStencilAttachmentPixelFormat(metal::kBackBufferDepthFormat);
             // The back buffer's sample count (GraphicsDeviceOptions::antialias), fixed for
             // the device's lifetime, so the cache key (format key 0) needs no part of it.
             pipelineDescriptor->setRasterSampleCount(static_cast<NS::UInteger>(_device->samples()));
         }
+
+        // The fragment's alpha decides the samples it covers, on a multisampled target only: a
+        // single-sampled one would threshold the alpha at a half and cut the fragment out.
+        pipelineDescriptor->setAlphaToCoverageEnabled(blendState->alphaToCoverage() &&
+            pipelineDescriptor->rasterSampleCount() > 1);
 
         _pipelineId++;
         const std::string label = "RenderPipeline-" + std::to_string(_pipelineId);
@@ -513,21 +509,31 @@ namespace visutwin::canvas
         return pipeline;
     }
 
-    void MetalRenderPipeline::setBlend(MTL::RenderPipelineColorAttachmentDescriptor* colorAttachment,
-        const std::shared_ptr<BlendState>& blendState)
+    MTL::ColorWriteMask MetalRenderPipeline::writeMaskOf(const BlendState& blendState)
     {
-        if (!blendState->enabled()) {
+        MTL::ColorWriteMask writeMask = MTL::ColorWriteMaskNone;
+        if (blendState.redWrite())   writeMask |= MTL::ColorWriteMaskRed;
+        if (blendState.greenWrite()) writeMask |= MTL::ColorWriteMaskGreen;
+        if (blendState.blueWrite())  writeMask |= MTL::ColorWriteMaskBlue;
+        if (blendState.alphaWrite()) writeMask |= MTL::ColorWriteMaskAlpha;
+        return writeMask;
+    }
+
+    void MetalRenderPipeline::setBlend(MTL::RenderPipelineColorAttachmentDescriptor* colorAttachment,
+        const BlendState& blendState)
+    {
+        if (!blendState.enabled()) {
             return;
         }
 
         colorAttachment->setBlendingEnabled(true);
 
-        colorAttachment->setRgbBlendOperation(blendOperation[blendState->colorOp()]);
-        colorAttachment->setSourceRGBBlendFactor(blendFactor[blendState->colorSrcFactor()]);
-        colorAttachment->setDestinationRGBBlendFactor(blendFactor[blendState->colorDstFactor()]);
+        colorAttachment->setRgbBlendOperation(blendOperation[blendState.colorOp()]);
+        colorAttachment->setSourceRGBBlendFactor(blendFactor[blendState.colorSrcFactor()]);
+        colorAttachment->setDestinationRGBBlendFactor(blendFactor[blendState.colorDstFactor()]);
 
-        colorAttachment->setAlphaBlendOperation(blendOperation[blendState->alphaOp()]);
-        colorAttachment->setSourceAlphaBlendFactor(blendFactor[blendState->alphaSrcFactor()]);
-        colorAttachment->setDestinationAlphaBlendFactor(blendFactor[blendState->alphaDstFactor()]);
+        colorAttachment->setAlphaBlendOperation(blendOperation[blendState.alphaOp()]);
+        colorAttachment->setSourceAlphaBlendFactor(blendFactor[blendState.alphaSrcFactor()]);
+        colorAttachment->setDestinationAlphaBlendFactor(blendFactor[blendState.alphaDstFactor()]);
     }
 }

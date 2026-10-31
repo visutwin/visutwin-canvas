@@ -32,4 +32,6 @@ import vtdraw;
 #include "forward/forward-fragment-ambient.slang"
 #include "forward/forward-fragment-emissive.slang"
 #include "forward/forward-fragment-tail.slang"
+#include "forward/forward-fragment-output.slang"
+#include "forward/forward-fragment-entries.slang"
 #include "forward/forward-vertex.slang"

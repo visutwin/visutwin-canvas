@@ -145,6 +145,22 @@ namespace visutwin::canvas
         }
     }
 
+    const std::shared_ptr<BlendState>& Material::drawBlendState() const
+    {
+        if (!_alphaToCoverage || !_blendState || _blendState->alphaToCoverage()) {
+            return _blendState;
+        }
+        if (!_coverageBlendState || _coverageSource != _blendState.get() ||
+            _coverageSourceKey != _blendState->key() || _coverageSourceAttachments != _blendState->attachmentsKey()) {
+            _coverageBlendState = std::make_shared<BlendState>(*_blendState);
+            _coverageBlendState->setAlphaToCoverage(true);
+            _coverageSource = _blendState.get();
+            _coverageSourceKey = _blendState->key();
+            _coverageSourceAttachments = _blendState->attachmentsKey();
+        }
+        return _coverageBlendState;
+    }
+
     void Material::applyParameterOverrides(MaterialUniforms& uniforms) const
     {
         applyParameterOverrides(_parameters, uniforms);

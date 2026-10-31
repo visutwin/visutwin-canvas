@@ -240,6 +240,17 @@ namespace visutwin::canvas
         }
     }
 
+    void RenderPass::setClearColor(const Color& color, const int attachment)
+    {
+        if (attachment < 0 || attachment >= static_cast<int>(_colorArrayOps.size()) || !_colorArrayOps[attachment]) {
+            return;
+        }
+        const auto& colorOps = _colorArrayOps[attachment];
+        colorOps->clearValue = color;
+        colorOps->clearValueLinear = color;
+        colorOps->clear = true;
+    }
+
     void RenderPass::setClearDepth(const float* depthValue)
     {
         if (!_depthStencilOps) {

@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 165 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 175 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -350,7 +350,19 @@ bindings like a program of the tree, so it needs the source tree at run time. Wh
   `forwardUserFragmentEnd` (the colour as written), both the identity by default, reading the
   application's scene-wide values through `Scene::setUserShaderData` (`lighting.userData[0..3]`
   and the scene texture `userMap`); the Water script's underwater fog and caustics are such an
-  override. Declare `linearClampSampler` / `nearestClampSampler` in a program of your own at
+  override. What a fragment WRITES is the third hook, `forward-fragment-output`
+  (`forwardFragmentOutput(inout color, inout ForwardFragmentOutputs)`): the forward body is
+  `forwardShade`, and the entries in `forward-fragment-entries` hand its colour to the hook and
+  write what their variant has room for: `forwardFragment` one colour, `forwardFragmentMrt2/3/4`
+  one per attachment of the pass's target (the frame switch `setColorOutputCount`, from the
+  target the forward pass draws into, `VT_FEATURE_COLOR_OUTPUTS_n`), `forwardFragmentDualSource`
+  the colour and the second source for a material whose blend reads `BLENDMODE_SRC1_*` on a device
+  that supports it (`VT_FEATURE_DUAL_SOURCE_OUTPUT`). By default every attachment gets the colour.
+  The override may read `vtOutputNormal` / `vtOutputGloss`, which the lit path leaves behind.
+  Slang emits the second source at `[[color(1)]]`; a pass over the MSL puts the member named
+  `dualSourceSecondary` at `[[color(0), index(1)]]`, in the bundle generator
+  (`dual_source_outputs`) and the run-time compile (`SlangCompiler::dualSourceOutputs`): two
+  twins of one rule, change both. Declare `linearClampSampler` / `nearestClampSampler` in a program of your own at
   `register(s7)` / `register(s8)`, as the forward head does: the macros leave the Metal slot
   to Slang, which picks one nothing binds.
 - **A stage that MAY discard must not exist in a variant that never does.** On Apple GPUs a
@@ -2149,6 +2161,7 @@ present, but the rule below never depends on reading it.
   `GraphicsDevice`.** `maxTextureSize` / `maxCubeMapSize`, `maxAnisotropy`,
   `textureHalfFloatRenderable` / `textureFloatRenderable`, `maxSamples`,
   `maxFramesInFlight`, `supportsCompressedFormat`, `supportsDualSourceBlending`,
+  `supportsIndependentBlending`,
   `supportsCompute`, `maxComputeWorkgroupsPerDimension`, `supportsGpuInstanceCulling` and
   `supportsTimestampQuery` are the whole list; a new one goes there rather than into a backend header, or only
   one backend can be asked. Two failure shapes this prevents, both silent: a LITERAL
@@ -3816,7 +3829,8 @@ What stays HERE is only what bites during UNRELATED work.
   (sheen, specular colour ...) still decode any format. (2) No `CanvasFont` (`text-emojis`, `element-colors`,
   `element-states`). (3) `.basis` files do not load (libktx reads KTX2 only; `texture-basis`
   ships KTX2 re-encodes). (4) A custom shader material gets no skin or morph variant
-  (`shaders/shader-hatch`).
+  (`shaders/shader-hatch`). (5) No integer pixel formats (R32U and kin): `independent-blending`
+  leaves out its integer-clear indicator, and `render-targets/integer-textures` is unported.
 - **Queued — none a correctness bug:** the
   binding footprint exceeds WebGPU's defaults (Metal 43 texture slots, Vulkan 7 sets). The
   parsers derive tangents through one `generateTangents` / `tangentFromNormal`

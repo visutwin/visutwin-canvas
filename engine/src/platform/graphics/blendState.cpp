@@ -25,6 +25,7 @@ namespace visutwin::canvas
     constexpr uint32_t blueWriteShift = 28;          // 28 (1 bit)
     constexpr uint32_t alphaWriteShift = 29;         // 29 (1 bit)
     constexpr uint32_t blendShift = 30;              // 30 (1 bit)
+    constexpr uint32_t alphaToCoverageShift = 31;    // 31 (1 bit)
 
     BlendState::BlendState()
     {
@@ -97,6 +98,50 @@ namespace visutwin::canvas
         };
         return usesSecondarySource(colorSrcFactor()) || usesSecondarySource(colorDstFactor()) ||
             usesSecondarySource(alphaSrcFactor()) || usesSecondarySource(alphaDstFactor());
+    }
+
+    bool BlendState::alphaToCoverage() const
+    {
+        return _target0.test(alphaToCoverageShift);
+    }
+
+    void BlendState::setAlphaToCoverage(const bool value)
+    {
+        _target0.set(alphaToCoverageShift, value);
+    }
+
+    BlendState BlendState::attachment(const int index) const
+    {
+        BlendState state;
+        if (index >= 1 && index <= 3 && (_attachmentsSet & (1u << (index - 1))) != 0) {
+            state._target0 = BitPacking(_attachments[index - 1]);
+        } else {
+            state._target0 = _target0;
+            state._target0.reset(alphaToCoverageShift);
+        }
+        return state;
+    }
+
+    void BlendState::setAttachment(const int index, const BlendState& state)
+    {
+        if (index < 1 || index > 3) {
+            return;
+        }
+        BitPacking bits = state._target0;
+        bits.reset(alphaToCoverageShift);
+        _attachments[index - 1] = static_cast<uint32_t>(bits.to_ulong());
+        _attachmentsSet |= 1u << (index - 1);
+    }
+
+    uint32_t BlendState::attachmentsKey() const
+    {
+        uint32_t key = _attachmentsSet;
+        for (int i = 0; i < 3; ++i) {
+            if ((_attachmentsSet & (1u << i)) != 0) {
+                key = key * 16777619u ^ _attachments[i];
+            }
+        }
+        return key;
     }
 
     // --- Setters ---

@@ -107,6 +107,10 @@
     X(EnvAtlasRgbp,              "VT_FEATURE_ENV_ATLAS_RGBP") \
     X(EnvAtlasRgbm,              "VT_FEATURE_ENV_ATLAS_RGBM") \
     X(ToneMapAgx,                "VT_FEATURE_TONEMAP_AGX") \
+    X(DualSourceOutput,          "VT_FEATURE_DUAL_SOURCE_OUTPUT") \
+    X(ColorOutputs2,             "VT_FEATURE_COLOR_OUTPUTS_2") \
+    X(ColorOutputs3,             "VT_FEATURE_COLOR_OUTPUTS_3") \
+    X(ColorOutputs4,             "VT_FEATURE_COLOR_OUTPUTS_4") \
     X(ClipPlanesMesh,            "VT_FEATURE_CLIP_PLANES_MESH") \
     X(ClipPlanesCamera,          "VT_FEATURE_CLIP_PLANES_CAMERA") \
     X(IridescenceMap,            "VT_FEATURE_IRIDESCENCE_MAP") \
