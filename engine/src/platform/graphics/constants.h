@@ -84,6 +84,16 @@ namespace visutwin::canvas
         PIXELFORMAT_RGBA32U = 88        // 32-bit per-channel unsigned integer (RGBA)
     };
 
+    // How a multisampled depth is resolved into a single-sampled texture
+    // (RenderTargetOptions::depthResolveMode): the first sample, or the nearest or the farthest
+    // of them.
+    enum class DepthResolveMode
+    {
+        DEPTHRESOLVE_SAMPLE0 = 0,
+        DEPTHRESOLVE_MIN = 1,
+        DEPTHRESOLVE_MAX = 2
+    };
+
     enum class TexHint
     {
         TEXHINT_NONE = 0,

@@ -340,6 +340,17 @@ namespace visutwin::canvas
             if (attachment.view == VK_NULL_HANDLE) {
                 continue;
             }
+            // Over multisampled textures the first colour resolves into the resolve buffer.
+            if (i == 0 && multisampledTextures()) {
+                if (Texture* resolve = resolveBuffer()) {
+                    resolve->upload();
+                    auto* vkResolve = dynamic_cast<gpu::VulkanTexture*>(resolve->impl());
+                    if (vkResolve && vkResolve->image() != VK_NULL_HANDLE) {
+                        attachment.resolveTexture = vkResolve;
+                        attachment.resolveView = vkResolve->imageView();
+                    }
+                }
+            }
             _colorAttachments.push_back(attachment);
         }
 
@@ -379,7 +390,8 @@ namespace visutwin::canvas
             }
         }
 
-        if (samples() > 1 && !createMultisampledSurfaces(internalDepthFormat)) {
+        // Multisampled textures are the multisampled surfaces themselves.
+        if (samples() > 1 && !multisampledTextures() && !createMultisampledSurfaces(internalDepthFormat)) {
             setSamples(1);
         }
 

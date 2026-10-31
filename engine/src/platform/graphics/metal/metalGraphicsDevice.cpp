@@ -2030,7 +2030,10 @@ namespace visutwin::canvas
             }
 
             // Cubemaps and 2D arrays select their destination through slice.
-            const auto colorTextureType = attachment.texture->textureType();
+            // Over a multisampled texture with no resolve buffer there is no single-sampled
+            // texture at all.
+            const auto colorTextureType = attachment.texture ? attachment.texture->textureType()
+                                                             : MTL::TextureType2DMultisample;
             const bool colorHasSlices = colorTextureType == MTL::TextureTypeCube ||
                 colorTextureType == MTL::TextureType2DArray;
             if (!multisampled && colorHasSlices && target.face() >= 0) {
@@ -2043,7 +2046,7 @@ namespace visutwin::canvas
 
             applyColorLoad(colorAttachment, ops);
 
-            const bool resolve = multisampled && canResolve && ops && ops->resolve;
+            const bool resolve = multisampled && attachment.texture && canResolve && ops && ops->resolve;
             if (resolve) {
                 colorAttachment->setResolveTexture(attachment.texture);
                 colorAttachment->setResolveLevel(static_cast<NS::UInteger>(target.mipLevel()));
@@ -2080,7 +2083,8 @@ namespace visutwin::canvas
 
             applyDepthLoad(depthAttachment, depthOps);
 
-            const bool resolveDepth = depthMsaa && canResolve && depthOps && depthOps->resolveDepth;
+            const bool resolveDepth = depthMsaa && depthData.depthTexture && canResolve && depthOps &&
+                depthOps->resolveDepth;
             if (resolveDepth) {
                 depthAttachment->setResolveTexture(depthData.depthTexture);
                 // Sample0 is the only filter guaranteed everywhere; Min/Max need
@@ -2121,7 +2125,7 @@ namespace visutwin::canvas
             const auto& colorAttachments = target.colorAttachments();
             for (size_t i = 0; i < colorAttachments.size(); ++i) {
                 const auto& attachment = colorAttachments[i];
-                if (!attachment || !attachment->texture) {
+                if (!attachment || (!attachment->texture && !attachment->multisampledBuffer)) {
                     continue;
                 }
                 const auto ops = i < colorOpsArray.size() ? colorOpsArray[i] : nullptr;
@@ -2130,7 +2134,7 @@ namespace visutwin::canvas
             }
 
             const auto& depthData = target.depthAttachment();
-            if (depthData && depthData->depthTexture) {
+            if (depthData && (depthData->depthTexture || depthData->multisampledDepthBuffer)) {
                 configureOffscreenDepthAttachment(passDesc, *depthData, target, depthOps.get(), canResolve);
             }
         }

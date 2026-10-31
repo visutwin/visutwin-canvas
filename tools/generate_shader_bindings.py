@@ -123,6 +123,13 @@ def quad_inputs(material: list[BindingRow], extra: list[str]) -> list[str]:
             # what each target checks against the format (Metal texture2d<uint>, SPIR-V an image of
             # uint), and a texture of one is nearest-filtered, so its own sampler is a legal one.
             # The input is the n-th material row, so a material draw may declare one too.
+            # A MULTISAMPLED texture (TextureOptions::samples), read per sample with Load(coord,
+            # sample): a colour one, and a depth one (depth2d_ms on Metal).
+            metal_only.append(f"#define VT_DECLARE_QUAD_MS_INPUT{n}(name) {vk}Texture2DMS<float4> name : register(t{n});")
+            other.append(f"#define VT_DECLARE_QUAD_MS_INPUT{n}(name) {vk}Sampler2DMS<float4> name : register(t{n}) : register(s{linear});")
+            metal_only.append(f"#define VT_DECLARE_QUAD_DEPTH_MS_INPUT{n}(name) {vk}DepthTexture2DMS name : register(t{n});")
+            other.append(f"#define VT_DECLARE_QUAD_DEPTH_MS_INPUT{n}(name) {vk}[vk::image_format(\"unknown\")] "
+                         f"Sampler2DMS<float> name : register(t{n}) : register(s{linear});")
             for kind, elem in (("UINT", "uint4"), ("INT", "int4")):
                 metal_only.append(f"#define VT_DECLARE_QUAD_{kind}_INPUT{n}(name) {vk}Texture2D<{elem}> name : register(t{n});")
                 # Slang would type the SPIR-V image by its element (Rgba32ui), which a narrower
@@ -148,11 +155,19 @@ def quad_inputs(material: list[BindingRow], extra: list[str]) -> list[str]:
     lines.append("// Per target: the bundle and the runtime compile define VT_TARGET_METAL for Metal.")
     lines.append("#if defined(VT_TARGET_METAL)")
     lines += metal_only
+    lines.append("// One sample of a multisampled input (VT_DECLARE_QUAD_MS_INPUTn / _DEPTH_MS_INPUTn). On")
+    lines.append("// Metal, Slang emits read() with an int2 coordinate, which a multisampled texture refuses,")
+    lines.append("// so the read is written out; its GetDimensions is wrong there too (get_width(0)): pass the")
+    lines.append("// size and the sample count in a uniform.")
+    lines.append("float4 vtLoadMS(Texture2DMS<float4> t, int2 c, int s) { __target_switch { case metal: __intrinsic_asm \"$0.read(uint2($1), uint($2))\"; } }")
+    lines.append("float vtLoadMS(DepthTexture2DMS t, int2 c, int s) { __target_switch { case metal: __intrinsic_asm \"$0.read(uint2($1), uint($2))\"; } }")
+    lines.append("#define VT_LOAD_MS(name, coord, sample) vtLoadMS(name, coord, sample)")
     lines.append("// The bilinear comparison of a `size` x `size` depth map at `uv`: 1 where `reference` <= the")
     lines.append("// stored depth (lit), 0 where it is behind it, blended over the four texels around `uv`; level 0.")
     lines.append("#define VT_SHADOW_COMPARE(name, uv, reference, size) name.SampleCmpLevelZero(quadCompareSampler, uv, reference)")
     lines.append("#else")
     lines += other
+    lines.append("#define VT_LOAD_MS(name, coord, sample) (name).Load(coord, sample)")
     lines.append("// The comparison sampler done by hand: gather the four texels at the corner they share and")
     lines.append("// blend their comparisons by the tap's bilinear fraction, as the forward pass's shadow taps do.")
     lines.append("float vtShadowCompareGather(Sampler2D<float> map, float2 uv, float reference, float size)")

@@ -196,6 +196,11 @@ namespace visutwin::canvas
             // pass that samples scene depth (DOF, SSAO, the depth grab) reads stale data.
             _depthStencilOps->resolveDepth = _samples > 1;
         }
+        // Over a multisampled depth texture the samples ARE the depth a later pass reads.
+        if (_renderTarget && _renderTarget->multisampledTextures()) {
+            _depthStencilOps->storeDepth = _renderTarget->hasDepthBuffer();
+            _depthStencilOps->resolveDepth = false;
+        }
 
         // color
         int numColorOps = _renderTarget ? _renderTarget->colorBufferCount() : 1;
@@ -210,6 +215,11 @@ namespace visutwin::canvas
             if (_samples == 1) {
                 colorOps->store = true;
                 colorOps->resolve = false;
+            } else if (_renderTarget && _renderTarget->multisampledTextures()) {
+                // Multisampled textures: the samples are stored for a later read, and resolved
+                // only into a resolve buffer the target has
+                colorOps->store = true;
+                colorOps->resolve = _renderTarget->resolveBuffer() != nullptr;
             }
 
             // if the render target needs mipmaps (see RenderTarget's constructor for the rule)

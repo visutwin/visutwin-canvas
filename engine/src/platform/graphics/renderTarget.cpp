@@ -45,6 +45,24 @@ namespace visutwin::canvas
 
         // Process optional arguments
         _depthBuffer = options.depthBuffer;
+
+        // Over multisampled textures the sample count is theirs, and the pass renders into them
+        // directly; the resolve buffers are single-sampled textures written at the pass's end.
+        const Texture* sampledBuffer = options.colorBuffer ? options.colorBuffer
+            : (!options.colorBuffers.empty() ? options.colorBuffers[0] : options.depthBuffer);
+        if (sampledBuffer && sampledBuffer->samples() > 1) {
+            _multisampledTextures = true;
+            _samples = std::min(static_cast<int>(sampledBuffer->samples()), maxSamples);
+            _resolveBuffer = options.resolveBuffer;
+            _depthResolveBuffer = options.depthResolveBuffer;
+            _depthResolveMode = options.depthResolveMode;
+            if (_resolveBuffer) {
+                _resolveBuffer->setRenderTargetUse(true);
+            }
+            if (_depthResolveBuffer) {
+                _depthResolveBuffer->setRenderTargetUse(true);
+            }
+        }
         _transientMultisample = options.transientMultisample;
         // Tell the attachments what they are before a backend creates them.
         for (auto* colorBuffer : _colorBuffers) {
@@ -206,6 +224,12 @@ namespace visutwin::canvas
                 if (colorBuffer) {
                     colorBuffer->resize(width, height);
                 }
+            }
+            if (_resolveBuffer) {
+                _resolveBuffer->resize(width, height);
+            }
+            if (_depthResolveBuffer) {
+                _depthResolveBuffer->resize(width, height);
             }
 
             // Initialize again

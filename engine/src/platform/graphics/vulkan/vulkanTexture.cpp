@@ -562,7 +562,7 @@ namespace visutwin::canvas::gpu
         if (!vulkanFormatSupportsImage(device->physicalDevice(), _format,
                 imageType, VK_IMAGE_TILING_OPTIMAL, imageUsage,
                 imageFlags, requiredFeatures, {width, height, depth},
-                _mipLevels, _arrayLayers, VK_SAMPLE_COUNT_1_BIT)) {
+                _mipLevels, _arrayLayers, vulkanSampleCountFlag(static_cast<int>(_owner->samples())))) {
             spdlog::error(
                 "VulkanTexture: format {} does not support requested usage {:#x}{}",
                 static_cast<int>(_format), static_cast<uint32_t>(imageUsage),
@@ -576,7 +576,8 @@ namespace visutwin::canvas::gpu
         imageInfo.extent = {width, height, depth};
         imageInfo.mipLevels = _mipLevels;
         imageInfo.arrayLayers = _arrayLayers;
-        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        // A multisampled texture: rendered into and read per sample.
+        imageInfo.samples = vulkanSampleCountFlag(static_cast<int>(_owner->samples()));
         imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
         imageInfo.usage = imageUsage;
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;

@@ -42,6 +42,16 @@ namespace visutwin::canvas
         /// target a later pass renders into without clearing.
         bool transientMultisample = false;
 
+        /// Over MULTISAMPLED textures (TextureOptions::samples): the single-sampled texture the
+        /// colour resolves into at the end of each pass, by the hardware (an average). Without one
+        /// the samples are only stored, for a shader to read. Ignored over single-sampled colour.
+        Texture* resolveBuffer = nullptr;
+        /// Over a MULTISAMPLED depth texture: a single-sampled R32F texture the depth is resolved
+        /// into after each pass that renders the target, by depthResolveMode, by a shader pass the
+        /// renderer adds (ForwardRenderer).
+        Texture* depthResolveBuffer = nullptr;
+        DepthResolveMode depthResolveMode = DepthResolveMode::DEPTHRESOLVE_SAMPLE0;
+
         std::string name;
 
         int mipLevel = 0;
@@ -94,6 +104,14 @@ namespace visutwin::canvas
         const std::string& name() const { return _name; }
 
         Texture* depthBuffer() const { return _depthBuffer; }
+        /// True when the colour (or depth) buffers ARE multisampled textures, rendered into
+        /// directly: the pass stores them, and resolves the colour only into resolveBuffer.
+        bool multisampledTextures() const { return _multisampledTextures; }
+        Texture* resolveBuffer() const { return _resolveBuffer; }
+        Texture* depthResolveBuffer() const { return _depthResolveBuffer; }
+        DepthResolveMode depthResolveMode() const { return _depthResolveMode; }
+        /// The depth resolve mode may change at any time; the next resolve takes it.
+        void setDepthResolveMode(const DepthResolveMode mode) { _depthResolveMode = mode; }
         bool autoResolve() const { return _autoResolve; }
         bool transientMultisample() const { return _transientMultisample; }
 
@@ -139,6 +157,10 @@ namespace visutwin::canvas
         std::vector<Texture*> _colorBuffers;
 
         Texture* _depthBuffer = nullptr;
+        Texture* _resolveBuffer = nullptr;
+        Texture* _depthResolveBuffer = nullptr;
+        DepthResolveMode _depthResolveMode = DepthResolveMode::DEPTHRESOLVE_SAMPLE0;
+        bool _multisampledTextures = false;
 
         int _samples = 1;
 

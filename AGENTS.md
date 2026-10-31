@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 180 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 182 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -2683,6 +2683,24 @@ present, but the rule below never depends on reading it.
   KosmicKrisp blits by the spec. The sampler's W address mode is the volume's own
   (`TextureSamplerState::addressW`). `tests/textureCopyTests.cpp` (`gpu`) holds every piece, the
   mips exactly enough to fail if the MoltenVK compensation stops being right.
+- **A Texture may itself be MULTISAMPLED (`TextureOptions::samples`), and a render target over one
+  renders into it directly.** Such a texture has one level, no host data and no filtering (Metal
+  `Texture2DMultisample`, private; Vulkan an image of N samples). A target whose colour or depth
+  buffer is one (`RenderTarget::multisampledTextures`) takes its sample count from it, creates no
+  multisampled twins of its own, STORES the samples (the pass ops say so: `allocateAttachments`)
+  and resolves the colour only into `RenderTargetOptions::resolveBuffer`, by the hardware; its
+  depth is never hardware-resolved. Both backends keep the samples and the resolve target apart
+  in their attachments (Metal `multisampledBuffer` borrowed, `texture` the resolve buffer — so
+  `MetalRenderTarget::ensureAttachments` must not refresh `texture` from the colour buffer; Vulkan
+  `texture` the samples, `resolveTexture` / `resolveView` the resolve buffer). A
+  `depthResolveBuffer` (R32F) is filled after every block that renders the target by
+  `RenderPassDepthResolve` (the Slang program `depth-resolve`), which the forward renderer adds,
+  by the target's `DepthResolveMode` (sample 0, min, max; changeable at any time). A shader reads
+  one with `VT_DECLARE_QUAD_MS_INPUTn` / `_DEPTH_MS_INPUTn` and `VT_LOAD_MS(name, coord, sample)`:
+  on Metal Slang emits a multisampled read with an int2 coordinate and `get_width(0)`, both of
+  which Apple's compiler refuses, so the read is written out and the size and sample count go in
+  a uniform. `custom-msaa-resolve` and `msaa-depth-fog` show both; `tests/textureCopyTests.cpp`
+  (`gpu`) holds the resolve.
 - **A multisampled render target resolves by DEFAULT** (`RenderTargetOptions::autoResolve`,
   true as upstream's). It defaulted to false, and every MSAA target in the tree set it by hand;
   one that did not (a 4x bake into texture-array layers) left its texture uninitialised with

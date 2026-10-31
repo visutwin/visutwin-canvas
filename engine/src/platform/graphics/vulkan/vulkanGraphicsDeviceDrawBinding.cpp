@@ -110,6 +110,16 @@ namespace visutwin::canvas
                 info.resolveImageView = att.view;
                 info.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             }
+            // A multisampled TEXTURE resolving into the target's resolve buffer.
+            if (att.resolveTexture && att.resolveView != VK_NULL_HANDLE && target.autoResolve() && colorOps &&
+                colorOps->resolve) {
+                if (att.resolveTexture->layout(0, 0) != VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
+                    att.resolveTexture->transitionLayout(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, 1, 0, 1);
+                }
+                info.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+                info.resolveImageView = att.resolveView;
+                info.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            }
             return info;
         }
     }
@@ -414,6 +424,9 @@ namespace visutwin::canvas
                 att.texture->transitionLayout(cmd,
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                     mip, 1, layer, 1);
+                if (att.resolveTexture) {
+                    att.resolveTexture->transitionLayout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 1, 0, 1);
+                }
                 if (mip == 0 && colorOps && colorOps->genMipmaps) {
                     // An array texture's pass regenerates the chain of the layer it rendered; a
                     // cubemap's last face pass all six (the frame graph drops the others').

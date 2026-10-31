@@ -44,6 +44,12 @@ namespace visutwin::canvas
         VmaAllocation msaaAllocation = VK_NULL_HANDLE;
         VkImageView msaaView = VK_NULL_HANDLE;
         mutable VkImageLayout msaaLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        // Over multisampled textures (RenderTarget::multisampledTextures) `texture` IS the
+        // multisampled texture, rendered into directly, and the colour resolves into this one,
+        // the target's resolve buffer, when it has one.
+        gpu::VulkanTexture* resolveTexture = nullptr;
+        VkImageView resolveView = VK_NULL_HANDLE;
     };
 
     struct VulkanDepthAttachment

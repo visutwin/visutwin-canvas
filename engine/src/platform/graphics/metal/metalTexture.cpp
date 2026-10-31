@@ -246,7 +246,15 @@ namespace visutwin::canvas::gpu
             _texture->renderTargetUse() && !_texture->hasHostData() && !_texture->storage();
         _descriptor->setStorageMode(privateStorage ? MTL::StorageModePrivate : MTL::StorageModeShared);
 
-        if (_texture->isCubemap()) {
+        if (_texture->samples() > 1) {
+            // Multisampled: rendered into and read per sample, so render target and read
+            // usage alone, in private storage.
+            _descriptor->setTextureType(MTL::TextureType2DMultisample);
+            _descriptor->setSampleCount(_texture->samples());
+            _descriptor->setMipmapLevelCount(1);
+            _descriptor->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageRenderTarget);
+            _descriptor->setStorageMode(MTL::StorageModePrivate);
+        } else if (_texture->isCubemap()) {
             _descriptor->setTextureType(MTL::TextureTypeCube);
         } else if (_texture->isVolume()) {
             _descriptor->setTextureType(MTL::TextureType3D);

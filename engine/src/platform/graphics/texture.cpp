@@ -21,7 +21,8 @@ namespace visutwin::canvas
         _name(options.name), _device(graphicsDevice), _width(options.width), _height(options.height),
         _depth(options.depth), _arrayLength(options.arrayLength), _format(options.format), _id(_nextId++),
         _minFilter(options.minFilter), _magFilter(options.magFilter), _cubemap(options.cubemap), _volume(options.volume),
-        _mipmaps(options.mipmaps), _storage(options.storage), _numLevelsRequested(options.numLevels),
+        _mipmaps(options.mipmaps && options.samples <= 1), _storage(options.storage),
+        _samples(std::max(options.samples, 1u)), _numLevelsRequested(options.samples > 1 ? 1u : options.numLevels),
         _profilerHint(options.profilerHint)
     {
         assert(options.width > 0 && "Texture width must be greater than 0");
@@ -50,7 +51,9 @@ namespace visutwin::canvas
         }
 
         // Set the number of levels
-        if (options.numLevels > 0) {
+        if (_samples > 1) {
+            _numLevels = 1;
+        } else if (options.numLevels > 0) {
             _numLevels = options.numLevels;
         }
         updateNumLevels();
@@ -78,7 +81,7 @@ namespace visutwin::canvas
         // figure is computed from the members rather than from `options`, so the
         // destructor and resize() unwind exactly what was added.
         _gpuSize = TextureUtils::calcGpuSize(_width, _height, _depth, _numLevels,
-            _cubemap, _arrayLength, _format);
+            _cubemap, _arrayLength, _format) * _samples;
         if (_gpuSize > 0) {
             trackVram(static_cast<int64_t>(_gpuSize));
         }
@@ -460,7 +463,7 @@ namespace visutwin::canvas
         // a render target is resized.
         // A detached texture has no GPU texture to count, so it records no size.
         _gpuSize = _device ? TextureUtils::calcGpuSize(_width, _height, _depth, _numLevels,
-            _cubemap, _arrayLength, _format) : 0;
+            _cubemap, _arrayLength, _format) * _samples : 0;
         if (_gpuSize > 0) {
             trackVram(static_cast<int64_t>(_gpuSize));
         }

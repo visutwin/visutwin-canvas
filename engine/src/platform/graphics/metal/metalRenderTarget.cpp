@@ -51,10 +51,11 @@ namespace visutwin::canvas
 
     void ColorAttachment::destroy()
     {
-        if (multisampledBuffer) {
+        if (multisampledBuffer && !multisampledBorrowed) {
             multisampledBuffer->release();
-            multisampledBuffer = nullptr;
         }
+        multisampledBuffer = nullptr;
+        multisampledBorrowed = false;
         texture = nullptr;
     }
 
@@ -72,10 +73,11 @@ namespace visutwin::canvas
         depthTextureInternal = false;
         depthTexture = nullptr;
 
-        if (multisampledDepthBuffer) {
+        if (multisampledDepthBuffer && !multisampledBorrowed) {
             multisampledDepthBuffer->release();
-            multisampledDepthBuffer = nullptr;
         }
+        multisampledDepthBuffer = nullptr;
+        multisampledBorrowed = false;
     }
 
     MetalRenderTarget::MetalRenderTarget(const RenderTargetOptions& options)
@@ -93,6 +95,27 @@ namespace visutwin::canvas
     {
         if (_colorAttachments.size() != static_cast<size_t>(colorBufferCount())) {
             createFrameBuffers();
+            return;
+        }
+
+        // Over multisampled textures the attachment renders into the colour buffer and resolves
+        // into the resolve buffer: rebuild when either GPU texture changed.
+        if (multisampledTextures()) {
+            const auto raw = [](Texture* texture) -> MTL::Texture* {
+                auto* hw = texture ? dynamic_cast<gpu::MetalTexture*>(texture->impl()) : nullptr;
+                return hw ? hw->raw() : nullptr;
+            };
+            for (int i = 0; i < colorBufferCount(); ++i) {
+                const auto& attachment = _colorAttachments[i];
+                if (attachment && (attachment->multisampledBuffer != raw(getColorBuffer(i)) ||
+                        attachment->texture != (i == 0 ? raw(resolveBuffer()) : nullptr))) {
+                    createFrameBuffers();
+                    return;
+                }
+            }
+            if (hasDepth() && !_depthAttachment) {
+                createFrameBuffers();
+            }
             return;
         }
 
@@ -165,6 +188,45 @@ namespace visutwin::canvas
         destroyFrameBuffers();
 
         _colorAttachments.resize(colorBufferCount());
+
+        // Over multisampled textures the pass renders into the textures themselves, the colour
+        // resolving into the target's resolve buffer when it has one, the depth not at all.
+        if (multisampledTextures()) {
+            const auto rawTexture = [](Texture* texture) -> MTL::Texture* {
+                if (!texture) {
+                    return nullptr;
+                }
+                texture->upload();
+                auto* hw = dynamic_cast<gpu::MetalTexture*>(texture->impl());
+                return hw ? hw->raw() : nullptr;
+            };
+            for (int i = 0; i < colorBufferCount(); ++i) {
+                MTL::Texture* samplesTexture = rawTexture(getColorBuffer(i));
+                if (!samplesTexture) {
+                    continue;
+                }
+                auto colorAttachment = std::make_shared<ColorAttachment>();
+                colorAttachment->multisampledBuffer = samplesTexture;
+                colorAttachment->multisampledBorrowed = true;
+                colorAttachment->texture = i == 0 ? rawTexture(resolveBuffer()) : nullptr;
+                colorAttachment->pixelFormat = samplesTexture->pixelFormat();
+                _colorAttachments[i] = colorAttachment;
+            }
+            if (MTL::Texture* depthSamples = rawTexture(depthBuffer())) {
+                const auto depthFormat = depthSamples->pixelFormat();
+                _depthAttachment = std::make_shared<DepthAttachment>(depthFormat,
+                    depthFormat == MTL::PixelFormatDepth32Float_Stencil8);
+                _depthAttachment->multisampledDepthBuffer = depthSamples;
+                _depthAttachment->multisampledBorrowed = true;
+            } else if (hasDepth()) {
+                const MTL::PixelFormat depthFormat = hasStencil() ? MTL::PixelFormatDepth32Float_Stencil8
+                                                                  : MTL::PixelFormatDepth32Float;
+                _depthAttachment = std::make_shared<DepthAttachment>(depthFormat, hasStencil());
+                _depthAttachment->multisampledDepthBuffer = createMultisampledTexture(
+                    metalDevice, depthFormat, width(), height(), samples(), false);
+            }
+            return;
+        }
 
         for (int i = 0; i < colorBufferCount(); ++i) {
             auto* colorBuffer = getColorBuffer(i);

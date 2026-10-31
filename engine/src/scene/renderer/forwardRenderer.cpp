@@ -457,6 +457,10 @@ namespace visutwin::canvas
             const RenderAction* nextRenderAction = i + 1 < actionCount ? renderActions[i + 1] : nullptr;
             if (endsRenderActionBlock(*renderAction, nextRenderAction, renderTarget)) {
                 addRenderActionBlock(frameGraph, layerComposition, renderTarget, startIndex, i);
+                // a target over multisampled textures resolves its depth after it is rendered
+                if (renderAction->renderTarget && renderAction->renderTarget->depthResolveBuffer()) {
+                    addDepthResolvePass(frameGraph, renderAction->renderTarget);
+                }
                 // after the camera's last block, its grabs included
                 if (renderAction->lastCameraUse) {
                     addCameraAfterPasses(frameGraph, renderAction->camera);
@@ -464,6 +468,25 @@ namespace visutwin::canvas
                 newStart = true;
             }
         }
+    }
+
+    void ForwardRenderer::addDepthResolvePass(FrameGraph* frameGraph, const std::shared_ptr<RenderTarget>& target)
+    {
+        // The passes of targets that are gone go with them.
+        std::erase_if(_depthResolvePasses, [](const auto& pass) { return !pass->source(); });
+        std::shared_ptr<RenderPassDepthResolve> resolve;
+        for (const auto& pass : _depthResolvePasses) {
+            if (pass->source() == target) {
+                resolve = pass;
+                break;
+            }
+        }
+        if (!resolve) {
+            resolve = std::make_shared<RenderPassDepthResolve>(_device, target);
+            _depthResolvePasses.push_back(resolve);
+        }
+        resolve->update();
+        frameGraph->addRenderPass(resolve);
     }
 
     void ForwardRenderer::addCameraAfterPasses(FrameGraph* frameGraph, const CameraComponent* camera)

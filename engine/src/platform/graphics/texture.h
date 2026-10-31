@@ -45,6 +45,11 @@ namespace visutwin::canvas
         uint32_t numLevels = 0;
         bool mipmaps = true;
         bool storage = false;
+        /// More than 1: a MULTISAMPLED 2D texture, the colour or depth a render target renders
+        /// into directly and a shader reads per sample (Texture2DMS / DepthTexture2DMS). It has
+        /// one level, no host data and no filtering; a resolve goes into another texture
+        /// (RenderTargetOptions::resolveBuffer, depthResolveBuffer).
+        uint32_t samples = 1;
         void* levels = nullptr;
         std::string name;
         TexHint profilerHint = TexHint::TEXHINT_NONE;
@@ -200,6 +205,8 @@ namespace visutwin::canvas
 
         PixelFormat format() const { return _format; }
         bool storage() const { return _storage; }
+        /// The sample count: more than 1 for a multisampled texture.
+        uint32_t samples() const { return _samples; }
 
         /// Set by RenderTarget when this texture becomes an attachment. A backend
         /// that has not created its GPU object yet may choose render-target
@@ -290,6 +297,7 @@ namespace visutwin::canvas
         bool _volume;
         bool _mipmaps;
         bool _storage = false;
+        uint32_t _samples = 1;
         bool _renderTargetUse = false;
 
         TextureProjection _projection;

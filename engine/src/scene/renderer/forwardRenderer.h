@@ -6,6 +6,7 @@
 #pragma once
 
 #include "renderer.h"
+#include "../graphics/renderPassDepthResolve.h"
 #include "../frameGraph.h"
 #include "../composition/layerComposition.h"
 
@@ -40,6 +41,8 @@ namespace visutwin::canvas
             int startIndex, int endIndex);
 
     private:
+        std::vector<std::shared_ptr<RenderPassDepthResolve>> _depthResolvePasses;
+
         // buildFrameGraph's stages, in the order it runs them.
 
 
@@ -67,6 +70,9 @@ namespace visutwin::canvas
         void addDirectionalShadowPasses(FrameGraph* frameGraph, Camera* camera);
         /// The camera's after-passes, once everything it renders this frame is scheduled.
         void addCameraAfterPasses(FrameGraph* frameGraph, const CameraComponent* camera);
+        /// Resolves the multisampled depth of a target with a depth resolve buffer, after a block
+        /// that rendered it (one pass per target, kept while the target lives).
+        void addDepthResolvePass(FrameGraph* frameGraph, const std::shared_ptr<RenderTarget>& target);
         /// Whether the block that `action` belongs to ends with it.
         bool endsRenderActionBlock(const RenderAction& action, const RenderAction* next,
             const RenderTarget* blockTarget) const;

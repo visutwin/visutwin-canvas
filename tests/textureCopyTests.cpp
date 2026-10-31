@@ -16,7 +16,8 @@
 // and generated after rendering into its slices. The volume checks follow upstream's layered
 // texture test (test/texture-copy-read-layered), each texel unique to its slice. Integer
 // formats upload, clear to raw values and read back, and a re-upload under a render target
-// keeps the target rendering into the texture.
+// keeps the target rendering into the texture. A multisampled texture renders and resolves into
+// a target's resolve buffer.
 //
 // It needs a GPU and a window, so it carries the `gpu` label, which the CI test presets
 // exclude; run it with `ctest --preset gpu` (or `ctest -L gpu` in a Vulkan build).
@@ -711,6 +712,52 @@ int main()
                 signedValues = value == kSigned[i % 4];
             }
             check(signedValues, "RGBA16I: a clear writes signed raw values");
+        }
+
+        // ── Multisampled textures ───────────────────────────────────────────
+        // A target over a 4x multisampled RGBA8 texture with a resolve buffer: a clear is
+        // stored in the samples and resolved by the hardware into the resolve buffer, which reads
+        // back as the clear colour. A second target with no resolve buffer leaves its own
+        // resolve-sized texture untouched.
+        {
+            const std::shared_ptr<GraphicsDevice> shared(device.get(), [](GraphicsDevice*) {});
+            constexpr uint32_t kMs = 16;
+            TextureOptions msOptions;
+            msOptions.name = "ms-color";
+            msOptions.width = kMs;
+            msOptions.height = kMs;
+            msOptions.format = PixelFormat::PIXELFORMAT_RGBA8;
+            msOptions.mipmaps = true;
+            msOptions.samples = 4;
+            auto msColor = std::make_unique<Texture>(device.get(), msOptions);
+            check(msColor->samples() == 4 && !msColor->mipmaps() && msColor->getNumLevels() == 1,
+                "multisampled: 4 samples, one level, no mipmaps");
+            auto resolve = makeTexture(device.get(), "ms-resolve", kMs, false);
+            fill(*resolve, solid(kMs, kGrey));
+            resolve->upload();
+
+            RenderTargetOptions targetOptions;
+            targetOptions.graphicsDevice = device.get();
+            targetOptions.colorBuffer = msColor.get();
+            targetOptions.resolveBuffer = resolve.get();
+            targetOptions.depth = true;
+            targetOptions.name = "ms-target";
+            const auto target = device->createRenderTarget(targetOptions);
+            check(target->multisampledTextures() && target->samples() == 4 && target->resolveBuffer() == resolve.get(),
+                "multisampled: the target takes the texture's samples and the resolve buffer");
+
+            auto pass = std::make_shared<RenderPass>(shared);
+            pass->init(target);
+            check(pass->colorOps()->store && pass->colorOps()->resolve && pass->depthStencilOps()->storeDepth == false,
+                "multisampled: the pass stores the samples and resolves them");
+            const Color clear(40.0f / 255.0f, 200.0f / 255.0f, 40.0f / 255.0f, 1.0f);
+            pass->setClearColor(&clear);
+            device->frameStart();
+            pass->render();
+            device->frameEnd();
+            std::vector<uint8_t> actual;
+            check(resolve->read(actual) && close(actual, solid(kMs, kGreen)),
+                "multisampled: the clear resolves into the resolve buffer");
         }
 
         // ── A read that does not block (Texture::readAsync) ──────────────────
