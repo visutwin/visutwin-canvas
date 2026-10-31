@@ -135,7 +135,7 @@ namespace visutwin::canvas
             _scratchTouched.assign(targetCount, 0);
             for (size_t t = 0; t < targetCount; ++t) {
                 AnimTransform& entry = _scratch[t];
-                entry.hasPosition = entry.hasRotation = entry.hasScale = entry.hasWeights = false;
+                entry.hasPosition = entry.hasRotation = entry.hasScale = entry.hasWeights = entry.hasValue = false;
             }
             clip->eval(_scratch.data(), _scratchTouched.data());
 
@@ -149,9 +149,9 @@ namespace visutwin::canvas
                 if (!acc.touched) {
                     // The first contribution this update: reset the slot's counters and flags.
                     acc.touched = true;
-                    acc.posCounter = acc.rotCounter = acc.sclCounter = acc.wgtCounter = 0;
+                    acc.posCounter = acc.rotCounter = acc.sclCounter = acc.wgtCounter = acc.valCounter = 0;
                     acc.value.hasPosition = acc.value.hasRotation = acc.value.hasScale = false;
-                    acc.value.hasWeights = false;
+                    acc.value.hasWeights = acc.value.hasValue = false;
                     _touchedSlots.push_back(slotIndex);
                 }
                 if (transform.hasPosition) {
@@ -180,6 +180,18 @@ namespace visutwin::canvas
                     }
                     acc.value.hasScale = true;
                     acc.sclCounter++;
+                }
+                if (transform.hasValue) {
+                    if (acc.valCounter == 0 || weight >= 1.0f) {
+                        acc.value.value = transform.value;
+                    } else {
+                        for (size_t c = 0; c < acc.value.value.size(); ++c) {
+                            acc.value.value[c] += (transform.value[c] - acc.value.value[c]) * weight;
+                        }
+                    }
+                    acc.value.valueComponents = transform.valueComponents;
+                    acc.value.hasValue = true;
+                    acc.valCounter++;
                 }
                 if (transform.hasWeights) {
                     if (acc.wgtCounter == 0 || weight >= 1.0f ||

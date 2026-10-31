@@ -67,6 +67,7 @@ namespace visutwin::canvas
         {
             AnimTransform value;
             int posCounter = 0;
+            int valCounter = 0;
             int rotCounter = 0;
             int sclCounter = 0;
             int wgtCounter = 0;

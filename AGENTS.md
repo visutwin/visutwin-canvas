@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 185 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 189 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -1940,6 +1940,16 @@ present, but the rule below never depends on reading it.
   must transition itself (`layer-masks`: upstream's panel starts the upper body in Eager,
   and without it the arms hang halfway to the T-pose rest). `tests/animLayerBlendTests.cpp`
   holds the closed-form cases.
+- **A curve can drive a COMPONENT property, and its target is its own.** `AnimCurve::component`
+  ("light", "camera"; empty or "entity" is the node itself) keys the target as the node path, the
+  `kAnimComponentTargetSeparator` and "component.property" (`splitAnimComponentTarget`), with
+  `AnimProperty::Value`: up to four floats, lerped, layer-blended against the base value captured
+  on first drive, and read and written through the ONE table in
+  `framework/anim/binder/animComponentProperties.cpp` (light colour / intensity / range / cone
+  angles, camera fov). A property the table does not know drives nothing, silently: add the row.
+  `localEulerAngles` (`AnimProperty::EulerAngles`) interpolates the ANGLES, then builds the
+  rotation, so 0 to 180 degrees turns through 90; slerping the two rotations would not.
+  `tests/animComponentPropertyTests.cpp`; `component-properties` shows both.
 - **Animation evaluation hashes no string per frame.** `AnimTrack::addCurve` gives each
   curve a `targetIndex` (one per distinct `nodeName`, first-seen order, `targets()`) and
   a `property` enum, replacing whatever the caller wrote in those two fields; a track

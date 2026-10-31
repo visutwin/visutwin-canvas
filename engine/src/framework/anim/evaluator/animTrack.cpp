@@ -62,12 +62,21 @@ namespace visutwin::canvas
     void AnimTrack::addCurve(const AnimCurve& curve)
     {
         AnimCurve stored = curve;
-        const auto [it, inserted] = _targetLookup.try_emplace(curve.nodeName, _targets.size());
+        // A component's property is a target of its own beside the node's transform.
+        const bool componentProperty = !curve.component.empty() && curve.component != "entity";
+        const std::string key = componentProperty
+            ? curve.nodeName + kAnimComponentTargetSeparator + curve.component + "." + curve.propertyPath
+            : curve.nodeName;
+        const auto [it, inserted] = _targetLookup.try_emplace(key, _targets.size());
         if (inserted) {
-            _targets.push_back(curve.nodeName);
+            _targets.push_back(key);
         }
         stored.targetIndex = it->second;
-        if (curve.propertyPath == "localPosition") {
+        if (componentProperty) {
+            stored.property = AnimProperty::Value;
+        } else if (curve.propertyPath == "localEulerAngles") {
+            stored.property = AnimProperty::EulerAngles;
+        } else if (curve.propertyPath == "localPosition") {
             stored.property = AnimProperty::Position;
         } else if (curve.propertyPath == "localRotation") {
             stored.property = AnimProperty::Rotation;
@@ -143,6 +152,30 @@ namespace visutwin::canvas
             auto& transform = out[curve.targetIndex];
             touched[curve.targetIndex] = 1;
             const int comp = output.components;
+
+            // Euler angles and component values interpolate their components (cubic keys as their
+            // values: the curves these come from are linear or stepped).
+            if (curve.property == AnimProperty::EulerAngles || curve.property == AnimProperty::Value) {
+                const int stride = curve.interpolation == AnimInterpolation::CUBIC ? comp * 3 : comp;
+                const int offset = curve.interpolation == AnimInterpolation::CUBIC ? comp : 0;
+                const size_t i1 = curve.interpolation == AnimInterpolation::STEP ? i0 : std::min(i0 + 1, keyCount - 1);
+                const float* v0 = &output.data[i0 * static_cast<size_t>(stride) + static_cast<size_t>(offset)];
+                const float* v1 = &output.data[i1 * static_cast<size_t>(stride) + static_cast<size_t>(offset)];
+                const int count = std::min(comp, 4);
+                std::array<float, 4> values{};
+                for (int c = 0; c < count; ++c) {
+                    values[static_cast<size_t>(c)] = v0[c] + (v1[c] - v0[c]) * alpha;
+                }
+                if (curve.property == AnimProperty::EulerAngles) {
+                    transform.rotation = Quaternion::fromEulerAngles(values[0], values[1], values[2]);
+                    transform.hasRotation = true;
+                } else {
+                    transform.value = values;
+                    transform.valueComponents = count;
+                    transform.hasValue = true;
+                }
+                continue;
+            }
 
             if (curve.interpolation == AnimInterpolation::STEP) {
                 // STEP: use value at i0 directly (no interpolation).

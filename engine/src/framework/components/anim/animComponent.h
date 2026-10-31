@@ -150,6 +150,8 @@ namespace visutwin::canvas
         AnimTransform _composeScratch;                               // writeTarget's value
         void clearContributions();
         bool layerDrives(TargetValue& target, size_t layer);
+        void writeComponentTarget(TargetValue& target, const std::string& nodePath, const std::string& component,
+            const std::string& property);
         // The graph loadStateGraph was given, kept so a clone can load the same one.
         std::optional<AnimStateGraph> _stateGraph;
         std::unique_ptr<AnimBinder> _binder;   // resolves node paths for the final write

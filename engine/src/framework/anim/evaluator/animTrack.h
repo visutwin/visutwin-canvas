@@ -5,6 +5,7 @@
 //
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <map>
 #include <string>
@@ -27,6 +28,10 @@ namespace visutwin::canvas
         // Morph target weights (glTF "weights" channels) — one float per target.
         std::vector<float> weights;
         bool hasWeights = false;
+        // A component property's value (AnimProperty::Value): up to four floats.
+        std::array<float, 4> value{};
+        int valueComponents = 0;
+        bool hasValue = false;
     };
 
     // AnimData wraps a flat float array + component count.
@@ -47,8 +52,33 @@ namespace visutwin::canvas
         Position,   // "localPosition"
         Rotation,   // "localRotation"
         Scale,      // "localScale"
-        Weights     // "weights"
+        Weights,    // "weights"
+        // "localEulerAngles", in degrees: the angles are interpolated, then turned into the
+        // rotation, as a slerp between keys 180 degrees apart would have no direction
+        EulerAngles,
+        // A property of a component other than the entity (AnimCurve::component): its value
+        Value
     };
+
+    /// The target key of a curve driving a property of a component (light.color): the node path,
+    /// the separator, then "component.property". A key without the separator is a node path.
+    inline constexpr char kAnimComponentTargetSeparator = '\x1f';
+
+    /// The parts of a component target key; false for a plain node path.
+    inline bool splitAnimComponentTarget(const std::string& key, std::string& nodePath, std::string& component,
+        std::string& property)
+    {
+        const size_t separator = key.find(kAnimComponentTargetSeparator);
+        if (separator == std::string::npos) {
+            return false;
+        }
+        nodePath = key.substr(0, separator);
+        const std::string rest = key.substr(separator + 1);
+        const size_t dot = rest.find('.');
+        component = rest.substr(0, dot);
+        property = dot == std::string::npos ? std::string() : rest.substr(dot + 1);
+        return true;
+    }
 
     //
     enum class AnimInterpolation : uint8_t
@@ -67,6 +97,9 @@ namespace visutwin::canvas
         // still resolves by findByName. Also the key the evaluator blends on.
         std::string nodeName;
         std::string propertyPath;      // "localPosition", "localRotation", "localScale", "weights"
+        // The component whose property the curve drives ("light"), or empty / "entity" for the
+        // node's own transform (localPosition, localRotation, localScale, localEulerAngles).
+        std::string component;
         size_t inputIndex = 0;         // index into AnimTrack::_inputs
         size_t outputIndex = 0;        // index into AnimTrack::_outputs
         AnimInterpolation interpolation = AnimInterpolation::LINEAR;

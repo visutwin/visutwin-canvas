@@ -5,6 +5,8 @@
 //
 #include "animComponent.h"
 
+#include "framework/anim/binder/animComponentProperties.h"
+
 #include "framework/components/componentRegistry.h"
 #include "framework/entity.h"
 #include "scene/graphNode.h"
@@ -358,6 +360,14 @@ namespace visutwin::canvas
     // the layers above it take part (the masks beneath it are zeroed).
     void AnimComponent::writeTarget(TargetValue& target)
     {
+        // A component's property: its own value, layered as a node's position is.
+        std::string nodePath;
+        std::string component;
+        std::string property;
+        if (splitAnimComponentTarget(target.path, nodePath, component, property)) {
+            writeComponentTarget(target, nodePath, component, property);
+            return;
+        }
         if (target.nodeVersion != _binder->version()) {
             target.node = _binder->resolve(target.path);
             target.nodeVersion = _binder->version();
@@ -502,6 +512,59 @@ namespace visutwin::canvas
                     morph->setWeight(static_cast<int>(i), value.weights[i]);
                 }
             }
+        }
+    }
+
+    void AnimComponent::writeComponentTarget(TargetValue& target, const std::string& nodePath,
+        const std::string& component, const std::string& property)
+    {
+        if (target.nodeVersion != _binder->version()) {
+            target.node = _binder->resolve(nodePath);
+            target.nodeVersion = _binder->version();
+        }
+        auto* entity = dynamic_cast<Entity*>(target.node);
+        if (!entity) {
+            return;
+        }
+        // The property's value before any layer drove it, captured once.
+        AnimTransform& base = target.base;
+        if (!base.hasValue) {
+            if (!readAnimComponentProperty(entity, component, property, base.value, base.valueComponents)) {
+                return;
+            }
+            base.hasValue = true;
+        }
+
+        std::array<float, 4> value = _normalizeWeights ? std::array<float, 4>{} : base.value;
+        int components = base.valueComponents;
+        bool any = false;
+        float total = 0.0f;
+        for (size_t layer = 0; layer < target.layers.size() && layer < _layers.size(); ++layer) {
+            if (target.layers[layer].present && target.layers[layer].value.hasValue && layerDrives(target, layer)) {
+                total += _layers[layer]->weight();
+            }
+        }
+        for (size_t layer = 0; layer < target.layers.size() && layer < _layers.size(); ++layer) {
+            const auto& contribution = target.layers[layer];
+            if (!contribution.present || !contribution.value.hasValue || !layerDrives(target, layer)) {
+                continue;
+            }
+            const float raw = _layers[layer]->weight();
+            const float w = _normalizeWeights ? (total > 0.0f ? raw / total : 0.0f) : std::clamp(raw, 0.0f, 1.0f);
+            if (w <= 0.0f) {
+                continue;
+            }
+            const bool additive = !_normalizeWeights && _layers[layer]->blendType() == AnimLayerBlendType::ADDITIVE;
+            const AnimTransform& v = contribution.value;
+            components = v.valueComponents;
+            for (int c = 0; c < v.valueComponents; ++c) {
+                const auto i = static_cast<size_t>(c);
+                value[i] = additive ? value[i] + (v.value[i] - base.value[i]) * w : value[i] + (v.value[i] - value[i]) * w;
+            }
+            any = true;
+        }
+        if (any) {
+            writeAnimComponentProperty(entity, component, property, value, components);
         }
     }
 }
