@@ -27,6 +27,9 @@ namespace visutwin::canvas
         {
         }
 
+        /// The texture shown, for one recreated on a resize.
+        void setTexture(Texture* texture) { _texture = texture; }
+
         void prepareShaders() override
         {
             if (!shader()) {

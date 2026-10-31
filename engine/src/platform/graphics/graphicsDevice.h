@@ -583,6 +583,32 @@ namespace visutwin::canvas
             VT_DEVICE_FEATURE_UNSUPPORTED("setIndirectDrawBuffer");
         }
 
+        // ── Indirect draw and dispatch slots ────────────────────────────────
+        // A device-owned buffer of indirect draw arguments (20 bytes a slot: index count,
+        // instance count, first index, base vertex, first instance) and one of indirect
+        // dispatch arguments (12 bytes: workgroups x, y, z), which a compute kernel fills and
+        // a draw (MeshInstance::setIndirect) or a dispatch (Compute::setupIndirectDispatch)
+        // reads. A slot is good for ONE frame: the counters go back to 0 when the frame ends,
+        // so a slot is taken again every frame, before the work that writes it. Both layouts
+        // are the same on Metal and Vulkan. Created on first use; -1 (with one warning) once
+        // the frame's slots run out.
+
+        /// Takes `count` consecutive draw slots for this frame; the first, or -1.
+        int getIndirectDrawSlot(int count = 1);
+        /// Takes `count` consecutive dispatch slots for this frame; the first, or -1.
+        int getIndirectDispatchSlot(int count = 1);
+        /// The draw arguments buffer, created on first use (bind it as a storage buffer).
+        const std::shared_ptr<VertexBuffer>& indirectDrawBuffer();
+        /// The dispatch arguments buffer, created on first use.
+        const std::shared_ptr<VertexBuffer>& indirectDispatchBuffer();
+        /// The slots' frame: it moves on when the frame ends, and a slot is valid only while
+        /// it is the value it was taken under.
+        uint64_t indirectFrame() const { return _indirectFrame; }
+        int maxIndirectDrawCount() const { return _maxIndirectDrawCount; }
+        int maxIndirectDispatchCount() const { return _maxIndirectDispatchCount; }
+        static constexpr int kIndirectDrawArgsSize = 20;
+        static constexpr int kIndirectDispatchArgsSize = 12;
+
         /// Bind the dynamic batch matrix palette for the next draw call.
         /// data: float4x4 array (16 floats per bone), size: byte count.
         /// Also used by GPU skinning (SkinInstance palette) — same slot-6 contract.
@@ -1368,6 +1394,16 @@ namespace visutwin::canvas
         // ever assigned; callers also compare it against a sentinel of their own to
         // do a thing once per frame.
         int _renderVersion = 0;
+
+        std::shared_ptr<VertexBuffer> _indirectDrawArgs;
+        std::shared_ptr<VertexBuffer> _indirectDispatchArgs;
+        int _indirectDrawNext = 0;
+        int _indirectDispatchNext = 0;
+        uint64_t _indirectFrame = 1;
+        int _maxIndirectDrawCount = 1024;
+        int _maxIndirectDispatchCount = 256;
+        bool _warnedIndirectDrawSlots = false;
+        bool _warnedIndirectDispatchSlots = false;
 
         // The render target representing the main back-buffer
         std::shared_ptr<RenderTarget> _backBuffer;

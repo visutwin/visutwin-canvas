@@ -1931,7 +1931,21 @@ namespace visutwin::canvas
 
             const MeshInstance::GpuCullOutput* culled = meshInstance && meshInstance->gpuCullingEnabled()
                 ? meshInstance->culledOutput(view.camera, device.renderVersion()) : nullptr;
-            if (culled) {
+            // Arguments a kernel wrote this frame for this camera (MeshInstance::setIndirect).
+            const int indirectSlot = meshInstance && !culled && !variant.dynamicBatch &&
+                    !meshInstance->skinInstance() && !meshInstance->morphInstance()
+                ? meshInstance->indirectSlotFor(view.camera, device.indirectFrame()) : -1;
+            if (indirectSlot >= 0 && device.indirectDrawBuffer()) {
+                const bool instanced = instData.vertexBuffer && instData.count > 0;
+                if (instanced) {
+                    device.setVertexBuffer(instData.vertexBuffer, 5);
+                }
+                device.setIndirectDrawBuffer(device.indirectDrawBuffer()->nativeBuffer());
+                device.setTransformUniforms(view.viewProjection, instanced
+                    ? nodeWorldTransform(meshInstance)
+                    : forwardModelMatrix(meshInstance, variant.material, ctx.scene, view.position));
+                device.draw(entry.primitive, entry.indexBuffer, 0, indirectSlot, true, true);
+            } else if (culled) {
                 // GPU-culled for THIS camera: the compacted visible set at slot 5, the
                 // instance count from the indirect arguments the cull wrote.
                 device.setVertexBuffer(culled->compacted, 5);

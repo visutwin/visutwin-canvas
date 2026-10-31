@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 176 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 180 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -1764,6 +1764,22 @@ present, but the rule below never depends on reading it.
   `tests/sceneMapHandleTests.cpp` holds the handles and the resolution,
   `tests/sceneMapsGpuTests.cpp` (`gpu`) the slots and the decoded values on the real device;
   `scene-maps` is the example.
+- **Indirect draw and dispatch arguments live in DEVICE-OWNED buffers, by SLOT, and a slot
+  lasts ONE frame.** `GraphicsDevice::getIndirectDrawSlot()` / `getIndirectDispatchSlot()` hand
+  out consecutive slots of `indirectDrawBuffer()` (20 bytes: index count, instance count, first
+  index, base vertex, first instance) and `indirectDispatchBuffer()` (12 bytes: workgroups x, y,
+  z), the same layouts on Metal and Vulkan; `frameEnd` sets both counters back to 0 and moves
+  `indirectFrame()` on. So a slot is taken again EVERY frame, before the kernel that writes it.
+  A kernel binds the buffer as a storage buffer and writes its slot as uints;
+  `MeshInstance::setIndirect(camera, slot)` (null camera: every camera) draws from it for that
+  indirect frame only (`indirectSlotFor`), an instanced mesh from its whole instance buffer,
+  with `getIndirectMetaData()` giving the index count, first index and base vertex;
+  `Compute::setupIndirectDispatch(slot)` dispatches from it (Metal `dispatchThreadgroups` with an
+  indirect buffer, Vulkan `vkCmdDispatchIndirect`, whose pre-dispatch barrier covers the
+  indirect read). A skinned or morphed mesh, a batch, particles and splats ignore an indirect
+  slot. `tests/indirectSlotsTests.cpp` holds the bookkeeping,
+  `tests/computeDispatchThreadsGpuTests.cpp` (`gpu`) an indirect dispatch on the real device;
+  `indirect-draw` and `indirect-dispatch` show both.
 - **A dispatch is sized from the workgroup size the SHADER declares, never a C++ copy of
   it.** `Compute::threadgroupSize()` is the shader's `[numthreads]`
   (`Shader::computeThreadGroupSize`: Slang's reflection on Metal, the SPIR-V LocalSize on

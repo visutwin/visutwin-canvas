@@ -246,6 +246,9 @@ namespace visutwin::canvas
             uint32_t groupsX = 1;
             uint32_t groupsY = 1;
             uint32_t groupsZ = 1;
+            // An indirect dispatch reads its workgroup counts here, at this offset.
+            VkBuffer indirectBuffer = VK_NULL_HANDLE;
+            VkDeviceSize indirectOffset = 0;
         };
 
         // Everything recorded before the kernel is made visible to it: a render pass's
@@ -259,8 +262,11 @@ namespace visutwin::canvas
             VkMemoryBarrier2 before{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
             before.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
             before.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
-            before.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            before.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+            // The indirect stage too: an earlier kernel may have written this one's workgroup
+            // counts.
+            before.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+            before.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT |
+                VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
             VkDependencyInfo beforeDependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
             beforeDependency.memoryBarrierCount = 1;
             beforeDependency.pMemoryBarriers = &before;
@@ -279,7 +285,11 @@ namespace visutwin::canvas
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                     command.pipelineLayout, kComputeSceneMapsVulkanSet, 1, &command.sceneMapsSet, 0, nullptr);
             }
-            vkCmdDispatch(cmd, command.groupsX, command.groupsY, command.groupsZ);
+            if (command.indirectBuffer != VK_NULL_HANDLE) {
+                vkCmdDispatchIndirect(cmd, command.indirectBuffer, command.indirectOffset);
+            } else {
+                vkCmdDispatch(cmd, command.groupsX, command.groupsY, command.groupsZ);
+            }
 
             VkMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
             barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
@@ -377,6 +387,22 @@ namespace visutwin::canvas
         ComputeDispatchCommand command{bindings->textures, bindings->textureTypes, descriptorSet,
             VK_NULL_HANDLE, resources->pipeline, resources->pipelineLayout,
             compute.dispatchX(), compute.dispatchY(), compute.dispatchZ()};
+
+        if (compute.indirectSlot() >= 0) {
+            auto indirect = std::dynamic_pointer_cast<VulkanVertexBuffer>(compute.indirectBuffer());
+            if (!indirect || !indirect->buffer()) {
+                spdlog::error("Vulkan compute dispatch '{}' has no indirect dispatch buffer", compute.name());
+                vkDestroyDescriptorPool(_device, descriptorPool, nullptr);
+                if (uniformBuffer != VK_NULL_HANDLE) {
+                    vmaDestroyBuffer(_vmaAllocator, uniformBuffer, uniformAllocation);
+                }
+                return false;
+            }
+            command.indirectBuffer = indirect->buffer();
+            command.indirectOffset = static_cast<VkDeviceSize>(compute.indirectSlot()) *
+                GraphicsDevice::kIndirectDispatchArgsSize;
+            bindings->storageKeepAlive.push_back(std::move(indirect));
+        }
 
         // Set 1, the scene maps: a pool and a block of their own, released with the dispatch.
         VkDescriptorPool sceneMapsPool = VK_NULL_HANDLE;

@@ -133,6 +133,16 @@ namespace visutwin::canvas
         /// Prepare the dispatch as a grid of workgroups. To dispatch for a number of threads
         /// instead, with the workgroups derived from them, use setupDispatchThreads.
         void setupDispatch(uint32_t x, uint32_t y, uint32_t z);
+        /// Prepare the dispatch to take its workgroup counts from the GPU: the x, y and z
+        /// written at `slot` of the device's indirect dispatch buffer
+        /// (GraphicsDevice::getIndirectDispatchSlot), or of `buffer` when one is given, by an
+        /// earlier kernel. A setupDispatch or setupDispatchThreads makes it direct again. The
+        /// slot is good for the frame it was taken in.
+        void setupIndirectDispatch(int slot, std::shared_ptr<VertexBuffer> buffer = nullptr);
+        /// The indirect slot, -1 for a direct dispatch.
+        int indirectSlot() const { return _indirectSlot; }
+        /// The buffer the indirect arguments are read from: the one given, or the device's.
+        std::shared_ptr<VertexBuffer> indirectBuffer() const;
         uint32_t dispatchX() const { return _dispatchX; }
         uint32_t dispatchY() const { return _dispatchY; }
         uint32_t dispatchZ() const { return _dispatchZ; }
@@ -220,6 +230,8 @@ namespace visutwin::canvas
         std::map<std::string, uint32_t> _uniformParameters;
         // Set by setUniformBlock; takes precedence over _uniformParameters.
         std::vector<uint8_t> _uniformBlock;
+        int _indirectSlot = -1;
+        std::shared_ptr<VertexBuffer> _indirectBuffer;
         uint32_t _dispatchX = 1u;
         uint32_t _dispatchY = 1u;
         uint32_t _dispatchZ = 1u;

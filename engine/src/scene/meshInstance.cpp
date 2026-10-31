@@ -410,4 +410,48 @@ namespace visutwin::canvas
             _mesh->generateWireframe();
         }
     }
+
+    void MeshInstance::setIndirect(const Camera* camera, const int slot)
+    {
+        // The slot is stamped with the device's indirect frame, so a slot from an earlier
+        // frame is never drawn from.
+        const auto vertexBuffer = _mesh ? _mesh->getVertexBuffer() : nullptr;
+        GraphicsDevice* device = vertexBuffer ? vertexBuffer->device() : nullptr;
+        const uint64_t frame = device ? device->indirectFrame() : 0;
+        for (auto& draw : _indirectDraws) {
+            if (draw.camera == camera) {
+                draw.slot = slot;
+                draw.frame = frame;
+                return;
+            }
+        }
+        _indirectDraws.push_back({camera, slot, frame});
+    }
+
+    int MeshInstance::indirectSlotFor(const Camera* camera, const uint64_t frame) const
+    {
+        // A slot for this camera wins over one for every camera.
+        int any = -1;
+        for (const auto& draw : _indirectDraws) {
+            if (draw.frame != frame || draw.slot < 0) {
+                continue;
+            }
+            if (draw.camera == camera) {
+                return draw.slot;
+            }
+            if (!draw.camera) {
+                any = draw.slot;
+            }
+        }
+        return any;
+    }
+
+    std::array<int32_t, 4> MeshInstance::getIndirectMetaData() const
+    {
+        if (!_mesh) {
+            return {0, 0, 0, 0};
+        }
+        const Primitive primitive = _mesh->getPrimitive(static_cast<size_t>(std::max(_renderStyle, 0)));
+        return {primitive.count, primitive.base, primitive.baseVertex, 0};
+    }
 }

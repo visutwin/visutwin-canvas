@@ -5,6 +5,7 @@
 //
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -306,6 +307,19 @@ namespace visutwin::canvas
             _instancingData.indirectSlot = slot;
         }
 
+        /// Draws this mesh instance with arguments a compute kernel writes: slot `slot` of the
+        /// device's indirect draw buffer (GraphicsDevice::getIndirectDrawSlot), for `camera`, or
+        /// for every camera when null. Good for the frame the slot was taken in, so it is set
+        /// again every frame; the argument layout is getIndirectMetaData's. An instanced mesh
+        /// draws from its whole instance buffer (the kernel picks how many). A skinned or
+        /// morphed mesh, a dynamic batch, particles and splats ignore it.
+        void setIndirect(const Camera* camera, int slot);
+        /// The indirect slot set for `camera` in indirect frame `frame`, or -1.
+        int indirectSlotFor(const Camera* camera, uint64_t frame) const;
+        /// What a kernel writes into an indexed draw's arguments besides the instance count:
+        /// the index count, the first index and the base vertex (then 0).
+        std::array<int32_t, 4> getIndirectMetaData() const;
+
         const InstancingData& instancingData() const { return _instancingData; }
         int instancingCount() const { return _instancingData.count; }
 
@@ -502,6 +516,14 @@ namespace visutwin::canvas
         BoundingBox _aabb;
         bool _updateAabb = true;
         std::function<BoundingBox&(BoundingBox&)> _updateAabbFunc = nullptr;
+        struct IndirectDraw
+        {
+            const Camera* camera = nullptr;
+            int slot = -1;
+            uint64_t frame = 0;
+        };
+        std::vector<IndirectDraw> _indirectDraws;
+
         BoundingBox* _customAabb = nullptr;
         // The union of the instances' bounds in the NODE's space, which _customAabb
         // points at while instancing sets the bounds (aabb() carries it to world).

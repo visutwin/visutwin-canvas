@@ -13,6 +13,7 @@
 #include "graphicsDevice.h"
 
 #include "computeInstanceCuller.h"
+#include "vertexFormat.h"
 #include "spdlog/spdlog.h"
 
 namespace visutwin::canvas
@@ -140,6 +141,11 @@ namespace visutwin::canvas
 
     void GraphicsDevice::frameEnd()
     {
+        // The frame's indirect slots are spent: the next frame takes them again.
+        _indirectDrawNext = 0;
+        _indirectDispatchNext = 0;
+        ++_indirectFrame;
+
         // Clear all maps scheduled for end-of-frame clearing
         for (auto* map : _mapsToClear) {
             map->clear();
@@ -294,5 +300,65 @@ namespace visutwin::canvas
             return nullptr;
         }
         return std::make_unique<ComputeInstanceCuller>(this);
+    }
+
+    namespace
+    {
+        std::shared_ptr<VertexBuffer> indirectArgsBuffer(GraphicsDevice* device, const int stride, const int count)
+        {
+            auto format = std::make_shared<VertexFormat>(stride, true, false);
+            VertexBufferOptions options;
+            options.data.assign(static_cast<size_t>(stride) * static_cast<size_t>(count), 0);
+            auto buffer = device->createVertexBuffer(format, count, options);
+            if (buffer) {
+                buffer->markStorageUse();
+            }
+            return buffer;
+        }
+    }
+
+    const std::shared_ptr<VertexBuffer>& GraphicsDevice::indirectDrawBuffer()
+    {
+        if (!_indirectDrawArgs) {
+            _indirectDrawArgs = indirectArgsBuffer(this, kIndirectDrawArgsSize, _maxIndirectDrawCount);
+        }
+        return _indirectDrawArgs;
+    }
+
+    const std::shared_ptr<VertexBuffer>& GraphicsDevice::indirectDispatchBuffer()
+    {
+        if (!_indirectDispatchArgs) {
+            _indirectDispatchArgs = indirectArgsBuffer(this, kIndirectDispatchArgsSize, _maxIndirectDispatchCount);
+        }
+        return _indirectDispatchArgs;
+    }
+
+    int GraphicsDevice::getIndirectDrawSlot(const int count)
+    {
+        if (count < 1 || _indirectDrawNext + count > _maxIndirectDrawCount || !indirectDrawBuffer()) {
+            if (!_warnedIndirectDrawSlots) {
+                _warnedIndirectDrawSlots = true;
+                spdlog::warn("GraphicsDevice: out of indirect draw slots ({} a frame)", _maxIndirectDrawCount);
+            }
+            return -1;
+        }
+        const int slot = _indirectDrawNext;
+        _indirectDrawNext += count;
+        return slot;
+    }
+
+    int GraphicsDevice::getIndirectDispatchSlot(const int count)
+    {
+        if (count < 1 || _indirectDispatchNext + count > _maxIndirectDispatchCount || !indirectDispatchBuffer()) {
+            if (!_warnedIndirectDispatchSlots) {
+                _warnedIndirectDispatchSlots = true;
+                spdlog::warn("GraphicsDevice: out of indirect dispatch slots ({} a frame)",
+                    _maxIndirectDispatchCount);
+            }
+            return -1;
+        }
+        const int slot = _indirectDispatchNext;
+        _indirectDispatchNext += count;
+        return slot;
     }
 }

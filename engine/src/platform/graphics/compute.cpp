@@ -80,11 +80,28 @@ namespace visutwin::canvas
 
     void Compute::setupDispatch(uint32_t x, uint32_t y, uint32_t z)
     {
+        _indirectSlot = -1;
+        _indirectBuffer.reset();
         _dispatchX = std::max(1u, x);
         _dispatchY = std::max(1u, y);
         _dispatchZ = std::max(1u, z);
         _dispatchThreadCount = {1u, 1u, 1u};
         _dispatchRowThreads = 1u;
+    }
+
+    void Compute::setupIndirectDispatch(const int slot, std::shared_ptr<VertexBuffer> buffer)
+    {
+        setupDispatch(1u, 1u, 1u);
+        _indirectSlot = slot;
+        _indirectBuffer = std::move(buffer);
+    }
+
+    std::shared_ptr<VertexBuffer> Compute::indirectBuffer() const
+    {
+        if (_indirectBuffer) {
+            return _indirectBuffer;
+        }
+        return _graphicsDevice ? _graphicsDevice->indirectDispatchBuffer() : nullptr;
     }
 
     void Compute::setupDispatchThreads(const uint32_t x, const uint32_t y, const uint32_t z)

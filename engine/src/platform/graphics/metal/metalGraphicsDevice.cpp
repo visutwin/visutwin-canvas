@@ -1007,7 +1007,20 @@ namespace visutwin::canvas
                 static_cast<NS::UInteger>(compute->threadgroupSizeY()),
                 static_cast<NS::UInteger>(compute->threadgroupSizeZ())
             );
-            encoder->dispatchThreadgroups(threadgroups, threadsPerThreadgroup);
+            if (compute->indirectSlot() >= 0) {
+                // The workgroup counts an earlier kernel wrote: x, y, z at the slot.
+                const auto indirect = compute->indirectBuffer();
+                auto* indirectBuffer = indirect ? static_cast<MTL::Buffer*>(indirect->nativeBuffer()) : nullptr;
+                if (!indirectBuffer) {
+                    spdlog::error("Compute {}: no indirect dispatch buffer", compute->name());
+                    continue;
+                }
+                encoder->dispatchThreadgroups(indirectBuffer,
+                    static_cast<NS::UInteger>(compute->indirectSlot()) * GraphicsDevice::kIndirectDispatchArgsSize,
+                    threadsPerThreadgroup);
+            } else {
+                encoder->dispatchThreadgroups(threadgroups, threadsPerThreadgroup);
+            }
         }
 
         if (!label.empty()) {

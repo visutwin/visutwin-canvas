@@ -14,6 +14,9 @@
 // them than a dimension holds is (both backends allow 2^30 a dimension, so the spread is
 // the one setupDispatchThreads makes under a small limit, dispatched as it is).
 //
+// An indirect dispatch takes the workgroup counts a kernel wrote into a slot of the device's
+// indirect dispatch buffer: five at one slot, none at the next.
+//
 // Also the bundle's own kernels report the size their source declares, and each
 // computeDispatch call is counted into the frame counters as one compute pass of its
 // dispatches.
@@ -240,6 +243,81 @@ int main()
                 "two computes in one call: two dispatches, one compute pass");
             std::vector<uint32_t> values(8);
             check(buffer->read(0, 32, values.data()) && values[7] == 16u, "and both ran (thread 7 added 8 twice)");
+        }
+
+        std::cout << "\nan indirect dispatch: workgroup counts a kernel wrote\n";
+        {
+            // The first kernel writes (5, 1, 1) at one slot of the device's indirect dispatch
+            // buffer and (0, 1, 1) at the next; the second, dispatched from each slot in turn,
+            // counts its threads. Workgroups of 64, so the first slot runs 320 threads and the
+            // second none.
+            const auto writer = getOrCreateSlangShaderFromSource(device.get(), "indirect-dispatch-writer", R"(
+struct Params
+{
+    uint4 slots;   // x: the first slot
+};
+[[vk::binding(0, 0)]] RWStructuredBuffer<uint> indirectDispatchBuffer : register(u0);
+[[vk::binding(1, 0)]] ConstantBuffer<Params> params : register(b1);
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void writeArgs(uint3 id : SV_DispatchThreadID)
+{
+    const uint base = params.slots.x * 3u;
+    indirectDispatchBuffer[base + 0u] = 5u;
+    indirectDispatchBuffer[base + 1u] = 1u;
+    indirectDispatchBuffer[base + 2u] = 1u;
+    indirectDispatchBuffer[base + 3u] = 0u;
+    indirectDispatchBuffer[base + 4u] = 1u;
+    indirectDispatchBuffer[base + 5u] = 1u;
+}
+)");
+            const auto counter = getOrCreateSlangShaderFromSource(device.get(), "indirect-dispatch-counter", R"(
+[[vk::binding(0, 0)]] RWStructuredBuffer<uint> counts : register(u0);
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void countThreads(uint3 id : SV_DispatchThreadID)
+{
+    uint previous;
+    InterlockedAdd(counts[0], 1u, previous);
+}
+)");
+            check(writer && counter, "indirect: both kernels compile");
+            const int slot = device->getIndirectDispatchSlot(2);
+            check(slot >= 0 && device->indirectDispatchBuffer() != nullptr, "indirect: two dispatch slots");
+            if (writer && counter && slot >= 0) {
+                const auto format = std::make_shared<VertexFormat>(4, true, false);
+                VertexBufferOptions bufferOptions;
+                bufferOptions.data.assign(2u * 4u, 0);
+                const auto counts = device->createVertexBuffer(format, 2, bufferOptions);
+                const auto countsOther = device->createVertexBuffer(format, 2, bufferOptions);
+
+                Compute write(device.get(), writer, "WriteArgs");
+                write.setParameter("indirectDispatchBuffer", device->indirectDispatchBuffer());
+                const Params slots{{static_cast<uint32_t>(slot), 0u, 0u, 0u}};
+                write.setUniformBlock(&slots, sizeof(slots));
+                write.setupDispatch(1u, 1u, 1u);
+
+                Compute first(device.get(), counter, "CountFirst");
+                first.setParameter("counts", counts);
+                first.setupIndirectDispatch(slot);
+                Compute second(device.get(), counter, "CountSecond");
+                second.setParameter("counts", countsOther);
+                second.setupIndirectDispatch(slot + 1);
+                check(first.indirectSlot() == slot && first.indirectBuffer() == device->indirectDispatchBuffer(),
+                    "indirect: the dispatch reads the device's buffer at its slot");
+
+                device->computeDispatch({&write}, "WriteArgs");
+                device->computeDispatch({&first, &second}, "CountIndirect");
+                std::vector<uint32_t> values(2);
+                std::vector<uint32_t> otherValues(2);
+                check(counts->read(0, 8, values.data()) && values[0] == 320u,
+                    "indirect: the first slot ran 5 workgroups of 64 threads (" + std::to_string(values[0]) + ")");
+                check(countsOther->read(0, 8, otherValues.data()) && otherValues[0] == 0u,
+                    "indirect: the second slot ran none (" + std::to_string(otherValues[0]) + ")");
+
+                first.setupDispatchThreads(64);
+                check(first.indirectSlot() == -1, "indirect: a direct setup makes the dispatch direct again");
+            }
         }
     }
 
