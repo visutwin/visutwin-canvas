@@ -4,11 +4,20 @@
 // Created by Arnis Lektauers on 17.10.2026
 //
 // Hooks of the lit fragment stage an application replaces with a chunk override of this file
-// (Material::setShaderChunk("forward-fragment-user", source)), without copying the tail. Both
+// (Material::setShaderChunk("forward-fragment-user", source)), without copying the tail. All
 // are the identity here, which the compiler removes, so a material without an override renders
-// exactly as before. The override defines both functions, and may declare what they read above
+// exactly as before. The override defines all three functions, and may declare what they read above
 // them: its scene-wide values are lighting.userData[0..3] and its texture VT_DECLARE_userMap
 // (Scene::setUserShaderData), sampled through materialSampler.
+
+// The lit colour of a fragment (linear, before fog, exposure and tone mapping), from the lighting
+// it received, its linear `albedo` (colour, map and vertex colour), its shading normal and its
+// world position. Replacing it shades a surface in a model of its own (Gooch, toon) while fog, tone
+// mapping and the outputs still apply.
+float3 forwardUserLitColor(float3 color, float3 albedo, float3 worldNormal, float3 worldPos)
+{
+    return color;
+}
 
 // The fog factor (1 unfogged, 0 the fog colour) of a fragment at `worldPos`, after the fog
 // curve and before the fog is mixed in.

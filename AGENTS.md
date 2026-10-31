@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 189 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 193 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -346,8 +346,10 @@ bindings like a program of the tree, so it needs the source tree at run time. Wh
   (`forwardLocalVertex(position, normal, tangent, uv0, uv1)`, a no-op by default), which a
   deforming material replaces instead of the whole vertex chunk (visutwin-viz's Navier-Stokes
   tubes do); the shadow program shares it, so the shadow follows. The fragment twin is
-  `forward-fragment-user`: `forwardUserFogFactor` (after the fog curve) and
-  `forwardUserFragmentEnd` (the colour as written), both the identity by default, reading the
+  `forward-fragment-user`: `forwardUserLitColor` (the lit colour from the albedo and normal,
+  before fog and tone mapping: a shading model of its own, `instancing-gooch`'s Gooch),
+  `forwardUserFogFactor` (after the fog curve) and `forwardUserFragmentEnd` (the colour as
+  written), all the identity by default, and an override defines ALL THREE, reading the
   application's scene-wide values through `Scene::setUserShaderData` (`lighting.userData[0..3]`
   and the scene texture `userMap`); the Water script's underwater fog and caustics are such an
   override. What a fragment WRITES is the third hook, `forward-fragment-output`
@@ -1780,6 +1782,15 @@ present, but the rule below never depends on reading it.
   slot. `tests/indirectSlotsTests.cpp` holds the bookkeeping,
   `tests/computeDispatchThreadsGpuTests.cpp` (`gpu`) an indirect dispatch on the real device;
   `indirect-draw` and `indirect-dispatch` show both.
+- **A mesh instance may draw as a list of SUB-DRAWS** (`MeshInstance::setMultiDraw(camera,
+  maxCount)`, a `DrawCommands` the caller fills with `add` and makes live with `update`; a list for
+  a camera wins over one for every camera, and it persists). `drawWithCommands`
+  (`scene/renderer/multiDraw.h`) issues each live sub-draw as a draw call of its own (DEVIATION:
+  upstream's one multi-draw call), each its own index range, base vertex, instance count and FIRST
+  INSTANCE (`Primitive::firstInstance`, Metal's base instance and Vulkan's firstInstance: per-instance
+  vertex data is fetched from there on), keeping the vertex buffers bound until the last; the
+  forward and depth-only draws take it, a skinned or morphed draw does not (its palette goes to the
+  first draw only). `tests/multiDrawTests.cpp`; `multi-draw`, `multi-draw-instanced`.
 - **A dispatch is sized from the workgroup size the SHADER declares, never a C++ copy of
   it.** `Compute::threadgroupSize()` is the shader's `[numthreads]`
   (`Shader::computeThreadGroupSize`: Slang's reflection on Metal, the SPIR-V LocalSize on
@@ -3149,7 +3160,10 @@ present, but the rule below never depends on reading it.
   view both, and a depth copy stays depth-only in its region; `backBufferDepthFormat()`
   reports `PIXELFORMAT_DEPTHSTENCIL` so the depth-grab copy's target matches. Stencil state
   is PER DRAW from the mesh instance (`MeshInstance::setStencil`); the renderer resets it
-  after each layer's loop, so a draw that sets none tests nothing. Note also that
+  after each layer's loop, so a draw that sets none tests nothing. A camera frame's scene target
+  has stencil only under `RenderingSettings::stencil` (single-sampled, its scene depth texture
+  is then `PIXELFORMAT_DEPTHSTENCIL`); without it a stencil-testing draw under post-processing
+  tests nothing (`portal` with C). Note also that
   `Material::setAlphaMode` RESETS the blend, the depth state and the transparent flag —
   set it first and the rest after, or they are silently lost.
 - **A layout group reflows when its INPUTS differ, not on events** (DEVIATION from upstream's

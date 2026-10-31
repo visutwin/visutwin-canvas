@@ -43,6 +43,9 @@ namespace visutwin::canvas
         /** Number of indices or vertices to dispatch */
         int count = 0;
 
+        /** The first instance drawn: per-instance vertex data is fetched from this instance on */
+        int firstInstance = 0;
+
         /** Whether to interpret the primitive as indexed */
         bool indexed = false;
     };

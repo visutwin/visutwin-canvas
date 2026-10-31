@@ -107,6 +107,8 @@ namespace visutwin::canvas
             if (caustics) {
                 source += "VT_DECLARE_userMap\n\n";
             }
+            source += "float3 forwardUserLitColor(float3 color, float3 albedo, float3 worldNormal, float3 worldPos)\n"
+                "{\n    return color;\n}\n\n";
             source += "float forwardUserFogFactor(float fogFactor, float3 worldPos)\n{\n";
             if (heightFog) {
                 source +=

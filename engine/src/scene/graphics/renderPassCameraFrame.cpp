@@ -183,6 +183,7 @@ namespace visutwin::canvas
         options.sceneDepthMap = _cameraComponent->renderSceneDepthMap();
 
         options.samples = std::max(rendering.samples, 1);
+        options.stencil = rendering.stencil;
         // Clamped rather than trusted: the scene target is quadratic in this value,
         // so a stray 8.0 would ask for 64x the pixels of a native-resolution frame.
         options.renderTargetScale = std::clamp(rendering.renderTargetScale, 0.25f, 4.0f);
@@ -480,7 +481,10 @@ namespace visutwin::canvas
         sceneDepthOptions.name = "CameraFrameSceneDepth";
         sceneDepthOptions.width = std::max(_sceneTexture ? static_cast<int>(_sceneTexture->width()) : 1, 1);
         sceneDepthOptions.height = std::max(_sceneTexture ? static_cast<int>(_sceneTexture->height()) : 1, 1);
-        sceneDepthOptions.format = PixelFormat::PIXELFORMAT_DEPTH;
+        // Single-sampled, this texture IS the scene pass's depth attachment, so it carries the
+        // stencil a stencil-using scene asks for; under MSAA the scene pass has its own.
+        sceneDepthOptions.format = options.stencil && options.samples <= 1
+            ? PixelFormat::PIXELFORMAT_DEPTHSTENCIL : PixelFormat::PIXELFORMAT_DEPTH;
         sceneDepthOptions.mipmaps = false;
         sceneDepthOptions.minFilter = FilterMode::FILTER_NEAREST;
         sceneDepthOptions.magFilter = FilterMode::FILTER_NEAREST;

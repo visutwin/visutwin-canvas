@@ -7,6 +7,7 @@
 
 #include "framework/components/componentRegistry.h"
 #include "cullModeResolve.h"
+#include "multiDraw.h"
 #include "core/hash.h"
 #include "scene/renderer/sortDistance.h"
 
@@ -1970,7 +1971,8 @@ namespace visutwin::canvas
                 device.setVertexBuffer(instData.vertexBuffer, 5);
                 device.setTransformUniforms(view.viewProjection,
                     forwardModelMatrix(meshInstance, variant.material, ctx.scene, view.position));
-                device.draw(entry.primitive, entry.indexBuffer, instData.count, -1, true, true);
+                drawWithCommands(device, entry.primitive, entry.indexBuffer, instData.count,
+                    meshInstance->drawCommandsFor(view.camera));
             } else if (variant.dynamicBatch) {
                 // Dynamic batch draw: dynamic batches use SkinBatchInstance with a
                 // per-frame matrix palette, which the vertex shader indexes with a
@@ -2072,7 +2074,9 @@ namespace visutwin::canvas
                 const bool sky = variant.material && variant.material->isSkybox();
                 device.setTransformUniforms(sky ? view.viewProjectionSkybox : view.viewProjection,
                     forwardModelMatrix(meshInstance, variant.material, ctx.scene, view.position));
-                device.draw(entry.primitive, entry.indexBuffer, 1, -1, true, true);
+                const DrawCommands* commands = meshInstance && !variant.skinned && !variant.morphed
+                    ? meshInstance->drawCommandsFor(view.camera) : nullptr;
+                drawWithCommands(device, entry.primitive, entry.indexBuffer, 1, commands);
             }
         }
 

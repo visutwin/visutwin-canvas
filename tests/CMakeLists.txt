@@ -219,5 +219,6 @@ visutwin_add_unit_test(visutwin-directional-shadow-bounds-tests directional-shad
 visutwin_add_unit_test(visutwin-gsplat-sh-tests gsplat-sh gsplatShTests.cpp)
 visutwin_add_unit_test(visutwin-scene-map-handle-tests scene-map-handles sceneMapHandleTests.cpp)
 visutwin_add_unit_test(visutwin-indirect-slots-tests indirect-slots indirectSlotsTests.cpp)
+visutwin_add_unit_test(visutwin-multi-draw-tests multi-draw multiDrawTests.cpp)
 visutwin_add_unit_test(visutwin-dds-parser-tests dds-parser ddsParserTests.cpp)
 visutwin_add_unit_test(visutwin-anim-component-property-tests anim-component-properties animComponentPropertyTests.cpp)

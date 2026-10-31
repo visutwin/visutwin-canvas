@@ -148,6 +148,10 @@ namespace visutwin::canvas
         // device maximum; changing it rebuilds the camera frame's render targets.
         int samples = 1;
 
+        // Whether the offscreen scene target's depth carries STENCIL, for materials that test
+        // or write it (a portal); changing it rebuilds the camera frame's render targets.
+        bool stencil = false;
+
         // Number of downsample levels in the bloom chain. Fewer levels = tighter, sharper glow; the chain also stops early
         // once a mip would go below 2 px.
         int bloomBlurLevel = 16;

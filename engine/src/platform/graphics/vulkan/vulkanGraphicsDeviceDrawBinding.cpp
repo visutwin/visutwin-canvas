@@ -1387,7 +1387,7 @@ namespace visutwin::canvas
                 _indirectDrawBuffer = VK_NULL_HANDLE;
             } else {
                 vkCmdDrawIndexed(cmd, primitive.count, numInstances,
-                    primitive.base, primitive.baseVertex, 0);
+                    primitive.base, primitive.baseVertex, static_cast<uint32_t>(primitive.firstInstance));
             }
         } else if (indirect) {
             vkCmdDrawIndirect(cmd, _indirectDrawBuffer,
@@ -1395,7 +1395,8 @@ namespace visutwin::canvas
                 1, sizeof(VkDrawIndirectCommand));
             _indirectDrawBuffer = VK_NULL_HANDLE;
         } else {
-            vkCmdDraw(cmd, primitive.count, numInstances, primitive.base, 0);
+            vkCmdDraw(cmd, primitive.count, numInstances, primitive.base,
+                static_cast<uint32_t>(primitive.firstInstance));
         }
     }
 

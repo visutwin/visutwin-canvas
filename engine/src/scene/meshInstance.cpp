@@ -446,6 +446,31 @@ namespace visutwin::canvas
         return any;
     }
 
+    DrawCommands* MeshInstance::setMultiDraw(const Camera* camera, const int maxCount)
+    {
+        std::erase_if(_drawCommands, [camera](const auto& entry) { return entry.first == camera; });
+        if (maxCount <= 0) {
+            return nullptr;
+        }
+        _drawCommands.emplace_back(camera, std::make_unique<DrawCommands>(maxCount));
+        return _drawCommands.back().second.get();
+    }
+
+    const DrawCommands* MeshInstance::drawCommandsFor(const Camera* camera) const
+    {
+        // A list for this camera wins over one for every camera.
+        const DrawCommands* any = nullptr;
+        for (const auto& [owner, commands] : _drawCommands) {
+            if (owner == camera) {
+                return commands.get();
+            }
+            if (!owner) {
+                any = commands.get();
+            }
+        }
+        return any;
+    }
+
     std::array<int32_t, 4> MeshInstance::getIndirectMetaData() const
     {
         if (!_mesh) {

@@ -15,6 +15,7 @@
 #include <core/shape/boundingBox.h>
 
 #include "clipPlanes.h"
+#include "drawCommands.h"
 #include "graphNode.h"
 #include "mesh.h"
 #include "morphInstance.h"
@@ -320,6 +321,14 @@ namespace visutwin::canvas
         /// the index count, the first index and the base vertex (then 0).
         std::array<int32_t, 4> getIndirectMetaData() const;
 
+        /// Draws this mesh instance as a list of sub-draws for `camera` (every camera when
+        /// null): `maxCount` slots the caller fills (DrawCommands::add) and makes live
+        /// (DrawCommands::update). The list stays until it is set again; a `maxCount` of 0
+        /// removes it. A dynamic batch, particles and splats ignore it.
+        DrawCommands* setMultiDraw(const Camera* camera, int maxCount);
+        /// The sub-draws set for `camera` (one set for every camera when none is), or null.
+        const DrawCommands* drawCommandsFor(const Camera* camera) const;
+
         const InstancingData& instancingData() const { return _instancingData; }
         int instancingCount() const { return _instancingData.count; }
 
@@ -523,6 +532,7 @@ namespace visutwin::canvas
             uint64_t frame = 0;
         };
         std::vector<IndirectDraw> _indirectDraws;
+        std::vector<std::pair<const Camera*, std::unique_ptr<DrawCommands>>> _drawCommands;
 
         BoundingBox* _customAabb = nullptr;
         // The union of the instances' bounds in the NODE's space, which _customAabb

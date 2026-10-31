@@ -1903,14 +1903,15 @@ namespace visutwin::canvas
                 indexBufferOffset,
                 static_cast<NS::UInteger>(numInstances),
                 static_cast<NS::Integer>(primitive.baseVertex),
-                0
+                static_cast<NS::UInteger>(primitive.firstInstance)
             );
         } else {
             passEncoder->drawPrimitives(
                 primitiveType,
                 static_cast<NS::UInteger>(primitive.base),
                 static_cast<NS::UInteger>(primitive.count),
-                static_cast<NS::UInteger>(numInstances)
+                static_cast<NS::UInteger>(numInstances),
+                static_cast<NS::UInteger>(primitive.firstInstance)
             );
         }
     }

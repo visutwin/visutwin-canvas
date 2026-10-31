@@ -169,6 +169,9 @@
         }
     }
 
+    // The lit colour as an override chunk may replace it, before fog and tone mapping.
+    color = forwardUserLitColor(color, albedo.rgb, N, fragWorldPos);
+
     // Fog. The three curves: LINEAR over [start, end], EXP
     // on density, EXP2 on density squared, chosen by the type uploaded in
     // fogStartEndType.z (0 is off).
