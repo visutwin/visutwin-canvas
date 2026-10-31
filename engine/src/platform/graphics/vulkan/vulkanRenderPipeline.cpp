@@ -838,6 +838,12 @@ namespace visutwin::canvas
             const BlendState state = blendState->attachment(static_cast<int>(i));
             blendAttachments[i] = attachmentState(&state);
         }
+        // An integer attachment cannot blend: it takes the shader's value as written.
+        for (size_t i = 0; i < blendAttachments.size(); ++i) {
+            if (vulkanFormatIntegerKind(colorFormats[i]) != VulkanIntegerKind::None) {
+                blendAttachments[i].blendEnable = VK_FALSE;
+            }
+        }
         VkPipelineColorBlendStateCreateInfo colorBlend{
             VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
         colorBlend.attachmentCount =

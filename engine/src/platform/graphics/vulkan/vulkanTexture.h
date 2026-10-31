@@ -114,6 +114,23 @@ namespace visutwin::canvas::gpu
         bool _supportsLinearSampling = false;
         bool _supportsColorAttachment = false;
         std::vector<VkImageLayout> _subresourceLayouts;
+
+        // What the current image was created as. A re-upload of the same shape writes into it
+        // rather than replacing it, so the views a render target holds stay valid.
+        struct ImageShape
+        {
+            VkFormat format = VK_FORMAT_UNDEFINED;
+            uint32_t width = 0;
+            uint32_t height = 0;
+            uint32_t depth = 0;
+            uint32_t mipLevels = 0;
+            uint32_t arrayLayers = 0;
+            bool cubemap = false;
+            bool volume = false;
+            bool operator==(const ImageShape&) const = default;
+        };
+        [[nodiscard]] ImageShape currentShape() const;
+        ImageShape _imageShape;
     };
 }
 

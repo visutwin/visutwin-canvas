@@ -13,6 +13,11 @@
 // overlay turns red (0.85, 0.25, 0.25). The two attachments are shown side by side, attachment 0
 // on the left, each 1.6 across with 0.1 between them.
 //
+// An unsigned integer target (PIXELFORMAT_R32U, 4 x 4) is cleared to a marker value, 12648430,
+// by a clear-only pass every frame, and a small indicator panel below the two (0.25 across)
+// reads it by texel: green when it holds the marker, red otherwise. For an integer format the
+// clear colour's components are the raw integer values.
+//
 // The attachments are cleared to colours of their own (RenderPass::setClearColor with an
 // attachment index) by a clear-only pass at the start of every frame: attachment 0 dark blue, 1
 // dark green, visible as the border around each panel. The camera drawing the quads into the
@@ -22,11 +27,9 @@
 // and is fitted to the panels at any aspect ratio.
 //
 // DEVIATIONS:
-// - No unsigned-integer clear indicator: the engine has no integer pixel formats yet, so the
-//   small panel testing an R32U target's clear value is left out.
-// - The clear-only pass is a prepend pass of the frame graph (Renderer::addPrependPass), where
-//   upstream renders it from the "prerender" event; it clears the depth as well, so the camera
-//   pass after it starts from a cleared depth whether or not the two merge.
+// - The clear-only passes is a prepend pass of the frame graph (Renderer::addPrependPass), where
+//   upstream renders them from the "prerender" event; the MRT one clears the depth as well, so
+//   the camera pass after it starts from a cleared depth whether or not the two merge.
 // - One pixel per point (upstream allows a pixel ratio of up to 2).
 //
 #include <algorithm>
@@ -43,7 +46,9 @@
 #include "platform/graphics/texture.h"
 #include "scene/composition/layerComposition.h"
 #include "scene/layer.h"
+#include "scene/materials/shaderMaterial.h"
 #include "scene/materials/standardMaterial.h"
+#include "scene/shader-lib/slangShaders.h"
 
 using namespace visutwin::canvas;
 
@@ -56,6 +61,54 @@ namespace
     constexpr float kPanelGap = 0.1f;
     constexpr float kPanelX = (kPanelSize + kPanelGap) * 0.5f;
     constexpr float kMargin = 1.06f;
+
+    // The indicator sits below the two panels.
+    constexpr float kIndicatorSize = 0.25f;
+    constexpr float kIndicatorY = -(kPanelSize + kIndicatorSize) * 0.5f - 0.1f;
+
+    // The marker value the integer target is cleared to, which the indicator tests for.
+    constexpr uint32_t kUintClearValue = 12648430u;
+
+    // Reads the integer texture by texel (the material's base colour slot) and shows green when
+    // it holds the marker value.
+    constexpr const char* kIndicatorSlang = R"slang(
+import vtdraw;
+#include "bindings.slang"
+
+VT_DECLARE_QUAD_UINT_INPUT0(uintMap)
+
+struct VertexIn
+{
+    [[vk::location(0)]] float3 position : POSITION;
+    [[vk::location(2)]] float2 uv0 : TEXCOORD0;
+};
+
+struct Varyings
+{
+    float4 position : SV_Position;
+    float2 uv0 : TEXCOORD0;
+};
+
+[shader("vertex")]
+Varyings indicatorVertex(VertexIn input)
+{
+    Varyings output;
+    float4 clip = mul(mul(float4(input.position, 1.0), drawModel()), drawViewProjection());
+    clip.z = 0.5 * (clip.z + clip.w);
+    output.position = clip;
+    output.uv0 = input.uv0;
+    return output;
+}
+
+[shader("fragment")]
+float4 indicatorFragment(Varyings input) : SV_Target0
+{
+    const int2 dims = int2(4, 4);
+    const int2 coords = min(int2(input.uv0 * float2(dims)), dims - int2(1, 1));
+    const uint value = uintMap.Load(int3(coords, 0)).r;
+    return value == 12648430u ? float4(0.2, 0.55, 0.25, 1.0) : float4(0.7, 0.15, 0.15, 1.0);
+}
+)slang";
 
     // A material writing the same colour to both attachments. A material drawing into the
     // target writes all of them; the forward program's default copies its colour to each.
@@ -147,6 +200,27 @@ protected:
         _clearPass->setClearDepth(&clearDepth);
         engine()->renderer()->addPrependPass(_clearPass);
 
+        // ------ Clear of an unsigned integer format render target ------
+        TextureOptions uintOptions;
+        uintOptions.name = "uintClear";
+        uintOptions.width = 4;
+        uintOptions.height = 4;
+        uintOptions.format = PixelFormat::PIXELFORMAT_R32U;
+        uintOptions.mipmaps = false;
+        _uintTexture = std::make_shared<Texture>(device().get(), uintOptions);
+        RenderTargetOptions uintTargetOptions;
+        uintTargetOptions.graphicsDevice = device().get();
+        uintTargetOptions.name = "UintRT";
+        uintTargetOptions.colorBuffer = _uintTexture.get();
+        uintTargetOptions.depth = false;
+        _uintRenderTarget = device()->createRenderTarget(uintTargetOptions);
+
+        // A clear-only pass storing the marker value in the texture.
+        _uintClearPass = std::make_shared<RenderPass>(device());
+        _uintClearPass->init(_uintRenderTarget);
+        _uintClearPass->setClearColor(Color(static_cast<float>(kUintClearValue), 0.0f, 0.0f, 0.0f), 0);
+        engine()->renderer()->addPrependPass(_uintClearPass);
+
         // The camera renders over the cleared attachments without clearing colour, before the
         // main camera, so the displayed attachments hold this frame's result.
         Entity* offscreenCamera = createCamera(Vector3(0.0f, 0.0f, 5.0f));
@@ -163,6 +237,19 @@ protected:
         // Left: attachment 0, right: attachment 1
         createDisplay("Display 0", _attachment0.get(), -kPanelX);
         createDisplay("Display 1", _attachment1.get(), kPanelX);
+
+        // ------ Indicator panel testing the integer clear value ------
+        if (auto shader = getOrCreateSlangShaderFromSource(device().get(), "uint-clear-indicator", kIndicatorSlang)) {
+            _indicatorMaterial = std::make_shared<ShaderMaterial>("UintClearIndicator", shader);
+            _indicatorMaterial->setBaseColorTexture(_uintTexture.get());
+            _indicatorMaterial->setCullMode(CullMode::CULLFACE_NONE);
+            Entity* indicator = createPrimitive("plane", _indicatorMaterial.get(), Vector3(0.0f, kIndicatorY, 0.0f),
+                Vector3(kIndicatorSize, 1.0f, kIndicatorSize), {LAYERID_WORLD});
+            indicator->setName("Uint Clear Indicator");
+            indicator->setLocalEulerAngles(90.0f, 0.0f, 0.0f);
+        } else {
+            spdlog::error("The integer clear indicator's shader did not compile");
+        }
 
         Entity* camera = createCamera(Vector3(0.0f, 0.0f, 5.0f));
         _camera = camera->findComponent<CameraComponent>();
@@ -184,7 +271,14 @@ protected:
         if (_clearPass) {
             engine()->renderer()->removePrependPass(_clearPass);
         }
+        if (_uintClearPass) {
+            engine()->renderer()->removePrependPass(_uintClearPass);
+        }
+        if (_indicatorMaterial) {
+            _indicatorMaterial->setBaseColorTexture(nullptr);
+        }
         _clearPass.reset();
+        _uintClearPass.reset();
     }
 
 private:
@@ -229,13 +323,13 @@ private:
         entity->setLocalEulerAngles(90.0f, 0.0f, 0.0f);
     }
 
-    // Keeps the panels fully visible at any aspect ratio: an orthographic camera sees
+    // Keeps the panels and the indicator fully visible at any aspect ratio: an orthographic camera sees
     // 2 * orthoHeight high and 2 * orthoHeight * aspect wide, so the height is whichever of the
     // two constraints is tighter, with a small margin.
     void fitCamera()
     {
         constexpr float contentWidth = kPanelSize * 2.0f + kPanelGap;
-        constexpr float contentHalfHeight = kPanelSize * 0.5f;
+        constexpr float contentHalfHeight = -kIndicatorY + kIndicatorSize * 0.5f;
         const auto [width, height] = engine()->canvasSize();
         const float aspect = static_cast<float>(width) / static_cast<float>(std::max(height, 1));
         _camera->camera()->setOrthoHeight(std::max(contentWidth / (2.0f * aspect), contentHalfHeight) * kMargin);
@@ -245,6 +339,10 @@ private:
     std::shared_ptr<Texture> _attachment1;
     std::shared_ptr<RenderTarget> _renderTarget;
     std::shared_ptr<RenderPass> _clearPass;
+    std::shared_ptr<Texture> _uintTexture;
+    std::shared_ptr<RenderTarget> _uintRenderTarget;
+    std::shared_ptr<RenderPass> _uintClearPass;
+    std::shared_ptr<ShaderMaterial> _indicatorMaterial;
     CameraComponent* _camera = nullptr;
     std::vector<std::shared_ptr<StandardMaterial>> _materials;
 };

@@ -87,6 +87,11 @@ namespace visutwin::canvas
 
     // Enum mapping functions.
     VkFormat vulkanMapPixelFormat(PixelFormat format);
+
+    /// Whether a colour format holds integers, and which: an integer attachment clears from
+    /// uint32 / int32 values and never blends.
+    enum class VulkanIntegerKind { None, Unsigned, Signed };
+    VulkanIntegerKind vulkanFormatIntegerKind(VkFormat format);
     VkSamplerAddressMode vulkanMapAddressMode(AddressMode mode);
     VkCullModeFlags vulkanMapCullMode(CullMode mode);
     VkPrimitiveTopology vulkanMapPrimitiveType(PrimitiveType type);

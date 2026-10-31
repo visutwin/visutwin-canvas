@@ -87,6 +87,42 @@ namespace visutwin::canvas::gpu
                 return MTL::PixelFormatR8Unorm;
             case PixelFormat::PIXELFORMAT_RG8:
                 return MTL::PixelFormatRG8Unorm;
+            case PixelFormat::PIXELFORMAT_R8I:
+                return MTL::PixelFormatR8Sint;
+            case PixelFormat::PIXELFORMAT_R8U:
+                return MTL::PixelFormatR8Uint;
+            case PixelFormat::PIXELFORMAT_R16I:
+                return MTL::PixelFormatR16Sint;
+            case PixelFormat::PIXELFORMAT_R16U:
+                return MTL::PixelFormatR16Uint;
+            case PixelFormat::PIXELFORMAT_R32I:
+                return MTL::PixelFormatR32Sint;
+            case PixelFormat::PIXELFORMAT_R32U:
+                return MTL::PixelFormatR32Uint;
+            case PixelFormat::PIXELFORMAT_RG8I:
+                return MTL::PixelFormatRG8Sint;
+            case PixelFormat::PIXELFORMAT_RG8U:
+                return MTL::PixelFormatRG8Uint;
+            case PixelFormat::PIXELFORMAT_RG16I:
+                return MTL::PixelFormatRG16Sint;
+            case PixelFormat::PIXELFORMAT_RG16U:
+                return MTL::PixelFormatRG16Uint;
+            case PixelFormat::PIXELFORMAT_RG32I:
+                return MTL::PixelFormatRG32Sint;
+            case PixelFormat::PIXELFORMAT_RG32U:
+                return MTL::PixelFormatRG32Uint;
+            case PixelFormat::PIXELFORMAT_RGBA8I:
+                return MTL::PixelFormatRGBA8Sint;
+            case PixelFormat::PIXELFORMAT_RGBA8U:
+                return MTL::PixelFormatRGBA8Uint;
+            case PixelFormat::PIXELFORMAT_RGBA16I:
+                return MTL::PixelFormatRGBA16Sint;
+            case PixelFormat::PIXELFORMAT_RGBA16U:
+                return MTL::PixelFormatRGBA16Uint;
+            case PixelFormat::PIXELFORMAT_RGBA32I:
+                return MTL::PixelFormatRGBA32Sint;
+            case PixelFormat::PIXELFORMAT_RGBA32U:
+                return MTL::PixelFormatRGBA32Uint;
             case PixelFormat::PIXELFORMAT_DEPTH16:
                 return MTL::PixelFormatDepth16Unorm;
             case PixelFormat::PIXELFORMAT_DEPTH:
@@ -144,8 +180,11 @@ namespace visutwin::canvas::gpu
                 return 8;
             case PixelFormat::PIXELFORMAT_RGBA32F:
                 return 16;
-            default:
-                return 4;
+            default: {
+                // The integer formats, from the format table.
+                const uint32_t size = pixelFormatBytesPerPixel(format);
+                return size > 0 ? size : 4;
+            }
             }
         }
     }

@@ -55,11 +55,33 @@ namespace visutwin::canvas
         PIXELFORMAT_BC6H = 66,          // Block-compressed BC6H: unsigned HDR RGB
         PIXELFORMAT_BC7 = 67,           // Block-compressed BC7: 4x4 blocks, 16 bytes/block (high-quality RGBA)
         PIXELFORMAT_DEPTH16 = 69,       // A 16-bit depth buffer format
-        PIXELFORMAT_BGRA8 = 70          // 32-bit BGRA — the swapchain/drawable layout on
+        PIXELFORMAT_BGRA8 = 70,         // 32-bit BGRA — the swapchain/drawable layout on
                                         // both backends. Needed so a copy FROM the back
                                         // buffer can allocate a destination of the same
                                         // format; a blit between differing formats is
                                         // invalid.
+
+        // Integer formats: read only by texel (Load), never filtered, blended or resolved;
+        // a texture of one is always nearest-filtered. A clear colour's components are the
+        // raw integer values.
+        PIXELFORMAT_R8I = 71,           // 8-bit signed integer (R)
+        PIXELFORMAT_R8U = 72,           // 8-bit unsigned integer (R)
+        PIXELFORMAT_R16I = 73,          // 16-bit signed integer (R)
+        PIXELFORMAT_R16U = 74,          // 16-bit unsigned integer (R)
+        PIXELFORMAT_R32I = 75,          // 32-bit signed integer (R)
+        PIXELFORMAT_R32U = 76,          // 32-bit unsigned integer (R)
+        PIXELFORMAT_RG8I = 77,          // 8-bit per-channel signed integer (RG)
+        PIXELFORMAT_RG8U = 78,          // 8-bit per-channel unsigned integer (RG)
+        PIXELFORMAT_RG16I = 79,         // 16-bit per-channel signed integer (RG)
+        PIXELFORMAT_RG16U = 80,         // 16-bit per-channel unsigned integer (RG)
+        PIXELFORMAT_RG32I = 81,         // 32-bit per-channel signed integer (RG)
+        PIXELFORMAT_RG32U = 82,         // 32-bit per-channel unsigned integer (RG)
+        PIXELFORMAT_RGBA8I = 83,        // 8-bit per-channel signed integer (RGBA)
+        PIXELFORMAT_RGBA8U = 84,        // 8-bit per-channel unsigned integer (RGBA)
+        PIXELFORMAT_RGBA16I = 85,       // 16-bit per-channel signed integer (RGBA)
+        PIXELFORMAT_RGBA16U = 86,       // 16-bit per-channel unsigned integer (RGBA)
+        PIXELFORMAT_RGBA32I = 87,       // 32-bit per-channel signed integer (RGBA)
+        PIXELFORMAT_RGBA32U = 88        // 32-bit per-channel unsigned integer (RGBA)
     };
 
     enum class TexHint
@@ -103,7 +125,11 @@ namespace visutwin::canvas
 
     bool isCompressedPixelFormat(PixelFormat format);
 
+    /// True for a signed or unsigned integer format (PIXELFORMAT_R8I .. RGBA32U).
     bool isIntegerPixelFormat(PixelFormat format);
+
+    /// True for an unsigned integer format: its clear values are uint32, a signed one's int32.
+    bool isUnsignedIntegerPixelFormat(PixelFormat format);
 
     /// True for a format that stores floating-point values (half, float, BC6H): its colours are
     /// linear as stored, where an 8-bit colour map is authored in sRGB.

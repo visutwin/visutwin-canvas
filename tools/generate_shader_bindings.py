@@ -119,6 +119,16 @@ def quad_inputs(material: list[BindingRow], extra: list[str]) -> list[str]:
             # combined sampler does not compile, the combined sampler on Vulkan.
             metal_only.append(f"#define VT_DECLARE_QUAD_TEXEL_INPUT{n}(name) {vk}Texture2D name : register(t{n});")
             other.append(f"#define VT_DECLARE_QUAD_TEXEL_INPUT{n}(name) {vk}Sampler2D name : register(t{n}) : register(s{linear});")
+            # An INTEGER texture (PIXELFORMAT_*U / *I), read only with Load: its element type is
+            # what each target checks against the format (Metal texture2d<uint>, SPIR-V an image of
+            # uint), and a texture of one is nearest-filtered, so its own sampler is a legal one.
+            # The input is the n-th material row, so a material draw may declare one too.
+            for kind, elem in (("UINT", "uint4"), ("INT", "int4")):
+                metal_only.append(f"#define VT_DECLARE_QUAD_{kind}_INPUT{n}(name) {vk}Texture2D<{elem}> name : register(t{n});")
+                # Slang would type the SPIR-V image by its element (Rgba32ui), which a narrower
+                # format (R8_UINT) does not match: the format is left unknown.
+                other.append(f"#define VT_DECLARE_QUAD_{kind}_INPUT{n}(name) {vk}[vk::image_format(\"unknown\")] "
+                             f"Sampler2D<{elem}> name : register(t{n}) : register(s{linear});")
         elif row.kind == "SeparateImage":
             lines.append(f"#define VT_DECLARE_QUAD_INPUT{n}(name) {vk}Texture2D name : register(t{n});")
             lines.append(f"#define VT_DECLARE_QUAD_ARRAY_INPUT{n}(name) {vk}Texture2DArray name : register(t{n});")

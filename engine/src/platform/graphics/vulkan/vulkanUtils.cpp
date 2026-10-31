@@ -220,6 +220,24 @@ namespace visutwin::canvas
         case PixelFormat::PIXELFORMAT_DEPTHSTENCIL: return VK_FORMAT_D32_SFLOAT_S8_UINT;
         case PixelFormat::PIXELFORMAT_R8:           return VK_FORMAT_R8_UNORM;
         case PixelFormat::PIXELFORMAT_RG8:          return VK_FORMAT_R8G8_UNORM;
+        case PixelFormat::PIXELFORMAT_R8I:          return VK_FORMAT_R8_SINT;
+        case PixelFormat::PIXELFORMAT_R8U:          return VK_FORMAT_R8_UINT;
+        case PixelFormat::PIXELFORMAT_R16I:         return VK_FORMAT_R16_SINT;
+        case PixelFormat::PIXELFORMAT_R16U:         return VK_FORMAT_R16_UINT;
+        case PixelFormat::PIXELFORMAT_R32I:         return VK_FORMAT_R32_SINT;
+        case PixelFormat::PIXELFORMAT_R32U:         return VK_FORMAT_R32_UINT;
+        case PixelFormat::PIXELFORMAT_RG8I:         return VK_FORMAT_R8G8_SINT;
+        case PixelFormat::PIXELFORMAT_RG8U:         return VK_FORMAT_R8G8_UINT;
+        case PixelFormat::PIXELFORMAT_RG16I:        return VK_FORMAT_R16G16_SINT;
+        case PixelFormat::PIXELFORMAT_RG16U:        return VK_FORMAT_R16G16_UINT;
+        case PixelFormat::PIXELFORMAT_RG32I:        return VK_FORMAT_R32G32_SINT;
+        case PixelFormat::PIXELFORMAT_RG32U:        return VK_FORMAT_R32G32_UINT;
+        case PixelFormat::PIXELFORMAT_RGBA8I:       return VK_FORMAT_R8G8B8A8_SINT;
+        case PixelFormat::PIXELFORMAT_RGBA8U:       return VK_FORMAT_R8G8B8A8_UINT;
+        case PixelFormat::PIXELFORMAT_RGBA16I:      return VK_FORMAT_R16G16B16A16_SINT;
+        case PixelFormat::PIXELFORMAT_RGBA16U:      return VK_FORMAT_R16G16B16A16_UINT;
+        case PixelFormat::PIXELFORMAT_RGBA32I:      return VK_FORMAT_R32G32B32A32_SINT;
+        case PixelFormat::PIXELFORMAT_RGBA32U:      return VK_FORMAT_R32G32B32A32_UINT;
         case PixelFormat::PIXELFORMAT_ASTC_4x4:     return VK_FORMAT_ASTC_4x4_UNORM_BLOCK;
         case PixelFormat::PIXELFORMAT_ASTC_5x5:     return VK_FORMAT_ASTC_5x5_UNORM_BLOCK;
         case PixelFormat::PIXELFORMAT_ASTC_6x6:     return VK_FORMAT_ASTC_6x6_UNORM_BLOCK;
@@ -231,6 +249,34 @@ namespace visutwin::canvas
         case PixelFormat::PIXELFORMAT_BC6H:         return VK_FORMAT_BC6H_UFLOAT_BLOCK;
         case PixelFormat::PIXELFORMAT_BC7:          return VK_FORMAT_BC7_UNORM_BLOCK;
         default:                                    return VK_FORMAT_UNDEFINED;
+        }
+    }
+
+    VulkanIntegerKind vulkanFormatIntegerKind(const VkFormat format)
+    {
+        switch (format) {
+        case VK_FORMAT_R8_UINT:
+        case VK_FORMAT_R16_UINT:
+        case VK_FORMAT_R32_UINT:
+        case VK_FORMAT_R8G8_UINT:
+        case VK_FORMAT_R16G16_UINT:
+        case VK_FORMAT_R32G32_UINT:
+        case VK_FORMAT_R8G8B8A8_UINT:
+        case VK_FORMAT_R16G16B16A16_UINT:
+        case VK_FORMAT_R32G32B32A32_UINT:
+            return VulkanIntegerKind::Unsigned;
+        case VK_FORMAT_R8_SINT:
+        case VK_FORMAT_R16_SINT:
+        case VK_FORMAT_R32_SINT:
+        case VK_FORMAT_R8G8_SINT:
+        case VK_FORMAT_R16G16_SINT:
+        case VK_FORMAT_R32G32_SINT:
+        case VK_FORMAT_R8G8B8A8_SINT:
+        case VK_FORMAT_R16G16B16A16_SINT:
+        case VK_FORMAT_R32G32B32A32_SINT:
+            return VulkanIntegerKind::Signed;
+        default:
+            return VulkanIntegerKind::None;
         }
     }
 

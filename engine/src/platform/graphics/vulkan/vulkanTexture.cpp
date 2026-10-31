@@ -241,6 +241,9 @@ namespace visutwin::canvas::gpu
             bool volume = false;
             // See mipLevelBlit.
             bool sourceZByDestinationDepth = false;
+            // Written over an image that frames already submitted may still be reading: the
+            // upload then waits for every earlier command before it discards the contents.
+            bool reused = false;
 
             /// The layer count a barrier names: a volume's must be VK_REMAINING_ARRAY_LAYERS,
             /// which on a 2D-array-compatible 3D image covers every depth slice whether or not
@@ -309,10 +312,28 @@ namespace visutwin::canvas::gpu
         void recordStagedUpload(VkCommandBuffer cmd, const UploadTarget& target, VkBuffer stagingBuffer,
             const std::vector<VkBufferImageCopy>& regions, const bool generateMips)
         {
-            vulkanTransitionImageLayout(cmd, target.image,
-                VK_IMAGE_LAYOUT_UNDEFINED,
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                target.aspect, 0, target.mipLevels, 0, target.barrierLayers());
+            if (target.reused) {
+                VkImageMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+                barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                barrier.srcAccessMask = VK_ACCESS_2_NONE;
+                barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+                barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+                barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrier.image = target.image;
+                barrier.subresourceRange = {target.aspect, 0, target.mipLevels, 0, target.barrierLayers()};
+                VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+                dependency.imageMemoryBarrierCount = 1;
+                dependency.pImageMemoryBarriers = &barrier;
+                vkCmdPipelineBarrier2(cmd, &dependency);
+            } else {
+                vulkanTransitionImageLayout(cmd, target.image,
+                    VK_IMAGE_LAYOUT_UNDEFINED,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    target.aspect, 0, target.mipLevels, 0, target.barrierLayers());
+            }
 
             vkCmdCopyBufferToImage(cmd, stagingBuffer, target.image,
                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -337,22 +358,32 @@ namespace visutwin::canvas::gpu
         _vkDevice = vkDev->device();
         _allocator = vkDev->vmaAllocator();
 
-        retireImage();
+        // A re-upload of a colour image of the same shape writes into the image it has: a
+        // render target over this texture holds views of it, which a new image would leave
+        // dangling. Anything else replaces the image.
+        const VkImage previous = _image;
         if (!resolveFormat(vkDev)) {
+            retireImage();
             return;
         }
         resolveLevelsAndCapabilities(vkDev);
-        if (!createImage(vkDev) || !createImageView()) {
-            return;
-        }
-        // Sampler — only meaningful for color textures, but harmless on depth.
-        if (!createSampler(vkDev, _sampler)) {
-            releaseImageResources();
-            return;
+        const bool reuse = previous != VK_NULL_HANDLE && !isDepth() && currentShape() == _imageShape;
+        if (!reuse) {
+            retireImage();
+            if (!createImage(vkDev) || !createImageView()) {
+                return;
+            }
+            // Sampler — only meaningful for color textures, but harmless on depth.
+            if (!createSampler(vkDev, _sampler)) {
+                releaseImageResources();
+                return;
+            }
+            _imageShape = currentShape();
         }
 
-        const UploadTarget target{_image, _aspect, _mipLevels, _arrayLayers, _owner->width(), _owner->height(),
+        UploadTarget target{_image, _aspect, _mipLevels, _arrayLayers, _owner->width(), _owner->height(),
             _owner->levelDepth(0), _owner->isVolume(), vkDev->volumeBlitSourceZByDestinationDepth()};
+        target.reused = reuse;
         const HostUploads host = collectHostUploads(*_owner, isDepth(), _arrayLayers, _mipLevels);
         if (!host.uploads.empty()) {
             auto staged = stageHostUploads(_allocator, _aspect, host);
@@ -372,7 +403,7 @@ namespace visutwin::canvas::gpu
                 [allocator = _allocator, stagingBuffer = staged->buffer, stagingAlloc = staged->allocation] {
                     vmaDestroyBuffer(allocator, stagingBuffer, stagingAlloc);
                 });
-        } else {
+        } else if (!reuse) {
             // No host data — but the image must still be in a defined layout
             // before *any* shader can sample it (e.g. as a default-bound slot)
             // and before any descriptor that references its view is allowed
@@ -387,8 +418,17 @@ namespace visutwin::canvas::gpu
                     target.aspect, 0, target.mipLevels, 0, target.barrierLayers());
             });
         }
-        std::fill(_subresourceLayouts.begin(), _subresourceLayouts.end(),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        // A reused image given nothing to upload keeps its layouts as they are.
+        if (!reuse || !host.uploads.empty()) {
+            std::fill(_subresourceLayouts.begin(), _subresourceLayouts.end(),
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+    }
+
+    VulkanTexture::ImageShape VulkanTexture::currentShape() const
+    {
+        return {_format, _owner->width(), _owner->height(), _owner->levelDepth(0), _mipLevels, _arrayLayers,
+            _owner->isCubemap(), _owner->isVolume()};
     }
 
     void VulkanTexture::retireImage()
@@ -743,13 +783,15 @@ namespace visutwin::canvas::gpu
             ? toVkFilter(state.magFilter) : VK_FILTER_NEAREST;
         samplerInfo.minFilter = _supportsLinearSampling
             ? toVkFilter(state.minFilter) : VK_FILTER_NEAREST;
-        samplerInfo.mipmapMode = state.mipFilter == TextureSamplerState::Filter::Nearest
-            ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        // A format that cannot be filtered (an integer one) takes nearest mips and no
+        // anisotropy as well: a linear mip mode on it is invalid even with one level.
+        samplerInfo.mipmapMode = _supportsLinearSampling && state.mipFilter != TextureSamplerState::Filter::Nearest
+            ? VK_SAMPLER_MIPMAP_MODE_LINEAR : VK_SAMPLER_MIPMAP_MODE_NEAREST;
         samplerInfo.addressModeU = vulkanMapAddressMode(state.addressU);
         samplerInfo.addressModeV = vulkanMapAddressMode(state.addressV);
         samplerInfo.addressModeW = vulkanMapAddressMode(state.addressW);
         samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
-        samplerInfo.anisotropyEnable = state.maxAnisotropy > 1.0f ? VK_TRUE : VK_FALSE;
+        samplerInfo.anisotropyEnable = _supportsLinearSampling && state.maxAnisotropy > 1.0f ? VK_TRUE : VK_FALSE;
         samplerInfo.maxAnisotropy = state.maxAnisotropy;
 
         const VkResult result =

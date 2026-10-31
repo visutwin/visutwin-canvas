@@ -19,6 +19,36 @@ namespace visutwin::canvas
 {
     static int _pipelineId = 0;
 
+    namespace
+    {
+        bool isIntegerMetalFormat(const MTL::PixelFormat format)
+        {
+            switch (format) {
+            case MTL::PixelFormatR8Sint:
+            case MTL::PixelFormatR8Uint:
+            case MTL::PixelFormatR16Sint:
+            case MTL::PixelFormatR16Uint:
+            case MTL::PixelFormatR32Sint:
+            case MTL::PixelFormatR32Uint:
+            case MTL::PixelFormatRG8Sint:
+            case MTL::PixelFormatRG8Uint:
+            case MTL::PixelFormatRG16Sint:
+            case MTL::PixelFormatRG16Uint:
+            case MTL::PixelFormatRG32Sint:
+            case MTL::PixelFormatRG32Uint:
+            case MTL::PixelFormatRGBA8Sint:
+            case MTL::PixelFormatRGBA8Uint:
+            case MTL::PixelFormatRGBA16Sint:
+            case MTL::PixelFormatRGBA16Uint:
+            case MTL::PixelFormatRGBA32Sint:
+            case MTL::PixelFormatRGBA32Uint:
+                return true;
+            default:
+                return false;
+            }
+        }
+    }
+
     // Primitive topology mapping
     const MTL::PrimitiveType MetalRenderPipeline::primitiveTopology[5] = {
         MTL::PrimitiveTypePoint,            // PRIMITIVE_POINTS
@@ -336,6 +366,10 @@ namespace visutwin::canvas
                 const BlendState attachmentState = blendState->attachment(static_cast<int>(i));
                 colorAttachment->setWriteMask(writeMaskOf(attachmentState));
                 setBlend(colorAttachment, attachmentState);
+                // An integer attachment cannot blend: it takes the shader's value as written.
+                if (isIntegerMetalFormat(colorAttachments[i]->pixelFormat)) {
+                    colorAttachment->setBlendingEnabled(false);
+                }
             }
 
             // Set depth/stencil pixel format from the render target's depth attachment

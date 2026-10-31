@@ -14,7 +14,9 @@
 // reads, copies and renders by depth slice the same way: one slice or a run of them, packed
 // slice after slice, its mips (which halve the depth too) uploaded, generated after the upload
 // and generated after rendering into its slices. The volume checks follow upstream's layered
-// texture test (test/texture-copy-read-layered), each texel unique to its slice.
+// texture test (test/texture-copy-read-layered), each texel unique to its slice. Integer
+// formats upload, clear to raw values and read back, and a re-upload under a render target
+// keeps the target rendering into the texture.
 //
 // It needs a GPU and a window, so it carries the `gpu` label, which the CI test presets
 // exclude; run it with `ctest --preset gpu` (or `ctest -L gpu` in a Vulkan build).
@@ -32,6 +34,7 @@
 #include <cstdlib>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -626,6 +629,88 @@ int main()
             check(!dest->copy(*dest), "a texture is not copied onto itself");
             std::vector<uint8_t> actual;
             check(dest->read(actual) && actual == solid(kSize, kGrey), "a refused copy writes nothing");
+        }
+
+        // ── Integer formats ─────────────────────────────────────────────────
+        // Uploaded and read back exactly; cleared through a render target to raw integer values
+        // (an unsigned 32-bit marker past what an 8-bit channel holds, signed 16-bit values below
+        // zero); and an upload into a texture a render target already covers keeps the target
+        // rendering into it (Vulkan writes into the image rather than replacing it).
+        {
+            const std::shared_ptr<GraphicsDevice> shared(device.get(), [](GraphicsDevice*) {});
+            const auto clearInto = [&](Texture& texture, const Color& value) {
+                RenderTargetOptions targetOptions;
+                targetOptions.graphicsDevice = device.get();
+                targetOptions.colorBuffer = &texture;
+                targetOptions.depth = false;
+                targetOptions.name = "integer-target";
+                const auto target = device->createRenderTarget(targetOptions);
+                auto pass = std::make_shared<RenderPass>(shared);
+                pass->init(target);
+                pass->setClearColor(&value);
+                device->frameStart();
+                pass->render();
+                device->frameEnd();
+                return target;
+            };
+
+            constexpr uint32_t kInt = 16;
+            auto r8 = makeTexture(device.get(), "int-r8u", kInt, false, false, PixelFormat::PIXELFORMAT_R8U);
+            std::vector<uint8_t> bytes(kInt * kInt);
+            for (size_t i = 0; i < bytes.size(); ++i) {
+                bytes[i] = static_cast<uint8_t>(i * 7);
+            }
+            fill(*r8, bytes);
+            r8->upload();
+            std::vector<uint8_t> actual;
+            check(r8->read(actual) && actual == bytes, "R8U: an upload reads back byte for byte");
+
+            const auto target = clearInto(*r8, Color(200.0f, 0.0f, 0.0f, 0.0f));
+            check(r8->read(actual) && actual == std::vector<uint8_t>(kInt * kInt, 200),
+                "R8U: a clear writes the raw value 200");
+
+            std::vector<uint8_t> again(kInt * kInt);
+            for (size_t i = 0; i < again.size(); ++i) {
+                again[i] = static_cast<uint8_t>(255 - i);
+            }
+            fill(*r8, again);
+            r8->upload();
+            check(r8->read(actual) && actual == again, "R8U: a re-upload under a render target reads back");
+            {
+                auto pass = std::make_shared<RenderPass>(shared);
+                pass->init(target);
+                const Color value(99.0f, 0.0f, 0.0f, 0.0f);
+                pass->setClearColor(&value);
+                device->frameStart();
+                pass->render();
+                device->frameEnd();
+            }
+            check(r8->read(actual) && actual == std::vector<uint8_t>(kInt * kInt, 99),
+                "R8U: the render target still renders into the re-uploaded texture");
+
+            constexpr uint32_t kMarker = 12648430u;
+            auto r32 = makeTexture(device.get(), "int-r32u", 4, false, false, PixelFormat::PIXELFORMAT_R32U);
+            r32->upload();
+            clearInto(*r32, Color(static_cast<float>(kMarker), 0.0f, 0.0f, 0.0f));
+            bool marked = r32->read(actual) && actual.size() == 4 * 4 * sizeof(uint32_t);
+            for (size_t i = 0; marked && i < 16; ++i) {
+                uint32_t value = 0;
+                std::memcpy(&value, actual.data() + i * sizeof(uint32_t), sizeof(value));
+                marked = value == kMarker;
+            }
+            check(marked, "R32U: a clear writes the raw marker 12648430");
+
+            auto rgba16 = makeTexture(device.get(), "int-rgba16i", 4, false, false, PixelFormat::PIXELFORMAT_RGBA16I);
+            rgba16->upload();
+            clearInto(*rgba16, Color(-5.0f, 7.0f, -300.0f, 1.0f));
+            bool signedValues = rgba16->read(actual) && actual.size() == 4 * 4 * 4 * sizeof(int16_t);
+            constexpr std::array<int16_t, 4> kSigned{-5, 7, -300, 1};
+            for (size_t i = 0; signedValues && i < 16 * 4; ++i) {
+                int16_t value = 0;
+                std::memcpy(&value, actual.data() + i * sizeof(int16_t), sizeof(value));
+                signedValues = value == kSigned[i % 4];
+            }
+            check(signedValues, "RGBA16I: a clear writes signed raw values");
         }
 
         // ── A read that does not block (Texture::readAsync) ──────────────────

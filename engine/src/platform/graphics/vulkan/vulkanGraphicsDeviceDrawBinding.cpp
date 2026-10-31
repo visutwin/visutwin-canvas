@@ -42,8 +42,10 @@ namespace visutwin::canvas
 
     namespace
     {
-        /// A colour attachment that stores, and clears or loads as the pass's ops say.
-        VkRenderingAttachmentInfo colorAttachmentInfo(VkImageView view, const ColorAttachmentOps* colorOps)
+        /// A colour attachment that stores, and clears or loads as the pass's ops say. An integer
+        /// format's clear colour is its raw values, so it is written as uint32 or int32.
+        VkRenderingAttachmentInfo colorAttachmentInfo(VkImageView view, const ColorAttachmentOps* colorOps,
+            const VkFormat format = VK_FORMAT_UNDEFINED)
         {
             VkRenderingAttachmentInfo info{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
             info.imageView = view;
@@ -51,8 +53,24 @@ namespace visutwin::canvas
             info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
             if (colorOps && colorOps->clear) {
                 info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-                info.clearValue.color = {{colorOps->clearValue.r, colorOps->clearValue.g,
-                                          colorOps->clearValue.b, colorOps->clearValue.a}};
+                const Color& c = colorOps->clearValue;
+                switch (vulkanFormatIntegerKind(format)) {
+                case VulkanIntegerKind::Unsigned:
+                    info.clearValue.color.uint32[0] = static_cast<uint32_t>(c.r);
+                    info.clearValue.color.uint32[1] = static_cast<uint32_t>(c.g);
+                    info.clearValue.color.uint32[2] = static_cast<uint32_t>(c.b);
+                    info.clearValue.color.uint32[3] = static_cast<uint32_t>(c.a);
+                    break;
+                case VulkanIntegerKind::Signed:
+                    info.clearValue.color.int32[0] = static_cast<int32_t>(c.r);
+                    info.clearValue.color.int32[1] = static_cast<int32_t>(c.g);
+                    info.clearValue.color.int32[2] = static_cast<int32_t>(c.b);
+                    info.clearValue.color.int32[3] = static_cast<int32_t>(c.a);
+                    break;
+                case VulkanIntegerKind::None:
+                    info.clearValue.color = {{c.r, c.g, c.b, c.a}};
+                    break;
+                }
             } else {
                 info.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
             }
@@ -86,7 +104,7 @@ namespace visutwin::canvas
                 att.msaaLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             }
 
-            VkRenderingAttachmentInfo info = colorAttachmentInfo(multisampled ? att.msaaView : att.view, colorOps);
+            VkRenderingAttachmentInfo info = colorAttachmentInfo(multisampled ? att.msaaView : att.view, colorOps, att.format);
             if (multisampled && target.autoResolve() && colorOps && colorOps->resolve) {
                 info.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
                 info.resolveImageView = att.view;

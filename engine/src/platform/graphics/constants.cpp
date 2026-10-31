@@ -17,6 +17,7 @@ namespace visutwin::canvas
         uint32_t blockWidth = 1;
         uint32_t blockHeight = 1;
         bool isInt = false;
+        bool isUint = false;
     };
 
     // Information about pixel formats
@@ -37,6 +38,25 @@ namespace visutwin::canvas
         { PixelFormat::PIXELFORMAT_R32F, { .size = 4 } },
         { PixelFormat::PIXELFORMAT_DEPTH16, { .size = 2 } },
         { PixelFormat::PIXELFORMAT_BGRA8, { .size = 4 } },
+        // Integer formats (signed, then unsigned).
+        { PixelFormat::PIXELFORMAT_R8I, { .size = 1, .isInt = true } },
+        { PixelFormat::PIXELFORMAT_R16I, { .size = 2, .isInt = true } },
+        { PixelFormat::PIXELFORMAT_R32I, { .size = 4, .isInt = true } },
+        { PixelFormat::PIXELFORMAT_RG8I, { .size = 2, .isInt = true } },
+        { PixelFormat::PIXELFORMAT_RG16I, { .size = 4, .isInt = true } },
+        { PixelFormat::PIXELFORMAT_RG32I, { .size = 8, .isInt = true } },
+        { PixelFormat::PIXELFORMAT_RGBA8I, { .size = 4, .isInt = true } },
+        { PixelFormat::PIXELFORMAT_RGBA16I, { .size = 8, .isInt = true } },
+        { PixelFormat::PIXELFORMAT_RGBA32I, { .size = 16, .isInt = true } },
+        { PixelFormat::PIXELFORMAT_R8U, { .size = 1, .isInt = true, .isUint = true } },
+        { PixelFormat::PIXELFORMAT_R16U, { .size = 2, .isInt = true, .isUint = true } },
+        { PixelFormat::PIXELFORMAT_R32U, { .size = 4, .isInt = true, .isUint = true } },
+        { PixelFormat::PIXELFORMAT_RG8U, { .size = 2, .isInt = true, .isUint = true } },
+        { PixelFormat::PIXELFORMAT_RG16U, { .size = 4, .isInt = true, .isUint = true } },
+        { PixelFormat::PIXELFORMAT_RG32U, { .size = 8, .isInt = true, .isUint = true } },
+        { PixelFormat::PIXELFORMAT_RGBA8U, { .size = 4, .isInt = true, .isUint = true } },
+        { PixelFormat::PIXELFORMAT_RGBA16U, { .size = 8, .isInt = true, .isUint = true } },
+        { PixelFormat::PIXELFORMAT_RGBA32U, { .size = 16, .isInt = true, .isUint = true } },
         // Block-compressed formats (4x4 blocks; blockSize = bytes per block).
         { PixelFormat::PIXELFORMAT_DXT1, { .size = 0, .blockSize = 8, .blockWidth = 4, .blockHeight = 4 } },
         { PixelFormat::PIXELFORMAT_DXT3, { .size = 0, .blockSize = 16, .blockWidth = 4, .blockHeight = 4 } },
@@ -63,6 +83,12 @@ namespace visutwin::canvas
         const auto it = pixelFormatInfo.find(format);
         return it != pixelFormatInfo.end() && it->second.isInt;
     };
+
+    bool isUnsignedIntegerPixelFormat(const PixelFormat format)
+    {
+        const auto it = pixelFormatInfo.find(format);
+        return it != pixelFormatInfo.end() && it->second.isUint;
+    }
 
     bool isFloatPixelFormat(const PixelFormat format)
     {

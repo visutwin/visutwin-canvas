@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 175 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 176 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -2214,6 +2214,25 @@ present, but the rule below never depends on reading it.
   the Vulkan upload path uses to size its staging copy.
   `tests/pixelFormatTests.cpp` lists every enumerator by hand — add a format
   there when you add one to the enum.
+- **An integer pixel format (`PIXELFORMAT_R8I` .. `RGBA32U`) is read by TEXEL, never filtered,
+  blended or resolved.** A texture of one is forced to nearest filtering (`Texture`'s
+  constructor), Vulkan's sampler for any format without linear filtering takes nearest mips and
+  no anisotropy (a linear mip mode on it is a validation error even with one level), and both
+  pipelines turn blending off on an integer attachment whatever the blend state says. A clear
+  colour's components are the RAW integer values (Vulkan writes them as uint32 / int32 by
+  `vulkanFormatIntegerKind`; a float holds integers exactly up to 2^24). A shader declares one
+  with `VT_DECLARE_QUAD_UINT_INPUTn` / `_INT_INPUTn` (n < 8 on a combined row; the n-th
+  material row, so a material draw may use it too) and reads it with `Load`: on Vulkan the
+  image's format is declared UNKNOWN, since Slang types it by its element (`Rgba32ui`), which an
+  R8_UINT view does not match. MoltenVK 1.4.2 warns "Blending is enabled for attachment with
+  format ..." for EVERY integer attachment, blend on or off (its check lacks `blendEnable`;
+  fixed upstream of it): that line is noise. `integer-textures`, `independent-blending`'s
+  indicator and `tests/textureCopyTests.cpp` (`gpu`) exercise them.
+- **A Vulkan texture re-uploaded at an UNCHANGED shape writes into its image**, behind a barrier
+  waiting for every earlier command; a changed shape (size, format, levels, layers) still
+  replaces it. A render target over the texture holds views of the image, which a replacement
+  left dangling: an invalid view, a layout mismatch, then a crash, on the first upload into a
+  texture after its target was made.
 - **The forward sort key packs its fields; it must never XOR them.** The layout is
   in `scene/renderer/sortKey.h` — draw bucket, alpha test, material ID, mesh — each
   owning its own bits, and `tests/sortKeyTests.cpp` holds it. XORing overlapping
@@ -3829,8 +3848,7 @@ What stays HERE is only what bites during UNRELATED work.
   (sheen, specular colour ...) still decode any format. (2) No `CanvasFont` (`text-emojis`, `element-colors`,
   `element-states`). (3) `.basis` files do not load (libktx reads KTX2 only; `texture-basis`
   ships KTX2 re-encodes). (4) A custom shader material gets no skin or morph variant
-  (`shaders/shader-hatch`). (5) No integer pixel formats (R32U and kin): `independent-blending`
-  leaves out its integer-clear indicator, and `render-targets/integer-textures` is unported.
+  (`shaders/shader-hatch`).
 - **Queued — none a correctness bug:** the
   binding footprint exceeds WebGPU's defaults (Metal 43 texture slots, Vulkan 7 sets). The
   parsers derive tangents through one `generateTangents` / `tangentFromNormal`

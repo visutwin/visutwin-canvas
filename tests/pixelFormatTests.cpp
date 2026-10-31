@@ -49,6 +49,24 @@ int main()
         {PixelFormat::PIXELFORMAT_BC7, "BC7"},
         {PixelFormat::PIXELFORMAT_DEPTH16, "DEPTH16"},
         {PixelFormat::PIXELFORMAT_BGRA8, "BGRA8"},
+        {PixelFormat::PIXELFORMAT_R8I, "R8I"},
+        {PixelFormat::PIXELFORMAT_R8U, "R8U"},
+        {PixelFormat::PIXELFORMAT_R16I, "R16I"},
+        {PixelFormat::PIXELFORMAT_R16U, "R16U"},
+        {PixelFormat::PIXELFORMAT_R32I, "R32I"},
+        {PixelFormat::PIXELFORMAT_R32U, "R32U"},
+        {PixelFormat::PIXELFORMAT_RG8I, "RG8I"},
+        {PixelFormat::PIXELFORMAT_RG8U, "RG8U"},
+        {PixelFormat::PIXELFORMAT_RG16I, "RG16I"},
+        {PixelFormat::PIXELFORMAT_RG16U, "RG16U"},
+        {PixelFormat::PIXELFORMAT_RG32I, "RG32I"},
+        {PixelFormat::PIXELFORMAT_RG32U, "RG32U"},
+        {PixelFormat::PIXELFORMAT_RGBA8I, "RGBA8I"},
+        {PixelFormat::PIXELFORMAT_RGBA8U, "RGBA8U"},
+        {PixelFormat::PIXELFORMAT_RGBA16I, "RGBA16I"},
+        {PixelFormat::PIXELFORMAT_RGBA16U, "RGBA16U"},
+        {PixelFormat::PIXELFORMAT_RGBA32I, "RGBA32I"},
+        {PixelFormat::PIXELFORMAT_RGBA32U, "RGBA32U"},
     };
 
     std::cout << "pixel format table\n";
@@ -69,6 +87,20 @@ int main()
     expect(PixelFormat::PIXELFORMAT_DEPTH16, 2, "DEPTH16");
     expect(PixelFormat::PIXELFORMAT_BGRA8, 4, "BGRA8");
     expect(PixelFormat::PIXELFORMAT_RGBA8, 4, "RGBA8");
+
+    // The integer formats: integer, signed or not by name, and sized by channel.
+    expect(PixelFormat::PIXELFORMAT_R8U, 1, "R8U");
+    expect(PixelFormat::PIXELFORMAT_R32U, 4, "R32U");
+    expect(PixelFormat::PIXELFORMAT_RG16I, 4, "RG16I");
+    expect(PixelFormat::PIXELFORMAT_RGBA32I, 16, "RGBA32I");
+    for (const auto& [format, name] : formats) {
+        const std::string text(name);
+        const bool integer = text.back() == 'I' || text.back() == 'U';
+        check(isIntegerPixelFormat(format) == integer, text + (integer ? " is" : " is not") + " an integer format");
+        check(isUnsignedIntegerPixelFormat(format) == (integer && text.back() == 'U'),
+            text + (integer && text.back() == 'U' ? " is" : " is not") + " unsigned");
+        check(!integer || !isFloatPixelFormat(format), text + " is not a float format");
+    }
 
     return finish("pixel format table");
 }
