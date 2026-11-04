@@ -23,6 +23,7 @@
 // @variant shadow: VT_GSPLAT_SHADOW=1
 // @variant shadow-vsm: VT_GSPLAT_SHADOW=1 VT_GSPLAT_SHADOW_VSM=1
 import vtshadowevsm;
+import vtsrgb;
 #include "bindings.slang"
 
 // The forward pass's tone mapping operators, without its lighting-block dispatch.
@@ -69,7 +70,7 @@ float3 gsplatPrepareOutput(float3 gammaColor, float depth)
 
     float3 color = gammaColor;
     if (tonemap || linearTarget || fog) {
-        color = pow(max(color, float3(0.0)), float3(2.2));
+        color = srgbToLinear(color);
     }
     if (fog) {
         const float density = max(params.fogParams.z, 0.0);
@@ -89,9 +90,29 @@ float3 gsplatPrepareOutput(float3 gammaColor, float depth)
         color = toneMapExposed(color, max(params.outputParams.x, 0.0), int(params.outputParams.y + 0.5));
     }
     if (tonemap || (!linearTarget && fog)) {
-        color = pow(max(color, float3(0.0)) + 0.0000001, float3(1.0 / 2.2));
+        color = linearToSrgb(color);
     }
     return color;
+}
+
+// Screen-space low-pass filter added to the projected 2D covariance. The covariance is built
+// with focal = viewport size * projection scale, twice the focal length in pixels, so it is in
+// (half pixel)^2 units and the 0.3 px^2 filter splats are trained with is 1.2 here.
+static const float GSPLAT_LOWPASS = 1.2;
+
+// The filter the size cull measures the footprint with: 0.075 px^2 (0.3 here). With the full
+// filter every splat is at least 3.1 px wide and the cull would stop firing on distant content.
+static const float GSPLAT_CULL_LOWPASS = 0.3;
+
+// True when a splat with screen covariance [a b; b c] (in the units above) is drawn smaller
+// than `size` pixels. The drawn ellipse reaches 2 * sqrt(2) standard deviations, a major-axis
+// diameter of 2 * sqrt(2 * lambda1) pixels, so the test is lambda1 < size^2 / 8, without
+// square roots: t exceeds lambda1 exactly when it lies above the mean of the eigenvalues and
+// the characteristic polynomial (t - a)(t - c) - b^2 is positive there.
+bool gsplatFootprintSmallerThan(float a, float b, float c, float size)
+{
+    const float t = size * size * 0.125;
+    return t > 0.5 * (a + c) && (t - a) * (t - c) > b * b;
 }
 
 float3 loadFloat3(uint base)
@@ -211,10 +232,18 @@ GSplatVaryings gsplatVS(uint vid : SV_VulkanVertexID, uint iid : SV_VulkanInstan
     const float3x3 t = mul(jacobian, w);
     const float3x3 cov = mul(t, mul(covariance, transpose(t)));
 
-    // The 2D covariance's eigen decomposition, with a 0.3 px low-pass dilation.
-    const float diagonal1 = cov[0][0] + 0.3;
+    // Cull sub-pixel gaussians before paying for the eigen decomposition. The cull measures the
+    // footprint with the smaller GSPLAT_CULL_LOWPASS, so it culls the splats it did before the
+    // low-pass filter was corrected (the vmin cap below only matters on a viewport under a pixel).
+    if (gsplatFootprintSmallerThan(cov[0][0] + GSPLAT_CULL_LOWPASS, cov[0][1],
+                                   cov[1][1] + GSPLAT_CULL_LOWPASS, 0.5)) {
+        return o;
+    }
+
+    // The 2D covariance's eigen decomposition, dilated by the screen-space low-pass filter.
+    const float diagonal1 = cov[0][0] + GSPLAT_LOWPASS;
     const float offDiagonal = cov[0][1];
-    const float diagonal2 = cov[1][1] + 0.3;
+    const float diagonal2 = cov[1][1] + GSPLAT_LOWPASS;
     const float mid = 0.5 * (diagonal1 + diagonal2);
     const float radius = length(float2((diagonal1 - diagonal2) * 0.5, offDiagonal));
     const float lambda1 = mid + radius;
@@ -227,11 +256,6 @@ GSplatVaryings gsplatVS(uint vid : SV_VulkanVertexID, uint iid : SV_VulkanInstan
     const float vmin = min(1024.0, min(params.viewport.x, params.viewport.y));
     const float l1 = 2.0 * min(sqrt(2.0 * lambda1), vmin);
     const float l2 = 2.0 * min(sqrt(2.0 * lambda2), vmin);
-
-    // Cull sub-pixel gaussians.
-    if (max(l1, l2) < 0.5) {
-        return o;
-    }
 
     // Cull against the frustum x/y planes.
     const float2 c = clip.w * params.viewport.zw;

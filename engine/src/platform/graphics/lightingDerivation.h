@@ -77,6 +77,7 @@ namespace visutwin::canvas
 
         float fogColorDensity[4] = {};      // linear colour, density
         float fogStartEndType[4] = {};      // start, end, FogType (0 when fog is off)
+        SkyHazeData skyHaze;                // the sky of a FOG_DYNAMIC_SKY_HAZE fog
 
         bool directionalActive[ShadowParams::kMaxDirectionalShadows] = {};
 

@@ -448,7 +448,7 @@ private:
         scene()->setPhysicalUnits(_physicalUnits);
         scene()->setSkyboxIntensity(_physicalUnits ? _skyLuminance : 1.0f);
         // Authored gamma space: decodes to (luminance, 0, 0), or to (1, 0, 0) without units.
-        const float ambientRed = _physicalUnits ? std::pow(kAmbientLuminance, 1.0f / 2.2f) : 1.0f;
+        const float ambientRed = _physicalUnits ? linearToGamma(kAmbientLuminance) : 1.0f;
         scene()->setAmbientLight(ambientRed, 0.0f, 0.0f);
     }
 

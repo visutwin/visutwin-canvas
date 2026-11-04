@@ -50,9 +50,9 @@ namespace visutwin::canvas
      * volumetric fog's block is 512 bytes. On Vulkan this is the dynamic
      * descriptor's range, and the allocation behind it is padded to match, so a
      * shader can never read past its own allocation. MaterialUniforms itself is
-     * 976 bytes.
+     * 1056 bytes.
      */
-    inline constexpr size_t kPerDrawUniformCapacity = 976;
+    inline constexpr size_t kPerDrawUniformCapacity = 1056;
 
     class Compute;
     class Texture;
@@ -223,7 +223,27 @@ namespace visutwin::canvas
         FOG_NONE = 0u,
         FOG_LINEAR = 1u,   ///< (end - depth) / (end - start), uses start/end
         FOG_EXP = 2u,      ///< exp(-depth * density)
-        FOG_EXP2 = 3u      ///< exp(-(depth * density)^2)
+        FOG_EXP2 = 3u,     ///< exp(-(depth * density)^2)
+        /// The haze of a DynamicSkyEffect (its aerial perspective): lit surfaces fade into the
+        /// colour of the sky behind them with their distance, thinning with the height. A
+        /// camera is given this fog by its effect (Camera::setFog); FogParams::skyHaze carries
+        /// the sky it is coloured by. Particles and splats take no fog under it.
+        FOG_DYNAMIC_SKY_HAZE = 4u
+    };
+
+    /// The sky a FOG_DYNAMIC_SKY_HAZE fog is coloured by, as DynamicSkyEffect evaluates it
+    /// (its block's lanes, in sky space: the world turned by `rotation`, then X flipped).
+    struct SkyHazeData
+    {
+        float sunDir[4] = {0.0f, 1.0f, 0.0f, 0.0f};     // xyz toward the sun (sky space), w its intensity E
+        float betaR[4] = {};                             // xyz Rayleigh scattering, w Mie anisotropy
+        float betaM[4] = {};                             // xyz Mie scattering, w the scale of the radiance
+        float night[4] = {};                             // xyz the night colour, w the night blend
+        float nightParams[4] = {};                       // w the twilight glow
+        float rotation[12] = {1.0f, 0.0f, 0.0f, 0.0f,    // world to sky space (before the X flip),
+                              0.0f, 1.0f, 0.0f, 0.0f,    // by columns
+                              0.0f, 0.0f, 1.0f, 0.0f};
+        float haze[4] = {};                              // density, 1 / height, base height, unused
     };
 
     struct FogParams
@@ -236,6 +256,8 @@ namespace visutwin::canvas
         float start = 10.0f;
         float end = 100.0f;
         float density = 0.01f;
+        /// The sky of a FOG_DYNAMIC_SKY_HAZE fog; unread by the other types.
+        SkyHazeData skyHaze;
     };
 
     /// Values and a texture an application hands its own forward chunk overrides, scene-wide:

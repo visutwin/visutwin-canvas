@@ -6,6 +6,7 @@
 // The direction maps and the RGBP packing the environment bakes share.
 module vtenv;
 
+import vtsrgb;
 public static const float ENV_PI = 3.141592653589793;
 /// TextureProjection's octahedral id (platform/graphics/constants.h).
 public static const uint PROJ_OCTAHEDRAL = 3u;
@@ -83,5 +84,5 @@ public float4 packRgbp(float3 color)
 
 public float3 decodeIfSrgb(float3 color, bool decode)
 {
-    return decode ? pow(max(color, float3(0.0, 0.0, 0.0)), float3(2.2, 2.2, 2.2)) : color;
+    return decode ? srgbToLinear(color) : color;
 }

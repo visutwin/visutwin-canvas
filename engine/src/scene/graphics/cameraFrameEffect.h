@@ -269,6 +269,11 @@ namespace visutwin::canvas
         /// exposureScale), back at its own exposure once none asks.
         [[nodiscard]] virtual float cameraExposureScale() const { return 1.0f; }
 
+        /// Called as the effect is removed from its camera (CameraComponent::removeFrameEffect),
+        /// still registered with it: to undo what it set on the camera. Not called when the
+        /// camera itself is destroyed.
+        virtual void detached() {}
+
         /// The camera the effect is registered with (CameraComponent::addFrameEffect), or null.
         [[nodiscard]] CameraComponent* camera() const { return _camera; }
 

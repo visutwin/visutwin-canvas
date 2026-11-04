@@ -29,6 +29,7 @@
 // sampled filtered (both backends filter 32-bit float).
 module vtscenemaps;
 
+import vtsrgb;
 public struct SceneMapsData
 {
     // 1 / far clip, far clip, near clip, 1 for an orthographic projection or 0
@@ -132,10 +133,10 @@ public float4 sceneColorSample(float2 uv, float lod)
 
 public float3 sceneColorToLinear(float3 color)
 {
-    return computeSceneMaps.flags.z != 0u ? pow(max(color, float3(0.0)), float3(2.2)) : color;
+    return computeSceneMaps.flags.z != 0u ? srgbToLinear(color) : color;
 }
 
 public float3 sceneColorToDisplay(float3 color)
 {
-    return computeSceneMaps.flags.z != 0u ? color : pow(max(color, float3(0.0)), float3(1.0 / 2.2));
+    return computeSceneMaps.flags.z != 0u ? color : linearToSrgb(color);
 }

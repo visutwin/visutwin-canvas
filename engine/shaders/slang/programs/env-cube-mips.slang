@@ -11,6 +11,7 @@
 // hardware lookup's face mapping), where the bilinear sample is the texel itself.
 import vtquad;
 import vtenv;
+import vtsrgb;
 #include "bindings.slang"
 
 struct MipUniforms
@@ -43,10 +44,10 @@ float4 cubeMipsFragment(QuadVarying input) : SV_Target0
         for (uint x = 0u; x < block; ++x) {
             const float2 uv = (float2(texel * block + uint2(x, y)) + 0.5) * invSize;
             const float4 s = sourceCube.SampleLevel(cubeFaceUvToDir(u.face, uv), 0.0);
-            sum += pow(max(s.rgb, float3(0.0, 0.0, 0.0)), float3(2.2, 2.2, 2.2));
+            sum += srgbToLinear(s.rgb);
             alpha += s.a;
         }
     }
     const float count = float(block * block);
-    return float4(pow(sum / count, float3(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2)), alpha / count);
+    return float4(linearToSrgb(sum / count), alpha / count);
 }

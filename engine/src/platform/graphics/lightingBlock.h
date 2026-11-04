@@ -210,9 +210,20 @@ namespace visutwin::canvas
         // Four vec4s of the application's (UserShaderData, Scene::setUserShaderData), read
         // only by its own forward chunk overrides as lighting.userData[i].
         float userData[16]                        = {};
+        // The sky a FOG_DYNAMIC_SKY_HAZE fog is coloured by (SkyHazeData, lane for lane), read
+        // only by a variant with VT_FEATURE_SKY_HAZE.
+        float hazeSunDir[4]                       = {0.0f, 1.0f, 0.0f, 0.0f};
+        float hazeBetaR[4]                        = {};
+        float hazeBetaM[4]                        = {};
+        float hazeNight[4]                        = {};
+        float hazeNightParams[4]                  = {};
+        float hazeRotation[12]                    = {1.0f, 0.0f, 0.0f, 0.0f,
+                                                     0.0f, 1.0f, 0.0f, 0.0f,
+                                                     0.0f, 0.0f, 1.0f, 0.0f};
+        float hazeParams[4]                       = {};   // density, 1 / height, base height
     };
     static_assert(sizeof(GpuLightBlock) == 112);
-    static_assert(sizeof(LightingBlock) == 2960, "the shaders of both backends declare this size");
+    static_assert(sizeof(LightingBlock) == 3104, "the shaders of both backends declare this size");
     static_assert(sizeof(LightingBlock) % 16 == 0);
 
     /// The six atmosphere vec4s as one span, for setAtmosphereUniforms: first member

@@ -146,7 +146,7 @@ float3 forwardModelScale(float4x4 model)
 float4 forwardVertexColor(float4 color)
 {
     return vtFeatureEnabled(VT_FEATURE_VERTEX_COLOR_GAMMA_BIT)
-        ? float4(pow(max(color.rgb, float3(0.0)), float3(2.2)), color.a) : color;
+        ? float4(srgbToLinear(color.rgb), color.a) : color;
 }
 
 // Everything after the world position: clip, depth, normal frame, UVs and the defaults.

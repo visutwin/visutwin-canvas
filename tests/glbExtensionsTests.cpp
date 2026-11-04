@@ -200,7 +200,7 @@ namespace
         check(material != nullptr, "a StandardMaterial");
         if (material) {
             const Color& sheen = material->sheenColor();
-            check(nearStrict(sheen.r, std::pow(0.5f, 1.0f / 2.2f), kTolerance) &&
+            check(nearStrict(sheen.r, linearToGamma(0.5f), kTolerance) &&
                   nearStrict(sheen.b, 1.0f, kTolerance) &&
                   nearStrict(material->sheenRoughness(), 0.3f, kTolerance),
                 "sheen: colour stored gamma-encoded, roughness");
@@ -221,7 +221,7 @@ namespace
             const Color& transmissionColor = material->diffuseTransmissionColor();
             check(nearStrict(material->diffuseTransmission(), 0.75f, kTolerance) &&
                       nearStrict(transmissionColor.r, 1.0f, kTolerance) &&
-                      nearStrict(transmissionColor.g, std::pow(0.5f, 1.0f / 2.2f), kTolerance) &&
+                      nearStrict(transmissionColor.g, linearToGamma(0.5f), kTolerance) &&
                       nearStrict(transmissionColor.b, 0.0f, kTolerance),
                 "diffuse transmission: the factor, and the colour stored gamma-encoded");
             check(material->diffuseTransmissionMap() != nullptr &&

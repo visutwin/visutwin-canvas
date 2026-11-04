@@ -27,13 +27,16 @@ namespace visutwin::canvas
     ///
     /// Deliberately reproduced quirk, kept so a scene authored for the engine this port
     /// derives from lights the same: at an intensity of 1 or more the colour is decoded to
-    /// linear and then scaled, but BELOW 1 it is scaled in gamma space and then decoded,
-    /// so a light dimmed under 1 falls off as intensity^2.2 rather than linearly (a white
-    /// light at 0.5 shades at 0.22, not 0.5). Under physical units the intensity passed in
-    /// is the luminance over the unit conversion, and the same rule applies to it.
+    /// linear and then scaled, but BELOW 1 it is scaled by intensity^2.2, as though the
+    /// intensity scaled the colour in gamma 2.2 space, so a light dimmed under 1 falls off
+    /// as intensity^2.2 rather than linearly (a white light at 0.5 shades at 0.22, not 0.5).
+    /// The colour itself takes the exact sRGB decode; the intensity keeps the 2.2 power,
+    /// which the lightmapper's split copies (bakeCopyIntensity) rely on. Under physical
+    /// units the intensity passed in is the luminance over the unit conversion, and the same
+    /// rule applies to it.
     ///
     /// The split keeps a light at 1 or more bit-identical to a plain decode-then-scale:
-    /// the decoded colour and the intensity go up unchanged. Below 1 the scaled decode goes
+    /// the decoded colour and the intensity go up unchanged. Below 1 the scaled colour goes
     /// up with an intensity of 1, and a light whose intensity is not positive goes up as
     /// black at 0, so the shaders' "intensity <= 0 contributes nothing" skip still holds.
     inline LightRadiance lightRadiance(const Color& color, const float intensity)
@@ -45,16 +48,17 @@ namespace visutwin::canvas
             out.linearColor[2] = gammaToLinear(color.b);
             out.intensity = intensity;
         } else if (intensity > 0.0f) {
-            out.linearColor[0] = gammaToLinear(color.r * intensity);
-            out.linearColor[1] = gammaToLinear(color.g * intensity);
-            out.linearColor[2] = gammaToLinear(color.b * intensity);
+            const float scale = std::pow(intensity, 2.2f);
+            out.linearColor[0] = gammaToLinear(color.r) * scale;
+            out.linearColor[1] = gammaToLinear(color.g) * scale;
+            out.linearColor[2] = gammaToLinear(color.b) * scale;
             out.intensity = 1.0f;
         }
         return out;
     }
 
     /// The factor by which lightRadiance scales a light's decoded colour at `intensity`:
-    /// the intensity at 1 or more, its 2.2 power below (since (c i)^2.2 = c^2.2 i^2.2).
+    /// the intensity at 1 or more, its 2.2 power below.
     inline float linearScaleForIntensity(const float intensity)
     {
         if (intensity >= 1.0f) {

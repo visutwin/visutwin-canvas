@@ -11,6 +11,7 @@ import vtdraw;
 // The shared vertex stage writes only what a shadow fragment reads (forwardFinish).
 #define VT_SHADOW_PROGRAM 1
 
+import vtsrgb;   // srgbToLinear / linearToSrgb, the exact sRGB transfer, for every chunk
 #include "forward/forward-fragment-head.slang"
 #include "forward/common-dither.slang"
 #include "forward/common-material-flags.slang"

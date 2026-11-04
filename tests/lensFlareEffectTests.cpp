@@ -149,7 +149,7 @@ int main()
             "a direction: at the centre, tested near the far clip");
         check(near(states[4].fade, 0.5f, 1e-5f), "the distance fade halfway between its two distances");
         check(near(states[5].fade, 1.0f, 1e-5f) && states[5].inFront, "a spot light facing the camera");
-        check(near(states[5].color.r, 1.0f, 1e-5f) && near(states[5].color.g, std::pow(0.5f, 2.2f), 1e-4f) &&
+        check(near(states[5].color.r, 1.0f, 1e-5f) && near(states[5].color.g, gammaToLinear(0.5f), 1e-4f) &&
               states[5].color.b == 0.0f, "tinted by the light's colour, decoded");
 
         std::cout << "drawn\n";

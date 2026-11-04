@@ -276,7 +276,9 @@ namespace visutwin::canvas
 
     void CameraComponent::removeFrameEffect(const std::shared_ptr<CameraFrameEffect>& effect)
     {
-        if (effect && std::erase(_frameEffects, effect) > 0) {
+        if (effect && std::find(_frameEffects.begin(), _frameEffects.end(), effect) != _frameEffects.end()) {
+            effect->detached();
+            std::erase(_frameEffects, effect);
             effect->_camera = nullptr;
         }
         rebuildAllFrameEffects();
@@ -343,23 +345,29 @@ namespace visutwin::canvas
         _priority = value;
     }
 
-    Vector3 CameraComponent::screenToWorld(const float x, const float y, const float z) const
+    Vector3 CameraComponent::screenToWorld(const float x, const float y, const float z,
+        const std::optional<float> width, const std::optional<float> height) const
     {
         const Engine* engine = _entity ? _entity->engine() : nullptr;
-        const auto [w, h] = engine ? engine->canvasSize() : std::pair<int, int>{0, 0};
-        if (!_camera || w <= 0 || h <= 0) {
+        const auto [cw, ch] = engine ? engine->canvasSize() : std::pair<int, int>{0, 0};
+        const float w = width.value_or(static_cast<float>(cw));
+        const float h = height.value_or(static_cast<float>(ch));
+        if (!_camera || w <= 0.0f || h <= 0.0f) {
             return Vector3(0.0f, 0.0f, 0.0f);
         }
-        return _camera->screenToWorld(x, y, z, static_cast<float>(w), static_cast<float>(h));
+        return _camera->screenToWorld(x, y, z, w, h);
     }
 
-    Vector3 CameraComponent::worldToScreen(const Vector3& worldCoord) const
+    Vector3 CameraComponent::worldToScreen(const Vector3& worldCoord,
+        const std::optional<float> width, const std::optional<float> height) const
     {
         const Engine* engine = _entity ? _entity->engine() : nullptr;
-        const auto [w, h] = engine ? engine->canvasSize() : std::pair<int, int>{0, 0};
-        if (!_camera || w <= 0 || h <= 0) {
+        const auto [cw, ch] = engine ? engine->canvasSize() : std::pair<int, int>{0, 0};
+        const float w = width.value_or(static_cast<float>(cw));
+        const float h = height.value_or(static_cast<float>(ch));
+        if (!_camera || w <= 0.0f || h <= 0.0f) {
             return Vector3(0.0f, 0.0f, 0.0f);
         }
-        return _camera->worldToScreen(worldCoord, static_cast<float>(w), static_cast<float>(h));
+        return _camera->worldToScreen(worldCoord, w, h);
     }
 }

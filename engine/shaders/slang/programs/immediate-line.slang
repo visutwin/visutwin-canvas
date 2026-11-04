@@ -8,6 +8,7 @@
 // encoded; a linear HDR target (a camera frame's scene) takes them decoded, a gamma target as
 // they are. The material block says which, per draw.
 import vtdraw;
+import vtsrgb;
 #include "bindings.slang"
 
 struct ImmediateLineData
@@ -42,6 +43,6 @@ Varyings immediateLineVertex(VertexIn input)
 [shader("fragment")]
 float4 immediateLineFragment(Varyings input) : SV_Target0
 {
-    const float3 rgb = lineData.output.x > 0.5 ? pow(max(input.color.rgb, float3(0.0)), float3(2.2)) : input.color.rgb;
+    const float3 rgb = lineData.output.x > 0.5 ? srgbToLinear(input.color.rgb) : input.color.rgb;
     return float4(rgb, input.color.a);
 }

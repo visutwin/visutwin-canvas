@@ -30,6 +30,7 @@
 import vtquad;
 import vttonemapreversible;
 import vttonemapagx;
+import vtsrgb;
 #include "bindings.slang"
 
 struct ComposeUniforms
@@ -300,7 +301,7 @@ float3 sampleColorLUT(Sampler2D lut, float2 uv_l, float2 uv_h, float t)
     const float3 color_l = lut.SampleLevel(uv_l, 0.0).rgb;
     const float3 color_h = lut.SampleLevel(uv_h, 0.0).rgb;
     const float3 srgb = lerp(color_l, color_h, t);
-    return pow(max(srgb, float3(0.0, 0.0, 0.0)) + 0.0000001, float3(2.2, 2.2, 2.2));
+    return srgbToLinear(srgb);
 }
 
 // 3D colour LUT through a 256x16 strip (unwrapped 16^3), applied after tone mapping. The
@@ -316,8 +317,7 @@ float3 applyColorLUT(float3 color, bool lut2Enabled, float intensity1, float int
     const float LUT_G_SCALE = LUT_MAX / LUT_N;
     const float LUT_SLICE = 1.0 / LUT_N;
 
-    const float3 c = clamp(pow(max(color, float3(0.0, 0.0, 0.0)) + 0.0000001, float3(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2)),
-        0.0, 1.0);
+    const float3 c = clamp(linearToSrgb(color), 0.0, 1.0);
 
     const float cell = c.b * LUT_MAX;
     const float cell_l = floor(cell);
@@ -605,7 +605,7 @@ float4 composeFragment(QuadVarying input) : SV_Target0
     }
 
     // 11. Display gamma: the back buffer is a UNORM format, so gamma is applied here.
-    result = pow(max(result, float3(0.0, 0.0, 0.0)) + 0.0000001, float3(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2));
+    result = linearToSrgb(result);
 
     // Compose effects on the output values.
     result = composeSlotOutput(result, uv);

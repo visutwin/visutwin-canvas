@@ -260,7 +260,13 @@ namespace visutwin::canvas
         DynamicSkyEffect* _effect = nullptr;
     };
 
-    DynamicSkyEffect::DynamicSkyEffect() : CameraFrameEffect("dynamicSky") {}
+    DynamicSkyEffect::DynamicSkyEffect() : CameraFrameEffect("dynamicSky")
+    {
+        // World to sky space is the identity until the first frame sets it (getSkyColor).
+        for (int c = 0; c < 3; ++c) {
+            _block.skyRotation[c][c] = 1.0f;
+        }
+    }
 
     DynamicSkyEffect::~DynamicSkyEffect()
     {
@@ -428,9 +434,9 @@ namespace visutwin::canvas
         // the sun rises, at full strength at about 17 degrees; at night the moon lights them.
         const float cloudIntensity =
             (sunIntensity * smoothstep(0.0f, 0.3f, y) + cloudNightBrightness * nightFactor) * cloudBrightness;
-        _block.cloudLight[0] = std::pow(sunColor.r, 2.2f) * cloudIntensity;
-        _block.cloudLight[1] = std::pow(sunColor.g, 2.2f) * cloudIntensity;
-        _block.cloudLight[2] = std::pow(sunColor.b, 2.2f) * cloudIntensity;
+        _block.cloudLight[0] = gammaToLinear(sunColor.r) * cloudIntensity;
+        _block.cloudLight[1] = gammaToLinear(sunColor.g) * cloudIntensity;
+        _block.cloudLight[2] = gammaToLinear(sunColor.b) * cloudIntensity;
         _block.cloudLightDir[0] = -source.getX();
         _block.cloudLightDir[1] = source.getY();
         _block.cloudLightDir[2] = source.getZ();
@@ -541,6 +547,7 @@ namespace visutwin::canvas
         updateNight();
         updateLight();
         updateClouds();
+        updateHazeFog();
 
         // The sky's variant and its textures.
         if (_material && _noise) {
@@ -581,6 +588,114 @@ namespace visutwin::canvas
                 _scene->setEnvAtlas(_envAtlas.get());
             }
         }
+    }
+
+    void DynamicSkyEffect::updateHazeFog()
+    {
+        CameraComponent* cameraComponent = camera();
+        if (_hazeCamera && _hazeCamera != cameraComponent) {
+            // The camera it was given to is no longer the effect's (destroyed with its fog).
+            _hazeCamera = nullptr;
+        }
+        if (haze && active() && cameraComponent) {
+            if (!_hazeCamera) {
+                _hazeCamera = cameraComponent;
+                const FogParams* previous = cameraComponent->fog();
+                _hazeCameraHadFog = previous != nullptr;
+                _hazeCameraFog = previous ? *previous : FogParams{};
+            }
+        } else {
+            restoreCameraFog();
+        }
+    }
+
+    void DynamicSkyEffect::restoreCameraFog()
+    {
+        // Given back unless the camera was given another fog since.
+        if (_hazeCamera && _hazeCamera == camera()) {
+            const FogParams* current = _hazeCamera->fog();
+            if (current && current->type == FogType::FOG_DYNAMIC_SKY_HAZE) {
+                _hazeCamera->setFog(_hazeCameraHadFog ? &_hazeCameraFog : nullptr);
+            }
+        }
+        _hazeCamera = nullptr;
+        _hazeCameraHadFog = false;
+    }
+
+    void DynamicSkyEffect::detached()
+    {
+        restoreCameraFog();
+    }
+
+    Color DynamicSkyEffect::getSkyColor(const Vector3& direction) const
+    {
+        // To sky space as the shaders take it: turned by the sky's rotation, X flipped.
+        const auto& r = _block.skyRotation;
+        const float wx = direction.getX();
+        const float wy = direction.getY();
+        const float wz = direction.getZ();
+        float x = r[0][0] * wx + r[1][0] * wy + r[2][0] * wz;
+        float y = r[0][1] * wx + r[1][1] * wy + r[2][1] * wz;
+        float z = r[0][2] * wx + r[1][2] * wy + r[2][2] * wz;
+        float length = std::sqrt(x * x + y * y + z * z);
+        if (length <= 0.0f) {
+            length = 1.0f;
+        }
+        x = -x / length;
+        y /= length;
+        z /= length;
+
+        const float* sun = _block.sunDir;
+        const float nightBlend = _block.night[3];
+        float rgb[3] = {0.0f, 0.0f, 0.0f};
+
+        // the day sky (vtdynamicsky: dynamicSkyDayRadiance, without the sun disc)
+        if (nightBlend < 1.0f) {
+            constexpr float kPi = std::numbers::pi_v<float>;
+            constexpr float kSkyBase[3] = {0.0f, 0.0003f, 0.00075f};
+            const float sunLength = std::sqrt(sun[0] * sun[0] + sun[1] * sun[1] + sun[2] * sun[2]);
+            const float inv = sunLength > 0.0f ? 1.0f / sunLength : 0.0f;
+            const float sx = sun[0] * inv;
+            const float sy = sun[1] * inv;
+            const float sz = sun[2] * inv;
+            const float zenith = std::acos(std::max(0.0f, y));
+            const float denom = std::cos(zenith) +
+                0.15f * std::pow(std::max(93.885f - zenith * (180.0f / kPi), 0.0f), -1.253f);
+            const float cosTheta = x * sx + y * sy + z * sz;
+            const float c = cosTheta * 0.5f + 0.5f;
+            const float rayleighPhase = (3.0f / (16.0f * kPi)) * (1.0f + c * c);
+            const float g = _block.betaR[3];
+            const float g2 = g * g;
+            const float miePhase = (1.0f / (4.0f * kPi)) * (1.0f - g2) /
+                std::pow(std::max(1.0f - 2.0f * g * cosTheta + g2, 0.0f), 1.5f);
+            const float sunE = sun[3];
+            const float luminance = _block.betaM[3];
+            const float horizon = std::clamp(std::pow(1.0f - sy, 5.0f), 0.0f, 1.0f);
+            for (int i = 0; i < 3; ++i) {
+                const float betaR = _block.betaR[i];
+                const float betaM = _block.betaM[i];
+                const float fex = std::exp(-(betaR * 8.4e3f + betaM * 1.25e3f) / denom);
+                const float ratio = (betaR * rayleighPhase + betaM * miePhase) / (betaR + betaM);
+                float lin = std::pow(sunE * ratio * (1.0f - fex), 1.5f);
+                lin *= 1.0f + (std::pow(sunE * ratio * fex, 0.5f) - 1.0f) * horizon;
+                rgb[i] = ((lin + 0.1f * fex) * 0.04f + kSkyBase[i]) * luminance * (1.0f - nightBlend);
+            }
+        }
+
+        // the night sky without its lights (dynamicSkyNightRadiance)
+        if (nightBlend > 0.0f) {
+            const float gradient = 1.1f + (0.4f - 1.1f) * std::max(y, 0.0f);
+            const float hx = sun[0] + 1e-5f;
+            const float hz = sun[2];
+            const float hLength = std::sqrt(hx * hx + hz * hz);
+            const float toSun = hLength > 0.0f ? std::max((x * hx + z * hz) / hLength, 0.0f) : 0.0f;
+            const float glow = std::pow(toSun, 5.0f) * std::clamp(1.0f + sun[1] * 4.0f, 0.0f, 1.0f) * _block.nightParams[3];
+            constexpr float kGlowTint[3] = {1.0f, 0.45f, 0.15f};
+            for (int i = 0; i < 3; ++i) {
+                rgb[i] += (_block.night[i] * gradient + glow * kGlowTint[i]) * nightBlend;
+            }
+        }
+        return Color(rgb[0], rgb[1], rgb[2], 1.0f);
     }
 
     void DynamicSkyEffect::frameUpdate(const CameraFrameEffectContext& context)
@@ -643,6 +758,25 @@ namespace visutwin::canvas
         // The sky mesh follows the camera.
         if (_node) {
             _node->setPosition(world.getTranslation());
+        }
+
+        // The haze fog the camera renders with, of this frame's sky.
+        if (_hazeCamera && _hazeCamera == cameraComponent) {
+            FogParams fog;
+            fog.enabled = true;
+            fog.type = FogType::FOG_DYNAMIC_SKY_HAZE;
+            SkyHazeData& data = fog.skyHaze;
+            std::copy_n(_block.sunDir, 4, data.sunDir);
+            std::copy_n(_block.betaR, 4, data.betaR);
+            std::copy_n(_block.betaM, 4, data.betaM);
+            std::copy_n(_block.night, 4, data.night);
+            std::copy_n(_block.nightParams, 4, data.nightParams);
+            std::copy_n(&_block.skyRotation[0][0], 12, data.rotation);
+            data.haze[0] = std::max(hazeDensity, 0.0f);
+            data.haze[1] = 1.0f / std::max(hazeHeight, 1e-3f);
+            data.haze[2] = hazeBaseHeight;
+            data.haze[3] = 0.0f;
+            cameraComponent->setFog(&fog);
         }
 
         // Without tone mapping in the frame (a gamma target) the sky exposes and tone maps itself.

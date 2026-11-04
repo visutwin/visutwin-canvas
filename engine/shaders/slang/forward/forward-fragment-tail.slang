@@ -41,7 +41,7 @@
         if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
             specLum += dot((ccSpecularLight + ccReflection) * ccSpecularity, luminance);
         }
-        albedo.a = clamp(albedo.a + pow(max(specLum, 0.0), 2.2), 0.0, 1.0);
+        albedo.a = clamp(albedo.a + srgbToLinear(specLum), 0.0, 1.0);
     }
     albedo.a *= material.ambientTint.w;
 
@@ -119,7 +119,7 @@
         reflColor = lerp(reflColor, fadeColor, max(distanceFade, fresnelFade));
 
         bool reflLinearTarget = (lighting.flagsAndPad[0] & (1u << 5)) != 0u;
-        outColor = float4(reflLinearTarget ? reflColor : pow(max(reflColor, float3(0.0)), float3(1.0 / 2.2)), 1.0);
+        outColor = float4(reflLinearTarget ? reflColor : linearToSrgb(reflColor), 1.0);
         return outColor;
     }
 
@@ -137,8 +137,7 @@
         uint debugPass = lighting.flagsAndPad[1];
         if (debugPass != VT_DEBUGPASS_NONE && debugPass != VT_DEBUGPASS_LIGHTING) {
             if (debugPass == VT_DEBUGPASS_ALBEDO) {
-                outColor = float4(pow(max(albedo.rgb, float3(0.0)) + 0.0000001,
-                    float3(1.0 / 2.2)), 1.0);
+                outColor = float4(linearToSrgb(albedo.rgb), 1.0);
                 return outColor;
             } else if (debugPass == VT_DEBUGPASS_WORLDNORMAL) {
                 outColor = float4(N * 0.5 + 0.5, 1.0);
@@ -159,8 +158,7 @@
                 outColor = float4(float3(ao), 1.0);
                 return outColor;
             } else if (debugPass == VT_DEBUGPASS_EMISSION) {
-                outColor = float4(pow(max(emissive, float3(0.0)) + 0.0000001,
-                    float3(1.0 / 2.2)), 1.0);
+                outColor = float4(linearToSrgb(emissive), 1.0);
                 return outColor;
             } else if (debugPass == VT_DEBUGPASS_UV0) {
                 outColor = float4(fragUV0, 0.0, 1.0);
@@ -186,6 +184,22 @@
     // fragViewDepth is clip.w from the vertex stage (forwardFinish).
     uint fogType = vtFeatureEnabled(VT_FEATURE_FOG_BIT)
         ? uint(lighting.fogStartEndType.z + 0.5) : 0u;
+    if (vtFeatureEnabled(VT_FEATURE_SKY_HAZE_BIT)) {
+        // A dynamic sky's haze in place of the fog: the surface fades into the sky behind it
+        // with the RADIAL distance and the height the haze thins with (dynamicSkyHazeAmount).
+        // A variant of the cameras whose fog it is, so no other forward tail carries the sky.
+        DynamicSkyAtmosphere atmo;
+        atmo.sunDir = lighting.hazeSunDir;
+        atmo.betaR = lighting.hazeBetaR;
+        atmo.betaM = lighting.hazeBetaM;
+        atmo.night = lighting.hazeNight;
+        atmo.nightParams = lighting.hazeNightParams;
+        const float3 cameraPos = lighting.cameraPosExposure.xyz;
+        const float amount = dynamicSkyHazeAmount(lighting.hazeParams, cameraPos, fragWorldPos);
+        const float f = forwardUserFogFactor(clamp(1.0 - amount, 0.0, 1.0), fragWorldPos);
+        color = lerp(dynamicSkyHazeColor(atmo, lighting.hazeRotation, fragWorldPos - cameraPos), color, f);
+        fogType = 0u;
+    }
     if (fogType != 0u) {
         float depth = fragViewDepth;
         float density = max(lighting.fogColorDensity.w, 0.0);
@@ -208,10 +222,9 @@
     vtOutputGloss = 1.0 - roughness;
 
     if (vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BAKE_BIT)) {
-        // Bake output: light only, sRGB-encoded for the RGBA8 target and the pow(2.2)
-        // decode on the sampling side. No exposure or tonemap — the lightmap feeds the
-        // lit path, which applies both later.
-        // Linear, so the accumulating virtual-light passes sum correctly.
+        // Bake output: light only, linear, so the accumulating virtual-light passes sum
+        // correctly. No exposure or tonemap — the lightmap feeds the lit path, which
+        // applies both later.
         // Accumulating passes add only their own light — the first pass wrote the ambient.
         float3 baked = vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BAKE_ACCUM_BIT)
             ? bakeDirectLight : bakeDiffuseLight;
@@ -230,7 +243,7 @@
     // Exposure, tonemap, then display-gamma encode (swapchain is a linear
     // UNORM target, matching the Metal BGRA8Unorm drawable).
     color = applyToneMap(color);   // exposure + tonemap
-    color = pow(max(color, float3(0.0)), float3(1.0 / 2.2));
+    color = linearToSrgb(color);
 
     outColor = float4(forwardUserFragmentEnd(color, fragWorldPos, N), albedo.a);
     return outColor;

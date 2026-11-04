@@ -5,7 +5,7 @@
 //
 // The lens flare effect's passes (LensFlareEffect), one variant each:
 //   shape      copies a shape texture (input 0) into a layer of the shape library, a texture
-//              array, decoded from gamma space when it is sRGB (pow 2.2, the decode every colour
+//              array, decoded from gamma space when it is sRGB (the sRGB decode every colour
 //              texture here takes), storing the colour as its square root, which keeps precision in a
 //              shape's dark tail, and the coverage in alpha;
 //   occlusion  measures the visibility of each flare's source into its texel of a 32 x 1
@@ -27,6 +27,7 @@
 // @variant occlusion: LF_PASS=1
 // @variant sprite: LF_PASS=2
 import vtquad;
+import vtsrgb;
 #include "bindings.slang"
 
 struct LensFlareUniforms
@@ -85,7 +86,7 @@ float4 lensFlareShade(LensFlareVarying input)
 {
     const float4 image = shapeImage.Sample(input.uv);
     const float3 rgb = clamp(image.rgb, float3(0.0, 0.0, 0.0), float3(1.0, 1.0, 1.0));
-    return float4(sqrt(u.params.y > 0.5 ? pow(rgb, float3(2.2, 2.2, 2.2)) : rgb), image.a);
+    return float4(sqrt(u.params.y > 0.5 ? srgbToLinear(rgb) : rgb), image.a);
 }
 
 #elif LF_PASS == 1

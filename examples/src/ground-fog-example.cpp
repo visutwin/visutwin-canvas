@@ -69,6 +69,7 @@ namespace
     // The fog: a plane lifted by the clouds texture, its opacity faded out near the scene behind it.
     const char* const kGroundFogSlang = R"slang(
 import vtdraw;
+import vtsrgb;
 #include "bindings.slang"
 
 struct FogData
@@ -200,7 +201,7 @@ float4 depthPreviewFragment(QuadVarying input) : SV_Target0
     const float depth = quadLinearDepth(raw, u.cameraParams.x, u.cameraParams.y, u.cameraParams.z > 0.5) /
         u.cameraParams.y;
     // gammaCorrectOutput
-    return float4(pow(float3(depth, depth, depth) + 0.0000001, float3(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2)), 1.0);
+    return float4(linearToSrgb(float3(depth, depth, depth)), 1.0);
 }
 )slang";
 

@@ -208,7 +208,7 @@ int main()
                 at + "the colour loaded as it was rendered " + text(seen[2]));
             check(close(seen[3][0], 0.5f, 0.01f) && close(seen[3][2], 1.0f, 0.01f),
                 at + "and sampled " + text(seen[3]));
-            const float decoded = frame == 0 ? std::pow(0.5f, 2.2f) : 0.5f;
+            const float decoded = frame == 0 ? gammaToLinear(0.5f) : 0.5f;
             check(close(seen[4][0], decoded, 1e-4f) && seen[4][3] == static_cast<float>(kHeight),
                 at + "the gamma decode follows the handle " + text(seen[4]));
         }

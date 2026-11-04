@@ -77,6 +77,7 @@ namespace visutwin::canvas
         bool _lastCameraUse = false;
 
         bool _hdrPass = false;
+        bool _linearOutput = false;   // set between before() and after(): this pass writes linear
 
         // Runtime parity checks for pass ordering.
         bool _beforeCalled = false;

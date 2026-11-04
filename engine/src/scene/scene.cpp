@@ -163,4 +163,10 @@ namespace visutwin::canvas
         const float base = _physicalUnits && camera ? camera->physicalExposure() : _exposure;
         return camera ? base * camera->exposureScale() : base;
     }
+
+    const FogParams& Scene::fogFor(const Camera* camera) const
+    {
+        const FogParams* own = camera ? camera->fog() : nullptr;
+        return own ? *own : _fog;
+    }
 }

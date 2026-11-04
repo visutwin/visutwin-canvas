@@ -142,5 +142,13 @@ namespace visutwin::canvas
 
         std::memcpy(block.fogColorDensity, derived.fogColorDensity, sizeof(derived.fogColorDensity));
         std::memcpy(block.fogStartEndType, derived.fogStartEndType, sizeof(derived.fogStartEndType));
+        const SkyHazeData& haze = derived.skyHaze;
+        std::memcpy(block.hazeSunDir, haze.sunDir, sizeof(haze.sunDir));
+        std::memcpy(block.hazeBetaR, haze.betaR, sizeof(haze.betaR));
+        std::memcpy(block.hazeBetaM, haze.betaM, sizeof(haze.betaM));
+        std::memcpy(block.hazeNight, haze.night, sizeof(haze.night));
+        std::memcpy(block.hazeNightParams, haze.nightParams, sizeof(haze.nightParams));
+        std::memcpy(block.hazeRotation, haze.rotation, sizeof(haze.rotation));
+        std::memcpy(block.hazeParams, haze.haze, sizeof(haze.haze));
     }
 }

@@ -9,6 +9,7 @@
 #include <cstddef>
 
 #include "graphNode.h"
+#include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/texture.h"
 
 namespace visutwin::canvas
@@ -135,6 +136,11 @@ namespace visutwin::canvas
             return 0.0f;
         }
         return std::min(sphereViewHeight / screenViewHeight, 1.0f);
+    }
+
+    void Camera::setFog(const FogParams* fog)
+    {
+        _fog = fog ? std::make_shared<const FogParams>(*fog) : nullptr;
     }
 
     void Camera::setNode(GraphNode* value)

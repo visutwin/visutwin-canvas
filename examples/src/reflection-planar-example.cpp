@@ -5,125 +5,57 @@
 //
 // Port of upstream graphics/reflection-planar.
 //
-// A planar mirror made of two cameras: a reflection camera, mirrored through the ground plane
-// every frame, renders the world and the sky into a texture first, and the ground, on a layer
-// of its own that the reflection camera does not render, draws that texture with a custom
-// shader that samples it at the fragment's screen position, darkened to 40%. The statue stands
-// on the mirror, six shapes orbit and spin above it, and the camera circles the scene while its
-// field of view breathes between 40 and 80 degrees; the helipad sky (mip 1, intensity 1.7) with
-// ACES tone mapping on both cameras.
+// The polished floor of a room reflects it with a planar reflection. A camera mirrored by the
+// floor (the PlanarRenderer script) renders the room into a mipmapped, high dynamic range texture
+// each frame, and the floor material reflects it (StandardMaterial::setPlanarReflectionMap) in
+// place of its environment reflection: unlike the box-projected cubemap baked from the empty
+// room, it reflects the statue, the drone circling it and the spinning gold torus exactly, also
+// where they touch the floor. A rougher floor reads a smaller mip, blurring the reflection. The
+// room, the statue and the drone reflect the room's own environment atlas, box projected onto
+// the room; the helipad sky shows through the windows. Three glowing doors with spot lights and
+// an omni light over the statue light it; the camera frame (4x MSAA, ACES) adds bloom and a
+// vignette.
+//
+// Keys stand in for upstream's controls panel:
+//   P            planar reflection / the cubemap (the reflection camera off)
+//   [ / ]        the reflection's resolution -/+ 0.1 (0.1 - 1)
+//   - / =        the floor's roughness -/+ 0.05 (0 - 0.6, written to its gloss, as upstream)
+//   T            show the reflection texture in the corner
+//   , / .        the animation speed -/+ 0.5 (0 - 3)
 //
 // DEVIATIONS:
-// - The shapes and their colours come from a fixed-seed generator (mulberry32, seed 1) rather
-//   than Math.random(), so every run has the same layout.
-// - The reflection texture is RGBA8 holding the reflection camera's gamma-encoded output (where
-//   upstream renders into an sRGB texture), so the ground shader decodes it before darkening.
-// - The ground shader is Slang (one source for both backends): a ShaderMaterial over
-//   getOrCreateSlangShaderFromSource, the reflection bound as the material's base colour map.
-// - Upstream's planarRenderer script is the update() below: the same reflection of the camera
-//   through the plane, the same projection copied over.
+// - The texture preview is a TexturePreviewPass (examples/texturePreview.h), upstream's
+//   TextureRenderer, at the same place in the corner.
+// - The glTF materials are gathered from the instantiated meshes rather than the container's
+//   material list.
 //
-#include <array>
+#include <algorithm>
 #include <cmath>
-#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "../exampleApp.h"
+#include "../texturePreview.h"
+#include "extras/script/cameraControls.h"
+#include "extras/script/planarRenderer.h"
 #include "framework/assets/asset.h"
 #include "framework/components/render/renderComponent.h"
-#include "platform/graphics/renderTarget.h"
+#include "framework/components/script/scriptComponent.h"
 #include "platform/graphics/texture.h"
 #include "scene/composition/layerComposition.h"
 #include "scene/constants.h"
 #include "scene/layer.h"
-#include "scene/materials/shaderMaterial.h"
 #include "scene/materials/standardMaterial.h"
-#include "scene/shader-lib/slangShaders.h"
+#include "scene/meshInstance.h"
 
 using namespace visutwin::canvas;
 
 namespace
 {
-    // The layer of the ground, which the reflection camera does not render.
-    constexpr int LAYERID_EXCLUDED = 100;
-
-    // The ground: the reflection texture sampled at the fragment's position on the screen.
-    const char* const kGroundSlang = R"slang(
-import vtdraw;
-#include "bindings.slang"
-
-struct GroundData
-{
-    float4 screenSize;   // xy: the size of the target in pixels, zw: its inverse
-};
-VT_DECLARE_MATERIAL_UNIFORMS(GroundData, ground)
-VT_DECLARE_baseColorMap
-
-struct VertexIn
-{
-    [[vk::location(0)]] float3 position : POSITION;
-};
-
-struct Varyings
-{
-    float4 position : SV_Position;
-};
-
-[shader("vertex")]
-Varyings groundVertex(VertexIn input)
-{
-    Varyings output;
-    float4 clip = mul(float4(input.position, 1.0), mul(drawModel(), drawViewProjection()));
-    clip.z = 0.5 * (clip.z + clip.w);
-    output.position = clip;
-    return output;
-}
-
-[shader("fragment")]
-float4 groundFragment(Varyings input) : SV_Target0
-{
-    // The mirrored camera is upright (aimed with lookAt), so its image is the reflection
-    // upside down: v is flipped back.
-    float2 coord = input.position.xy * ground.screenSize.zw;
-    coord.y = 1.0 - coord.y;
-    const float3 reflection = pow(baseColorMap.Sample(coord).rgb, float3(2.2, 2.2, 2.2));
-    const float3 linearColor = reflection * 0.4;
-    return float4(pow(linearColor + 0.0000001, float3(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2)), 1.0);
-}
-)slang";
-
-    class GroundMaterial final : public ShaderMaterial
-    {
-    public:
-        using ShaderMaterial::ShaderMaterial;
-
-        void setScreenSize(const float width, const float height)
-        {
-            if (_data.screenSize[0] == width && _data.screenSize[1] == height) {
-                return;
-            }
-            // A block the material packs is reused until it says it changed.
-            markUniformsDirty();
-            _data.screenSize[0] = width;
-            _data.screenSize[1] = height;
-            _data.screenSize[2] = width > 0.0f ? 1.0f / width : 0.0f;
-            _data.screenSize[3] = height > 0.0f ? 1.0f / height : 0.0f;
-        }
-
-        const void* customUniformData(size_t& outSize) const override
-        {
-            outSize = sizeof(_data);
-            return &_data;
-        }
-
-    private:
-        struct alignas(16) Data
-        {
-            float screenSize[4] = {1.0f, 1.0f, 1.0f, 1.0f};
-        } _data;
-    };
+    // The layer of the floor, rendered only by the main camera: a surface cannot be in the
+    // reflection it displays.
+    constexpr int LAYERID_FLOOR = 100;
 }
 
 class ReflectionPlanarExample final : public ExampleApp
@@ -134,163 +66,370 @@ public:
 protected:
     bool create() override
     {
-        _envAtlas = std::make_unique<Asset>("helipad-env-atlas", AssetType::TEXTURE,
+        _helipad = std::make_unique<Asset>("helipad-env-atlas", AssetType::TEXTURE,
             assetPath("cubemaps/helipad-env-atlas.png"),
             AssetData{.type = TextureType::TEXTURETYPE_RGBP, .mipmaps = false});
+        // The empty room rendered into a cubemap from its centre, prefiltered into an
+        // environment atlas: the reflection for each level of roughness.
+        _roomEnvAtlas = std::make_unique<Asset>("room-env-atlas", AssetType::TEXTURE,
+            assetPath("cubemaps/area-lights-room-env-atlas.png"),
+            AssetData{.type = TextureType::TEXTURETYPE_RGBP, .mipmaps = false});
+        _room = std::make_unique<Asset>("room", AssetType::CONTAINER, assetPath("models/area-lights-room.glb"));
         _statue = std::make_unique<Asset>("statue", AssetType::CONTAINER, assetPath("models/statue.glb"));
+        _drone = std::make_unique<Asset>("drone", AssetType::CONTAINER, assetPath("models/drone.glb"));
 
-        // The skydome
-        if (Texture* envAtlas = _envAtlas->resourceAs<Texture>()) {
-            scene()->setEnvAtlas(envAtlas);
-        }
-        scene()->setSkyboxMip(1);
-        scene()->setSkyboxIntensity(1.7f);
-
-        // A layer for what does not render into the reflection, after the world's transparent
-        // sublayer
+        // The layers: World and Skybox, rendered by both cameras, and the floor's own.
         const auto layers = scene()->layers();
-        const auto worldLayer = layers->getLayerById(LAYERID_WORLD);
-        auto excludedLayer = std::make_shared<Layer>("Excluded", LAYERID_EXCLUDED);
-        layers->insert(excludedLayer, layers->getTransparentIndex(worldLayer) + 1);
+        layers->insert(std::make_shared<Layer>("Floor", LAYERID_FLOOR), 1);
+        const std::vector<int> lightLayers = {LAYERID_WORLD, LAYERID_FLOOR};
 
-        // The reflective ground, on the excluded layer
-        auto shader = getOrCreateSlangShaderFromSource(device().get(), "reflection-planar-ground", kGroundSlang);
-        if (!shader) {
-            spdlog::error("reflection-planar: the ground shader did not compile");
+        // The sky, at the full resolution of its atlas, through the windows and the skylight.
+        if (Texture* helipad = _helipad->resourceAs<Texture>()) {
+            scene()->setEnvAtlas(helipad);
+        }
+        scene()->setSkyboxMip(0);
+        scene()->setExposure(0.6f);
+
+        // The room, with the statue on the pedestal in the middle.
+        auto* roomContainer = _room->resourceAs<ContainerResource>();
+        auto* statueContainer = _statue->resourceAs<ContainerResource>();
+        auto* droneContainer = _drone->resourceAs<ContainerResource>();
+        if (!roomContainer || !statueContainer || !droneContainer) {
+            spdlog::error("reflection-planar: a model did not load");
             return false;
         }
-        _groundMaterial = std::make_shared<GroundMaterial>("ReflectionGround", shader);
-        auto* ground = createPrimitive("plane", _groundMaterial.get(), Vector3(0.0f, 0.0f, 0.0f),
-            Vector3(40.0f, 1.0f, 40.0f), {LAYERID_EXCLUDED});
-        if (auto* render = ground->findComponent<RenderComponent>()) {
-            render->setCastShadows(false);
+        Entity* room = roomContainer->instantiateRenderEntity();
+        room->setEngine(engine());
+        root()->addChild(room);
+
+        Entity* statue = statueContainer->instantiateRenderEntity();
+        statue->setEngine(engine());
+        statue->setLocalScale(0.15f, 0.15f, 0.15f);
+        statue->setLocalPosition(0.0f, 0.36f, 0.0f);
+        statue->setLocalEulerAngles(0.0f, 30.0f, 0.0f);
+        root()->addChild(statue);
+
+        // The drone, flying around the statue; it casts but does not receive shadows.
+        _droneEntity = droneContainer->instantiateRenderEntity();
+        _droneEntity->setEngine(engine());
+        root()->addChild(_droneEntity);
+
+        for (Entity* model : {room, statue, _droneEntity}) {
+            for (auto* render : model->findComponents<RenderComponent>()) {
+                render->setCastShadows(true);
+                render->setReceiveShadows(model != _droneEntity);
+            }
         }
 
-        // The statue
-        if (auto* statue = _statue->resourceAs<ContainerResource>()) {
-            root()->addChild(statue->instantiateRenderEntity());
+        // The rotors spin, the ones on opposite corners the same way, and the LED blinks.
+        for (GraphNode* node : _droneEntity->find([](GraphNode* n) { return n && n->name().rfind("Rotor", 0) == 0; })) {
+            const Vector3 p = node->localPosition();
+            const float product = p.getX() * p.getZ();
+            _rotors.push_back({node, product > 0.0f ? 1.0f : (product < 0.0f ? -1.0f : 0.0f)});
+        }
+        _led = dynamic_cast<Entity*>(_droneEntity->findByName("LED"));
+
+        // Every glTF material reflects the room, box projected onto it.
+        std::vector<StandardMaterial*> gltfMaterials;
+        for (Entity* model : {room, statue, _droneEntity}) {
+            for (auto* render : model->findComponents<RenderComponent>()) {
+                for (auto* meshInstance : render->meshInstances()) {
+                    auto* material = dynamic_cast<StandardMaterial*>(meshInstance ? meshInstance->material() : nullptr);
+                    if (material && std::find(gltfMaterials.begin(), gltfMaterials.end(), material) == gltfMaterials.end()) {
+                        gltfMaterials.push_back(material);
+                    }
+                }
+            }
+        }
+        for (auto* material : gltfMaterials) {
+            addReflections(material);
+            if (material->name() == "Floor") {
+                _floorMaterial = material;
+            }
         }
 
-        // Six shapes in the world layer
-        const std::array<const char*, 5> shapes = {"box", "cone", "cylinder", "sphere", "capsule"};
-        uint32_t seed = 1;
-        const auto unit = [&seed] {
-            // mulberry32
-            seed += 0x6D2B79F5u;
-            uint32_t t = (seed ^ (seed >> 15)) * (seed | 1u);
-            t = (t + ((t ^ (t >> 7)) * (t | 61u))) ^ t;
-            return static_cast<float>(static_cast<double>(t ^ (t >> 14)) / 4294967296.0);
+        // A chrome sphere on the left pedestal, and a gold torus spinning on the right one.
+        _chrome = makeMetal(Color(0.95f, 0.95f, 0.95f, 1.0f), 0.95f);
+        createPrimitive("sphere", _chrome.get(), Vector3(-4.0f, 1.15f, 0.8f), Vector3(1.2f, 1.2f, 1.2f), {LAYERID_WORLD});
+        _gold = makeMetal(Color(1.0f, 0.77f, 0.34f, 1.0f), 0.75f);
+        _torusPivot = new Entity();
+        _torusPivot->setName("Torus");
+        _torusPivot->setEngine(engine());
+        _torusPivot->setLocalPosition(4.0f, 1.29f, 0.8f);
+        root()->addChild(_torusPivot);
+        Entity* torus = createPrimitive("torus", _gold.get(), Vector3(0.0f, 0.0f, 0.0f), Vector3(1.5f, 1.5f, 1.5f),
+            {LAYERID_WORLD});
+        _torusPivot->addChild(torus);
+        torus->setLocalPosition(0.0f, 0.0f, 0.0f);
+        torus->setLocalEulerAngles(90.0f, 0.0f, 0.0f);
+
+        // The glowing doors in the back wall, each with a spot light shining into the room.
+        const struct
+        {
+            float x;
+            Color color;
+        } doors[] = {
+            {-4.5f, Color(1.0f, 0.42f, 0.12f, 1.0f)},
+            {0.0f, Color(0.25f, 0.8f, 1.0f, 1.0f)},
+            {4.5f, Color(1.0f, 0.8f, 0.35f, 1.0f)},
         };
-        for (int i = 0; i < 6; ++i) {
-            const char* shape = shapes[static_cast<size_t>(unit() * shapes.size()) % shapes.size()];
-            const float r = unit();
-            const float g = unit();
-            const float b = unit();
+        for (const auto& door : doors) {
             auto material = std::make_shared<StandardMaterial>();
-            material->setDiffuse(Color(r, g, b, 1.0f));
-            material->setGloss(0.6f);
-            material->setMetalness(0.7f);
-            material->setUseMetalness(true);
-            _materials.push_back(material);
-            _entities.push_back(createPrimitive(shape, material.get(), Vector3(0.0f, 0.0f, 0.0f),
-                Vector3(3.0f, 3.0f, 3.0f), {LAYERID_WORLD}));
+            material->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
+            material->setEmissive(door.color);
+            material->setEmissiveIntensity(4.0f);
+            material->setUseLighting(false);
+            _doorMaterials.push_back(material);
+            createPrimitive("box", material.get(), Vector3(door.x, 1.7f, -9.45f), Vector3(1.7f, 3.3f, 0.02f),
+                {LAYERID_WORLD});
+
+            // A spot light shines down its -Y axis, so it is turned to face the room.
+            auto* light = new Entity();
+            light->setEngine(engine());
+            if (auto* lc = static_cast<LightComponent*>(light->addComponent<LightComponent>())) {
+                lc->setType(LightType::LIGHTTYPE_SPOT);
+                lc->setLayers(lightLayers);
+                lc->setColor(door.color);
+                lc->setIntensity(1.5f);
+                lc->setRange(20.0f);
+                lc->setInnerConeAngle(50.0f);
+                lc->setOuterConeAngle(80.0f);
+            }
+            light->setLocalPosition(door.x, 1.7f, -9.2f);
+            light->setLocalEulerAngles(-90.0f, 0.0f, 0.0f);
+            root()->addChild(light);
         }
 
-        // The reflection camera first: it renders the world and the sky into the texture the
-        // ground then reads.
-        const auto [width, height] = device()->size();
-        TextureOptions textureOptions;
-        textureOptions.name = "PlanarReflection";
-        textureOptions.width = std::max(width, 1);
-        textureOptions.height = std::max(height, 1);
-        textureOptions.format = PixelFormat::PIXELFORMAT_RGBA8;
-        textureOptions.mipmaps = false;
-        textureOptions.minFilter = FilterMode::FILTER_LINEAR;
-        textureOptions.magFilter = FilterMode::FILTER_LINEAR;
-        _reflectionTexture = std::make_shared<Texture>(device().get(), textureOptions);
-        _reflectionTexture->setAddressU(AddressMode::ADDRESS_CLAMP_TO_EDGE);
-        _reflectionTexture->setAddressV(AddressMode::ADDRESS_CLAMP_TO_EDGE);
-        RenderTargetOptions targetOptions;
-        targetOptions.graphicsDevice = device().get();
-        targetOptions.colorBuffer = _reflectionTexture.get();
-        targetOptions.depth = true;
-        targetOptions.name = "PlanarReflectionTarget";
-        auto reflectionTarget = device()->createRenderTarget(targetOptions);
+        // The light of the room, shining on the statue from the front.
+        auto* roomLight = new Entity();
+        roomLight->setName("Light");
+        roomLight->setEngine(engine());
+        if (auto* lc = static_cast<LightComponent*>(roomLight->addComponent<LightComponent>())) {
+            lc->setType(LightType::LIGHTTYPE_OMNI);
+            lc->setLayers(lightLayers);
+            lc->setColor(Color(1.0f, 0.95f, 0.9f, 1.0f));
+            lc->setIntensity(2.0f);
+            lc->setRange(20.0f);
+            lc->setCastShadows(true);
+            lc->setShadowBias(0.2f);
+            lc->setShadowNormalBias(0.05f);
+        }
+        roomLight->setLocalPosition(1.0f, 5.5f, 4.0f);
+        root()->addChild(roomLight);
 
+        // The floor, on its own layer.
+        if (auto* floorEntity = dynamic_cast<Entity*>(room->findByName("RoomFloor"))) {
+            for (auto* render : floorEntity->findComponents<RenderComponent>()) {
+                render->setLayers({LAYERID_FLOOR});
+            }
+        }
+        if (!_floorMaterial) {
+            spdlog::error("reflection-planar: the room has no 'Floor' material");
+            return false;
+        }
+        // Mostly metallic, so the reflection shows over its diffuse lighting.
+        _floorMaterial->setMetalness(0.7f);
+
+        // The main camera, low in the room, where the floor reflects the most.
+        Entity* camera = createCamera(Vector3(1.5f, 1.8f, 6.8f));
+        camera->setName("MainCamera");
+        _cameraComponent = camera->findComponent<CameraComponent>();
+        _cameraComponent->setLayers({LAYERID_WORLD, LAYERID_FLOOR, LAYERID_SKYBOX, LAYERID_UI});
+        _cameraComponent->camera()->setFov(60.0f);
+        _cameraComponent->camera()->setNearClip(0.1f);
+        _cameraComponent->camera()->setFarClip(100.0f);
+        _cameraComponent->setToneMapping(TONEMAP_ACES);
+
+        // It orbits all the way round; the pitch and zoom ranges keep it inside the room.
+        if (auto* controls = addOrbitControls(camera, Vector3(0.0f, 1.2f, 0.0f))) {
+            controls->setEnableFly(false);
+            controls->setPitchRange(Vector2(-45.0f, 5.0f));
+            controls->setZoomRange(Vector2(3.5f, 7.0f));
+            controls->storeResetState();
+        }
+
+        // Bloom makes the doors glow, and their reflections.
+        auto rendering = _cameraComponent->rendering();
+        rendering.samples = 4;
+        rendering.bloomIntensity = 0.03f;
+        rendering.bloomBlurLevel = 6;
+        rendering.vignetteEnabled = true;
+        rendering.vignetteIntensity = 0.35f;
+        _cameraComponent->setRendering(rendering);
+
+        // The reflection camera, rendering World and Skybox into the reflection texture first
+        // (its priority is lower). The script mirrors the main camera by the floor's plane, and
+        // makes the texture mipmapped, for the blurred reflections of rough floors, and of high
+        // dynamic range, so the doors' reflections are as bright as the doors.
         _reflectionCamera = createCamera(Vector3(0.0f, 0.0f, 0.0f));
         _reflectionCamera->setName("ReflectionCamera");
-        _reflectionCameraComponent = _reflectionCamera->findComponent<CameraComponent>();
-        _reflectionCameraComponent->setLayers({LAYERID_WORLD, LAYERID_SKYBOX});
-        _reflectionCameraComponent->setPriority(-1);
-        _reflectionCameraComponent->setToneMapping(TONEMAP_ACES);
-        _reflectionCameraComponent->camera()->setRenderTarget(reflectionTarget);
+        if (auto* reflectionComponent = _reflectionCamera->findComponent<CameraComponent>()) {
+            reflectionComponent->setLayers({LAYERID_WORLD, LAYERID_SKYBOX});
+            reflectionComponent->setPriority(-1);
+            reflectionComponent->setToneMapping(TONEMAP_ACES);
+        }
+        _reflectionCamera->addComponent<ScriptComponent>();
+        _planarRenderer = _reflectionCamera->script()->create<PlanarRenderer>();
+        _planarRenderer->setSceneCameraEntity(camera);
+        _planarRenderer->setMipmaps(true);
+        _planarRenderer->setHdr(true);
+        _planarRenderer->setPlane(Vector3(0.0f, 0.0f, 0.0f), Vector3(0.0f, 1.0f, 0.0f));
 
-        // The main camera: the world, the ground, the sky and the UI
-        _camera = createCamera(Vector3(30.0f, 10.0f, 0.0f));
-        _camera->setName("MainCamera");
-        _cameraComponent = _camera->findComponent<CameraComponent>();
-        _cameraComponent->setLayers({LAYERID_WORLD, LAYERID_EXCLUDED, LAYERID_SKYBOX, LAYERID_UI});
-        _cameraComponent->setToneMapping(TONEMAP_ACES);
-        _cameraComponent->camera()->setFov(60.0f);
+        applySettings();
+        spdlog::info("reflection-planar: P planar/cubemap, [ ] resolution, - = roughness, T texture, , . speed");
+        return true;
+    }
 
-        _groundMaterial->setBaseColorTexture(_reflectionTexture.get());
+    bool onEvent(const SDL_Event& event) override
+    {
+        if (event.type != SDL_EVENT_KEY_DOWN) {
+            return false;
+        }
+        switch (event.key.key) {
+        case SDLK_P: _planar = !_planar; break;
+        case SDLK_LEFTBRACKET: _resolution = std::max(0.1f, _resolution - 0.1f); break;
+        case SDLK_RIGHTBRACKET: _resolution = std::min(1.0f, _resolution + 0.1f); break;
+        case SDLK_MINUS: _roughness = std::max(0.0f, _roughness - 0.05f); break;
+        case SDLK_EQUALS: _roughness = std::min(0.6f, _roughness + 0.05f); break;
+        case SDLK_T: _showTexture = !_showTexture; break;
+        case SDLK_COMMA: _speed = std::max(0.0f, _speed - 0.5f); break;
+        case SDLK_PERIOD: _speed = std::min(3.0f, _speed + 0.5f); break;
+        default: return false;
+        }
+        applySettings();
         return true;
     }
 
     void update(const float dt) override
     {
-        _time += dt;
+        _time += dt * _speed;
 
-        // The shapes spin and orbit the statue
-        for (size_t e = 0; e < _entities.size(); ++e) {
-            const float scale = static_cast<float>(e + 1) / static_cast<float>(_entities.size());
-            const float offset = _time + static_cast<float>(e) * 200.0f;
-            _entities[e]->setLocalPosition(7.0f * std::sin(offset), static_cast<float>(e) + 5.0f,
-                7.0f * std::cos(offset));
-            _entities[e]->rotate(1.0f * scale, 2.0f * scale, 3.0f * scale);
+        // The drone circles the statue, dipping toward the floor and back up, facing where it
+        // flies, its nose down and banking into the turn.
+        const float angle = _time * 0.5f;
+        constexpr float radius = 2.6f;
+        const float height = 1.1f + std::sin(_time * 0.7f) * 0.5f;
+        _droneEntity->setLocalPosition(std::sin(angle) * radius, height, std::cos(angle) * radius);
+        _droneEntity->lookAt(std::sin(angle + 0.1f) * radius, height, std::cos(angle + 0.1f) * radius);
+        _droneEntity->rotateLocal(-8.0f, 0.0f, 15.0f);
+        for (const auto& [rotor, direction] : _rotors) {
+            rotor->setLocalEulerAngles(0.0f, direction * _time * 2000.0f, 0.0f);
+        }
+        if (_led) {
+            _led->setEnabled(static_cast<int>(std::floor(_time * 2.0f)) % 2 == 0);
         }
 
-        // The camera slowly orbits, its field of view breathing
-        _camera->setLocalPosition(30.0f * std::cos(_time * 0.2f), 10.0f, 30.0f * std::sin(_time * 0.2f));
-        _camera->lookAt(Vector3(0.0f, 0.0f, 0.0f));
-        _cameraComponent->camera()->setFov(60.0f + 20.0f * std::sin(_time * 0.5f));
+        // The torus spins on its pedestal.
+        _torusPivot->setLocalEulerAngles(0.0f, _time * 40.0f, 0.0f);
 
-        // The reflection camera mirrored through the ground plane (y = 0), with the main
-        // camera's projection, after the main camera has moved
-        const Matrix4 reflection = Matrix4::reflection(0.0f, 1.0f, 0.0f, 0.0f);
-        const Vector3 position = _camera->position();
-        const Vector3 forward = Vector3(_camera->worldTransform().getColumn(2)) * -1.0f;
-        _reflectionCamera->setPosition(reflection.transformPoint(position));
-        _reflectionCamera->lookAt(reflection.transformPoint(position + forward));
-        Camera* main = _cameraComponent->camera();
-        Camera* mirror = _reflectionCameraComponent->camera();
-        mirror->setFov(main->fov());
-        mirror->setNearClip(main->nearClip());
-        mirror->setFarClip(main->farClip());
-        mirror->setAspectRatio(main->aspectRatio());
+        // The reflection camera, after the main camera moved this frame. The floor reflects its
+        // texture through its view-projection; with the camera off there is no texture and the
+        // floor falls back to its environment atlas.
+        Texture* texture = _planarRenderer->frameUpdate();
+        _floorMaterial->setPlanarReflectionMap(texture);
+        _floorMaterial->setPlanarReflectionMatrix(_planarRenderer->viewProjectionMatrix());
 
-        const auto [width, height] = device()->size();
-        _groundMaterial->setScreenSize(static_cast<float>(width), static_cast<float>(height));
+        updatePreview(texture && _showTexture ? texture : nullptr);
     }
 
     void destroy() override
     {
-        if (_groundMaterial) {
-            _groundMaterial->setBaseColorTexture(nullptr);
+        if (_preview) {
+            engine()->renderer()->removeAppendPass(_preview);
+            _preview.reset();
+        }
+        if (_floorMaterial) {
+            _floorMaterial->setPlanarReflectionMap(nullptr);
         }
     }
 
 private:
-    std::unique_ptr<Asset> _envAtlas;
+    // A material reflects the room, box projected onto its inside (the cubemap was rendered
+    // from the centre of the room), and is lit by it.
+    void addReflections(StandardMaterial* material) const
+    {
+        if (Texture* atlas = _roomEnvAtlas->resourceAs<Texture>()) {
+            material->setEnvAtlas(atlas);
+        }
+        material->setCubeMapProjection(CUBEPROJ_BOX);
+        material->setCubeMapProjectionBox(BoundingBox(Vector3(0.0f, 3.25f, 0.0f), Vector3(8.0f, 3.25f, 9.0f)));
+    }
+
+    std::shared_ptr<StandardMaterial> makeMetal(const Color& diffuse, const float gloss) const
+    {
+        auto material = std::make_shared<StandardMaterial>();
+        material->setDiffuse(diffuse);
+        material->setUseMetalness(true);
+        material->setMetalness(1.0f);
+        material->setGloss(gloss);
+        addReflections(material.get());
+        return material;
+    }
+
+    void applySettings()
+    {
+        // With the cubemap, the reflection camera need not render.
+        if (_reflectionCamera) {
+            if (auto* component = _reflectionCamera->findComponent<CameraComponent>()) {
+                component->setEnabled(_planar);
+            }
+        }
+        if (_planarRenderer) {
+            _planarRenderer->setScale(_resolution);
+        }
+        if (_floorMaterial) {
+            _floorMaterial->setGloss(_roughness);   // as upstream, which writes the roughness to gloss
+        }
+    }
+
+    // The reflection texture in the corner, at upstream's TextureRenderer place (centre 0.7,
+    // 0.7 in clip space, 0.28 across).
+    void updatePreview(Texture* texture)
+    {
+        if (!texture) {
+            if (_preview) {
+                _preview->setEnabled(false);
+            }
+            return;
+        }
+        if (!_preview) {
+            _preview = std::make_shared<TexturePreviewPass>(device(), texture);
+            _preview->init(nullptr);
+            engine()->renderer()->addAppendPass(_preview);
+        }
+        _preview->setTexture(texture);
+        _preview->setEnabled(true);
+        const auto [width, height] = device()->size();
+        const float fw = static_cast<float>(width);
+        const float fh = static_cast<float>(height);
+        _preview->setViewport(Vector4(0.78f * fw, 0.08f * fh, 0.14f * fw, 0.14f * fh));
+        _preview->setScissor(_preview->viewport());
+    }
+
+    std::unique_ptr<Asset> _helipad;
+    std::unique_ptr<Asset> _roomEnvAtlas;
+    std::unique_ptr<Asset> _room;
     std::unique_ptr<Asset> _statue;
-    std::shared_ptr<GroundMaterial> _groundMaterial;
-    std::vector<std::shared_ptr<StandardMaterial>> _materials;
-    std::vector<Entity*> _entities;
-    std::shared_ptr<Texture> _reflectionTexture;
-    Entity* _camera = nullptr;
+    std::unique_ptr<Asset> _drone;
+
+    Entity* _droneEntity = nullptr;
+    std::vector<std::pair<GraphNode*, float>> _rotors;
+    Entity* _led = nullptr;
+    Entity* _torusPivot = nullptr;
+    StandardMaterial* _floorMaterial = nullptr;
+    std::shared_ptr<StandardMaterial> _chrome;
+    std::shared_ptr<StandardMaterial> _gold;
+    std::vector<std::shared_ptr<StandardMaterial>> _doorMaterials;
     CameraComponent* _cameraComponent = nullptr;
     Entity* _reflectionCamera = nullptr;
-    CameraComponent* _reflectionCameraComponent = nullptr;
+    PlanarRenderer* _planarRenderer = nullptr;
+    std::shared_ptr<TexturePreviewPass> _preview;
+
+    bool _planar = true;
+    float _resolution = 0.5f;
+    float _roughness = 0.1f;
+    bool _showTexture = false;
+    float _speed = 1.0f;
     float _time = 0.0f;
 };
 

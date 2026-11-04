@@ -13,9 +13,10 @@
 // layer of its own after the world's transparent sublayer, at the island's sea level of -0.62.
 // The island's materials are dimmed to 0.55 (their textures carry baked lighting) and take the
 // water's underwater fog and caustics; the scene fog is EXP at 0.068, its colour following the
-// daylight. The ProceduralSky script lights the scene and steers the sun (intensity 1.3, shadow
-// bias 0.2, normal offset 0.05, distance 120) by the time of day, 10:00, through upstream's
-// elevation, luminance and bloom curves; neutral tone mapping with bloom over 16 levels. The
+// daylight. The camera frame's DynamicSkyEffect renders the sky, lights the scene and steers the
+// sun (intensity 1.3, shadow bias 0.2, normal offset 0.05, distance 120; the sky's luminance 3.5,
+// which keeps the sky and its reflection on the water light and clear) by the time of day, 10:00,
+// through upstream's elevation and bloom curves; neutral tone mapping with bloom over 16 levels. The
 // camera (fov 60, far 3000) orbits a point between the islands and may dive below the surface.
 //
 // Keys stand in for upstream's controls panel:
@@ -47,7 +48,7 @@
 
 #include "core/math/curve.h"
 #include "extras/script/cameraControls.h"
-#include "extras/script/proceduralSky.h"
+#include "scene/graphics/dynamicSkyEffect.h"
 #include "extras/script/water.h"
 #include "../exampleApp.h"
 #include "framework/assets/asset.h"
@@ -158,16 +159,6 @@ protected:
             light->setShadowDistance(120.0f);
         }
 
-        // The procedural sky: the visible sky and the image-based lighting.
-        auto* skyEntity = new Entity();
-        skyEntity->setName("ProceduralSky");
-        skyEntity->setEngine(engine());
-        skyEntity->addComponent<ScriptComponent>();
-        _sky = skyEntity->script()->create<ProceduralSky>();
-        _sky->setSunLight(_sun);
-        _sky->setMoonIntensity(0.4f);
-        root()->addChild(skyEntity);
-
         // The camera, rendering the water layer too; its frame tone maps and blooms.
         _camera = createCamera(Vector3(35.0f, 13.0f, 42.0f));
         _camera->setName("MainCamera");
@@ -176,6 +167,14 @@ protected:
         _cameraComp->camera()->setFov(60.0f);
         _cameraComp->camera()->setFarClip(3000.0f);
         _cameraComp->setToneMapping(TONEMAP_NEUTRAL);
+
+        // The dynamic sky: the visible sky, the image-based lighting, and the sun it drives.
+        _sky = std::make_shared<DynamicSkyEffect>();
+        _sky->setLight(_sun->findComponent<LightComponent>());
+        _sky->sunIntensity = 1.3f;
+        _sky->moonIntensity = 0.4f;
+        _sky->luminance = 3.5f;
+        _cameraComp->addFrameEffect(_sky);
         auto rendering = _cameraComp->rendering();
         rendering.bloomBlurLevel = 16;
         _cameraComp->setRendering(rendering);
@@ -285,13 +284,12 @@ protected:
     }
 
 private:
-    // The sun's position, the sky's luminance, the bloom and the fog's daylight for the hour.
+    // The sun's position, the bloom and the fog's daylight for the hour.
     void applyTimeOfDay()
     {
         const float elevation = _elevationCurve.value(_hour);
-        _sky->setElevation(elevation);
-        _sky->setAzimuth(_hour / 24.0f * 360.0f);
-        _sky->setLuminance(_luminanceCurve.value(std::max(elevation, 0.0f)));
+        _sky->elevation = elevation;
+        _sky->azimuth = _hour / 24.0f * 360.0f;
 
         // The underwater fog dims with the daylight, with a small floor for the moonlit night.
         const float t = std::clamp((elevation + 2.0f) / 14.0f, 0.0f, 1.0f);
@@ -345,13 +343,12 @@ private:
     Entity* _sun = nullptr;
     Entity* _camera = nullptr;
     CameraComponent* _cameraComp = nullptr;
-    ProceduralSky* _sky = nullptr;
+    std::shared_ptr<DynamicSkyEffect> _sky;
     Water* _water = nullptr;
 
     // The sun's elevation over the day (hour, degrees), the sky's luminance and the bloom by the
     // sun's elevation.
     Curve _elevationCurve = smoothstepCurve({0.0f, -60.0f, 6.0f, 0.0f, 12.0f, 60.0f, 18.0f, 0.0f, 24.0f, -90.0f});
-    Curve _luminanceCurve = smoothstepCurve({0.0f, 2.0f, 35.0f, 0.4f, 90.0f, 0.3f});
     Curve _bloomCurve = smoothstepCurve({0.0f, 0.005f, 5.0f, 0.001f, 8.0f, 0.001f, 90.0f, 0.002f});
 
     float _hour = 10.0f;

@@ -90,8 +90,8 @@ namespace visutwin::canvas
         // device used it: its image count (min + 1, capped), the surface's current transform, an
         // opaque composite, clipped, concurrent sharing across distinct queue families.
         //
-        // Use a linear (UNORM) swapchain — the shaders apply manual
-        // pow(1/2.2) for display gamma encoding, matching the Metal path
+        // Use a linear (UNORM) swapchain — the shaders apply the sRGB
+        // encode for display themselves, matching the Metal path
         // which renders into a non-sRGB BGRA8Unorm drawable.  Choosing
         // VK_FORMAT_B8G8R8A8_SRGB instead would make the hardware apply a
         // second sRGB encode on store, doubling the gamma and washing out

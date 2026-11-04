@@ -93,7 +93,7 @@ int main()
         StandardMaterial tinted;
         tinted.setSpecular(Color(0.5f, 0.0f, 0.0f, 1.0f));
         check(tinted.rendersSpecular(), "a non-black specular colour renders specular");
-        check(nearStrict(tinted.packedUniforms().specGlossParams[0], std::pow(0.5f, 2.2f), kTolerance),
+        check(nearStrict(tinted.packedUniforms().specGlossParams[0], gammaToLinear(0.5f), kTolerance),
             "specular is authored in sRGB and packed linear, as upstream's _defineColor uniforms are");
 
         StandardMaterial coated;
@@ -196,8 +196,8 @@ int main()
             "the ambient tint defaults to exactly white");
         material.setAmbient(Color(0.5f, 0.25f, 1.0f, 1.0f));
         const MaterialUniforms& t = material.packedUniforms();
-        check(nearStrict(t.ambientTint[0], std::pow(0.5f, 2.2f), kTolerance) &&
-              nearStrict(t.ambientTint[1], std::pow(0.25f, 2.2f), kTolerance) &&
+        check(nearStrict(t.ambientTint[0], gammaToLinear(0.5f), kTolerance) &&
+              nearStrict(t.ambientTint[1], gammaToLinear(0.25f), kTolerance) &&
               nearStrict(t.ambientTint[2], 1.0f, kTolerance), "setAmbient packs the colour linearised");
     }
 

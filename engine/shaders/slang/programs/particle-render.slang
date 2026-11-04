@@ -13,6 +13,7 @@
 // sort order at 8 / binding 1, a mesh emitter's vertices (14 floats each) at 9 / binding 2,
 // the render parameters at 11 / binding 3; the colour and normal maps at the material's
 // first two texture slots, the scene depth grab for softening at its scene slot.
+import vtsrgb;
 #include "bindings.slang"
 
 // The forward pass's tone mapping operators, without its lighting-block dispatch.
@@ -274,7 +275,7 @@ float4 particleFS(ParticleVaryings input) : SV_Target0
     if (input.hasMap > 0.5) {
         texel = sampleColorMap(input.uv);
         // The colour map is sRGB-authored.
-        texel.rgb = pow(max(texel.rgb, float3(0.0)), float3(2.2));
+        texel.rgb = srgbToLinear(texel.rgb);
     } else {
         // No colour map: a white disc whose alpha falls linearly from 0.5 at the centre to
         // 0 at the quad's edge (the default texture: a 16-texel radial ramp, bilinearly
@@ -320,7 +321,7 @@ float4 particleFS(ParticleVaryings input) : SV_Target0
     // encodes it, a camera frame's linear HDR scene leaves both to compose.
     if (input.output.z < 0.5) {
         rgb = toneMapExposed(rgb, input.output.x, int(input.output.y + 0.5));
-        rgb = pow(max(rgb, float3(0.0)) + 0.0000001, float3(1.0 / 2.2));
+        rgb = linearToSrgb(rgb);
     }
     return float4(rgb, alpha);
 }

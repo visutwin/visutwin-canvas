@@ -36,6 +36,7 @@ namespace visutwin::canvas
 
     PlanarRenderer::~PlanarRenderer()
     {
+        updateColorSettings(false);
         if (CameraComponent* camera = planarCamera(); camera && camera->camera()) {
             camera->camera()->setCalculateProjection(nullptr);
             if (camera->camera()->renderTarget() == _renderTarget) {
@@ -58,9 +59,8 @@ namespace visutwin::canvas
 
     void PlanarRenderer::initialize()
     {
-        if (!_sceneCameraEntity || !_sceneCameraEntity->findComponent<CameraComponent>()) {
-            spdlog::error("PlanarRenderer: the scene camera entity is not set, or has no camera");
-        }
+        // A script created in a running engine initializes at once, before its owner can set
+        // the scene camera, so that is checked on the first frameUpdate().
         if (!planarCamera()) {
             spdlog::error("PlanarRenderer: its entity has no camera component");
         }
@@ -70,6 +70,23 @@ namespace visutwin::canvas
     {
         _renderTarget.reset();
         _texture.reset();
+    }
+
+    void PlanarRenderer::updateColorSettings(const bool hdr)
+    {
+        CameraComponent* camera = planarCamera();
+        Camera* cam = camera ? camera->camera() : nullptr;
+        if (!cam) {
+            return;
+        }
+        if (hdr && !_ldrStored) {
+            _ldrStored = true;
+            _ldrLinearOutput = cam->linearOutput();
+            cam->setLinearOutput(true);
+        } else if (!hdr && _ldrStored) {
+            cam->setLinearOutput(_ldrLinearOutput);
+            _ldrStored = false;
+        }
     }
 
     void PlanarRenderer::updateRenderTarget()
@@ -95,8 +112,11 @@ namespace visutwin::canvas
         const int width = std::clamp(static_cast<int>(std::floor(static_cast<float>(sceneWidth) * _scale)), 1, maxSize);
         const int height = std::clamp(static_cast<int>(std::floor(static_cast<float>(sceneHeight) * _scale)), 1, maxSize);
 
+        const PixelFormat format = _hdr && device->textureHalfFloatRenderable()
+            ? PixelFormat::PIXELFORMAT_RGBA16F : PixelFormat::PIXELFORMAT_RGBA8;
         if (_renderTarget && _texture && _texture->width() == static_cast<uint32_t>(width) &&
-            _texture->height() == static_cast<uint32_t>(height) && camera->camera()->renderTarget() == _renderTarget) {
+            _texture->height() == static_cast<uint32_t>(height) && _texture->format() == format &&
+            _texture->mipmaps() == _mipmaps && camera->camera()->renderTarget() == _renderTarget) {
             return;
         }
 
@@ -104,9 +124,9 @@ namespace visutwin::canvas
         textureOptions.name = (entity()->name().empty() ? std::string("Planar") : entity()->name()) + ":PlanarRenderer";
         textureOptions.width = width;
         textureOptions.height = height;
-        textureOptions.format = PixelFormat::PIXELFORMAT_RGBA8;
-        textureOptions.mipmaps = false;
-        textureOptions.minFilter = FilterMode::FILTER_LINEAR;
+        textureOptions.format = format;
+        textureOptions.mipmaps = _mipmaps;
+        textureOptions.minFilter = _mipmaps ? FilterMode::FILTER_LINEAR_MIPMAP_LINEAR : FilterMode::FILTER_LINEAR;
         textureOptions.magFilter = FilterMode::FILTER_LINEAR;
         auto texture = std::make_shared<Texture>(device.get(), textureOptions);
         texture->setAddressU(AddressMode::ADDRESS_CLAMP_TO_EDGE);
@@ -123,6 +143,7 @@ namespace visutwin::canvas
         camera->camera()->setRenderTarget(target);
         _renderTarget = std::move(target);
         _texture = std::move(texture);
+        updateColorSettings(format == PixelFormat::PIXELFORMAT_RGBA16F);
     }
 
     void PlanarRenderer::calculateProjection(Matrix4& projection) const
@@ -195,6 +216,10 @@ namespace visutwin::canvas
         CameraComponent* camera = planarCamera();
         CameraComponent* sceneCamera = _sceneCameraEntity ? _sceneCameraEntity->findComponent<CameraComponent>() : nullptr;
         if (!camera || !sceneCamera || !camera->camera() || !sceneCamera->camera()) {
+            if (!_warnedNoSceneCamera && camera) {
+                spdlog::error("PlanarRenderer: the scene camera entity is not set, or has no camera");
+                _warnedNoSceneCamera = true;
+            }
             return nullptr;
         }
 
@@ -241,6 +266,11 @@ namespace visutwin::canvas
             planar->setCalculateProjection(nullptr);
             _projectionInstalled = false;
         }
+
+        // The view-projection, built as the camera's projection is.
+        Matrix4 projection;
+        calculateProjection(projection);
+        _viewProjectionMatrix = projection * entity()->worldTransform().inverse();
 
         return _texture.get();
     }

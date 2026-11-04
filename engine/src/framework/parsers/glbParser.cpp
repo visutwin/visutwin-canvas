@@ -1869,7 +1869,7 @@ namespace visutwin::canvas
      * Apply KHR_materials_emissive_strength: a linear multiplier on the emissive
      * term, which is how a glTF asset asks for an emitter brighter than white.
      * It lands on emissiveIntensity because StandardMaterial::updateUniforms
-     * uploads pow(emissive, 2.2) * emissiveIntensity — the factor is already
+     * uploads linear(emissive) * emissiveIntensity — the factor is already
      * linearised there, so the strength must not be gamma-corrected with it.
      */
     static void applyEmissiveStrength(const tinygltf::Material& srcMaterial, StandardMaterial* material)
@@ -2102,8 +2102,8 @@ namespace visutwin::canvas
     /**
      * KHR_materials_sheen: the colour factor is
      * linear in the file and stored gamma-encoded (both shaders decode it), the
-     * roughness factor is the sheen roughness. DEVIATION: an absent colour factor is
-     * the spec's default of BLACK — no sheen — where upstream substitutes white.
+     * roughness factor is the sheen roughness. An absent colour factor is the spec's
+     * default of black: no sheen.
      */
     static void applySheen(const tinygltf::Material& srcMaterial, StandardMaterial* material)
     {

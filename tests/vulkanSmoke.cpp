@@ -2626,7 +2626,7 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
             // setDiffuse stores its colour RAW (see the EMISSION note below), so the
             // shader decodes it to linear before lighting — on both backends.
             const auto linearize = [](const float authored) {
-                return std::pow(std::max(authored, 0.0f), 2.2f);
+                return gammaToLinear(authored);
             };
             // F0 = mix(0.04, albedo, metalness), the standard dielectric blend, over
             // the LINEAR albedo the shader actually works with.

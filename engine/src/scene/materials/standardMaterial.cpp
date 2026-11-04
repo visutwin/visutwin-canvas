@@ -53,6 +53,8 @@ namespace visutwin::canvas
         _specularityFactorMap = nullptr;
         _specularityFactorMapUv = 0;
         _envAtlas = nullptr;
+        _planarReflectionMap = nullptr;
+        _planarReflectionMatrix = Matrix4::identity();
         _cubeMapProjection = CUBEPROJ_NONE;
         _cubeMapProjectionBox = BoundingBox();
         _reflectivity = 1.0f;
@@ -268,7 +270,7 @@ namespace visutwin::canvas
         // emissive texture is present, which would otherwise produce fully-white glowing surfaces.
         // Users who want emission must call setEmissive()/setEmissiveIntensity(); when they do,
         // the linearize-first-then-scale order keeps HDR intensities (e.g. 200 × neon) in range
-        // (pow(1, 2.2) * 200 = 200 linear, vs pow(200, 2.2) ≈ 1.7e5 which overflows fp16).
+        // (linear(1) * 200 = 200, vs linear(200) ≈ 3e5 which overflows fp16).
         uniforms.emissiveColor[0] = toLinear(_emissive.r) * _emissiveIntensity;
         uniforms.emissiveColor[1] = toLinear(_emissive.g) * _emissiveIntensity;
         uniforms.emissiveColor[2] = toLinear(_emissive.b) * _emissiveIntensity;
@@ -350,7 +352,10 @@ namespace visutwin::canvas
         const double ior = static_cast<double>(_refractionIndex);
         double f0 = (ior - 1.0) / (ior + 1.0);
         f0 *= f0;
-        const auto linear = [](const float c) { return std::pow(std::max(static_cast<double>(c), 0.0), 2.2); };
+        const auto linear = [](const float value) {
+            const double c = std::max(static_cast<double>(value), 0.0);
+            return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
+        };
         const double factor = static_cast<double>(_specularityFactor);
         const double r = _useMetalnessSpecularColor ? linear(_specular.r) : 1.0;
         const double g = _useMetalnessSpecularColor ? linear(_specular.g) : 1.0;
@@ -449,6 +454,16 @@ namespace visutwin::canvas
         uniforms.diffuseTransmissionMapParams[0] = _diffuseTransmissionMapUv == 1 ? 1.0f : 0.0f;
         uniforms.diffuseTransmissionMapParams[1] = static_cast<float>(_diffuseTransmissionMapChannel);
         uniforms.diffuseTransmissionMapParams[2] = _diffuseTransmissionColorMapUv == 1 ? 1.0f : 0.0f;
+
+        // the planar reflection map: its camera's view-projection, its coarsest mip and encoding.
+        _planarReflectionMatrix.getColumn(0).store(uniforms.planarReflectionMatrix0);
+        _planarReflectionMatrix.getColumn(1).store(uniforms.planarReflectionMatrix1);
+        _planarReflectionMatrix.getColumn(2).store(uniforms.planarReflectionMatrix2);
+        _planarReflectionMatrix.getColumn(3).store(uniforms.planarReflectionMatrix3);
+        uniforms.planarReflectionParams[0] = _planarReflectionMap
+            ? std::log2(static_cast<float>(std::max(_planarReflectionMap->width(), 1u))) : 0.0f;
+        uniforms.planarReflectionParams[1] = _planarReflectionMap && isFloatPixelFormat(_planarReflectionMap->format())
+            ? 1.0f : 0.0f;
 
         // detail normals + displacement.
         uniforms.detailDisplacementParams[0] = _detailNormalScale;
@@ -553,6 +568,7 @@ namespace visutwin::canvas
         overrideSlot(48, _iridescenceThicknessMap);
         overrideSlot(49, _diffuseTransmissionMap);
         overrideSlot(50, _diffuseTransmissionColorMap);
+        overrideSlot(51, _planarReflectionMap);
         // Vertex displacement map: a VERTEX-stage texture (the binding table's slot,
         // MetalTextureBinder::bindMaterialTextures).
         overrideSlot(kDisplacementMapMetalSlot, _displacementMap);

@@ -69,7 +69,8 @@ namespace visutwin::canvas
     X(iridescenceMap,     Tex2D,   SeparateImage,   47,  39, 0, 1) \
     X(iridescenceThicknessMap, Tex2D, SeparateImage, 48, 40, 0, 1) \
     X(diffuseTransmissionMap, Tex2D, SeparateImage, 49, 41, 0, 1) \
-    X(diffuseTransmissionColorMap, Tex2D, SeparateImage, 50, 42, 0, 1)
+    X(diffuseTransmissionColorMap, Tex2D, SeparateImage, 50, 42, 0, 1) \
+    X(planarReflectionMap, Tex2D,  SeparateImage,   51,  43, 0, 1)
 
     // Set 3 on Vulkan: the per-pass scene textures. The VSM moment maps are Metal-only
     // slots: the spot pair because Vulkan rebinds the spot slots 2 / 3 with the linear
@@ -245,8 +246,8 @@ namespace visutwin::canvas
     inline constexpr auto kMaterialTextureBindings =
         shaderBindings::vkBindingsIf<kMaterialBindingRows.size()>(kMaterialBindingRows, shaderBindings::hasVkBinding);
     static_assert(kMaterialTextureBindings ==
-        std::array<uint32_t, 26>{0, 1, 2, 3, 4, 5, 17, 19, 23, 24, 25, 7, 13, 14, 31, 32, 33, 34, 35, 36, 37, 38,
-            39, 40, 41, 42});
+        std::array<uint32_t, 27>{0, 1, 2, 3, 4, 5, 17, 19, 23, 24, 25, 7, 13, 14, 31, 32, 33, 34, 35, 36, 37, 38,
+            39, 40, 41, 42, 43});
 
     /// The shared sampler every separate material image reads through (set 1).
     inline constexpr uint32_t kMaterialExtraSamplerBinding =
@@ -376,7 +377,7 @@ namespace visutwin::canvas
 
     /// Metal fragment texture slots: 0 .. kMetalMaxTextureSlots - 1.
     inline constexpr int kMetalMaxTextureSlots = shaderBindings::maxMetalTextureSlot() + 1;
-    static_assert(kMetalMaxTextureSlots == 51);
+    static_assert(kMetalMaxTextureSlots == 52);
 
     /// The Metal material slots the material binder owns (cleared when a material has no
     /// map there), in table order.
@@ -384,8 +385,8 @@ namespace visutwin::canvas
         shaderBindings::metalSlotsIf<shaderBindings::countIf(kMaterialBindingRows, shaderBindings::isMetalMaterialSlot)>(
             kMaterialBindingRows, shaderBindings::isMetalMaterialSlot);
     static_assert(kMetalMaterialTextureSlots ==
-        std::array<int, 23>{0, 1, 3, 4, 5, 17, 19, 23, 7, 13, 14, 31, 32, 33, 34, 42, 43, 44, 45, 47, 48, 49,
-            50});
+        std::array<int, 24>{0, 1, 3, 4, 5, 17, 19, 23, 7, 13, 14, 31, 32, 33, 34, 42, 43, 44, 45, 47, 48, 49,
+            50, 51});
 
     /// The material maps read through their texture's own sampler, by Metal texture slot,
     /// in table order: Metal sampler slot 1 + i carries the sampler of slot [i].

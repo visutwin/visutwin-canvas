@@ -84,7 +84,7 @@ namespace visutwin::canvas
         /// this is a shader variant (VT_FEATURE_NO_SPECULAR) rather than a colour.
         bool rendersSpecular() const
         {
-            return _useMetalness || _specGlossMap != nullptr || _clearCoat > 0.0f ||
+            return _useMetalness || _specGlossMap != nullptr || _clearCoat > 0.0f || _planarReflectionMap != nullptr ||
                 _specular.r > 0.0f || _specular.g > 0.0f || _specular.b > 0.0f;
         }
         // Writes through to the base Material's slot, as setAoMap does: a glTF
@@ -186,7 +186,7 @@ namespace visutwin::canvas
         void setRefractionMapChannel(const MapChannel value) { _refractionMapChannel = value; markUniformsDirty(); }
         // --- Emissive ---
         // StandardMaterial owns the emissive contribution unconditionally: updateUniforms() writes
-        // pow(_emissive, 2.2) * _emissiveIntensity to the GPU as linear HDR, overriding whatever
+        // linear(_emissive) * _emissiveIntensity to the GPU as linear HDR, overriding whatever
         // base Material::_emissiveFactor the parser populated. This deliberately ignores
         // authoring artifacts like
         // specular-glossiness exporters writing emissiveFactor=(1,1,1) with no emissive texture
@@ -262,7 +262,7 @@ namespace visutwin::canvas
         void setEmissiveVertexColor(const bool value) { _emissiveVertexColor = value; markUniformsDirty(); }
         /// Whether the mesh's vertex colours are gamma encoded. Vertex colours are
         /// LINEAR by default (glTF's COLOR_0 is); set this for colours authored in
-        /// gamma space, and the vertex stage decodes them (pow 2.2) before the
+        /// gamma space, and the vertex stage decodes them (sRGB) before the
         /// fragment stage multiplies them into the linear base or emissive colour.
         /// A shader variant (VT_FEATURE_VERTEX_COLOR_GAMMA).
         bool vertexColorGamma() const { return _vertexColorGamma; }
@@ -364,6 +364,19 @@ namespace visutwin::canvas
         /// scene's. Borrowed: the texture must outlive the material, or be cleared first.
         Texture* envAtlas() const { return _envAtlas; }
         void setEnvAtlas(Texture* texture) { _envAtlas = texture; markUniformsDirty(); }
+        /// The material's planar reflection: a texture the scene is rendered into by a camera
+        /// mirrored by the surface's plane (PlanarRenderer). It replaces the environment
+        /// reflections (the environment still gives the ambient), seen through the view-
+        /// projection of that camera (setPlanarReflectionMatrix); a rougher surface reads a
+        /// smaller mip of it, so the texture should be mipmapped. A float texture is read as
+        /// linear, an 8-bit one as gamma encoded. A refraction of the material needs the scene
+        /// colour (setUseDynamicRefraction), as the texture holds no environment to refract.
+        /// Borrowed: the texture must outlive the material, or be cleared first.
+        Texture* planarReflectionMap() const { return _planarReflectionMap; }
+        void setPlanarReflectionMap(Texture* texture) { _planarReflectionMap = texture; markUniformsDirty(); }
+        /// The view-projection of the camera that renders the planar reflection map (copied).
+        const Matrix4& planarReflectionMatrix() const { return _planarReflectionMatrix; }
+        void setPlanarReflectionMatrix(const Matrix4& matrix) { _planarReflectionMatrix = matrix; markUniformsDirty(); }
         /// Box projection of the environment reflections (CUBEPROJ_BOX) onto `box`, a world
         /// axis-aligned box such as the room a reflection probe captured.
         CubeProjection cubeMapProjection() const { return _cubeMapProjection; }
@@ -676,6 +689,8 @@ namespace visutwin::canvas
         Texture* _specularityFactorMap = nullptr;
         int _specularityFactorMapUv = 0;
         Texture* _envAtlas = nullptr;
+        Texture* _planarReflectionMap = nullptr;
+        Matrix4 _planarReflectionMatrix = Matrix4::identity();
         CubeProjection _cubeMapProjection = CUBEPROJ_NONE;
         BoundingBox _cubeMapProjectionBox;
         float _reflectivity = 1.0f;

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -247,13 +248,23 @@ namespace visutwin::canvas
                 ? const_cast<CameraComponent*>(this) : nullptr;
         }
 
-        /// Camera::screenToWorld on the engine's
-        /// canvas (window points, the space mouse events arrive in).
-        Vector3 screenToWorld(float x, float y, float z) const;
+        /// Camera::screenToWorld. Screen space is the engine's canvas (window points, the space
+        /// mouse events arrive in) unless a width and height are given: the device's pixel size,
+        /// say, or the size of the camera's render target when it is used as a texture.
+        Vector3 screenToWorld(float x, float y, float z,
+                              std::optional<float> width = std::nullopt,
+                              std::optional<float> height = std::nullopt) const;
 
-        /// Camera::worldToScreen on the engine's
-        /// canvas, so the result is in window points from the TOP-left, y down.
-        Vector3 worldToScreen(const Vector3& worldCoord) const;
+        /// Camera::worldToScreen, from the TOP-left, y down. The result is in canvas points unless
+        /// a width and height are given (see screenToWorld).
+        Vector3 worldToScreen(const Vector3& worldCoord,
+                              std::optional<float> width = std::nullopt,
+                              std::optional<float> height = std::nullopt) const;
+
+        /// The fog the camera renders with in place of the scene's, or null for the scene's
+        /// (Camera::setFog): copied, cleared by null.
+        [[nodiscard]] const FogParams* fog() const { return _camera ? _camera->fog() : nullptr; }
+        void setFog(const FogParams* fog) { if (_camera) { _camera->setFog(fog); } }
 
         const std::vector<int>& layers() const { return _layers; }
         void setLayers(const std::vector<int>& layers) { _layers = layers; }

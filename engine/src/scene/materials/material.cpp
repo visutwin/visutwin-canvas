@@ -232,7 +232,7 @@ namespace visutwin::canvas
         // wants linear HDR, and a StandardMaterial subclass may multiply by emissiveIntensity > 1.
         // Linearize FIRST here so the intensity scaling (applied by StandardMaterial::updateUniforms
         // below) happens in linear space — applying pow() to intensity-scaled sRGB blows up to
-        // +Inf for bright neon (e.g. 200 * 1.0 → pow(200, 2.2) ≈ 1.7e5, overflowing fp16 targets).
+        // +Inf for bright neon (e.g. 200 * 1.0 decoded as sRGB ≈ 3e5, overflowing fp16 targets).
         uniforms.emissiveColor[0] = gammaToLinear(_emissiveFactor.r);
         uniforms.emissiveColor[1] = gammaToLinear(_emissiveFactor.g);
         uniforms.emissiveColor[2] = gammaToLinear(_emissiveFactor.b);

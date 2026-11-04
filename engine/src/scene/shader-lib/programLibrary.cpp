@@ -142,6 +142,8 @@ namespace visutwin::canvas
         options.opacityMap = stdMat.opacityMap() != nullptr;
 
         options.fog = stdMat.useFog() && !options.skybox;
+        options.skyHaze = options.fog && _skyHazeEnabled;
+        options.planarReflectionMap = stdMat.planarReflectionMap() != nullptr && !options.skybox;
         options.parallax = stdMat.heightMap() != nullptr;
         options.clearcoat = stdMat.clearCoat() > 0.0f;
         // Direct specular is normalised Blinn-Phong unless the material asks for GGX, and
@@ -384,6 +386,8 @@ namespace visutwin::canvas
         set(ShaderFeature::EnvAtlasRgbm, options.envAtlasRgbm);
         set(ShaderFeature::SkyboxReflection, options.skyboxReflection);
         set(ShaderFeature::ToneMapAgx, options.toneMapAgx);
+        set(ShaderFeature::SkyHaze, options.skyHaze);
+        set(ShaderFeature::PlanarReflectionMap, options.planarReflectionMap);
         set(ShaderFeature::DualSourceOutput, options.dualSourceOutput);
         set(ShaderFeature::ColorOutputs2, options.colorOutputs == 2);
         set(ShaderFeature::ColorOutputs3, options.colorOutputs == 3);
@@ -668,6 +672,7 @@ namespace visutwin::canvas
         add(_envAtlasEncoding == EnvAtlasEncoding::Rgbm);
         add(_skyboxReflectionEnabled);
         add(_toneMapAgxEnabled);
+        add(_skyHazeEnabled);
         // The pass's colour attachment count, 1-4, in two bits.
         add(((_colorOutputCount - 1) & 1) != 0);
         add(((_colorOutputCount - 1) & 2) != 0);

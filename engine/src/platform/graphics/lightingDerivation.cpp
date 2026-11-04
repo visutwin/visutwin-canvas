@@ -70,6 +70,7 @@ namespace visutwin::canvas
         out.fogStartEndType[0] = fogParams.start;
         out.fogStartEndType[1] = fogParams.end;
         out.fogStartEndType[2] = fogParams.enabled ? static_cast<float>(fogParams.type) : 0.0f;
+        out.skyHaze = fogParams.skyHaze;
 
         // A directional slot is active when the renderer counted it AND gave it a map.
         for (int slot = 0; slot < ShadowParams::kMaxDirectionalShadows; ++slot) {

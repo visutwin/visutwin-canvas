@@ -133,6 +133,10 @@ namespace visutwin::canvas
         /// times the camera's exposureScale (what its frame's effects adapt it by).
         float exposureFor(const Camera* camera) const;
 
+        /// The fog a camera renders with: its own (Camera::fog) when it has one, the scene's
+        /// otherwise.
+        const FogParams& fogFor(const Camera* camera) const;
+
         void setSkyType(int value);
         int skyType() const { return _skyType; }
 

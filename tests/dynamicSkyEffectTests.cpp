@@ -25,6 +25,7 @@
 #include "framework/components/light/lightComponentSystem.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
+#include "platform/graphics/graphicsDevice.h"
 #include "scene/camera.h"
 #include "scene/composition/layerComposition.h"
 #include "scene/constants.h"
@@ -221,11 +222,67 @@ int main()
         check(sky->blendWeight() == 1.0f, "a jump applies at once");
     }
 
+    std::cout << "the haze\n";
+    {
+        check(camera->fog() == nullptr, "no haze: the camera renders with the scene's fog");
+        FogParams own;
+        own.enabled = true;
+        own.type = FogType::FOG_EXP;
+        own.density = 0.25f;
+        camera->setFog(&own);
+        sky->haze = true;
+        sky->hazeDensity = 0.002f;
+        sky->hazeHeight = 50.0f;
+        sky->hazeBaseHeight = -40.0f;
+        frame();
+        const FogParams* fog = camera->fog();
+        check(fog && fog->enabled && fog->type == FogType::FOG_DYNAMIC_SKY_HAZE, "on: the camera is given the haze fog");
+        check(&scene.fogFor(camera->camera()) == camera->fog(), "which the scene's fog gives way to");
+        const auto& b = sky->block();
+        check(fog && near(fog->skyHaze.haze[0], 0.002f, 1e-9f) && near(fog->skyHaze.haze[1], 1.0f / 50.0f, 1e-9f) &&
+              near(fog->skyHaze.haze[2], -40.0f, 1e-9f), "density, one over the height, the base height");
+        check(fog && fog->skyHaze.sunDir[1] == b.sunDir[1] && fog->skyHaze.betaM[3] == b.betaM[3] &&
+              fog->skyHaze.rotation[0] == b.skyRotation[0][0], "coloured by this frame's sky");
+        sky->haze = false;
+        frame();
+        check(camera->fog() && camera->fog()->type == FogType::FOG_EXP && near(camera->fog()->density, 0.25f, 1e-9f),
+            "off: the camera's own fog is given back");
+        camera->setFog(nullptr);
+        sky->haze = true;
+        frame();
+        FogParams other;
+        other.enabled = true;
+        camera->setFog(&other);
+        sky->haze = false;
+        frame();
+        check(camera->fog() && camera->fog()->type == FogType::FOG_LINEAR, "a fog given to the camera since is kept");
+        camera->setFog(nullptr);
+        sky->haze = true;
+        frame();
+    }
+
+    std::cout << "the sky's colour on the CPU\n";
+    {
+        const Color zenith = sky->getSkyColor(Vector3(0.0f, 1.0f, 0.0f));
+        const Color scaled = sky->getSkyColor(Vector3(0.0f, 7.0f, 0.0f));
+        check(zenith.b > zenith.r && zenith.r > 0.0f, "a blue day sky at the zenith");
+        check(near(zenith.r, scaled.r, 1e-6f) && near(zenith.b, scaled.b, 1e-6f), "the direction need not be normalized");
+        sky->elevation = -30.0f;
+        frame();
+        const Color night = sky->getSkyColor(Vector3(0.0f, 1.0f, 0.0f));
+        const auto& b = sky->block();
+        check(near(b.night[3], 1.0f, 1e-6f) && near(night.r, b.night[0] * 0.4f, 1e-6f) &&
+              near(night.b, b.night[2] * 0.4f, 1e-6f), "at night the zenith is the night colour's gradient, 0.4");
+        sky->elevation = 30.0f;
+        frame();
+    }
+
     std::cout << "removed\n";
     {
         check(sky->skyMeshInstance()->replacesSky(), "the sky mesh replaces the scene's");
         camera->removeFrameEffect(sky);
         frame();
+        check(camera->fog() == nullptr, "the haze fog is given back as the effect is removed");
         check(camera->camera()->skyVisible(),
             "the camera draws the scene's sky again, which culls the effect's (MeshInstance::replacesSky)");
     }

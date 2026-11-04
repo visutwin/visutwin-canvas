@@ -47,7 +47,23 @@ float2 mapShinyUv(float2 uv, float level) {
 
 float3 decodeRGBP(float4 raw) { float3 c = raw.rgb * (-raw.a * 7.0 + 8.0); return c * c; }
 float3 decodeRGBM(float4 raw) { float3 c = (8.0 * raw.a) * raw.rgb; return c * c; }
-float3 srgbToLinear(float3 c) { return pow(max(c, float3(0.0)), float3(2.2)); }
+// srgbToLinear / linearToSrgb come from the vtsrgb module, which the program imports.
+
+// A material's planar reflection map (VT_FEATURE_PLANAR_REFLECTION_MAP) along a reflected
+// direction from `worldPos`: the point a short way along the ray is projected by the mirrored
+// camera's view-projection into the map. For a surface lying on the plane this is the texel the
+// surface itself projects to; a normal tilted by a normal map or a bevel moves it and distorts
+// the reflection. A rougher surface reads a smaller mip, blurring it.
+float3 samplePlanarReflectionMap(float3 worldPos, float3 reflDir, float gloss)
+{
+    const float4x4 m = float4x4(material.planarReflectionMatrix0, material.planarReflectionMatrix1,
+                                material.planarReflectionMatrix2, material.planarReflectionMatrix3);
+    const float4 clip = mul(float4(worldPos + reflDir * 0.2, 1.0), m);
+    const float2 uv = saturate(clip.xy / max(clip.w, 1e-6) * float2(0.5, -0.5) + 0.5);
+    const float lod = (1.0 - gloss) * material.planarReflectionParams.x;
+    const float3 texel = planarReflectionMap.SampleLevel(materialSampler, uv, lod).rgb;
+    return material.planarReflectionParams.y > 0.5 ? texel : srgbToLinear(texel);
+}
 
 // An environment texel decoded by its encoding: 0 gamma, 1 RGBP, 2 RGBM, 3 linear.
 float3 decodeEnvAs(float4 raw, uint enc) {

@@ -117,7 +117,9 @@
     X(IridescenceThicknessMap,   "VT_FEATURE_IRIDESCENCE_THICKNESS_MAP") \
     X(DiffuseTransmission,       "VT_FEATURE_DIFFUSE_TRANSMISSION") \
     X(DiffuseTransmissionMap,    "VT_FEATURE_DIFFUSE_TRANSMISSION_MAP") \
-    X(DiffuseTransmissionColorMap, "VT_FEATURE_DIFFUSE_TRANSMISSION_COLOR_MAP")
+    X(DiffuseTransmissionColorMap, "VT_FEATURE_DIFFUSE_TRANSMISSION_COLOR_MAP") \
+    X(SkyHaze,                   "VT_FEATURE_SKY_HAZE") \
+    X(PlanarReflectionMap,       "VT_FEATURE_PLANAR_REFLECTION_MAP")
 
 namespace visutwin::canvas
 {

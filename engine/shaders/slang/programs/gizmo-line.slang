@@ -14,6 +14,7 @@
 // The vertex entry is named ...InstancedVertex, so a Vulkan pipeline takes it as the instanced
 // stage.
 import vtdraw;
+import vtsrgb;
 #include "bindings.slang"
 
 struct GizmoLineData
@@ -84,6 +85,6 @@ float4 gizmoLineFragment(Varyings input) : SV_Target0
     if (color.a < 1.0 / 255.0) {
         discard;
     }
-    const float3 rgb = gizmoLine.output.x > 0.5 ? pow(max(color.rgb, float3(0.0)), float3(2.2)) : color.rgb;
+    const float3 rgb = gizmoLine.output.x > 0.5 ? srgbToLinear(color.rgb) : color.rgb;
     return float4(rgb, color.a);
 }

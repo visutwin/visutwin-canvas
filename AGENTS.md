@@ -505,7 +505,7 @@ list lands 16-aligned by construction. An array of eight `vec4` is the type `vec
 clipping planes are the two today.
 
 **The LIGHTING block is ONE layout on both backends** (`platform/graphics/lightingBlock.h`,
-`LightingBlock` / `GpuLightBlock`, 2960 bytes, asserted there and in `vulkanRenderPipeline.cpp`,
+`LightingBlock` / `GpuLightBlock`, 3104 bytes, asserted there and in `vulkanRenderPipeline.cpp`,
 and held against the bundle's reflection by `tests/slangBundleTests.cpp`): Metal binds it at
 buffer 4, Vulkan at set 2 binding 0, and the Slang `LightingData`
 (`forward/forward-fragment-head.slang`) declares it field for field under the SAME names. The
@@ -526,8 +526,8 @@ the unused-slot defaults), the cookie slots, when a directional slot counts as a
 each light's colour / intensity split and which clustered lights the draw accepts — and
 each backend's `setLightingUniforms` only lays the result out. The split is
 `lightRadiance` (`platform/graphics/lightRadiance.h`), a reproduced quirk: at intensity 1
-or more the colour is decoded and then scaled, below 1 it is scaled BEFORE the sRGB decode
-(0.5 shades at about 0.22, not 0.5). Binders pack `DerivedLight::intensity`, never
+or more the colour is decoded and then scaled, below 1 the decoded colour is scaled by
+intensity^2.2 (0.5 shades at about 0.22, not 0.5). Binders pack `DerivedLight::intensity`, never
 `GpuLightData::intensity`, and anything else that shades a light (clusters, volumetric
 fog, the GPU lightmapper's split sun copies) goes through the same function. A new
 lighting value is decided there, then copied by both binders; a value derived inside
@@ -581,12 +581,13 @@ reflected bindings fall outside the table. The rules the rows encode:
   `textureSamplerState`, the same mapping Vulkan's per-texture samplers use) — exactly the
   maps Vulkan binds as combined samplers. A new map Vulkan binds as a combined sampler needs
   `ownSampler` and a Metal sampler slot within the budget comment in `metalTextureBinder.h`;
-  a separate-image map keeps `defaultSampler` on both. Slots 0-40 and 42-50 are taken today
+  a separate-image map keeps `defaultSampler` on both. Slots 0-40 and 42-51 are taken today
   (31-33 the gloss, thickness and refraction maps, 34 the opacity map, 42 the anisotropy map,
   which skips 41 for the displacement map's vertex slot below, 43-44 the specular colour and
   specularity factor maps (Vulkan 36-37), 45 the material's own environment atlas (Vulkan 38), 46 the scene's user map (Vulkan set 3
   binding 24, `Scene::setUserShaderData`), 47-48 the iridescence intensity and thickness maps
-  (Vulkan 39-40), 49-50 the diffuse transmission and its colour maps (Vulkan 41-42);
+  (Vulkan 39-40), 49-50 the diffuse transmission and its colour maps (Vulkan 41-42), 51 the
+  planar reflection map (Vulkan 43, `StandardMaterial::setPlanarReflectionMap`);
   35 is the second
   directional shadow map, 36 the clustered cookie atlas, 37-38 the VSM spot moments and 39-40
   the two directional maps AGAIN as VSM moments, scene slots, not material ones: the Slang
@@ -840,7 +841,7 @@ stages, and a stage gated on its uniform alone costs every frame its registers.
   TAA history every frame (`RenderPassBloom::setSourceTexture`) while the stable scene
   texture sizes the chain. `VISUTWIN_BLOOM_HIGH_QUALITY=1` drives it; off is bit-identical.
 - The 3D LUT is a 256x16 Unreal strip with dual-LUT blend; the port loads it
-  non-sRGB so the sample is pow(2.2)-decoded in-shader. Test asset:
+  non-sRGB so the sample is sRGB-decoded in-shader. Test asset:
   `assets/textures/lut-teal-orange.tga`.
 
 **Frame graph store propagation.** `FrameGraph::compile` walks the passes and,
@@ -992,7 +993,7 @@ sampler. A quad pass may draw a vertex buffer of its own instead of the fullscre
 (`RenderPassShaderQuad::setGeometry`, a triangle list in the standard 56-byte layout, written
 per frame into a ring of `maxFramesInFlight` buffers). The block rides the per-draw MATERIAL slot (Metal buffer 3 / Vulkan
 set 0 binding 0) via `GraphicsDevice::setQuadUniformData`; `kPerDrawUniformCapacity`
-(976; `MaterialUniforms` itself is 976 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
+(1056; `MaterialUniforms` itself is 1056 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
 allocation behind it. A smaller block is copied into the front of a full-size
 allocation, so never shorten the allocation. Quad passes draw an oversized
 fullscreen TRIANGLE and, on Metal, bind `_postSampler` (linear, clamp, no anisotropy),
@@ -1608,6 +1609,27 @@ present, but the rule below never depends on reading it.
   (`sceneEnvEncodingOf`: the atlas's, or the skybox's without one), which the frame switch and
   both binders' `envParams.z` share. Read by the atlas switch alone, the RGBP cube `generateSkyboxCubemap`
   makes was decoded as sRGB, and the sky drew 10% dark (`wide-lines-dynamic`).
+- **A material's planar reflection map replaces its ENVIRONMENT REFLECTIONS, not the ambient**
+  (`StandardMaterial::setPlanarReflectionMap` + `setPlanarReflectionMatrix`,
+  `VT_FEATURE_PLANAR_REFLECTION_MAP`): the point 0.2 along the reflected ray is projected by the
+  mirrored camera's view-projection (`PlanarRenderer::viewProjectionMatrix`, the texture's UV the
+  `* (0.5, -0.5) + 0.5` of every projection here), read at mip `(1 - gloss) * log2(width)`,
+  decoded unless the map is a float format, and weighted as the atlas reflection is (gloss-aware
+  Fresnel, reflectivity, no environment intensity); the clearcoat samples it too, and env-atlas
+  refraction is off under it. It is NOT `VT_FEATURE_PLANAR_REFLECTION`, the blurred planar
+  reflection that replaces the whole output colour. A `PlanarRenderer` with `setHdr(true)` renders
+  RGBA16F through `Camera::setLinearOutput` (no exposure, tone mapping or gamma: the forward pass
+  takes its HDR path), and with `setMipmaps(true)` its pass regenerates the mips.
+- **A dynamic sky's haze is a FOG TYPE a camera is given, not a scene setting.**
+  `DynamicSkyEffect::haze` gives its camera `FOG_DYNAMIC_SKY_HAZE` (`Camera::setFog`, which
+  `Scene::fogFor` prefers to the scene's fog) carrying the sky it is coloured by
+  (`FogParams::skyHaze`, the lighting block's `haze*` lanes), and gives the previous fog back when
+  turned off or removed (`CameraFrameEffect::detached`), unless the camera was given another fog
+  since. The forward tail evaluates it under `VT_FEATURE_SKY_HAZE`, a frame switch from the
+  camera's fog (`ProgramLibrary::setSkyHazeEnabled`, in `forwardFrameBits`), only for a fogged
+  material, through the `vtdynamicsky` module the sky program shares; splats and particles take
+  no fog under it. The haze uses the RADIAL distance, unlike the other fog types' view depth.
+  `DynamicSkyEffect::getSkyColor` is the CPU twin of `dynamicSkyRadiance`: change both.
 - **A ReflectionProbe's mips are averaged in LINEAR space.** The face cameras render into a
   one-level capture cube and `update()` fills the sampled cube from it (`bakeCubeMipsLinear`:
   decode, box-average, encode), as upstream's sRGB-format capture cube is mipmapped. A blit
@@ -1625,6 +1647,15 @@ present, but the rule below never depends on reading it.
   exactly (a flat ambient of r,g,b), so the probes-on frame isolates everything
   else the probe path changes. Verify a change here with probes OFF bit-identical
   and the probes-on delta matching Metal's.
+- **Every gamma conversion is the EXACT sRGB transfer, written once per side**: `srgbToLinear` /
+  `linearToSrgb` in the Slang module `vtsrgb` (the forward and shadow programs import it for every
+  chunk; a chunk is pasted inside functions and may not import it itself) and `gammaToLinear` /
+  `linearToGamma` in `core/math/color.h` (`Color::linear` / `gamma` go through them). A
+  `pow(c, 2.2)` written beside them is a drift between the CPU, the shaders and an sRGB texture's
+  hardware decode. Three 2.2 powers stay on purpose, none a colour conversion: the AgX curve, the
+  opacity dither's noise, and a light's intensity below 1 (`lightRadiance`: the decoded colour
+  times intensity^2.2, which the lightmapper's split copies rely on). Example shaders written in
+  MSL or GLSL carry their own copy of the curve.
 - **Material colours are authored in GAMMA space** and owe the shader a decode.
   The split is per-source, not per-material: `setDiffuse` stores raw, so the base
   colour FACTOR is decoded in the shader, while `setEmissive` is pre-linearised by
@@ -1918,7 +1949,7 @@ present, but the rule below never depends on reading it.
 - **glTF `COLOR_0` on a static triangle primitive uses the 72-byte coloured layout and a
   copy of its material with variant bit 21**, stored LINEAR as the file has it (alpha
   written 1: it tints diffuse, not opacity). **Vertex colours are linear unless the
-  material says otherwise**: the vertex stages decode `pow(c, 2.2)` only under
+  material says otherwise**: the vertex stages sRGB-decode them only under
   `StandardMaterial::setVertexColorGamma(true)` / `VT_FEATURE_VERTEX_COLOR_GAMMA` (variant
   bit 35 for a material that is not a StandardMaterial), off by default. A mesh authored
   with gamma-space colours must set it (`mesh-decals` does); one that does not is drawn
@@ -2150,8 +2181,8 @@ present, but the rule below never depends on reading it.
   `KHR_materials_anisotropy` reads its texture too (`StandardMaterial::setAnisotropyMap`,
   a SEPARATE image at Metal slot 42 / Vulkan set-1 binding 35, `VT_FEATURE_ANISOTROPY_MAP`
   only on an anisotropic variant, on the UV set the file names): rg is a tangent-space
-  direction in [-1, 1] turned by the material's rotation, b scales the strength. DEVIATION: an absent `sheenColorFactor` is the spec's black, where
-  upstream substitutes white. `EXT_mesh_gpu_instancing` builds one 64-byte TRS matrix
+  direction in [-1, 1] turned by the material's rotation, b scales the strength. An absent `sheenColorFactor` is the spec's black.
+  `EXT_mesh_gpu_instancing` builds one 64-byte TRS matrix
   per instance in the node's space and shares the buffer across instantiations.
   `KHR_materials_variants` is upstream's container API (`getMaterialVariants`,
   `applyMaterialVariant(entity, name)`, `applyMaterialVariantInstances`); the swapped-in
@@ -3909,10 +3940,10 @@ What stays HERE is only what bites during UNRELATED work.
 - **Parity gaps porting met, deferred:** (1) a UI image or sprite whose texture is NOT
   flagged sRGB is drawn undecoded upstream (its elements share a material compiled for an sRGB
   default texture and swap the real one in per draw, so neither the hardware nor the shader
-  decodes it); here every colour texture is decoded with `pow(x, 2.2)`, which is what upstream's
-  MATERIALS do with an unflagged 8-bit map, and what its sRGB-flagged textures come out as
-  (the UI sweeps match as they are, image-fit 0.30, and would read ~4.4 under the exact sRGB
-  curve). Audited 2026-10-13: of the ported examples only `texture-copy` shows an unflagged
+  decodes it); here every colour texture is decoded with the exact sRGB curve, which is what
+  upstream's MATERIALS do with an unflagged 8-bit map, and what its sRGB-flagged textures come out
+  as (measured under the old pow 2.2 decode, the UI sweeps matched at image-fit 0.30; re-measure
+  since the switch to the exact curve on 2026-11-04). Audited 2026-10-13: of the ported examples only `texture-copy` shows an unflagged
   texture in an image element (its thumbnails read lighter upstream, by exactly one decode);
   every UI atlas is flagged (`uiAtlasData.srgb`), and no port uses an unflagged colour map in a
   material. A BASE COLOUR or EMISSIVE map in a float format (half, float, BC6H) is linear, as

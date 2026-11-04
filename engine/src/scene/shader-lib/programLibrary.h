@@ -183,6 +183,9 @@ namespace visutwin::canvas
         /// The camera tone-maps with AgX (either look): a variant, so the forward tail of every
         /// other camera carries no AgX code (a dead branch there cost the pass 3-4%).
         void setToneMapAgxEnabled(const bool value) { _toneMapAgxEnabled = value; }
+        /// The camera's fog is a dynamic sky's haze (FOG_DYNAMIC_SKY_HAZE): a variant, so the
+        /// sky model the haze is coloured by is in no other camera's forward tail.
+        void setSkyHazeEnabled(const bool value) { _skyHazeEnabled = value; }
         // The colour attachments of the target the forward pass draws into (1-4): a variant
         // writes one fragment output per attachment (forwardFragmentMrt2/3/4).
         void setColorOutputCount(const int count) { _colorOutputCount = std::clamp(count, 1, 4); }
@@ -229,6 +232,8 @@ namespace visutwin::canvas
             bool envAtlasRgbm = false;
             bool skyboxReflection = false;
             bool toneMapAgx = false;     // the camera tone-maps with AgX (setToneMapAgxEnabled)
+            bool skyHaze = false;        // the camera's fog is a dynamic sky's haze (setSkyHazeEnabled)
+            bool planarReflectionMap = false;   // reflections from the material's planar reflection map
             int colorOutputs = 1;        // fragment outputs, one per colour attachment (setColorOutputCount)
             bool dualSourceOutput = false;   // the material's blend state reads a second source colour
 
@@ -425,6 +430,7 @@ namespace visutwin::canvas
         bool _envAtlasEnabled = true;
         bool _skyboxReflectionEnabled = false;
         bool _toneMapAgxEnabled = false;
+        bool _skyHazeEnabled = false;
         int _colorOutputCount = 1;
         EnvAtlasEncoding _envAtlasEncoding = EnvAtlasEncoding::Srgb;
         bool _reflectionProbeEnabled = false;

@@ -22,12 +22,23 @@ namespace visutwin::canvas
      * The r, g, b components define a color in RGB space. The a (alpha) component
      * defines transparency (1 = fully opaque, 0 = fully transparent).
      */
-    /// A gamma-authored (sRGB, 2.2) channel in linear space. Negative input decodes to 0,
-    /// as a colour below black has no linear value. The one decode for colours the CPU
-    /// linearises: light, fog and ambient colours, emissive factors.
-    inline float gammaToLinear(const float c)
+    /// A gamma-authored (sRGB) channel in linear space, through the exact sRGB transfer
+    /// function (IEC 61966-2-1), the decode a GPU applies to an sRGB texture and the shaders'
+    /// `srgbToLinear` (module vtsrgb). Negative input decodes to 0, as a colour below black
+    /// has no linear value. The one decode for colours the CPU linearises: light, fog and
+    /// ambient colours, emissive factors.
+    inline float gammaToLinear(float c)
     {
-        return std::pow(std::max(c, 0.0f), 2.2f);
+        c = std::max(c, 0.0f);
+        return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f);
+    }
+
+    /// A linear channel encoded to gamma (sRGB), the inverse of gammaToLinear and the
+    /// shaders' `linearToSrgb`. Negative input encodes to 0.
+    inline float linearToGamma(float c)
+    {
+        c = std::max(c, 0.0f);
+        return c <= 0.0031308f ? c * 12.92f : 1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f;
     }
 
     struct Color {

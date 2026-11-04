@@ -10,6 +10,7 @@
 // the coverage of the base colour map, its filtered edges sharpened to a pixel wide as
 // geometry draws them. The colour is gamma encoded; a linear HDR target takes it decoded.
 import vtdraw;
+import vtsrgb;
 #include "bindings.slang"
 
 struct GizmoData
@@ -65,7 +66,7 @@ FragmentOut gizmoFragment(Varyings input)
         discard;
     }
     FragmentOut output;
-    const float3 rgb = gizmo.depth.y > 0.5 ? pow(max(color.rgb, float3(0.0)), float3(2.2)) : color.rgb;
+    const float3 rgb = gizmo.depth.y > 0.5 ? srgbToLinear(color.rgb) : color.rgb;
     output.color = float4(rgb, color.a);
     output.depth = gizmo.depth.x >= 0.0 ? gizmo.depth.x : input.position.z;
     return output;

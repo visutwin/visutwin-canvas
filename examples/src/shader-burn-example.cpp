@@ -40,6 +40,7 @@ namespace
 {
     const char* const kBurnSlang = R"slang(
 import vtdraw;
+import vtsrgb;
 #include "bindings.slang"
 
 struct BurnData
@@ -92,7 +93,7 @@ float4 burnFragment(Varyings input) : SV_Target0
         linearColor = float3(5.0, 0.02, 0.0);
     }
     // gammaCorrectOutput
-    return float4(pow(linearColor + 0.0000001, float3(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2)), 1.0);
+    return float4(linearToSrgb(linearColor), 1.0);
 }
 )slang";
 

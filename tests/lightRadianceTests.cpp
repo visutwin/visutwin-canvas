@@ -8,9 +8,9 @@
 // from that one function.
 //
 // The oracle is the rule the upstream engine keeps for backwards compatibility in
-// Light._updateLinearColor: at an intensity of 1 or more the colour is decoded with
-// pow(c, 2.2) and then multiplied by the intensity, below 1 it is multiplied first and
-// decoded after. A light at 0.5 therefore shades at 0.5^2.2 of its decoded colour.
+// Light._updateLinearColor: the colour takes the exact sRGB decode, then is multiplied by
+// the intensity at 1 or more, and by the intensity's 2.2 power below 1. A light at 0.5
+// therefore shades at 0.5^2.2 of its decoded colour.
 //
 // It also holds the clustered-light accept bit deriveLighting derives from the draw's
 // mesh-instance mask.
@@ -43,7 +43,8 @@ namespace
     // The upstream rule in double: the light's linear colour, channel by channel.
     double referenceLinear(const double channel, const double intensity)
     {
-        return intensity >= 1.0 ? std::pow(channel, 2.2) * intensity : std::pow(channel * intensity, 2.2);
+        const double decoded = channel <= 0.04045 ? channel / 12.92 : std::pow((channel + 0.055) / 1.055, 2.4);
+        return intensity >= 1.0 ? decoded * intensity : decoded * std::pow(intensity, 2.2);
     }
 
     void testLightRadiance()
@@ -61,15 +62,15 @@ namespace
         }
         check(exact, "and the colour is the plain decode, bit for bit");
 
-        // At 0.5 the colour is scaled in gamma space, then decoded, and the intensity is 1.
+        // At 0.5 the decoded colour is scaled by 0.5^2.2, and the intensity is 1.
         const LightRadiance dim = lightRadiance(kColor, 0.5f);
         check(dim.intensity == 1.0f, "at 0.5 the intensity goes up as 1");
         bool matches = true;
         for (int c = 0; c < 3; ++c) {
             matches = matches && nearRelative(dim.linearColor[c] * dim.intensity, referenceLinear(channels[c], 0.5));
         }
-        check(matches, "and the colour is decode(colour x 0.5)");
-        check(nearRelative(dim.linearColor[0], std::pow(0.5, 2.2) * std::pow(0.8, 2.2), 1e-4),
+        check(matches, "and the colour is decode(colour) x 0.5^2.2");
+        check(nearRelative(dim.linearColor[0], std::pow(0.5, 2.2) * gammaToLinear(0.8f), 1e-4),
             "which is 0.5^2.2 of the decoded colour, not 0.5 of it");
 
         // The boundary: exactly 1 takes the decode-then-scale branch.

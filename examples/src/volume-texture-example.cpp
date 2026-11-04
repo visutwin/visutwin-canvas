@@ -163,7 +163,7 @@ float4 volumeFogFragment(Varyings input) : SV_Target0
     }
 
     // premultiplied alpha output, gamma encoded
-    const float3 encoded = pow(color * fog.boxMax.w + 0.0000001, float3(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2));
+    const float3 encoded = linearToSrgb(color * fog.boxMax.w);
     return float4(encoded, 1.0 - transmittance);
 }
 )slang";
@@ -171,6 +171,7 @@ float4 volumeFogFragment(Varyings input) : SV_Target0
     // The dynamic fog of one depth slice: the blobs drifting with time.
     const char* const kVolumeSliceSlang = R"slang(
 import vtquad;
+import vtsrgb;
 #include "bindings.slang"
 
 struct SliceUniforms

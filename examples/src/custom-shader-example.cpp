@@ -73,13 +73,20 @@ vertex Varyings vertexShader(VertexData v [[stage_in]],
     return out;
 }
 
+// The exact sRGB encode.
+float3 linearToSrgb(float3 c)
+{
+    c = max(c, float3(0.0));
+    return select(1.055 * pow(c, float3(1.0 / 2.4)) - 0.055, c * 12.92, c <= float3(0.0031308));
+}
+
 fragment float4 fragmentShader(Varyings in [[stage_in]])
 {
     float v = in.vertOutTexCoord;
     v = float(int(v * 6.0)) / 6.0;
     float3 linearColor = float3(0.218, 0.190, 0.156) * v;
     // gammaCorrectOutput: nothing else in the pipeline encodes a custom shader's output.
-    return float4(pow(linearColor + 0.0000001, float3(1.0 / 2.2)), 1.0);
+    return float4(linearToSrgb(linearColor), 1.0);
 }
 )MSL";
 
@@ -128,11 +135,16 @@ void main() {
 #ifdef VT_FRAGMENT_SHADER
 layout(location = 0) in float vertOutTexCoord;
 layout(location = 0) out vec4 fragColor;
+// The exact sRGB encode.
+vec3 linearToSrgb(vec3 c) {
+    c = max(c, vec3(0.0));
+    return mix(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, lessThanEqual(c, vec3(0.0031308)));
+}
 void main() {
     float v = vertOutTexCoord;
     v = float(int(v * 6.0)) / 6.0;
     vec3 linearColor = vec3(0.218, 0.190, 0.156) * v;
-    fragColor = vec4(pow(linearColor + 0.0000001, vec3(1.0 / 2.2)), 1.0);
+    fragColor = vec4(linearToSrgb(linearColor), 1.0);
 }
 #endif
 )GLSL";

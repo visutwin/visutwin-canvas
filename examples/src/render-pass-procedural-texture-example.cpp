@@ -527,11 +527,11 @@ private:
         _patternPass->scale = static_cast<float>(_scale);
         const auto& palette = kPalettes[_paletteIndex].colors;
         for (size_t i = 0; i < palette.size(); ++i) {
-            // sRGB to linear, as upstream's Color.linear (gamma 2.2)
+            // sRGB to linear
             const float rgb[3] = {static_cast<float>((palette[i] >> 16) & 0xff) / 255.0f,
                 static_cast<float>((palette[i] >> 8) & 0xff) / 255.0f, static_cast<float>(palette[i] & 0xff) / 255.0f};
             for (int c = 0; c < 3; ++c) {
-                _patternPass->colors[i][static_cast<size_t>(c)] = std::pow(rgb[c], 2.2f);
+                _patternPass->colors[i][static_cast<size_t>(c)] = gammaToLinear(rgb[c]);
             }
         }
         // The slopes get steeper with the scale, so the bumpiness is scaled down by it.

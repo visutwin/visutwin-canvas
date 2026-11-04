@@ -32,7 +32,24 @@
     float3 indirectSpecular = float3(0.0);
     // The material's own atlas, or the scene's unless the material turns it off (flags bit 18,
     // useSkybox off: it keeps the probe or flat ambient above and takes no scene reflection).
-    if (envAvailable()) {
+    if (vtFeatureEnabled(VT_FEATURE_PLANAR_REFLECTION_MAP_BIT)) {
+        // The material's planar reflection map replaces the environment's reflections (the
+        // environment still gives the ambient above), weighted as they are: the gloss-aware
+        // Fresnel and the reflectivity, with no environment intensity.
+        float3 R = vtFeatureEnabled(VT_FEATURE_ANISOTROPY_BIT)
+            ? getReflDirAniso(N, V, anisoB, 1.0 - roughness, anisoIntensity)
+            : reflect(-V, N);
+        float3 Fr = ssrFresnel(NdotV, 1.0 - roughness, F0);
+        if (vtFeatureEnabled(VT_FEATURE_IRIDESCENCE_BIT)) {
+            Fr = lerp(Fr, iridFresnel, iridIntensity);
+        }
+        indirectSpecular = samplePlanarReflectionMap(fragWorldPos, R, 1.0 - roughness) * Fr * specularOn *
+            material.envBoxMax.w;
+        if (vtFeatureEnabled(VT_FEATURE_CLEARCOAT_BIT)) {
+            ccReflection = samplePlanarReflectionMap(fragWorldPos, reflect(-V, ccNormalW), ccGlossiness) *
+                getFresnelCC(max(dot(ccNormalW, V), 0.0));
+        }
+    } else if (envAvailable()) {
         float intensity = envIntensity();
 
         // Specular: reflect, pick a mip, trilinear between levels, with the shiny
@@ -220,8 +237,7 @@
         // so it owes a decode before it can be added to linear light — the same split
         // the base-colour and emissive maps follow.
         float3 probeSpecular =
-            pow(max(reflectionProbeCube.Sample(linearClampSampler, cubeDir).rgb, float3(0.0)),
-                float3(2.2)) * lighting.reflectionProbeParams.y;
+            srgbToLinear(reflectionProbeCube.Sample(linearClampSampler, cubeDir).rgb) * lighting.reflectionProbeParams.y;
 
         // Gloss-aware Fresnel, not a raw F0 multiply.
         float3 probeFresnel = ssrFresnel(NdotV, gloss, F0);
@@ -480,7 +496,7 @@
             // factor, keep specular. Emissive is added in the tail, after this block.
             float3 specPart = directSpecular + indirectSpecular;
             color = lerp(color, refrColor + specPart, clamp(refractionFactor, 0.0, 1.0));
-        } else if (envAvailable() && refractionFactor > 0.0) {
+        } else if (!vtFeatureEnabled(VT_FEATURE_PLANAR_REFLECTION_MAP_BIT) && envAvailable() && refractionFactor > 0.0) {
             // Env-atlas refraction: the reflection lookup
             // along the REFRACTED direction — not a mix toward this fragment's own
             // ambient (indirectDiffuse + indirectSpecular), which is not a refraction

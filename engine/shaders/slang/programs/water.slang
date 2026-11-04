@@ -15,6 +15,7 @@
 // feature word 0 (water.cpp: WaterSwitch), so one library serves every combination. The output
 // is linear HDR on a camera frame's scene, gamma-encoded otherwise, and never tone mapped.
 import vtdraw;
+import vtsrgb;
 #include "bindings.slang"
 
 struct WaterData
@@ -180,12 +181,12 @@ float3 waterDecodeEnv(float4 raw, uint encoding)
         const float3 c = (8.0 * raw.a) * raw.rgb;
         return c * c;
     }
-    return pow(max(raw.rgb, float3(0.0)), float3(2.2));
+    return srgbToLinear(raw.rgb);
 }
 
 float3 decodeGamma(float3 c)
 {
-    return pow(max(c, float3(0.0)), float3(2.2));
+    return srgbToLinear(c);
 }
 
 // The linear view depth of a depth-grab texel.
@@ -200,7 +201,7 @@ float linearSceneDepth(float2 uv)
 
 float3 waterOutput(float3 color)
 {
-    return water.output.z > 0.5 ? color : pow(max(color, float3(0.0)), float3(1.0 / 2.2));
+    return water.output.z > 0.5 ? color : linearToSrgb(color);
 }
 
 struct VertexIn

@@ -5,7 +5,7 @@
 //
 // Port of upstream camera-frame/lens-flare.
 //
-// The lens flare effect of a camera frame: a LensFlare follows a light. The sun of the procedural
+// The lens flare effect of a camera frame: a LensFlare follows a light. The sun of the dynamic
 // sky (low above the horizon, elevation 6, azimuth 160) gets a large flare with a diffraction
 // burst and a train of ghosts, three lamps on poles (omni lights with emissive bulbs) a small
 // glow, and two stage spot lights on masts flare only while the camera is inside their cone; the
@@ -35,7 +35,7 @@
 #include <vector>
 
 #include "extras/script/cameraControls.h"
-#include "extras/script/proceduralSky.h"
+#include "scene/graphics/dynamicSkyEffect.h"
 #include "../exampleApp.h"
 #include "framework/assets/asset.h"
 #include "scene/constants.h"
@@ -93,7 +93,7 @@ protected:
         createPrimitive("box", _wallMaterial.get(), Vector3(10.0f, 3.5f, 8.0f), Vector3(1.5f, 7.0f, 1.5f));
         createPrimitive("box", _wallMaterial.get(), Vector3(-10.0f, 2.0f, 6.0f), Vector3(1.5f, 4.0f, 1.5f));
 
-        // The sun: a directional light, which the procedural sky aims, colours and dims.
+        // The sun: a directional light, which the dynamic sky aims, colours and dims.
         _sun = createDirectionalLight(Vector3(0.0f, 0.0f, 0.0f), Color(1.0f, 1.0f, 1.0f, 1.0f), 2.5f, true);
         _sun->setName("Sun");
         if (auto* light = _sun->findComponent<LightComponent>()) {
@@ -102,22 +102,6 @@ protected:
             light->setShadowBias(0.3f);
             light->setShadowNormalBias(0.1f);
         }
-
-        // The procedural sky, with the sun low above the horizon, in the view of the camera.
-        auto* sky = new Entity();
-        sky->setName("ProceduralSky");
-        sky->setEngine(engine());
-        sky->addComponent<ScriptComponent>();
-        if (auto* script = sky->script()->create<ProceduralSky>()) {
-            script->setSunLight(_sun);
-            script->setElevation(6.0f);
-            script->setAzimuth(160.0f);
-            script->setTurbidity(4.0f);
-            script->setMieCoefficient(0.002f);
-            script->setRayleigh(2.5f);
-            script->setLuminance(0.7f);
-        }
-        root()->addChild(sky);
 
         // Lamps: omni lights on poles, each with an emissive bulb.
         createLamp(Vector3(-4.0f, 3.5f, 2.0f), Color(1.0f, 0.6f, 0.2f, 1.0f));
@@ -135,6 +119,18 @@ protected:
             return false;
         }
         _cameraComp->camera()->setFarClip(400.0f);
+
+        // The dynamic sky, with the sun low above the horizon, in the view of the camera.
+        auto sky = std::make_shared<DynamicSkyEffect>();
+        sky->setLight(_sun->findComponent<LightComponent>());
+        sky->sunIntensity = 2.5f;
+        sky->elevation = 6.0f;
+        sky->azimuth = 160.0f;
+        sky->turbidity = 4.0f;
+        sky->mieCoefficient = 0.002f;
+        sky->rayleigh = 2.5f;
+        sky->luminance = 0.6f;
+        _cameraComp->addFrameEffect(sky);
         _cameraComp->camera()->setFov(65.0f);
         if (auto* controls = addOrbitControls(camera, Vector3(0.0f, 0.0f, 0.0f))) {
             controls->setPitchRange(Vector2(-90.0f, 90.0f));

@@ -173,4 +173,13 @@
     X(vec4, diffuseTransmission, {1, 1, 1, 0}) \
     /* x = the UV set of the intensity map, y = its channel (0=r,1=g,2=b,3=a), z = the UV set */ \
     /* of the colour map (rgb, sRGB), w = pad. */ \
-    X(vec4, diffuseTransmissionMapParams, {0, 1, 0, 0})
+    X(vec4, diffuseTransmissionMapParams, {0, 1, 0, 0}) \
+    /* --- Planar reflection map, read only under VT_FEATURE_PLANAR_REFLECTION_MAP --- */ \
+    /* The view-projection of the camera that rendered it, by columns, and x = log2 of its width */ \
+    /* (the coarsest mip a rough surface reads), y = 1 when it stores linear colours (a float */ \
+    /* format), 0 when gamma encoded. */ \
+    X(vec4, planarReflectionMatrix0, {1, 0, 0, 0}) \
+    X(vec4, planarReflectionMatrix1, {0, 1, 0, 0}) \
+    X(vec4, planarReflectionMatrix2, {0, 0, 1, 0}) \
+    X(vec4, planarReflectionMatrix3, {0, 0, 0, 1}) \
+    X(vec4, planarReflectionParams, {0, 0, 0, 0})

@@ -20,6 +20,7 @@
 // read from the forward pass's lighting block, which the forward renderer fills for the camera
 // drawing the layer, and its far distance is measured from it.
 import vtdraw;
+import vtsrgb;
 #include "bindings.slang"
 
 struct GridData
@@ -256,6 +257,6 @@ float4 gridFragment(Varyings input) : SV_Target0
     }
 
     // The colours are gamma encoded: a linear HDR target takes them decoded.
-    const float3 rgb = grid.output.y > 0.5 ? pow(max(color.rgb, float3(0.0)), float3(2.2)) : color.rgb;
+    const float3 rgb = grid.output.y > 0.5 ? srgbToLinear(color.rgb) : color.rgb;
     return float4(rgb, alpha);
 }

@@ -117,7 +117,9 @@ namespace visutwin::canvas
         // output linear HDR; the compose pass handles tonemapping and gamma.
         // The flag is set on the graphics device so the draw() call can propagate
         // it as a runtime uniform bit (not a compile-time variant).
-        if (_hdrPass) {
+        // A camera with linear output (Camera::linearOutput) writes the same linear colours.
+        _linearOutput = _hdrPass || (_camera && _camera->camera() && _camera->camera()->linearOutput());
+        if (_linearOutput) {
             device()->setHdrPass(true);
         }
 
@@ -234,8 +236,9 @@ namespace visutwin::canvas
         }
 
         // restore normal shader output after HDR pass completes.
-        if (_hdrPass) {
+        if (_linearOutput) {
             device()->setHdrPass(false);
+            _linearOutput = false;
         }
 
         _beforeCalled = false;

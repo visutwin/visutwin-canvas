@@ -42,8 +42,8 @@ int main()
         bool clamped = true;
         bool alphaRaw = true;
         for (int i = 0; i < ParticleEmitter::kCurveSamples; ++i) {
-            decoded = decoded && near(lut[i][0], std::pow(0.5f, 2.2f), 1e-5f) &&
-                near(lut[i][1], std::pow(0.25f, 2.2f), 1e-5f);
+            decoded = decoded && near(lut[i][0], gammaToLinear(0.5f), 1e-5f) &&
+                near(lut[i][1], gammaToLinear(0.25f), 1e-5f);
             clamped = clamped && near(lut[i][2], 1.0f, 1e-6f);
             alphaRaw = alphaRaw && near(lut[i][3], 0.5f, 1e-6f);
         }

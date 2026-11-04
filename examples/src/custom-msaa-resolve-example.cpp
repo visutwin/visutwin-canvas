@@ -48,6 +48,7 @@ namespace
     // The two resolves side by side: hardware on the left, custom on the right.
     constexpr const char* kComposeSlang = R"slang(
 import vtquad;
+import vtsrgb;
 #include "bindings.slang"
 
 struct ComposeUniforms
@@ -97,7 +98,7 @@ float4 composeFragment(QuadVarying input) : SV_Target0
     if (abs(pixel.x - splitX) < 1.5) {
         color = float3(1.0, 1.0, 1.0);
     }
-    return float4(pow(color, 1.0 / 2.2), 1.0);
+    return float4(linearToSrgb(color), 1.0);
 }
 )slang";
 

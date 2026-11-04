@@ -106,6 +106,10 @@ for details.
   `.txt` files, kept beside them). Used by `sky`.
 
 ### models/ — complete
+- `area-lights-room.glb`, `drone.glb` — byte-identical to upstream's example assets of the
+  same names (authored in the upstream repository, no separate licence file; covered by
+  upstream's MIT licence). The room has a `RoomFloor` node with a `Floor` material; the
+  drone has `Rotor*` nodes and an `LED` node. Used by `reflection-planar`.
 - `a_beautiful_game.glb` — ABeautifulGame chess set from Khronos glTF-Sample-Assets
   (**CC-BY 4.0** — © 2020 Academy Software Foundation for the model, © 2022 Ed Mackey
   for the glTF conversion)
@@ -196,6 +200,9 @@ Mirrored from the upstream examples (for visual parity):
 - `helipad-env-atlas.png`, `table-mountain-env-atlas.png`, `morning-env-atlas.png` —
   512x512 RGBP atlases, byte-identical to the upstream set so the examples light
   exactly as theirs do
+- `area-lights-room-env-atlas.png` — the empty `area-lights-room.glb` rendered from its
+  centre and prefiltered into an RGBP atlas, byte-identical to upstream's (MIT, as the
+  room). Used by `reflection-planar` with box projection.
 - `xmas_faces/*.png` — six light-cookie cubemap faces. Used by `lights`.
 
 **Provenance unconfirmed** for all of the above. They are mirrored byte-for-byte from

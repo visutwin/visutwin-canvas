@@ -43,6 +43,7 @@
 #include "core/math/color.h"
 #include "core/math/vector3.h"
 #include "framework/destroyWatch.h"
+#include "platform/graphics/graphicsDevice.h"
 
 namespace visutwin::canvas
 {
@@ -124,6 +125,29 @@ namespace visutwin::canvas
         float windSpeed = 10.0f;
         float windDirection = 45.0f;
 
+        // ---- the haze
+        /// Whether the sky hazes the scene its camera renders (the aerial perspective): with
+        /// their distance, lit surfaces fade into the colour of the sky behind them, warm toward
+        /// a low sun, blue away from it, the night sky's gradient after sunset. Densest at
+        /// hazeBaseHeight and thinning with the height above it (hazeHeight). While on, the
+        /// effect gives its camera a fog of its own (FOG_DYNAMIC_SKY_HAZE, Camera::setFog) in
+        /// place of the camera's or the scene's, and gives the previous one back when it is
+        /// turned off or the effect is removed. Particles and splats render without fog under
+        /// it; a material opts out with StandardMaterial::setUseFog(false).
+        bool haze = false;
+        /// The density at hazeBaseHeight per world unit: a level view at that height is hidden
+        /// by 95% of the haze at about 3 / density.
+        float hazeDensity = 0.0005f;
+        /// The height over which the density falls to about a third, in world units.
+        float hazeHeight = 1000.0f;
+        /// The height the haze is densest at, usually the lowest ground of the scene.
+        float hazeBaseHeight = 0.0f;
+
+        /// The sky's colour in a world direction (need not be normalized): its linear radiance
+        /// without the sun disc, the stars and the moon, as the shaders evaluate it
+        /// (vtdynamicsky), as of the last frame's update.
+        [[nodiscard]] Color getSkyColor(const Vector3& direction) const;
+
         // ---- the lighting
         /// Lights the scene from the sky (Scene::setEnvAtlas).
         bool lighting = true;
@@ -152,6 +176,7 @@ namespace visutwin::canvas
         void destroyPasses() override;
         void update() override;
         void frameUpdate(const CameraFrameEffectContext& context) override;
+        void detached() override;
 
         /// The world direction toward the sun this frame.
         [[nodiscard]] const Vector3& sunDirection() const { return _sunDir; }
@@ -206,6 +231,8 @@ namespace visutwin::canvas
         void updateLight();
         void updateNight();
         void updateClouds();
+        void updateHazeFog();
+        void restoreCameraFog();
         void fillSettings(std::array<float, 32>& out) const;
         [[nodiscard]] bool settingsChanged(float tolerance) const;
         void createLightingTargets();
@@ -262,5 +289,11 @@ namespace visutwin::canvas
         std::array<float, 32> _settings{};
         std::array<float, 32> _bakedSettings{};
         float _driftSinceBake = 0.0f;
+
+        // The camera given the haze fog, while it has it, and the fog it had before (none: the
+        // scene's).
+        CameraComponent* _hazeCamera = nullptr;
+        bool _hazeCameraHadFog = false;
+        FogParams _hazeCameraFog;
     };
 }

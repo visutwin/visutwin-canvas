@@ -84,9 +84,9 @@ namespace visutwin::canvas
         // A colour authored in gamma space, linear, times `intensity`.
         void linearColor(const Color& color, float (&out)[4], const float intensity = 1.0f)
         {
-            out[0] = std::pow(color.r, 2.2f) * intensity;
-            out[1] = std::pow(color.g, 2.2f) * intensity;
-            out[2] = std::pow(color.b, 2.2f) * intensity;
+            out[0] = gammaToLinear(color.r) * intensity;
+            out[1] = gammaToLinear(color.g) * intensity;
+            out[2] = gammaToLinear(color.b) * intensity;
         }
 
         void store3(float (&out)[4], const Vector3& v)

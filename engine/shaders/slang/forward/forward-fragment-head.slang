@@ -98,6 +98,15 @@ struct LightingData
     float4 cookieTransform2D[2];       // spot cookie 2x2 per slot, columns xy, zw
     float4 ditherJitter;
     float4 userData[4];                // the application's (Scene::setUserShaderData), for its chunk overrides
+    // The sky a dynamic-sky haze fog is coloured by (VT_FEATURE_SKY_HAZE): its atmosphere in sky
+    // space, world to sky space by columns, and the haze (density, 1 / height, base height).
+    float4 hazeSunDir;
+    float4 hazeBetaR;
+    float4 hazeBetaM;
+    float4 hazeNight;
+    float4 hazeNightParams;
+    float4 hazeRotation[3];
+    float4 hazeParams;
 };
 
 [[vk::binding(0, 2)]] ConstantBuffer<LightingData> lighting : register(b4);
@@ -128,6 +137,7 @@ VT_DECLARE_iridescenceMap
 VT_DECLARE_iridescenceThicknessMap
 VT_DECLARE_diffuseTransmissionMap
 VT_DECLARE_diffuseTransmissionColorMap
+VT_DECLARE_planarReflectionMap
 
 // ---- Scene samplers. Vulkan set 3 bindings 12 / 13; on Metal the forward draw binds the
 // same states at fragment samplers 7 / 8 (MetalGraphicsDevice::bindDrawSampler), and the

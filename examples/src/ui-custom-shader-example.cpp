@@ -95,6 +95,13 @@ vertex Varyings vertexShader(VertexData v [[stage_in]], constant ModelData& mode
     return out;
 }
 
+// The exact sRGB encode.
+float3 linearToSrgb(float3 c)
+{
+    c = max(c, float3(0.0));
+    return select(1.055 * pow(c, float3(1.0 / 2.4)) - 0.055, c * 12.92, c <= float3(0.0031308));
+}
+
 fragment float4 fragmentShader(Varyings in [[stage_in]], constant Cooldown& cooldown [[buffer(3)]])
 {
     // the position from the center, with y up: v runs down the element
@@ -108,7 +115,7 @@ fragment float4 fragmentShader(Varyings in [[stage_in]], constant Cooldown& cool
     float angle = fract(atan2(p.x, p.y) / 6.28318530718 + 1.0);
     float shaded = step(1.0 - cooldown.progress, angle);
 
-    return float4(pow(cooldown.color.rgb + 0.0000001, float3(1.0 / 2.2)), cooldown.color.a * inside * shaded);
+    return float4(linearToSrgb(cooldown.color.rgb), cooldown.color.a * inside * shaded);
 }
 )MSL";
 
@@ -141,13 +148,18 @@ void main() {
 #ifdef VT_FRAGMENT_SHADER
 layout(location = 0) in vec2 vUv0;
 layout(location = 0) out vec4 fragColor;
+// The exact sRGB encode.
+vec3 linearToSrgb(vec3 c) {
+    c = max(c, vec3(0.0));
+    return mix(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, lessThanEqual(c, vec3(0.0031308)));
+}
 void main() {
     vec2 p = vec2(vUv0.x - 0.5, 0.5 - vUv0.y);
     float r = length(p);
     float inside = 1.0 - smoothstep(0.5 - fwidth(r), 0.5, r);
     float angle = fract(atan(p.x, p.y) / 6.28318530718 + 1.0);
     float shaded = step(1.0 - cooldown.progress, angle);
-    fragColor = vec4(pow(cooldown.color.rgb + 0.0000001, vec3(1.0 / 2.2)), cooldown.color.a * inside * shaded);
+    fragColor = vec4(linearToSrgb(cooldown.color.rgb), cooldown.color.a * inside * shaded);
 }
 #endif
 )GLSL";

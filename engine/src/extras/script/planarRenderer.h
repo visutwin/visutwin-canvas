@@ -14,15 +14,20 @@
 // frustum), so nothing on the wrong side of the surface reaches the texture: below it for a
 // reflection, above it for a refraction.
 //
-// The texture is RGBA8 holding the camera's gamma-encoded output, so a reader decodes it.
-// DEVIATIONS: upstream renders into an sRGB texture the sampler decodes; its texture can carry
-// mipmaps and its entity fires "onPlanarPostRender", neither of which a user here needs yet.
+// The texture is RGBA8 holding the camera's gamma-encoded output, so a reader decodes it, or
+// with hdr RGBA16F holding linear colours (the camera's own exposure, tone mapping and gamma
+// set aside: Camera::setLinearOutput). A StandardMaterial reflects it through
+// setPlanarReflectionMap and setPlanarReflectionMatrix(viewProjectionMatrix()); with mipmaps a
+// rough surface reads a blurred mip.
+// DEVIATIONS: upstream renders into an sRGB texture the sampler decodes, and its entity fires
+// "onPlanarPostRender", which no user here needs yet.
 //
 #pragma once
 
 #include <array>
 #include <memory>
 
+#include "core/math/matrix4.h"
 #include "core/math/vector3.h"
 #include "framework/destroyWatch.h"
 #include "framework/script/script.h"
@@ -32,7 +37,6 @@ namespace visutwin::canvas
 {
     class CameraComponent;
     class Entity;
-    struct Matrix4;
     class RenderTarget;
     class Texture;
 
@@ -66,6 +70,19 @@ namespace visutwin::canvas
         /// A depth buffer for the render (default on).
         void setDepth(const bool value) { _depth = value; }
 
+        /// A mipmapped texture, the mips generated after each render (default off): what a
+        /// rough surface reading the planar reflection blurs with.
+        void setMipmaps(const bool value) { _mipmaps = value; }
+        [[nodiscard]] bool mipmaps() const { return _mipmaps; }
+
+        /// A high dynamic range texture (RGBA16F) holding linear colours, so bright lights keep
+        /// their brightness in it; the camera rendering the material that reads it applies the
+        /// exposure, tone mapping and gamma. The camera's own linear-output setting is restored
+        /// for a low dynamic range texture. Falls back to RGBA8 on a device that cannot render
+        /// half-float (default off).
+        void setHdr(const bool value) { _hdr = value; }
+        [[nodiscard]] bool hdr() const { return _hdr; }
+
         /// A point on the plane and its normal.
         void setPlane(const Vector3& point, const Vector3& normal)
         {
@@ -90,23 +107,35 @@ namespace visutwin::canvas
 
         [[nodiscard]] Texture* texture() const { return _texture.get(); }
 
+        /// The camera's view-projection, which projects a world position into the texture:
+        /// updated by frameUpdate(), for StandardMaterial::setPlanarReflectionMatrix.
+        [[nodiscard]] const Matrix4& viewProjectionMatrix() const { return _viewProjectionMatrix; }
+
     private:
         CameraComponent* planarCamera() const;
         void updateRenderTarget();
         void updateViewSpaceClipPlane();
         void calculateProjection(Matrix4& projection) const;
         void destroyRenderTarget();
+        void updateColorSettings(bool hdr);
 
         Entity* _sceneCameraEntity = nullptr;
         DestroyWatch _sceneCameraWatch;
         Mode _mode = Mode::Reflection;
         float _scale = 0.5f;
         bool _depth = true;
+        bool _mipmaps = false;
+        bool _hdr = false;
+        // The camera's linear-output setting while it renders HDR, to restore.
+        bool _ldrStored = false;
+        bool _ldrLinearOutput = false;
+        Matrix4 _viewProjectionMatrix = Matrix4::identity();
         Vector3 _planePoint = Vector3(0.0f, 0.0f, 0.0f);
         Vector3 _planeNormal = Vector3(0.0f, 1.0f, 0.0f);
         bool _obliqueClipping = true;
         float _clipBias = 0.05f;
         bool _projectionInstalled = false;
+        bool _warnedNoSceneCamera = false;
 
         std::shared_ptr<Texture> _texture;
         std::shared_ptr<RenderTarget> _renderTarget;

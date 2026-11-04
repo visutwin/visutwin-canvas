@@ -42,7 +42,9 @@
 // @variant blend: DS_PASS=3
 // @variant copy: DS_PASS=3 DS_COPY=1
 import vtdraw;
+import vtdynamicsky;
 import vtenv;
+import vtsrgb;
 #include "bindings.slang"
 #define VT_TONEMAP_OPERATORS_ONLY
 #include "forward/common-tonemap.slang"
@@ -86,70 +88,32 @@ float3 columns3(float4 c[3], float3 v) { return c[0].xyz * v.x + c[1].xyz * v.y 
 
 // ---- the atmosphere and the night sky
 
-float dsRayleighPhase(float cosT) { return (3.0 / (16.0 * kPi)) * (1.0 + cosT * cosT); }
-
-float dsHgPhase(float cosT, float g)
-{
-    const float g2 = g * g;
-    const float inv = 1.0 / pow(max(1.0 - 2.0 * g * cosT + g2, 0.0), 1.5);
-    return (1.0 / (4.0 * kPi)) * ((1.0 - g2) * inv);
-}
-
 // The radiance of the last day-sky evaluation (lighting the clouds) and its sun disc, a light of
 // the sky composited apart from it.
 // Zero until the day sky runs: at night it does not, and the sun disc is read all the same.
 static float3 dsScatter = float3(0.0, 0.0, 0.0);
 static float3 dsSunDisc = float3(0.0, 0.0, 0.0);
 
-// The day sky's radiance in a direction, without the sun disc (dsSunDisc).
-float3 dynamicSkyDay(float3 dirIn)
+// The block's atmosphere lanes, for the shared module (vtdynamicsky).
+DynamicSkyAtmosphere dsAtmosphere()
 {
-    const float3 dir = normalize(dirIn);
-    const float3 sunDir = normalize(sky.sunDir.xyz);
-    const float3 betaR = sky.betaR.xyz;
-    const float3 betaM = sky.betaM.xyz;
-    const float sunE = sky.sunDir.w;
+    DynamicSkyAtmosphere atmo;
+    atmo.sunDir = sky.sunDir;
+    atmo.betaR = sky.betaR;
+    atmo.betaM = sky.betaM;
+    atmo.night = sky.night;
+    atmo.nightParams = sky.nightParams;
+    return atmo;
+}
 
-    // the optical length along the view direction
-    const float zenithAngle = acos(max(0.0, dot(kUp, dir)));
-    const float denom = cos(zenithAngle) + 0.15 * pow(max(93.885 - zenithAngle * (180.0 / kPi), 0.0), -1.253);
-    const float sR = 8.4e3 / denom;
-    const float sM = 1.25e3 / denom;
-    const float3 fex = exp(-(betaR * sR + betaM * sM));
-
-    // in-scattering
-    const float cosTheta = dot(dir, sunDir);
-    const float3 betaRTheta = betaR * dsRayleighPhase(cosTheta * 0.5 + 0.5);
-    const float3 betaMTheta = betaM * dsHgPhase(cosTheta, sky.betaR.w);
-    const float3 betaSum = betaR + betaM;
-    float3 lin = pow(sunE * ((betaRTheta + betaMTheta) / betaSum) * (1.0 - fex), float3(1.5, 1.5, 1.5));
-    lin *= lerp(float3(1.0, 1.0, 1.0), pow(sunE * ((betaRTheta + betaMTheta) / betaSum) * fex, float3(0.5, 0.5, 0.5)),
-        clamp(pow(1.0 - dot(kUp, sunDir), 5.0), 0.0, 1.0));
-
-    // the base of the sky and the sun disc, kept apart so the clouds can block it fully and the
-    // lighting can leave it out
-    const float3 l0 = float3(0.1, 0.1, 0.1) * fex;
-    const float sunAngularCos = 0.999956676;
-    const float sundisk = smoothstep(sunAngularCos, sunAngularCos + 0.00002, cosTheta);
-    const float3 disc = sunE * 19000.0 * fex * sundisk;
-
-    const float luminance = sky.betaM.w;
-    dsScatter = ((lin + l0) * 0.04 + float3(0.0, 0.0003, 0.00075)) * luminance;
-    dsSunDisc = disc * (0.04 * luminance);
+// The day sky's radiance in a direction, without the sun disc (dsSunDisc).
+float3 dynamicSkyDay(float3 dir)
+{
+    dsScatter = dynamicSkyDayRadiance(dsAtmosphere(), dir, dsSunDisc);
     return dsScatter;
 }
 
-// The night sky without its lights: a deep gradient, and a warm twilight glow centred on the
-// horizon below the sun, fading as the sun sinks well below it.
-float3 dynamicSkyNightBase(float3 dir)
-{
-    float3 col = sky.night.xyz * lerp(1.1, 0.4, max(dir.y, 0.0));
-    const float3 sunH = normalize(float3(sky.sunDir.x, 0.0, sky.sunDir.z) + float3(1e-5, 0.0, 0.0));
-    const float toSun = max(dot(dir, sunH), 0.0);
-    const float belowFade = clamp(1.0 + sky.sunDir.y * 4.0, 0.0, 1.0);
-    col += float3(1.0, 0.45, 0.15) * (pow(toSun, 5.0) * belowFade * sky.nightParams.w);
-    return col;
-}
+float3 dynamicSkyNightBase(float3 dir) { return dynamicSkyNightRadiance(dsAtmosphere(), dir); }
 
 float dsHash13(float3 p3)
 {
@@ -592,7 +556,7 @@ float4 dynamicSkyShade(DynamicSkyVarying input)
         return float4(max(radiance, float3(0.0, 0.0, 0.0)), 1.0);
     }
     const float3 mapped = toneMapExposed(radiance, sky.output.x, int(sky.output.y + 0.5));
-    return float4(pow(max(mapped, float3(0.0, 0.0, 0.0)), float3(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2)), 1.0);
+    return float4(linearToSrgb(mapped), 1.0);
 
 #elif DS_PASS == 1
     // the sky-space direction of the texel (a perspective camera); the quad's v runs down

@@ -151,6 +151,53 @@ int main()
         msl.chunks().remove("common-utils");
         check(ProgramLibraryTestAccess::key(msl, &a) == base, "and removing it returns to the old key");
 
+        // A planar reflection map is a variant of its own (it replaces the environment's
+        // reflections), turns specular on, and packs its camera's view-projection by columns
+        // with log2 of its width (the coarsest mip a rough surface reads).
+        {
+            TextureOptions options;
+            options.width = 256;
+            options.height = 64;
+            options.mipmaps = true;
+            Texture planar(device.get(), options);
+            StandardMaterial mirror;
+            const auto plain = ProgramLibraryTestAccess::key(msl, &mirror);
+            check(!mirror.rendersSpecular() && !plain.features.test(ShaderFeature::PlanarReflectionMap),
+                "a default material has no planar reflection");
+            mirror.setPlanarReflectionMap(&planar);
+            const Matrix4 viewProjection = Matrix4::translation(Vector3(1.0f, 2.0f, 3.0f));
+            mirror.setPlanarReflectionMatrix(viewProjection);
+            const auto withMap = ProgramLibraryTestAccess::key(msl, &mirror);
+            check(withMap.features.test(ShaderFeature::PlanarReflectionMap) && mirror.rendersSpecular(),
+                "a planar reflection map compiles VT_FEATURE_PLANAR_REFLECTION_MAP and renders specular");
+            const auto& u = mirror.packedUniforms();
+            check(u.planarReflectionMatrix3[0] == 1.0f && u.planarReflectionMatrix3[1] == 2.0f &&
+                  u.planarReflectionMatrix3[2] == 3.0f && u.planarReflectionMatrix0[0] == 1.0f,
+                "its matrix packed by columns (the translation in the fourth)");
+            check(u.planarReflectionParams[0] == 8.0f && u.planarReflectionParams[1] == 0.0f,
+                "log2 of the width, and an 8-bit map read as gamma encoded");
+            std::vector<TextureSlot> slots;
+            mirror.getTextureSlots(slots);
+            bool bound = false;
+            for (const auto& slot : slots) {
+                bound = bound || (slot.slot == 51 && slot.texture == &planar);
+            }
+            check(bound, "bound at Metal texture slot 51");
+            mirror.setPlanarReflectionMap(nullptr);
+        }
+
+        // A dynamic sky's haze is a frame switch, and only a fogged material takes it.
+        {
+            StandardMaterial hazed;
+            msl.setSkyHazeEnabled(true);
+            check(ProgramLibraryTestAccess::key(msl, &hazed).features.test(ShaderFeature::SkyHaze),
+                "the haze switch compiles VT_FEATURE_SKY_HAZE");
+            hazed.setUseFog(false);
+            check(!ProgramLibraryTestAccess::key(msl, &hazed).features.test(ShaderFeature::SkyHaze),
+                "not for a material without fog");
+            msl.setSkyHazeEnabled(false);
+        }
+
         // useTonemap off (UI materials) is a variant of its own, and the default is on.
         check(a.useTonemap() && !base.features.test(ShaderFeature::NoTonemap),
             "a default material is tone mapped");

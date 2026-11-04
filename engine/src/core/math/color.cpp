@@ -102,9 +102,9 @@ namespace visutwin::canvas
     Color& Color::gamma(const Color* src)
     {
         const Color* source = src ? src : this;
-        r = std::pow(source->r, 1.0f / 2.2f);
-        g = std::pow(source->g, 1.0f / 2.2f);
-        b = std::pow(source->b, 1.0f / 2.2f);
+        r = linearToGamma(source->r);
+        g = linearToGamma(source->g);
+        b = linearToGamma(source->b);
         a = source->a;
         return *this;
     }

@@ -118,8 +118,8 @@ protected:
         // 5. diffuse, emissive and gloss overrides, applied through the same copy of the block
         MeshInstance* mixed = createSphere("override: diffuse\n+ emissive + gloss", 3.8f);
         mixed->setParameter("material_diffuse", hueToColor(0.6f));
-        mixed->setParameter("material_emissive", Color(std::pow(0.35f, 1.0f / 2.2f), std::pow(0.12f, 1.0f / 2.2f),
-            std::pow(0.02f, 1.0f / 2.2f), 1.0f));
+        mixed->setParameter("material_emissive", Color(linearToGamma(0.35f), linearToGamma(0.12f),
+            linearToGamma(0.02f), 1.0f));
         mixed->setParameter("material_gloss", 0.9f);
         return true;
     }

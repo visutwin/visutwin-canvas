@@ -197,7 +197,7 @@ int main()
         check(near(u.msdfOutlineShadow[1], 0.005f, kTolerance), page + "shadow x offset x 0.005");
         check(near(u.msdfOutlineShadow[2], -(w / h) * 0.005f * -2.0f, kTolerance),
               page + "shadow y offset x 0.005 x -(page aspect), upstream's value as is");
-        check(near(u.msdfOutlineColor[0], std::pow(0.5f, 2.2f), kTolerance) && near(u.msdfOutlineColor[1], std::pow(0.25f, 2.2f), kTolerance) &&
+        check(near(u.msdfOutlineColor[0], gammaToLinear(0.5f), kTolerance) && near(u.msdfOutlineColor[1], gammaToLinear(0.25f), kTolerance) &&
               near(u.msdfOutlineColor[3], 0.75f, kTolerance), page + "outline colour linear, alpha straight");
         check(near(u.msdfShadowColor[0], 1.0f, kTolerance) && near(u.msdfShadowColor[3], 0.5f, kTolerance), page + "shadow colour linear");
     }

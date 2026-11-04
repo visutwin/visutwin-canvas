@@ -88,8 +88,8 @@ float3 forwardUserFragmentEnd(float3 color, float3 worldPos, float3 worldNormal)
     std::shared_ptr<StandardMaterial> createGoochMaterial(Texture* texture, const Color& linear = Color(1, 1, 1, 1))
     {
         auto material = std::make_shared<StandardMaterial>();
-        material->setDiffuse(Color(std::pow(linear.r, 1.0f / 2.2f), std::pow(linear.g, 1.0f / 2.2f),
-            std::pow(linear.b, 1.0f / 2.2f), 1.0f));
+        material->setDiffuse(Color(linearToGamma(linear.r), linearToGamma(linear.g),
+            linearToGamma(linear.b), 1.0f));
         if (texture) {
             material->setDiffuseMap(texture);
         }

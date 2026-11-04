@@ -44,7 +44,7 @@ namespace visutwin::canvas
                                       bool decodeSrgb = false);
 
         /// A skybox cube map (RGBP, RGBA8) baked on the GPU from an equirect: an RGBA32F HDR
-        /// (linear), or an RGBA8 image, whose bytes are gamma-encoded and decoded with gamma 2.2.
+        /// (linear), or an RGBA8 image, whose bytes are sRGB-encoded and decoded as such.
         /// Returns a new texture the caller owns, or null.
         static Texture* generateSkyboxCubemap(GraphicsDevice* device, Texture* source, int size = 0);
 

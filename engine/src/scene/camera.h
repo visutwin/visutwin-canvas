@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <functional>
+#include <memory>
 #include <numbers>
 #include <optional>
 
@@ -33,6 +34,7 @@ namespace visutwin::canvas
         Perspective
     };
 
+    struct FogParams;
     class GraphNode;
 
     /**
@@ -263,6 +265,19 @@ namespace visutwin::canvas
         float exposureScale() const { return _exposureScale; }
         void setExposureScale(const float value) { _exposureScale = value; }
 
+        /// The fog the camera renders with in place of the scene's (Scene::fogFor), or null for
+        /// the scene's: copied, and cleared by null. A DynamicSkyEffect with its haze on gives
+        /// its camera a FOG_DYNAMIC_SKY_HAZE fog this way and gives the previous one back.
+        const FogParams* fog() const { return _fog.get(); }
+        void setFog(const FogParams* fog);
+
+        /// The camera writes LINEAR colours: no exposure, tone mapping or gamma encode (upstream's
+        /// gamma NONE with tone mapping NONE), for a target a later camera reads as HDR, such as a
+        /// half-float planar reflection. Applies to a camera rendering without a camera frame
+        /// (whose scene pass is linear anyway).
+        bool linearOutput() const { return _linearOutput; }
+        void setLinearOutput(const bool value) { _linearOutput = value; }
+
         /**
          * Planes that clip what the camera renders, in world space (copied, at most
          * ClipPlanes::kMaxPlanes): in every pass of the camera, the depth prepass and picking
@@ -302,6 +317,8 @@ namespace visutwin::canvas
             _calculateProjection = other._calculateProjection;
             _cullingMask = other._cullingMask;
             _exposureScale = other._exposureScale;
+            _fog = other._fog;
+            _linearOutput = other._linearOutput;
             _clearColor = other._clearColor;
             _attachmentClearColors = other._attachmentClearColors;
             _clearColorBuffer = other._clearColorBuffer;
@@ -417,6 +434,8 @@ namespace visutwin::canvas
         uint32_t _cullingMask = 0xFFFFFFFFu;
         bool _skyVisible = true;
         float _exposureScale = 1.0f;
+        std::shared_ptr<const FogParams> _fog;
+        bool _linearOutput = false;
         float _orthoHeight = 10.0f;
 
         ProjectionType _projection = ProjectionType::Perspective;

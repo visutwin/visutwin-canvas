@@ -70,7 +70,7 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
             return outColor;
         }
         sky = applyToneMap(sky);                         // exposure + tonemap
-        outColor = float4(pow(max(sky, float3(0.0)), float3(1.0 / 2.2)), 1.0); // display-gamma encode
+        outColor = float4(linearToSrgb(sky), 1.0); // display-gamma encode
         return outColor;
     }
 
@@ -278,7 +278,7 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
             float4 scolor = (shadow > outline) ? shadow * float4(sc.a * sc.rgb, sc.a) : tcolor;
             tcolor = lerp(scolor, tcolor, outline);
             float3 straight = tcolor.rgb / max(tcolor.a, 0.0001);
-            outColor = float4(linearHdrTarget ? straight : pow(max(straight, float3(0.0)), float3(1.0 / 2.2)), tcolor.a);
+            outColor = float4(linearHdrTarget ? straight : linearToSrgb(straight), tcolor.a);
             return outColor;
         }
         if (linearHdrTarget) {
@@ -286,7 +286,7 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
             return outColor;
         }
         float3 unlit = applyToneMap(albedo.rgb + unlitEmissive);   // exposure + tonemap
-        outColor = float4(pow(max(unlit, float3(0.0)), float3(1.0 / 2.2)), albedo.a);
+        outColor = float4(linearToSrgb(unlit), albedo.a);
         return outColor;
     }
 
@@ -507,7 +507,7 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
     if (vtFeatureEnabled(VT_FEATURE_SPECULAR_COLOR_MAP_BIT)) {
         const uint uvBits = uint(material.metalnessSpecular.w + 0.5);
         const float2 uvSpec = (uvBits & 1u) != 0u ? fragUV1 : fragUV0;
-        dielectricF0 *= pow(max(specularColorMap.Sample(materialSampler, uvSpec).rgb, float3(0.0)), float3(2.2));
+        dielectricF0 *= srgbToLinear(specularColorMap.Sample(materialSampler, uvSpec).rgb);
     }
     if (vtFeatureEnabled(VT_FEATURE_SPECULARITY_FACTOR_MAP_BIT)) {
         const uint uvBits = uint(material.metalnessSpecular.w + 0.5);

@@ -10,6 +10,8 @@
 // constants on Metal, so one compiled module serves every material.
 import vtdraw;
 
+import vtdynamicsky;   // the haze of a dynamic sky (VT_FEATURE_SKY_HAZE)
+import vtsrgb;   // srgbToLinear / linearToSrgb, the exact sRGB transfer, for every chunk
 #include "forward/forward-fragment-head.slang"
 #include "forward/common-dither.slang"
 #include "forward/common-parallax.slang"

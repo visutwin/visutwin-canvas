@@ -1891,7 +1891,9 @@ namespace visutwin::canvas
             // and stopping is right only under a camera frame: on a gamma target the
             // splats would be written linear, untonemapped and unfogged beside
             // tonemapped meshes.
-            const FogParams fogParams = ctx.scene ? ctx.scene->fog() : FogParams{};
+            // A dynamic sky's haze does not reach the splats: they render without fog under it.
+            const FogParams fogParams = ctx.scene ? ctx.scene->fogFor(view.camera) : FogParams{};
+            const bool splatFog = fogParams.enabled && fogParams.type != FogType::FOG_DYNAMIC_SKY_HAZE;
             GpuGSplatParams splatParams = gsplat.gpuParams();
             splatParams.cameraOrtho = view.camera->projection() == ProjectionType::Orthographic ? 1u : 0u;
             Color fogLinear;
@@ -1902,7 +1904,7 @@ namespace visutwin::canvas
             splatParams.fogParams[0] = fogParams.start;
             splatParams.fogParams[1] = fogParams.end;
             splatParams.fogParams[2] = fogParams.density;
-            splatParams.fogParams[3] = fogParams.enabled ? static_cast<float>(fogParams.type) : 0.0f;
+            splatParams.fogParams[3] = splatFog ? static_cast<float>(fogParams.type) : 0.0f;
             splatParams.output[0] = ctx.scene ? ctx.scene->exposureFor(view.camera) : 1.0f;
             splatParams.output[1] = static_cast<float>(view.toneMapping);
             splatParams.output[2] = device.hdrPass() ? 1.0f : 0.0f;
@@ -2088,7 +2090,7 @@ namespace visutwin::canvas
             Camera& camera = *ctx.view.camera;
 
             const auto ambientColor = scene ? scene->ambientLight() : Color(0.0f, 0.0f, 0.0f, 1.0f);
-            const auto fogParams = scene ? scene->fog() : FogParams{};
+            const auto fogParams = scene ? scene->fogFor(&camera) : FogParams{};
             const float exposure = scene ? scene->exposureFor(&camera) : 1.0f;
             const Vector3* ambientSH = (scene && scene->hasAmbientSH()) ? scene->ambientSH().data() : nullptr;
             ShadowParams noShadow;
@@ -2278,6 +2280,8 @@ namespace visutwin::canvas
         const int toneMapping = camera.toneMapping() != TONEMAP_INHERIT ? camera.toneMapping()
             : (_scene ? _scene->toneMapping() : TONEMAP_LINEAR);
         programLibrary.setToneMapAgxEnabled(toneMapping == TONEMAP_AGX || toneMapping == TONEMAP_AGX_PUNCHY);
+        const FogParams* cameraFog = camera.fog();
+        programLibrary.setSkyHazeEnabled(cameraFog && cameraFog->enabled && cameraFog->type == FogType::FOG_DYNAMIC_SKY_HAZE);
         programLibrary.setReflectionProbeEnabled(_scene && _scene->reflectionProbe() != nullptr);
 
         // Atmosphere scattering: when enabled on the scene, compile skybox shaders

@@ -10,9 +10,13 @@
 // keyframe curves; the sun's elevation in turn drives the sky luminance, the bloom
 // intensity, and the torches inside the laboratory, which glow only between sunset and
 // sunrise. Shadows are PCSS over four cascades and re-render every frame, since the sun
-// never stops moving. The sky is the ProceduralSky script: a Preetham daylight model and a
-// night sky drawn per pixel, baked into the environment atlas that lights the scene, and
-// steering the sun light.
+// never stops moving. The sky is the camera frame's DynamicSkyEffect: it renders the sky,
+// lights the scene with it, keeps the sun light in sync with the time of day, and hazes the
+// distant dunes with the colour of the sky behind them, densest at the ground and thinning
+// above it.
+//
+// Keys stand in for upstream's controls panel: Space pauses the day cycle, H toggles the
+// haze, R resets the camera.
 //
 // @credit Laboratory by Sketchfab, CC BY 4.0
 // @credit FREE - Dry Sand Terrain by josevega, Sketchfab, CC BY 4.0
@@ -24,10 +28,10 @@
 #include <vector>
 
 #include "extras/script/cameraControls.h"
-#include "extras/script/proceduralSky.h"
 #include "../exampleApp.h"
 #include "core/math/curve.h"
 #include "framework/assets/asset.h"
+#include "scene/graphics/dynamicSkyEffect.h"
 #include "scene/constants.h"
 #include "platform/graphics/blendState.h"
 #include "platform/graphics/depthState.h"
@@ -45,6 +49,10 @@ constexpr float SKY_TURBIDITY = 7.0f;
 constexpr float SKY_RAYLEIGH = 1.0f;
 constexpr float TORCH_INTENSITY = 60.0f;
 constexpr float SUN_INTENSITY = 6.0f;    // the sun at full height
+constexpr float GROUND_LEVEL = -40.0f;
+constexpr float HAZE_MAX_DENSITY = 0.0005f; // the densest haze the control gives
+constexpr float HAZE_DENSITY = 0.33f;       // a fraction of HAZE_MAX_DENSITY
+constexpr float HAZE_HEIGHT = 40.0f;
 
 // Accumulated world-space bounds of every mesh instance under a node.
 BoundingBox meshBounds(GraphNode* root)
@@ -178,7 +186,7 @@ protected:
         root()->addChild(terrain);
 
         const BoundingBox terrainAabb = meshBounds(terrain);
-        constexpr float groundLevel = -40.0f;
+        constexpr float groundLevel = GROUND_LEVEL;
         const float terrainScale = 3000.0f /
             (2.0f * std::max(terrainAabb.halfExtents().getX(), terrainAabb.halfExtents().getZ()));
         terrain->setLocalScale(terrainScale, terrainScale, terrainScale);
@@ -229,21 +237,6 @@ protected:
         }
 
         // ---------------------------------------------------------------------
-        // Procedural sky — draws the sky, lights the scene from it, steers the sun light
-        // ---------------------------------------------------------------------
-        auto* skyEntity = new Entity();
-        skyEntity->setName("ProceduralSky");
-        skyEntity->setEngine(engine());
-        skyEntity->addComponent<ScriptComponent>();
-        _sky = skyEntity->script()->create<ProceduralSky>();
-        if (_sky) {
-            _sky->setSunLight(_sunEntity);
-            _sky->setTurbidity(SKY_TURBIDITY);
-            _sky->setRayleigh(SKY_RAYLEIGH);
-        }
-        root()->addChild(skyEntity);
-
-        // ---------------------------------------------------------------------
         // Camera — wide angle so more of the sky is visible
         // ---------------------------------------------------------------------
         auto* cameraEntity = createCamera(Vector3(240.0f, 85.0f, 240.0f));
@@ -272,13 +265,29 @@ protected:
             rendering.bloomIntensity = 0.0f;   // driven by the sun elevation below
             rendering.bloomBlurLevel = 16;
             _cameraComponent->setRendering(rendering);
+
+            // The dynamic sky: renders the sky, lights the scene with it and drives the sun
+            // light. Its haze fades the distant dunes into the sky behind them, densest at the
+            // ground level and thinning out above it. The time of day animates, so the
+            // lighting blends between its updates instead of stepping.
+            _sky = std::make_shared<DynamicSkyEffect>();
+            _sky->setLight(_sunEntity->findComponent<LightComponent>());
+            _sky->sunIntensity = SUN_INTENSITY;
+            _sky->turbidity = SKY_TURBIDITY;
+            _sky->rayleigh = SKY_RAYLEIGH;
+            _sky->haze = true;
+            _sky->hazeBaseHeight = GROUND_LEVEL;
+            _sky->hazeDensity = HAZE_DENSITY * HAZE_MAX_DENSITY;
+            _sky->hazeHeight = HAZE_HEIGHT;
+            _sky->lightingInterpolation = true;
+            _cameraComponent->addFrameEffect(_sky);
         }
 
         auto* cameraControls = addOrbitControls(cameraEntity, Vector3(0.0f, 25.0f, 0.0f));
         cameraControls->setZoomRange(Vector2(1.0f, 500.0f));
         cameraControls->storeResetState();
 
-        spdlog::info("Procedural sky: Space pauses the day cycle, R resets the camera, Esc quits.");
+        spdlog::info("Procedural sky: Space pauses the day cycle, H toggles the haze, R resets the camera, Esc quits.");
         return true;
     }
 
@@ -286,6 +295,10 @@ protected:
     {
         if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_SPACE) {
             _animate = !_animate;
+            return true;
+        }
+        if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_H && _sky) {
+            _sky->haze = !_sky->haze;
             return true;
         }
         return false;
@@ -301,13 +314,11 @@ protected:
             }
         }
 
-        // Sun: elevation from the time curve, azimuth sweeping east -> west across the day;
-        // the sky's luminance follows the elevation.
+        // Sun: elevation from the time curve, azimuth sweeping east -> west across the day.
         const float elevation = _elevationCurve.value(_hour);
         if (_sky) {
-            _sky->setElevation(elevation);
-            _sky->setAzimuth((_hour / 24.0f) * 360.0f);
-            _sky->setLuminance(_luminanceCurve.value(elevation));
+            _sky->elevation = elevation;
+            _sky->azimuth = (_hour / 24.0f) * 360.0f;
         }
 
         // Bloom intensity is driven by the sun elevation.
@@ -335,12 +346,11 @@ private:
 
     std::vector<LightComponent*> _torchLights;
     Entity* _sunEntity = nullptr;
-    ProceduralSky* _sky = nullptr;
+    std::shared_ptr<DynamicSkyEffect> _sky;
     CameraComponent* _cameraComponent = nullptr;
 
     // Time-of-day curves (keyframes, smoothstepped)
     Curve _elevationCurve = makeCurve({0.0f, -60.0f, 6.0f, 0.0f, 12.0f, 60.0f, 18.0f, 0.0f, 24.0f, -90.0f});
-    Curve _luminanceCurve = makeCurve({0.0f, 2.0f, 35.0f, 0.4f, 90.0f, 0.3f});
     Curve _bloomCurve     = makeCurve({0.0f, 0.005f, 5.0f, 0.001f, 8.0f, 0.001f, 90.0f, 0.002f});
 
     float _hour = INITIAL_HOUR;

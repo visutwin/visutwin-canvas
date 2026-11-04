@@ -11,6 +11,7 @@
 // gamma-encoded.
 import vtdraw;
 import vtproceduralsky;
+import vtsrgb;
 #include "bindings.slang"
 #define VT_TONEMAP_OPERATORS_ONLY
 #include "forward/common-tonemap.slang"
@@ -62,5 +63,5 @@ float4 proceduralSkyFragment(Varyings input) : SV_Target0
         return float4(max(radiance, float3(0.0)), 1.0);
     }
     const float3 mapped = toneMapExposed(radiance, sky.output.y, int(sky.output.z + 0.5));
-    return float4(pow(max(mapped, float3(0.0)), float3(1.0 / 2.2)), 1.0);
+    return float4(linearToSrgb(mapped), 1.0);
 }

@@ -34,6 +34,7 @@ namespace
 {
     const char* const kWobbleSlang = R"slang(
 import vtdraw;
+import vtsrgb;
 #include "bindings.slang"
 
 struct WobbleData
@@ -80,7 +81,7 @@ float4 wobbleFragment(Varyings input) : SV_Target0
 {
     const float3 linearColor = srgbToLinear(baseColorMap.Sample(input.uv0).rgb);
     // gammaCorrectOutput
-    return float4(pow(linearColor + 0.0000001, float3(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2)), 1.0);
+    return float4(linearToSrgb(linearColor), 1.0);
 }
 )slang";
 
