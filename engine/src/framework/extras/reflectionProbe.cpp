@@ -46,10 +46,11 @@ namespace visutwin::canvas
         }
     }
 
-    ReflectionProbe::ReflectionProbe(Engine* engine, const int faceSize)
+    ReflectionProbe::ReflectionProbe(Engine* engine, const int faceSize, const bool hdr)
         : _engine(engine)
     {
         auto device = _engine->graphicsDevice();
+        _hdr = hdr && device->textureHalfFloatRenderable();
 
         // The six face cameras render into a one-level capture cube; update() fills the
         // mipmapped cube the probe is sampled through from it, every level the LINEAR
@@ -59,7 +60,7 @@ namespace visutwin::canvas
         TextureOptions captureOptions;
         captureOptions.width = static_cast<uint32_t>(faceSize);
         captureOptions.height = static_cast<uint32_t>(faceSize);
-        captureOptions.format = PixelFormat::PIXELFORMAT_RGBA8;
+        captureOptions.format = _hdr ? PixelFormat::PIXELFORMAT_RGBA16F : PixelFormat::PIXELFORMAT_RGBA8;
         captureOptions.cubemap = true;
         captureOptions.mipmaps = false;
         captureOptions.numLevels = 1;
@@ -106,6 +107,7 @@ namespace visutwin::canvas
             camera->setNearClip(0.1f);
             camera->setFarClip(500.0f);
             camera->setClearColor(Color(0.0f, 0.0f, 0.0f, 1.0f));
+            camera->setLinearOutput(_hdr);
             _faceCameras[face] = cameraComponent;
         }
     }
@@ -190,6 +192,15 @@ namespace visutwin::canvas
         _dynamic = dynamic;
         if (_dynamic && !_capturing) {
             setCapturingEnabled(true);
+        }
+    }
+
+    void ReflectionProbe::setClearColor(const Color& color)
+    {
+        for (auto* cameraComponent : _faceCameras) {
+            if (cameraComponent && cameraComponent->camera()) {
+                cameraComponent->camera()->setClearColor(color);
+            }
         }
     }
 

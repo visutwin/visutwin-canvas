@@ -3,132 +3,245 @@
 //
 // Created by Arnis Lektauers on 12.07.2026
 //
-// Port of upstream lights-and-shadows/area-lights: three animated lights with an area SHAPE — a
-// white rect on a shadowed spot, a yellow sphere on an omni and a blue "sky" disk on a
-// shadowed directional light, held 5000 units from the camera along its direction —
-// illuminate the statue.glb hero standing on a seaside-rocks textured floor, lit by the
-// helipad environment atlas. Each light carries an emissive primitive matching its
-// shape, and the spot a black back face. Clustered area lights are enabled.
+// Port of upstream lights-and-shadows/area-lights.
 //
-// DEVIATION: upstream loads the LTC LUTs from a JSON asset; this engine has them built in.
+// Area lights give a light source a shape and a size: a rectangle, a disk or a sphere. In a closed
+// room (area-lights-room.glb, a little ambient light and no environment) the three glowing doors
+// are rectangular spot lights, a drifting orb a spherical omni light, and the sun shining through
+// the skylight a disk-shaped directional light, its shadow fitted to the room's bounds. Their
+// reflections on the glossy floor and spheres take the shape of the source and blur with the
+// roughness. Each light carries a visible emissive source for each shape (box, cylinder, sphere,
+// and a small sphere for punctual), only the current one shown; the sun's is placed just inside
+// the camera's far clip at the light's angular size. The statue, a glossy red sphere and a white
+// ceramic one stand on the pedestals. The camera frame (4x MSAA, ACES) adds bloom and a vignette.
 //
+// Keys stand in for upstream's controls panel:
+//   1 / 2 / 3    the doors / the orb / the sun on or off
+//   Q / W / E    cycle the shape of the doors / the orb / the sun (rect, disk, sphere, punctual)
+//   S            shadows on or off for every light
+//   - / =        the floor's roughness -/+ 0.05 (0 - 1)
+//   [ / ]        the red sphere's roughness -/+ 0.05
+//   M            the red sphere metallic or not
+//   B            bloom on or off
+//   Space        pause the animation
+//
+// DEVIATIONS:
+// - The LTC lookup tables are built into the engine (upstream loads them from a JSON asset).
+// - The clustered shadow atlas has no scene-wide filter type (upstream sets PCF5 16-bit); its
+//   filter is the engine's, at the same 4096 resolution.
+// - The glTF materials are found from the instantiated meshes rather than the container's list.
+// - Our glTF materials keep gloss as 1 - roughness (upstream's loader sets glossInvert and stores the
+//   roughness), so the floor's roughness is written as 1 - roughness.
+//
+#include <algorithm>
+#include <array>
 #include <cmath>
+#include <map>
 #include <memory>
+#include <numbers>
 #include <vector>
 
 #include "../exampleApp.h"
+#include "extras/script/cameraControls.h"
 #include "framework/assets/asset.h"
+#include "framework/components/render/renderComponent.h"
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"
+#include "scene/meshInstance.h"
 
 using namespace visutwin::canvas;
 
-// The directional disk light is held this far from the camera.
-constexpr float kFar = 5000.0f;
+namespace
+{
+    constexpr float kEmissiveScale = 4.0f;   // the sources' brightness relative to their light
+    constexpr std::array<LightShape, 4> kShapes = {LightShape::LIGHTSHAPE_RECT, LightShape::LIGHTSHAPE_DISK,
+        LightShape::LIGHTSHAPE_SPHERE, LightShape::LIGHTSHAPE_PUNCTUAL};
 
-class AreaLightExample final: public ExampleApp
+    LightShape nextShape(const LightShape shape)
+    {
+        const auto it = std::find(kShapes.begin(), kShapes.end(), shape);
+        return kShapes[(static_cast<size_t>(it - kShapes.begin()) + 1) % kShapes.size()];
+    }
+
+    // The rotation that turns `from` onto `to` (both unit length).
+    Quaternion rotationBetween(const Vector3& from, const Vector3& to)
+    {
+        const float d = std::clamp(from.dot(to), -1.0f, 1.0f);
+        Vector3 axis = from.cross(to);
+        if (axis.length() < 1e-6f) {
+            if (d > 0.0f) {
+                return Quaternion(0.0f, 0.0f, 0.0f, 1.0f);
+            }
+            axis = std::abs(from.getX()) < 0.9f ? Vector3(1.0f, 0.0f, 0.0f).cross(from) : Vector3(0.0f, 0.0f, 1.0f).cross(from);
+        }
+        return Quaternion::fromAxisAngle(axis.normalized(), std::acos(d) * 180.0f / std::numbers::pi_v<float>);
+    }
+
+    struct LightSettings
+    {
+        bool enabled = true;
+        LightShape shape = LightShape::LIGHTSHAPE_RECT;
+        float intensity = 1.0f;
+        bool shadows = true;
+    };
+}
+
+class AreaLightExample final : public ExampleApp
 {
 public:
-    AreaLightExample(): ExampleApp({.title = "Area Lights"}) {}
+    AreaLightExample() : ExampleApp({.title = "Area Lights"}) {}
 
 protected:
     bool create() override
     {
-        scene()->setToneMapping(TONEMAP_ACES);
+        _room = std::make_unique<Asset>("room", AssetType::CONTAINER, assetPath("models/area-lights-room.glb"));
+        _statue = std::make_unique<Asset>("statue", AssetType::CONTAINER, assetPath("models/statue.glb"));
+        auto* roomContainer = _room->resourceAs<ContainerResource>();
+        auto* statueContainer = _statue->resourceAs<ContainerResource>();
+        if (!roomContainer || !statueContainer) {
+            spdlog::error("area-lights: a model did not load");
+            return false;
+        }
 
-        // Skydome + image-based lighting from the helipad environment atlas (darkened).
-        scene()->setSkyboxMip(1);
-        scene()->setSkyboxIntensity(0.4f);
+        // The omni and spot lights are clustered, which supports area lights once enabled.
+        auto& lighting = scene()->lighting();
+        lighting.areaLightsEnabled = true;
+        lighting.shadowsEnabled = true;
+        lighting.shadowAtlasResolution = 4096;
 
-        _helipad = std::make_unique<Asset>(
-            "helipad-env-atlas",
-            AssetType::TEXTURE,
-            assetPath("cubemaps/helipad-env-atlas.png"),
-            AssetData{
-                .type = TextureType::TEXTURETYPE_RGBP,
-                .mipmaps = false
+        // The room is closed: no environment lighting, only a little ambient light.
+        scene()->setAmbientLight(0.03f, 0.032f, 0.04f);
+
+        // The room: floor plates, ribbed walls with three door recesses, a ceiling with a skylight.
+        Entity* room = roomContainer->instantiateRenderEntity();
+        room->setEngine(engine());
+        root()->addChild(room);
+        Entity* statue = statueContainer->instantiateRenderEntity();
+        statue->setEngine(engine());
+        statue->setLocalScale(0.12f, 0.12f, 0.12f);
+        statue->setLocalPosition(-4.0f, 0.55f, 0.8f);
+        statue->setLocalEulerAngles(0.0f, 25.0f, 0.0f);
+        root()->addChild(statue);
+        for (Entity* model : {room, statue}) {
+            for (auto* render : model->findComponents<RenderComponent>()) {
+                render->setCastShadows(true);
+                render->setReceiveShadows(true);
+                for (auto* meshInstance : render->meshInstances()) {
+                    auto* material = dynamic_cast<StandardMaterial*>(meshInstance ? meshInstance->material() : nullptr);
+                    if (material && material->name() == "Floor") {
+                        _floorMaterial = material;
+                    }
+                }
             }
-        );
-        Texture* helipadTexture = _helipad->resourceAs<Texture>();
-        if (!helipadTexture) {
-            spdlog::error("Failed to load helipad env atlas");
-            return false;
         }
-        scene()->setEnvAtlas(helipadTexture);
-
-        // Seaside-rocks textured ground plane (color + normal + gloss), metallic PBR so the
-        // LTC area lights produce glossy stretched reflections across it. Textures tiled 7x7.
-        _floorColorTex = std::make_unique<Asset>(
-            "floor-color", AssetType::TEXTURE, assetPath("textures/seaside-rocks01-color.jpg"));
-        _floorNormalTex = std::make_unique<Asset>(
-            "floor-normal", AssetType::TEXTURE, assetPath("textures/seaside-rocks01-normal.jpg"));
-        _floorGlossTex = std::make_unique<Asset>(
-            "floor-gloss", AssetType::TEXTURE, assetPath("textures/seaside-rocks01-gloss.jpg"));
-
-        Texture* floorColor = requireTexture(_floorColorTex, "floor-color");
-        Texture* floorNormal = requireTexture(_floorNormalTex, "floor-normal");
-        Texture* floorGloss = requireTexture(_floorGlossTex, "floor-gloss");
-        if (!floorColor || !floorNormal || !floorGloss) {
+        if (!_floorMaterial) {
+            spdlog::error("area-lights: the room has no 'Floor' material");
             return false;
         }
 
-        _floorMaterial = std::make_shared<StandardMaterial>();
-        _floorMaterial->setName("seaside-rocks-floor");
-        _floorMaterial->setUseMetalness(true);
-        _floorMaterial->setMetalness(0.7f);
-        _floorMaterial->setGloss(0.8f);
-        _floorMaterial->setDiffuseMap(floorColor);
-        _floorMaterial->setNormalMap(floorNormal);
-        _floorMaterial->setGlossMap(floorGloss);
-        _floorMaterial->setDiffuseMapTiling(Vector2(7.0f, 7.0f));
-        _floorMaterial->setNormalMapTiling(Vector2(7.0f, 7.0f));
-        _floorMaterial->setGlossMapTiling(Vector2(7.0f, 7.0f));
+        // A glossy red sphere and a white ceramic one on the pedestals.
+        _redMaterial = createSphere(Vector3(0.0f, 1.26f, 0.0f), 0.9f, Color(0.7f, 0.02f, 0.02f, 1.0f));
+        _ceramicMaterial = createSphere(Vector3(4.0f, 1.15f, 0.8f), 0.6f, Color(0.9f, 0.9f, 0.88f, 1.0f));
+        _ceramicMaterial->setGloss(0.3f);
 
-        auto* floor = new Entity();
-        floor->setEngine(engine());
-        floor->setLocalScale(20.0f, 20.0f, 20.0f);
-        if (auto* render = static_cast<RenderComponent*>(floor->addComponent<RenderComponent>())) {
-            render->setMaterial(_floorMaterial.get());
-            render->setType("plane");
+        // The camera at the front of the room, looking at the doors; the sky shows through the
+        // skylight as the clear colour.
+        _camera = createCamera(Vector3(1.3f, 2.5f, 6.8f));
+        _cameraComponent = _camera->findComponent<CameraComponent>();
+        Camera* camera = _cameraComponent->camera();
+        camera->setClearColor(Color(0.45f, 0.6f, 0.8f, 1.0f));
+        camera->setFov(60.0f);
+        camera->setNearClip(0.1f);
+        camera->setFarClip(1000.0f);
+        _cameraComponent->setToneMapping(TONEMAP_ACES);
+        if (auto* controls = addOrbitControls(_camera, Vector3(0.0f, 1.5f, 0.0f))) {
+            controls->setEnableFly(false);
+            controls->setPitchRange(Vector2(-38.0f, 8.0f));
+            controls->setZoomRange(Vector2(2.0f, 7.0f));
+            controls->storeResetState();
         }
-        root()->addChild(floor);
+        auto rendering = _cameraComponent->rendering();
+        rendering.samples = 4;
+        rendering.bloomBlurLevel = 6;
+        rendering.vignetteEnabled = true;
+        rendering.vignetteIntensity = 0.35f;
+        _cameraComponent->setRendering(rendering);
 
-        // Statue hero standing on the floor (scale 0.4).
-        _statue = std::make_unique<Asset>(
-            "statue", AssetType::CONTAINER, assetPath("models/statue.glb"));
-        ContainerResource* statueContainer = _statue->resourceAs<ContainerResource>();
-        if (!statueContainer) {
-            spdlog::error("Failed to load statue model");
+        // The glowing doors: spot lights filling the door recesses. A spot shines down its -Y
+        // axis, turned to face the room, its height along Z.
+        for (const float x : {-4.5f, 0.0f, 4.5f}) {
+            LightRig rig = createLightRig(LightType::LIGHTTYPE_SPOT, false);
+            if (auto* light = rig.light) {
+                light->setRange(25.0f);
+                light->setInnerConeAngle(60.0f);
+                light->setOuterConeAngle(80.0f);
+                light->setShadowBias(0.2f);
+                light->setShadowNormalBias(0.05f);
+            }
+            rig.entity->setLocalPosition(x, 1.7f, -9.45f);
+            rig.entity->setLocalEulerAngles(-90.0f, 0.0f, 0.0f);
+            _doors.push_back(rig);
+        }
+
+        // A glowing orb: an omni light drifting around the room.
+        _orb = createLightRig(LightType::LIGHTTYPE_OMNI, false);
+        if (auto* light = _orb.light) {
+            light->setRange(15.0f);
+            light->setShadowBias(0.2f);
+            light->setShadowNormalBias(0.05f);
+        }
+
+        // The sun: a directional light through the skylight, its shadow covering just the room.
+        // Its area is sized at the camera's far clip, so its sources are placed separately, just
+        // inside it.
+        _sun = createLightRig(LightType::LIGHTTYPE_DIRECTIONAL, true);
+        if (auto* light = _sun.light) {
+            light->setShadowType(SHADOW_PCF3_32F);
+            light->setShadowResolution(2048);
+            light->setShadowBias(0.2f);
+            light->setShadowNormalBias(0.02f);
+            light->setShadowBounds(BoundingBox(Vector3(0.0f, 3.4f, 0.0f), Vector3(8.6f, 3.4f, 9.6f)));
+        }
+        _sunDistance = camera->farClip() * 0.9f;
+
+        _doorSettings = {true, LightShape::LIGHTSHAPE_RECT, 3.0f, true};
+        _orbSettings = {true, LightShape::LIGHTSHAPE_SPHERE, 6.0f, true};
+        _sunSettings = {true, LightShape::LIGHTSHAPE_DISK, 2.5f, true};
+        applySettings();
+        update(0.0f);
+
+        spdlog::info("area-lights: 1 2 3 lights, Q W E shapes, S shadows, - = floor, [ ] sphere roughness, "
+                     "M metal, B bloom, Space pause");
+        return true;
+    }
+
+    bool onEvent(const SDL_Event& event) override
+    {
+        if (event.type != SDL_EVENT_KEY_DOWN) {
             return false;
         }
-        auto* statueEntity = statueContainer->instantiateRenderEntity();
-        statueEntity->setLocalScale(0.4f, 0.4f, 0.4f);
-        root()->addChild(statueEntity);
-
-        // Camera: pos (0, 2.5, 12), lookAt origin, fov 60, gray clear.
-        // lookAt(0,0,0) from (0,2.5,12): pitch = -atan2(2.5, 12).
-        _camera = createCamera(Vector3(0.0f, 2.5f, 12.0f), Vector3(-11.77f, 0.0f, 0.0f));
-        if (auto* cameraComp = _camera->findComponent<CameraComponent>()) {
-            cameraComp->camera()->setClearColor(Color(0.2f, 0.2f, 0.2f, 1.0f));
-            cameraComp->camera()->setFov(60.0f);
-            cameraComp->camera()->setFarClip(100000.0f);
+        switch (event.key.key) {
+        case SDLK_1: _doorSettings.enabled = !_doorSettings.enabled; break;
+        case SDLK_2: _orbSettings.enabled = !_orbSettings.enabled; break;
+        case SDLK_3: _sunSettings.enabled = !_sunSettings.enabled; break;
+        case SDLK_Q: _doorSettings.shape = nextShape(_doorSettings.shape); break;
+        case SDLK_W: _orbSettings.shape = nextShape(_orbSettings.shape); break;
+        case SDLK_E: _sunSettings.shape = nextShape(_sunSettings.shape); break;
+        case SDLK_S: {
+            const bool shadows = !_doorSettings.shadows;
+            _doorSettings.shadows = _orbSettings.shadows = _sunSettings.shadows = shadows;
+            break;
         }
-
-        // Area lights are disabled by default for clustered lighting.
-        scene()->lighting().areaLightsEnabled = true;
-
-        // Three lights: white rect, yellow sphere, blue "sky" disk.
-        _light1 = createAreaLight(LightType::LIGHTTYPE_SPOT, LightShape::LIGHTSHAPE_RECT,
-            Vector3(-3.0f, 4.0f, 0.0f), 4.0f, Color(1.0f, 1.0f, 1.0f, 1.0f), 2.0f, true, 10.0f);
-        _light2 = createAreaLight(LightType::LIGHTTYPE_OMNI, LightShape::LIGHTSHAPE_SPHERE,
-            Vector3(5.0f, 2.0f, -2.0f), 2.0f, Color(1.0f, 1.0f, 0.0f, 1.0f), 2.0f, false, 10.0f);
-        _light3 = createAreaLight(LightType::LIGHTTYPE_DIRECTIONAL, LightShape::LIGHTSHAPE_DISK,
-            Vector3(0.0f, 0.0f, 0.0f), 0.2f, Color(0.7f, 0.7f, 1.0f, 1.0f), 10.0f, true, kFar);
-
-        spdlog::info("Area lights: white rect + yellow sphere + blue sky disk over statue");
-        spdlog::info("Keys: Space = pause/resume animation, Esc = quit");
-
-        animateLights(0.0f);
+        case SDLK_MINUS: _floorRoughness = std::max(0.0f, _floorRoughness - 0.05f); break;
+        case SDLK_EQUALS: _floorRoughness = std::min(1.0f, _floorRoughness + 0.05f); break;
+        case SDLK_LEFTBRACKET: _sphereRoughness = std::max(0.0f, _sphereRoughness - 0.05f); break;
+        case SDLK_RIGHTBRACKET: _sphereRoughness = std::min(1.0f, _sphereRoughness + 0.05f); break;
+        case SDLK_M: _sphereMetalness = _sphereMetalness > 0.5f ? 0.0f : 1.0f; break;
+        case SDLK_B: _bloom = !_bloom; break;
+        case SDLK_SPACE: _animate = !_animate; break;
+        default: return false;
+        }
+        applySettings();
         return true;
     }
 
@@ -136,149 +249,179 @@ protected:
     {
         if (_animate) {
             _time += dt;
-            animateLights(_time);
         }
-    }
 
-    bool onEvent(const SDL_Event& event) override
-    {
-        if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_SPACE) {
-            _animate = !_animate;
-            spdlog::info("Animation {}", _animate ? "resumed" : "paused");
-            return true;
-        }
-        return false;
+        // The orb circles the pedestals, bobbing up and down.
+        const float orbAngle = _time * 0.4f;
+        _orb.entity->setPosition(std::sin(orbAngle) * 5.5f, 2.2f + std::sin(_time * 1.1f) * 0.6f,
+            0.5f + std::cos(orbAngle) * 3.2f);
+
+        // The sun shines down at its elevation, from its azimuth.
+        constexpr float kDegToRad = std::numbers::pi_v<float> / 180.0f;
+        const float elevation = 68.0f * kDegToRad;
+        const float azimuth = 200.0f * kDegToRad;
+        const Vector3 direction(-std::cos(elevation) * std::sin(azimuth), -std::sin(elevation),
+            -std::cos(elevation) * std::cos(azimuth));
+        const Quaternion rotation = rotationBetween(Vector3(0.0f, -1.0f, 0.0f), direction);
+        _sun.entity->setRotation(rotation);
+
+        // The visible sun, just inside the far clip, keeps the angular size of its light.
+        const Vector3 position = direction * -_sunDistance + _camera->position();
+        _sun.sourcesParent->setPosition(position);
+        _sun.sourcesParent->setRotation(rotation);
+        const float sourceScale = _sunScale * _sunDistance;
+        _sun.sourcesParent->setLocalScale(sourceScale, sourceScale, sourceScale);
     }
 
 private:
-    static Texture* requireTexture(const std::unique_ptr<Asset>& asset, const char* label)
+    struct LightRig
     {
-        Texture* texture = asset->resourceAs<Texture>();
-        if (!texture) {
-            spdlog::error("Failed to load texture asset '{}'", label);
-            return nullptr;
-        }
-        return texture;
+        Entity* entity = nullptr;          // the light, scaled to size the area light
+        LightComponent* light = nullptr;
+        Entity* sourcesParent = nullptr;   // the visible sources' parent
+        std::map<LightShape, Entity*> sources;
+        std::shared_ptr<StandardMaterial> material;
+    };
+
+    std::shared_ptr<StandardMaterial> createSphere(const Vector3& position, const float radius, const Color& color)
+    {
+        auto material = std::make_shared<StandardMaterial>();
+        material->setDiffuse(color);
+        material->setUseMetalness(true);
+        material->setMetalness(0.0f);
+        // The gloss is the roughness, as for the room's materials.
+        material->setGlossInvert(true);
+        _materials.push_back(material);
+        Entity* sphere = createPrimitive("sphere", material.get(), position,
+            Vector3(radius * 2.0f, radius * 2.0f, radius * 2.0f));
+        sphere->setName("Sphere");
+        return material;
     }
 
-    static float lerp(const float a, const float b, const float t)
+    // A light with a visible source for each shape, sized to match a light of the same scale; the
+    // rectangle and the disk lie in the light's XZ plane, the sphere is centred on it.
+    LightRig createLightRig(const LightType type, const bool separateSources)
     {
-        return a + (b - a) * t;
-    }
-
-    // A parent entity carrying the light, scaled to the source's
-    // size, plus an emissive primitive matching the shape (and for a spot, a black
-    // primitive facing the other way).
-    Entity* createAreaLight(const LightType type, const LightShape shape, const Vector3& position,
-        const float scale, const Color& color, const float intensity, const bool shadows,
-        const float range)
-    {
-        auto* lightParent = new Entity();
-        lightParent->setEngine(engine());
-        lightParent->setLocalPosition(position.getX(), position.getY(), position.getZ());
-        root()->addChild(lightParent);
-
-        auto* lightEntity = new Entity();
-        lightEntity->setEngine(engine());
-        if (auto* light = static_cast<LightComponent*>(lightEntity->addComponent<LightComponent>())) {
-            light->setType(type);
-            light->setShape(shape);
-            light->setColor(color);
-            light->setIntensity(intensity);
-            light->setFalloffMode(LightFalloff::LIGHTFALLOFF_INVERSESQUARED);
-            light->setRange(range);
-            light->setCastShadows(shadows);
-            light->setInnerConeAngle(80.0f);
-            light->setOuterConeAngle(85.0f);
-            light->setShadowBias(0.1f);
-            light->setShadowNormalBias(0.1f);
-            light->setShadowResolution(2048);
+        LightRig rig;
+        rig.entity = new Entity();
+        rig.entity->setEngine(engine());
+        rig.light = static_cast<LightComponent*>(rig.entity->addComponent<LightComponent>());
+        if (rig.light) {
+            rig.light->setType(type);
+            rig.light->setFalloffMode(LightFalloff::LIGHTFALLOFF_INVERSESQUARED);
         }
-        lightEntity->setLocalScale(scale, scale, scale);
-        lightParent->addChild(lightEntity);
+        root()->addChild(rig.entity);
 
-        const bool directional = type == LightType::LIGHTTYPE_DIRECTIONAL;
-        const char* primitive = shape == LightShape::LIGHTSHAPE_SPHERE ? "sphere"
-            : shape == LightShape::LIGHTSHAPE_DISK ? "cone" : "plane";
-        const CullMode cull = shape == LightShape::LIGHTSHAPE_RECT ? CullMode::CULLFACE_NONE
-                                                                   : CullMode::CULLFACE_BACK;
+        rig.material = std::make_shared<StandardMaterial>();
+        rig.material->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
+        rig.material->setUseLighting(false);
 
-        // Emissive material that is the light source colour. Its default white diffuse
-        // still takes the environment's ambient (no direct lights), shading it slightly.
-        auto brightMaterial = std::make_shared<StandardMaterial>();
-        brightMaterial->setEmissive(color);
-        brightMaterial->setUseLighting(false);
-        brightMaterial->setCullMode(cull);
-        _materials.push_back(brightMaterial);
-
-        auto* brightShape = new Entity();
-        brightShape->setEngine(engine());
-        if (auto* render = static_cast<RenderComponent*>(brightShape->addComponent<RenderComponent>())) {
-            render->setMaterial(brightMaterial.get());
-            render->setType(primitive);
-            render->setCastShadows(!directional);
+        rig.sourcesParent = rig.entity;
+        if (separateSources) {
+            rig.sourcesParent = new Entity();
+            rig.sourcesParent->setEngine(engine());
+            root()->addChild(rig.sourcesParent);
         }
-        const float extent = directional ? scale * range : scale;
-        brightShape->setLocalScale(extent, shape == LightShape::LIGHTSHAPE_DISK ? 0.001f : extent, extent);
-        lightParent->addChild(brightShape);
-
-        // A black primitive on the back of a spot's source.
-        if (type == LightType::LIGHTTYPE_SPOT) {
-            auto blackMaterial = std::make_shared<StandardMaterial>();
-            blackMaterial->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
-            blackMaterial->setUseLighting(false);
-            blackMaterial->setCullMode(cull);
-            _materials.push_back(blackMaterial);
-
-            auto* blackShape = new Entity();
-            blackShape->setEngine(engine());
-            if (auto* render = static_cast<RenderComponent*>(blackShape->addComponent<RenderComponent>())) {
-                render->setMaterial(blackMaterial.get());
-                render->setType(primitive);
+        const auto addSource = [&](const LightShape shape, const char* primitive, const Vector3& scale) {
+            // Not a shadow caster, or it would block its own light.
+            Entity* source = createPrimitive(primitive, rig.material.get());
+            if (auto* render = source->findComponent<RenderComponent>()) {
+                render->setCastShadows(false);
             }
-            blackShape->setLocalPosition(0.0f, 0.01f / scale, 0.0f);
-            blackShape->setLocalEulerAngles(-180.0f, 0.0f, 0.0f);
-            brightShape->addChild(blackShape);
-        }
-
-        return lightParent;
+            rig.sourcesParent->addChild(source);
+            source->setLocalPosition(0.0f, 0.0f, 0.0f);
+            source->setLocalScale(scale.getX(), scale.getY(), scale.getZ());
+            source->setEnabled(false);
+            rig.sources[shape] = source;
+        };
+        addSource(LightShape::LIGHTSHAPE_RECT, "box", Vector3(1.0f, 0.002f, 1.0f));
+        addSource(LightShape::LIGHTSHAPE_DISK, "cylinder", Vector3(1.0f, 0.002f, 1.0f));
+        addSource(LightShape::LIGHTSHAPE_SPHERE, "sphere", Vector3(1.0f, 1.0f, 1.0f));
+        addSource(LightShape::LIGHTSHAPE_PUNCTUAL, "sphere", Vector3(0.1f, 0.1f, 0.1f));
+        return rig;
     }
 
-    // Per-frame animation.
-    void animateLights(const float t) const
+    static void applyLightSettings(LightRig& rig, const LightSettings& settings, const Color& color,
+        const float emissiveIntensity)
     {
-        const float factor1 = (std::sin(t) + 1.0f) * 0.5f;
-        const float factor2 = (std::sin(t * 0.6f) + 1.0f) * 0.5f;
-        const float factor3 = (std::sin(t * 0.4f) + 1.0f) * 0.5f;
-
-        _light1->setLocalEulerAngles(lerp(-90.0f, 110.0f, factor1), 0.0f, 90.0f);
-        _light1->setLocalPosition(-4.0f, lerp(2.0f, 4.0f, factor3), lerp(-2.0f, 2.0f, factor2));
-
-        _light2->setLocalPosition(5.0f, lerp(1.0f, 3.0f, factor1), lerp(-2.0f, 2.0f, factor2));
-
-        _light3->setLocalEulerAngles(
-            lerp(230.0f, 310.0f, factor2), lerp(-30.0f, 0.0f, factor3), 90.0f
-        );
-        // position = camera + lightY * far (the disk hangs in the sky
-        // along its emission axis).
-        const Vector3 dir(_light3->worldTransform().getColumn(1));
-        _light3->setPosition(_camera->position() + dir * kFar);
+        rig.entity->setEnabled(settings.enabled);
+        rig.sourcesParent->setEnabled(settings.enabled);
+        if (rig.light) {
+            rig.light->setShape(settings.shape);
+            rig.light->setColor(color);
+            rig.light->setIntensity(settings.intensity);
+            rig.light->setCastShadows(settings.shadows);
+        }
+        rig.material->setEmissive(color);
+        rig.material->setEmissiveIntensity(emissiveIntensity);
+        for (auto& [shape, source] : rig.sources) {
+            source->setEnabled(shape == settings.shape);
+        }
     }
 
-    std::unique_ptr<Asset> _helipad;
+    // A light scaled to the size of its area: the rectangle and the disk along X and Z, the
+    // sphere by X.
+    static void setLightSize(Entity* entity, const LightShape shape, const float width, const float height)
+    {
+        if (shape == LightShape::LIGHTSHAPE_PUNCTUAL) {
+            entity->setLocalScale(1.0f, 1.0f, 1.0f);
+        } else if (shape == LightShape::LIGHTSHAPE_SPHERE) {
+            entity->setLocalScale(width, width, width);
+        } else {
+            entity->setLocalScale(width, 1.0f, height);
+        }
+    }
+
+    void applySettings()
+    {
+        const std::array<Color, 3> doorColors = {Color(1.0f, 0.42f, 0.12f, 1.0f), Color(0.25f, 0.8f, 1.0f, 1.0f),
+            Color(1.0f, 0.8f, 0.35f, 1.0f)};
+        for (size_t i = 0; i < _doors.size(); ++i) {
+            applyLightSettings(_doors[i], _doorSettings, doorColors[i], _doorSettings.intensity * kEmissiveScale);
+            setLightSize(_doors[i].entity, _doorSettings.shape, 1.7f, 3.3f);
+        }
+        const Color orbColor(0.8f, 0.88f, 1.0f, 1.0f);
+        applyLightSettings(_orb, _orbSettings, orbColor, _orbSettings.intensity * kEmissiveScale);
+        setLightSize(_orb.entity, _orbSettings.shape, 1.0f, 1.0f);
+
+        // The directional light's area is sized relative to the far clip, so its scale is the
+        // sun's angular size (8 degrees).
+        const Color sunColor(1.0f, 0.86f, 0.68f, 1.0f);
+        applyLightSettings(_sun, _sunSettings, sunColor, _sunSettings.intensity * kEmissiveScale);
+        _sunScale = 2.0f * std::tan(8.0f * 0.5f * std::numbers::pi_v<float> / 180.0f);
+        _sun.entity->setLocalScale(_sunScale, _sunScale, _sunScale);
+
+        _floorMaterial->setGloss(1.0f - _floorRoughness);   // a glTF material: gloss = 1 - roughness
+        _redMaterial->setGloss(_sphereRoughness);
+        _redMaterial->setMetalness(_sphereMetalness);
+
+        auto rendering = _cameraComponent->rendering();
+        rendering.bloomIntensity = _bloom ? 0.03f : 0.0f;
+        _cameraComponent->setRendering(rendering);
+    }
+
+    std::unique_ptr<Asset> _room;
     std::unique_ptr<Asset> _statue;
-    std::unique_ptr<Asset> _floorColorTex;
-    std::unique_ptr<Asset> _floorNormalTex;
-    std::unique_ptr<Asset> _floorGlossTex;
-
-    std::shared_ptr<StandardMaterial> _floorMaterial;
     std::vector<std::shared_ptr<StandardMaterial>> _materials;
-
+    StandardMaterial* _floorMaterial = nullptr;
+    std::shared_ptr<StandardMaterial> _redMaterial;
+    std::shared_ptr<StandardMaterial> _ceramicMaterial;
     Entity* _camera = nullptr;
-    Entity* _light1 = nullptr;
-    Entity* _light2 = nullptr;
-    Entity* _light3 = nullptr;
+    CameraComponent* _cameraComponent = nullptr;
 
+    std::vector<LightRig> _doors;
+    LightRig _orb;
+    LightRig _sun;
+    LightSettings _doorSettings;
+    LightSettings _orbSettings;
+    LightSettings _sunSettings;
+    float _sunScale = 1.0f;
+    float _sunDistance = 900.0f;
+
+    float _floorRoughness = 0.4f;
+    float _sphereRoughness = 0.15f;
+    float _sphereMetalness = 0.0f;
+    bool _bloom = true;
     bool _animate = true;
     float _time = 0.0f;
 };

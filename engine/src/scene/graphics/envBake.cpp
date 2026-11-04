@@ -147,9 +147,9 @@ namespace visutwin::canvas
             return getOrCreateSlangShader(device, "env-equirect-to-cube");
         }
 
-        std::shared_ptr<Shader> cubeMipsShader(GraphicsDevice* device)
+        std::shared_ptr<Shader> cubeMipsShader(GraphicsDevice* device, const bool linear)
         {
-            return getOrCreateSlangShader(device, "env-cube-mips");
+            return getOrCreateSlangShader(device, "env-cube-mips", linear ? "linear" : "gamma");
         }
     }
 
@@ -161,7 +161,8 @@ namespace visutwin::canvas
             spdlog::warn("bakeCubeMipsLinear: needs two cube maps of one face size");
             return false;
         }
-        auto shader = cubeMipsShader(device);
+        // A float cube stores linear colours (an HDR capture) and is averaged as it is.
+        auto shader = cubeMipsShader(device, isFloatPixelFormat(source->format()));
         if (!shader) {
             spdlog::error("bakeCubeMipsLinear: no shader for this device");
             return false;

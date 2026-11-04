@@ -5,42 +5,38 @@
 //
 // Port of upstream lights-and-shadows/clustered-area-lights.
 //
-// A 9 x 9 grid of area lights, 5 units apart and 0.6 above a 45 x 45 seaside-rocks
-// ground plane (colour, normal and gloss maps tiled 17x; grey, gloss 0.8, metalness
-// 0.7). Each light picks a random colour (every channel up to 0.7) and a random shape:
-// 30% a sphere-shaped omni (scale 1.5, range 6), 30% a disk-shaped spot (scale 1.5,
-// range 5) and 40% a 2 x 1 rect-shaped spot (range 5), all at intensity 4 with an
-// inverse-squared falloff and cone angles 88 / 89. The spots are turned to shine
-// sideways along +Z. Every light carries an emissive primitive matching its shape
-// (sphere, flattened cylinder, flattened box) at ten times its intensity, and a spot a
-// black copy over its back. Clustered lighting runs a 30 x 2 x 30 grid with up to 20
-// lights per cell, area lights on and shadows off. The camera frame multisamples 4x,
-// blooms at 0.01 over 4 levels and tone-maps NEUTRAL. The camera starts at (3, 3, 12)
-// and orbits the ground's centre, pitch within +/-90 degrees, out to a distance of 60.
+// 81 clustered area lights float just above a metallic floor (the seaside-rocks set tiled 28 x 28
+// on an 80 x 80 plane, gloss 0.8, metalness 0.7) in a sunflower spiral: each turned by the golden
+// angle from the previous one and placed further out, which spreads them evenly over a disk of
+// radius 14, their colours going around the colour wheel from the centre out. They cycle sphere,
+// disk and rectangle shapes, all omni lights of range 3 (inverse-squared), so the rectangles and
+// disks shine from both sides; each carries an emissive source of its shape. They float in a wave
+// rolling out from the centre, the disks and rectangles standing upright and spinning slowly. The
+// clustered grid is 30 x 2 x 30 with up to 20 lights a cell, no shadows. The floor fades into the
+// black night through linear fog (22 - 50). The camera frame (4x MSAA, neutral tone mapping) adds
+// bloom 0.03 over 7 levels and a vignette.
 //
-// Keys stand in for upstream's control panel (the ground material):
-//   [ / ]  gloss -/+ 0.05, 0..1
-//   ; / '  metalness -/+ 0.05, 0..1
+// Keys stand in for upstream's controls panel:
+//   A            area lights on or off (off: the lights are punctual)
+//   [ / ]        the lights' intensity -/+ 0.1 (0 - 3)
+//   B / N        bloom -/+ 0.01 (0 - 0.1)
+//   - / =        the floor's gloss -/+ 0.05      9 / 0   its metalness -/+ 0.05
+//   Space        pause the animation
 //
 // DEVIATIONS:
-// - upstream loads the LTC LUTs from a JSON asset; this engine has them built in.
-// - the colours and shapes come from a SEEDED generator in place of upstream's
-//   Math.random(), so the grid is the same in every run (and comparable across runs).
-// - upstream asks for an HDR display format and skips tone mapping on an HDR display;
-//   the port always renders to a standard display with NEUTRAL tone mapping.
-// - upstream caps the pixel ratio at 2; the examples render at one pixel per point.
+// - The LTC lookup tables are built into the engine (upstream loads them from a JSON asset).
+// - Tone mapping is NEUTRAL always (upstream drops it on an HDR display, which is not detected here).
 //
 #include <algorithm>
 #include <cmath>
 #include <memory>
-#include <random>
+#include <numbers>
 #include <vector>
 
-#include "extras/script/cameraControls.h"
 #include "../exampleApp.h"
+#include "extras/script/cameraControls.h"
 #include "framework/assets/asset.h"
-#include "platform/input/inputConstants.h"
-#include "platform/input/keyboard.h"
+#include "framework/components/render/renderComponent.h"
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"
 
@@ -48,20 +44,44 @@ using namespace visutwin::canvas;
 
 namespace
 {
-    constexpr float kGroundTiling = 17.0f;
-    constexpr float kMaterialStep = 0.05f;
+    constexpr int kLightCount = 81;
+    constexpr float kSpiralRadius = 14.0f;
+    constexpr float kEmissiveScale = 1.5f;   // the sources' brightness relative to their light
+
+    // A colour of a hue around the colour wheel, 0-1.
+    Color hueColor(const float hue)
+    {
+        const auto channel = [hue](const float offset) {
+            return 0.5f + 0.5f * std::cos(2.0f * std::numbers::pi_v<float> * (hue + offset));
+        };
+        return Color(channel(0.0f), channel(2.0f / 3.0f), channel(1.0f / 3.0f), 1.0f);
+    }
 }
 
-class ClusteredAreaLightsExample final: public ExampleApp
+class ClusteredAreaLightsExample final : public ExampleApp
 {
 public:
-    ClusteredAreaLightsExample(): ExampleApp({.title = "Clustered Area Lights"}) {}
+    ClusteredAreaLightsExample() : ExampleApp({.title = "Clustered Area Lights"}) {}
 
 protected:
     bool create() override
     {
-        // Clustered lighting sized for many lights: a fine grid in x and z, a modest
-        // per-cell budget, area lights on and no shadows.
+        _colorAsset = std::make_unique<Asset>("color", AssetType::TEXTURE,
+            assetPath("textures/seaside-rocks01-color.jpg"), AssetData{.mipmaps = true});
+        _normalAsset = std::make_unique<Asset>("normal", AssetType::TEXTURE,
+            assetPath("textures/seaside-rocks01-normal.jpg"), AssetData{.mipmaps = true});
+        _glossAsset = std::make_unique<Asset>("gloss", AssetType::TEXTURE,
+            assetPath("textures/seaside-rocks01-gloss.jpg"), AssetData{.mipmaps = true});
+        Texture* color = _colorAsset->resourceAs<Texture>();
+        Texture* normal = _normalAsset->resourceAs<Texture>();
+        Texture* gloss = _glossAsset->resourceAs<Texture>();
+        if (!color || !normal || !gloss) {
+            spdlog::error("clustered-area-lights: a texture did not load");
+            return false;
+        }
+
+        // The clustered lighting subdivides the space the lights occupy into cells, each holding
+        // the lights overlapping it; the small ranges keep that well below the per-cell limit.
         scene()->setClusteredLightingEnabled(true);
         auto& lighting = scene()->lighting();
         lighting.cellsX = 30;
@@ -71,218 +91,186 @@ protected:
         lighting.areaLightsEnabled = true;
         lighting.shadowsEnabled = false;
 
-        _colorAsset = std::make_unique<Asset>("color", AssetType::TEXTURE,
-            assetPath("textures/seaside-rocks01-color.jpg"), AssetData{.mipmaps = true});
-        _normalAsset = std::make_unique<Asset>("normal", AssetType::TEXTURE,
-            assetPath("textures/seaside-rocks01-normal.jpg"), AssetData{.mipmaps = true});
-        _glossAsset = std::make_unique<Asset>("gloss", AssetType::TEXTURE,
-            assetPath("textures/seaside-rocks01-gloss.jpg"), AssetData{.mipmaps = true});
+        // The metallic floor the lights are reflected in.
+        _floorMaterial = std::make_shared<StandardMaterial>();
+        _floorMaterial->setDiffuse(Color(0.5f, 0.5f, 0.5f, 1.0f));
+        _floorMaterial->setDiffuseMap(color);
+        _floorMaterial->setNormalMap(normal);
+        _floorMaterial->setGlossMap(gloss);
+        _floorMaterial->setUseMetalness(true);
+        const Vector2 tiling(28.0f, 28.0f);
+        _floorMaterial->setDiffuseMapTiling(tiling);
+        _floorMaterial->setNormalMapTiling(tiling);
+        _floorMaterial->setGlossMapTiling(tiling);
+        createPrimitive("plane", _floorMaterial.get(), Vector3(0.0f, 0.0f, 0.0f), Vector3(80.0f, 1.0f, 80.0f));
 
-        Texture* colorTexture = requireTexture(_colorAsset, "seaside-rocks01-color");
-        Texture* normalTexture = requireTexture(_normalAsset, "seaside-rocks01-normal");
-        Texture* glossTexture = requireTexture(_glossAsset, "seaside-rocks01-gloss");
-        if (!colorTexture || !normalTexture || !glossTexture) {
-            return false;
-        }
+        // The lights, in a sunflower spiral.
+        const struct
+        {
+            LightShape shape;
+            const char* primitive;
+            Vector3 scale;
+        } shapes[] = {
+            {LightShape::LIGHTSHAPE_SPHERE, "sphere", Vector3(0.9f, 0.9f, 0.9f)},
+            {LightShape::LIGHTSHAPE_DISK, "cylinder", Vector3(1.3f, 1.3f, 1.3f)},
+            {LightShape::LIGHTSHAPE_RECT, "box", Vector3(1.6f, 1.0f, 0.9f)},
+        };
+        const float goldenAngle = std::numbers::pi_v<float> * (3.0f - std::sqrt(5.0f));
+        for (int i = 0; i < kLightCount; ++i) {
+            const auto& shape = shapes[i % 3];
+            const float radius = kSpiralRadius * std::sqrt((static_cast<float>(i) + 0.5f) / kLightCount);
+            const float angle = static_cast<float>(i) * goldenAngle;
+            const Color lightColor = hueColor(radius / kSpiralRadius);
 
-        // Pure black material, used on the back side of the spot light shapes.
-        _blackMaterial = std::make_shared<StandardMaterial>();
-        _blackMaterial->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
-        _blackMaterial->setUseLighting(false);
-
-        // Ground material.
-        _groundMaterial = std::make_shared<StandardMaterial>();
-        _groundMaterial->setDiffuse(Color(0.5f, 0.5f, 0.5f, 1.0f));
-        _groundMaterial->setGloss(_gloss);
-        _groundMaterial->setMetalness(_metalness);
-        _groundMaterial->setUseMetalness(true);
-        _groundMaterial->setDiffuseMap(colorTexture);
-        _groundMaterial->setNormalMap(normalTexture);
-        _groundMaterial->setGlossMap(glossTexture);
-        const Vector2 groundTiling(kGroundTiling, kGroundTiling);
-        _groundMaterial->setDiffuseMapTiling(groundTiling);
-        _groundMaterial->setNormalMapTiling(groundTiling);
-        _groundMaterial->setGlossMapTiling(groundTiling);
-
-        auto* ground = new Entity();
-        ground->setEngine(engine());
-        if (auto* render = static_cast<RenderComponent*>(ground->addComponent<RenderComponent>())) {
-            render->setMaterial(_groundMaterial.get());
-            render->setType("plane");
-        }
-        ground->setLocalPosition(0.0f, 0.0f, 0.0f);
-        ground->setLocalScale(45.0f, 1.0f, 45.0f);
-        root()->addChild(ground);
-
-        // Camera, orbiting the ground's centre.
-        auto* camera = createCamera(Vector3(3.0f, 3.0f, 12.0f));
-        if (auto* cameraComp = camera->findComponent<CameraComponent>()) {
-            if (cameraComp->camera()) {
-                cameraComp->camera()->setClearColor(Color(0.05f, 0.05f, 0.05f, 1.0f));
-                cameraComp->camera()->setFov(60.0f);
-                cameraComp->camera()->setFarClip(1000.0f);
+            FloatingLight light;
+            light.entity = new Entity();
+            light.entity->setEngine(engine());
+            light.light = static_cast<LightComponent*>(light.entity->addComponent<LightComponent>());
+            if (light.light) {
+                light.light->setType(LightType::LIGHTTYPE_OMNI);
+                light.light->setShape(shape.shape);
+                light.light->setColor(lightColor);
+                light.light->setRange(3.0f);
+                light.light->setFalloffMode(LightFalloff::LIGHTFALLOFF_INVERSESQUARED);
             }
+            light.entity->setLocalScale(shape.scale.getX(), shape.scale.getY(), shape.scale.getZ());
+            root()->addChild(light.entity);
 
-            // Camera frame: 4x MSAA, bloom 0.01 over 4 levels, NEUTRAL tone mapping.
-            cameraComp->setToneMapping(TONEMAP_NEUTRAL);
-            auto rendering = cameraComp->rendering();
-            rendering.samples = 4;
-            rendering.bloomIntensity = 0.01f;
-            rendering.bloomBlurLevel = 4;
-            cameraComp->setRendering(rendering);
+            // The visible source; the rectangle and the disk in the light's XZ plane.
+            light.material = std::make_shared<StandardMaterial>();
+            light.material->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
+            light.material->setEmissive(lightColor);
+            light.material->setUseLighting(false);
+            const bool sphere = shape.shape == LightShape::LIGHTSHAPE_SPHERE;
+            Entity* source = createPrimitive(shape.primitive, light.material.get());
+            light.entity->addChild(source);
+            source->setLocalPosition(0.0f, 0.0f, 0.0f);
+            source->setLocalScale(1.0f, sphere ? 1.0f : 0.002f, 1.0f);
+
+            light.position = Vector3(std::sin(angle) * radius, 0.0f, std::cos(angle) * radius);
+            light.height = sphere ? 0.7f : 0.8f;
+            light.flat = !sphere;
+            light.phase = angle;
+            _lights.push_back(light);
         }
-        if (auto* controls = addOrbitControls(camera, Vector3(0.0f, 0.0f, 0.0f))) {
-            controls->setPitchRange(Vector2(-90.0f, 90.0f));
-            controls->setZoomRange(Vector2(0.01f, 60.0f));
+
+        // The floor fades into the night in the distance; the clear colour and the fog are black.
+        scene()->setFogEnabled(true);
+        scene()->setFogType(FogType::FOG_LINEAR);
+        scene()->setFogColor(Color(0.0f, 0.0f, 0.0f, 1.0f));
+        scene()->setFogLinear(22.0f, 50.0f);
+
+        // The camera, low above the floor, so the lights are reflected in it.
+        Entity* camera = createCamera(Vector3(0.0f, 4.5f, 16.0f));
+        _cameraComponent = camera->findComponent<CameraComponent>();
+        _cameraComponent->camera()->setClearColor(Color(0.0f, 0.0f, 0.0f, 1.0f));
+        _cameraComponent->camera()->setFov(60.0f);
+        _cameraComponent->camera()->setFarClip(200.0f);
+        _cameraComponent->setToneMapping(TONEMAP_NEUTRAL);
+        if (auto* controls = addOrbitControls(camera, Vector3(0.0f, 0.3f, 0.0f))) {
+            controls->setEnableFly(false);
+            controls->setPitchRange(Vector2(-80.0f, -2.0f));
+            controls->setZoomRange(Vector2(3.0f, 30.0f));
             controls->storeResetState();
         }
+        auto rendering = _cameraComponent->rendering();
+        rendering.samples = 4;
+        rendering.bloomBlurLevel = 7;
+        rendering.vignetteEnabled = true;
+        rendering.vignetteIntensity = 0.4f;
+        _cameraComponent->setRendering(rendering);
 
-        // A grid of area lights of sphere, disk and rect shapes.
-        std::uniform_real_distribution<float> random(0.0f, 1.0f);
-        for (int x = -20; x <= 20; x += 5) {
-            for (int y = -20; y <= 20; y += 5) {
-                const Vector3 position(static_cast<float>(x), 0.6f, static_cast<float>(y));
-                const float r = random(_rng) * 0.7f;
-                const float g = random(_rng) * 0.7f;
-                const float b = random(_rng) * 0.7f;
-                const Color color(r, g, b, 1.0f);
-                const float rand = random(_rng);
-                if (rand < 0.3f) {
-                    createAreaLight(LightType::LIGHTTYPE_OMNI, LightShape::LIGHTSHAPE_SPHERE, position,
-                        Vector3(1.5f, 1.5f, 1.5f), color, 4.0f, 6.0f);
-                } else if (rand < 0.6f) {
-                    createAreaLight(LightType::LIGHTTYPE_SPOT, LightShape::LIGHTSHAPE_DISK, position,
-                        Vector3(1.5f, 1.5f, 1.5f), color, 4.0f, 5.0f);
-                } else {
-                    createAreaLight(LightType::LIGHTTYPE_SPOT, LightShape::LIGHTSHAPE_RECT, position,
-                        Vector3(2.0f, 1.0f, 1.0f), color, 4.0f, 5.0f);
-                }
-            }
-        }
-
-        spdlog::info("81 clustered area lights (sphere, disk and rect) over a seaside-rocks ground");
-        spdlog::info("Keys: [ ] gloss, ; ' metalness, R reset camera, Esc quit");
+        applySettings();
+        update(0.0f);
+        spdlog::info("clustered-area-lights: A area lights, [ ] intensity, B/N bloom, - = gloss, 9/0 metalness, "
+                     "Space pause");
         return true;
     }
 
-    void update(float /*dt*/) override
+    bool onEvent(const SDL_Event& event) override
     {
-        const auto* keyboard = engine()->keyboard();
-        if (!keyboard) {
-            return;
+        if (event.type != SDL_EVENT_KEY_DOWN) {
+            return false;
+        }
+        switch (event.key.key) {
+        case SDLK_A: _areaLights = !_areaLights; break;
+        case SDLK_LEFTBRACKET: _intensity = std::max(0.0f, _intensity - 0.1f); break;
+        case SDLK_RIGHTBRACKET: _intensity = std::min(3.0f, _intensity + 0.1f); break;
+        case SDLK_B: _bloom = std::max(0.0f, _bloom - 0.01f); break;
+        case SDLK_N: _bloom = std::min(0.1f, _bloom + 0.01f); break;
+        case SDLK_MINUS: _gloss = std::max(0.0f, _gloss - 0.05f); break;
+        case SDLK_EQUALS: _gloss = std::min(1.0f, _gloss + 0.05f); break;
+        case SDLK_9: _metalness = std::max(0.0f, _metalness - 0.05f); break;
+        case SDLK_0: _metalness = std::min(1.0f, _metalness + 0.05f); break;
+        case SDLK_SPACE: _animate = !_animate; break;
+        default: return false;
+        }
+        applySettings();
+        return true;
+    }
+
+    void update(const float dt) override
+    {
+        if (_animate) {
+            _time += dt;
         }
 
-        const float gloss = adjust(_gloss, keyboard->wasPressed(Key::LeftBracket),
-            keyboard->wasPressed(Key::RightBracket));
-        const float metalness = adjust(_metalness, keyboard->wasPressed(Key::Semicolon),
-            keyboard->wasPressed(Key::Apostrophe));
-        if (gloss == _gloss && metalness == _metalness) {
-            return;
+        // A wave rolling out from the centre; the disks and rectangles stand upright (their XZ
+        // plane turned vertical) and spin slowly about the vertical axis.
+        for (const auto& light : _lights) {
+            const float distance = light.position.length();
+            light.entity->setLocalPosition(light.position.getX(),
+                light.height + std::sin(_time * 1.5f - distance * 0.5f) * 0.2f, light.position.getZ());
+            if (light.flat) {
+                const float spin = std::fmod(light.phase * 180.0f / std::numbers::pi_v<float> + _time * 15.0f, 360.0f);
+                light.entity->setLocalEulerAngles(90.0f, spin, 0.0f);
+            }
         }
-
-        _gloss = gloss;
-        _metalness = metalness;
-        _groundMaterial->setGloss(_gloss);
-        _groundMaterial->setMetalness(_metalness);
-        spdlog::info("Ground material: gloss {:.2f}, metalness {:.2f}", _gloss, _metalness);
     }
 
 private:
-    static Texture* requireTexture(const std::unique_ptr<Asset>& asset, const char* label)
+    struct FloatingLight
     {
-        Texture* texture = asset->resourceAs<Texture>();
-        if (!texture) {
-            spdlog::error("Failed to load texture asset '{}'", label);
-        }
-        return texture;
-    }
+        Entity* entity = nullptr;
+        LightComponent* light = nullptr;
+        std::shared_ptr<StandardMaterial> material;
+        Vector3 position;
+        float height = 0.0f;
+        bool flat = false;
+        float phase = 0.0f;
+    };
 
-    // A slider value stepped down and up, clamped to [0, 1] and kept at the panel's
-    // two decimals.
-    static float adjust(const float value, const bool down, const bool up)
+    void applySettings()
     {
-        float result = value;
-        if (down) {
-            result -= kMaterialStep;
-        }
-        if (up) {
-            result += kMaterialStep;
-        }
-        return std::round(std::clamp(result, 0.0f, 1.0f) * 100.0f) / 100.0f;
-    }
-
-    // An area light, with its visual: an emissive primitive matching the light's shape
-    // and, for a spot, a black primitive over the back that emits nothing.
-    void createAreaLight(const LightType type, const LightShape shape, const Vector3& position,
-        const Vector3& scale, const Color& color, const float intensity, const float range)
-    {
-        auto* light = new Entity();
-        light->setEngine(engine());
-        if (auto* lightComp = static_cast<LightComponent*>(light->addComponent<LightComponent>())) {
-            lightComp->setType(type);
-            lightComp->setShape(shape);
-            lightComp->setColor(color);
-            lightComp->setIntensity(intensity);
-            lightComp->setFalloffMode(LightFalloff::LIGHTFALLOFF_INVERSESQUARED);
-            lightComp->setRange(range);
-            lightComp->setInnerConeAngle(88.0f);
-            lightComp->setOuterConeAngle(89.0f);
-        }
-
-        light->setLocalScale(scale.getX(), scale.getY(), scale.getZ());
-        light->setLocalPosition(position.getX(), position.getY(), position.getZ());
-        if (type == LightType::LIGHTTYPE_SPOT) {
-            light->rotate(-90.0f, 0.0f, 0.0f);
-        }
-        root()->addChild(light);
-
-        // Emissive material in the light source's colour.
-        auto brightMaterial = std::make_shared<StandardMaterial>();
-        brightMaterial->setEmissive(color);
-        brightMaterial->setEmissiveIntensity(intensity * 10.0f);
-        brightMaterial->setUseLighting(false);
-        _materials.push_back(brightMaterial);
-
-        // Primitive matching the light's shape, flattened to a disk or a rectangle.
-        const char* primitive = shape == LightShape::LIGHTSHAPE_SPHERE ? "sphere"
-            : shape == LightShape::LIGHTSHAPE_DISK ? "cylinder" : "box";
-        const float primitiveHeight = shape != LightShape::LIGHTSHAPE_SPHERE ? 0.001f : 1.0f;
-
-        auto* brightShape = new Entity();
-        brightShape->setEngine(engine());
-        if (auto* render = static_cast<RenderComponent*>(brightShape->addComponent<RenderComponent>())) {
-            render->setMaterial(brightMaterial.get());
-            render->setType(primitive);
-        }
-        brightShape->setLocalScale(1.0f, primitiveHeight, 1.0f);
-        light->addChild(brightShape);
-
-        // The back of a spot's source, which emits no light.
-        if (type == LightType::LIGHTTYPE_SPOT) {
-            auto* blackShape = new Entity();
-            blackShape->setEngine(engine());
-            if (auto* render = static_cast<RenderComponent*>(blackShape->addComponent<RenderComponent>())) {
-                render->setMaterial(_blackMaterial.get());
-                render->setType(primitive);
+        constexpr float kIntensity = 4.0f;
+        scene()->lighting().areaLightsEnabled = _areaLights;
+        for (auto& light : _lights) {
+            if (light.light) {
+                light.light->setIntensity(kIntensity * _intensity);
             }
-            blackShape->setLocalPosition(0.0f, 0.004f, 0.0f);
-            blackShape->setLocalEulerAngles(-180.0f, 0.0f, 0.0f);
-            blackShape->setLocalScale(1.0f, primitiveHeight, 1.0f);
-            light->addChild(blackShape);
+            light.material->setEmissiveIntensity(kIntensity * _intensity * kEmissiveScale);
         }
+        auto rendering = _cameraComponent->rendering();
+        rendering.bloomIntensity = _bloom;
+        _cameraComponent->setRendering(rendering);
+        _floorMaterial->setGloss(_gloss);
+        _floorMaterial->setMetalness(_metalness);
     }
 
     std::unique_ptr<Asset> _colorAsset;
     std::unique_ptr<Asset> _normalAsset;
     std::unique_ptr<Asset> _glossAsset;
+    std::shared_ptr<StandardMaterial> _floorMaterial;
+    std::vector<FloatingLight> _lights;
+    CameraComponent* _cameraComponent = nullptr;
 
-    std::shared_ptr<StandardMaterial> _groundMaterial;
-    std::shared_ptr<StandardMaterial> _blackMaterial;
-    std::vector<std::shared_ptr<StandardMaterial>> _materials;
-
-    std::mt19937 _rng{20261010};
+    bool _areaLights = true;
+    float _intensity = 1.0f;
+    float _bloom = 0.03f;
     float _gloss = 0.8f;
     float _metalness = 0.7f;
+    bool _animate = true;
+    float _time = 0.0f;
 };
 
 VISUTWIN_EXAMPLE_MAIN(ClusteredAreaLightsExample)

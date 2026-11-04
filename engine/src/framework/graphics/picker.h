@@ -65,6 +65,11 @@ namespace visutwin::canvas
         /// fell back to bounds.
         bool usesIdBuffer() const { return _idBufferValid; }
 
+        /// The id buffer the last prepare() rendered (each candidate's id as its colour) and its
+        /// depth, for display; null before the first prepare() or without a render target.
+        Texture* colorBuffer() const { return _colorBuffer.get(); }
+        Texture* depthBuffer() const { return _depthBuffer.get(); }
+
     private:
         struct Candidate
         {

@@ -18,6 +18,7 @@
 // (NDC z 1 taken for the near plane under a GL-style projection), the nearest hit is
 // the far side of the object.
 //
+// A mesh instance that opts out (setPick(false)) is not a candidate either.
 // And a mesh instance that is not visible (setVisible(false), as a batched source is)
 // is not drawn, so it must not be picked either.
 
@@ -112,6 +113,20 @@ int main()
             boxInstance->setVisible(true);
             picker.prepare(camera, engine->scene().get());
             check(picker.getSelectionSingle(50, 50) == boxInstance, "visible again, it is picked again");
+        }
+    }
+
+    std::cout << "\nmesh instances that opt out of picking are not picked\n";
+    {
+        MeshInstance* boxInstance = render->meshInstances().empty() ? nullptr : render->meshInstances().front();
+        if (check(boxInstance != nullptr, "the box has a mesh instance")) {
+            boxInstance->setPick(false);
+            picker.prepare(camera, engine->scene().get());
+            check(picker.getSelectionSingle(50, 50) == nullptr && !picker.getWorldPoint(50, 50).has_value(),
+                "setPick(false): drawn, but neither selected nor giving a world point");
+            boxInstance->setPick(true);
+            picker.prepare(camera, engine->scene().get());
+            check(picker.getSelectionSingle(50, 50) == boxInstance, "setPick(true): picked again");
         }
     }
 

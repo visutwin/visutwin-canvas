@@ -115,6 +115,7 @@ namespace visutwin::canvas
         clone->_receiveShadow = _receiveShadow;
         clone->_cull = _cull;
         clone->_drawOncePerFrame = _drawOncePerFrame;
+        clone->_pick = _pick;
         clone->_mask = _mask;
         clone->_drawBucket = _drawBucket;
         clone->_drawOrder = _drawOrder;

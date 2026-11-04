@@ -467,6 +467,11 @@ namespace visutwin::canvas
         bool visible() const { return _visible; }
         void setVisible(bool v) { _visible = v; }
 
+        /// Whether the Picker considers the instance (default true): false leaves it out of the
+        /// id buffer, so what is behind it is picked, as for a marker showing a picked point.
+        bool pick() const { return _pick; }
+        void setPick(const bool value) { _pick = value; }
+
         /// Drawn by this camera only, culled for every other (null, the default: by any camera
         /// that renders its layer). What an effect drawing a sky of its own for its camera uses.
         const Camera* onlyCamera() const { return _onlyCamera; }
@@ -604,6 +609,7 @@ namespace visutwin::canvas
         // Batching
         int _batchGroupId = -1;   // BatchGroup::NOID
         bool _visible = true;     // Hidden when merged into a batch
+        bool _pick = true;        // A Picker candidate
         const Camera* _onlyCamera = nullptr;
         bool _replacesSky = false;
         bool _dynamicBatch = false;  // True when part of a dynamic batch

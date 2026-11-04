@@ -1636,7 +1636,15 @@ present, but the rule below never depends on reading it.
   mip chain over the gamma-encoded faces darkens a bright feature on a dark surround at every
   level, and an atlas prefiltered from it reflected it 1.2x too dark per bounce
   (`reflection-box`, whose walls reflect each other, read 7.4 against upstream; now 4.4). The
-  atlas bake's own bilinear taps still filter the gamma values before decoding.
+  atlas bake's own bilinear taps still filter the gamma values before decoding. An HDR probe
+  (`ReflectionProbe(engine, size, true)`: RGBA16F, face cameras with `Camera::setLinearOutput`)
+  holds LINEAR colours: its mips average them as they are (the `linear` variant), an atlas bake
+  from it passes `decodeSrgb = false`, and the scene probe lookup skips its decode by
+  `reflectionProbeParams.w`, which both binders write from the cube's format.
+- **A glTF material's gloss is 1 - roughness here, NOT upstream's roughness.** Upstream's loader
+  sets `glossInvert` and stores the roughness in `gloss`, so an upstream example writing
+  `material.gloss = x` on a glTF material sets the ROUGHNESS to x; a port writes `1 - x`. A
+  material created in code with `setGlossInvert(true)` takes x as upstream's does.
 - **SH light probes replace the ambient DIFFUSE only; the environment atlas
   still supplies the SPECULAR.** That is upstream's split (ambient and reflections
   are separate decisions), on both backends. Probes and atlas in one `if / else if`
@@ -2213,7 +2221,8 @@ present, but the rule below never depends on reading it.
   differs from a literal 0.04 wherever a metallic-rough material carries
   `KHR_materials_ior` or a black specular colour: `procedural-sky`'s sand
   (`specularColorFactor [0,0,0]` — no specular at all, as upstream), `refraction`
-  (IOR 1.33) and `post-processing`'s amber (1.55).
+  (IOR 1.33) and, until its removal on 2026-11-04 with the old `post-processing` scene, the
+  mosquito amber (1.55).
 - **Anisotropy has a DIRECTION** (`StandardMaterial::setAnisotropyRotation`, degrees,
   upstream `material_anisotropyRotation`): `T' = cos r * T + sin r * B` in both
   chunks, packed as `anisotropyParams`. The strength goes up as a magnitude; the
@@ -3459,7 +3468,7 @@ present, but the rule below never depends on reading it.
 
   Compare refraction brightness against upstream only when it is pinned to the same
   pose; an unpinned capture or a differently-posed thumbnail reads as "dimmer than
-  upstream" when it is not (pinned, `post-processing`'s amber matched, ours a touch
+  upstream" when it is not (pinned, the old `post-processing` scene's amber matched, ours a touch
   brighter, BEFORE the Fresnel weight moved to the refracted colour — re-measure). The refraction offset is scaled by the model's
   per-axis world scale, as upstream's refractionDynamic (x60 on the amber), passed from
   the vertex stage on both backends as a flat `modelScale` varying. The amber does NOT project
@@ -3891,10 +3900,11 @@ What stays HERE is only what bites during UNRELATED work.
   depth request under MSAA with no other consumer warned and left SSR with no depth).
   Without a depth grab in the frame, SSR under any post-processing does nothing on
   either backend. The standalone `RenderPassDepthGrab` publishes the scene depth in
-  `before()` for the depth-layer flow; with a source set it only copies. Check on
-  `post-processing` with `VISUTWIN_SSR_FLOOR`: the floor's SSR on/off difference is
-  ~10.8k pixels on both backends and both paths, and Metal and Vulkan agree on the
-  floor mean to 0.1.
+  `before()` for the depth-layer flow; with a source set it only copies. Check with
+  `VISUTWIN_SSR_FLOOR` under a camera frame: on the old `post-processing` scene (before its
+  2026-11-04 redesign into the area-lights room) the floor's SSR on/off difference was ~10.8k
+  pixels on both backends and both paths, Metal and Vulkan agreeing on the floor mean to 0.1;
+  re-measure on the new scene.
 - **UI not ported yet**: right-to-left text, XR select events and grapheme clusters (emoji
   sequences are several symbols). The twenty-two UI examples
   (`ui-text`, `ui-text-markup`, `world-to-screen`, `ui-buttons`, `world-ui`, `input-events`,

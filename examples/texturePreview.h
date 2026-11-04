@@ -41,7 +41,13 @@ namespace visutwin::canvas
         {
             prepareShaders();
             const float encode = _texture && isFloatPixelFormat(_texture->format()) ? 1.0f : 0.0f;
-            const float uniforms[4] = {encode, 0.0f, 0.0f, 0.0f};
+            // A single-channel texture (a depth buffer, a mask) shows its channel as grey: what a
+            // backend returns in the channels it lacks differs.
+            const PixelFormat format = _texture ? _texture->format() : PixelFormat::PIXELFORMAT_RGBA8;
+            const bool single = format == PixelFormat::PIXELFORMAT_DEPTH || format == PixelFormat::PIXELFORMAT_DEPTH16 ||
+                format == PixelFormat::PIXELFORMAT_DEPTHSTENCIL || format == PixelFormat::PIXELFORMAT_R32F ||
+                format == PixelFormat::PIXELFORMAT_R8;
+            const float uniforms[4] = {encode, single ? 1.0f : 0.0f, 0.0f, 0.0f};
             setQuadUniformData(uniforms, sizeof(uniforms));
             setQuadTextureBinding(0, _texture);
             RenderPassShaderQuad::execute();
@@ -50,11 +56,12 @@ namespace visutwin::canvas
     private:
         static constexpr const char* kSource = R"slang(
 import vtquad;
+import vtsrgb;
 #include "bindings.slang"
 
 struct PreviewUniforms
 {
-    float4 params;  // x: 1 to gamma-encode linear colour
+    float4 params;  // x: 1 to gamma-encode linear colour, y: 1 to show the red channel as grey
 };
 VT_DECLARE_QUAD_UNIFORMS(PreviewUniforms, u)
 VT_DECLARE_QUAD_INPUT0(previewTexture)
@@ -68,8 +75,9 @@ QuadVarying previewVertex(QuadVertexIn input)
 [shader("fragment")]
 float4 previewFragment(QuadVarying input) : SV_Target0
 {
-    const float3 color = previewTexture.SampleLevel(input.uv, 0.0).rgb;
-    const float3 shown = u.params.x > 0.5 ? pow(saturate(color), float3(1.0 / 2.2)) : color;
+    const float4 texel = previewTexture.SampleLevel(input.uv, 0.0);
+    const float3 color = u.params.y > 0.5 ? texel.rrr : texel.rgb;
+    const float3 shown = u.params.x > 0.5 ? linearToSrgb(saturate(color)) : color;
     return float4(shown, 1.0);
 }
 )slang";

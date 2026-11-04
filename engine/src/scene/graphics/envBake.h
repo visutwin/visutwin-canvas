@@ -60,6 +60,7 @@ namespace visutwin::canvas
      * `source`, a cube of the same face size: each texel is the LINEAR average of the source
      * texels it covers, decoded and encoded again, as an sRGB-format texture's mip chain would
      * be (a blit averages the encoded values and darkens bright features). Level 0 is a copy.
+     * A float source (an HDR capture, linear colours) is averaged as it is.
      * `targets` caches the per-(level, face) render targets between calls; pass the same
      * vector each time. Returns false when the arguments or the shader are unusable.
      */

@@ -19,7 +19,7 @@
 // Keys stand in for upstream's controls panel:
 //   P            planar reflection / the cubemap (the reflection camera off)
 //   [ / ]        the reflection's resolution -/+ 0.1 (0.1 - 1)
-//   - / =        the floor's roughness -/+ 0.05 (0 - 0.6, written to its gloss, as upstream)
+//   - / =        the floor's roughness -/+ 0.05 (0 - 0.6)
 //   T            show the reflection texture in the corner
 //   , / .        the animation speed -/+ 0.5 (0 - 3)
 //
@@ -28,6 +28,8 @@
 //   TextureRenderer, at the same place in the corner.
 // - The glTF materials are gathered from the instantiated meshes rather than the container's
 //   material list.
+// - Our glTF materials keep gloss as 1 - roughness (upstream's loader sets glossInvert and stores the
+//   roughness), so the floor's roughness is written as 1 - roughness.
 //
 #include <algorithm>
 #include <cmath>
@@ -378,12 +380,12 @@ private:
             _planarRenderer->setScale(_resolution);
         }
         if (_floorMaterial) {
-            _floorMaterial->setGloss(_roughness);   // as upstream, which writes the roughness to gloss
+            _floorMaterial->setGloss(1.0f - _roughness);   // a glTF material: gloss = 1 - roughness
         }
     }
 
-    // The reflection texture in the corner, at upstream's TextureRenderer place (centre 0.7,
-    // 0.7 in clip space, 0.28 across).
+    // The reflection texture in the bottom right corner: (0.7, 0.7) to (0.98, 0.98) of the view,
+    // from its top left, as upstream's TextureRenderer draws it.
     void updatePreview(Texture* texture)
     {
         if (!texture) {
@@ -402,7 +404,7 @@ private:
         const auto [width, height] = device()->size();
         const float fw = static_cast<float>(width);
         const float fh = static_cast<float>(height);
-        _preview->setViewport(Vector4(0.78f * fw, 0.08f * fh, 0.14f * fw, 0.14f * fh));
+        _preview->setViewport(Vector4(0.7f * fw, 0.7f * fh, 0.28f * fw, 0.28f * fh));
         _preview->setScissor(_preview->viewport());
     }
 

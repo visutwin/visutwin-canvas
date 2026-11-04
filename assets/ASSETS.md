@@ -69,6 +69,9 @@ for details.
   upstream's example asset. Roboto is **Apache-2.0**; the notice and licence are in
   `roboto-license.txt`. Format version 3: glyphs are keyed by LETTER, the code point
   is `id`. Used by `world-to-screen`.
+- `roboto-extralight.json` + `roboto-extralight.png` — upstream's MSDF atlas of Roboto ExtraLight
+  (Basic Latin), byte-identical to upstream's example asset. **SIL OFL 1.1**; the notice and
+  licence are in `roboto-extralight-license.txt`. Used by `tween`.
 
 ### ui/ — complete
 - `ui-atlas.png` — upstream's generated UI-kit atlas (panels, buttons, the sliced
@@ -110,6 +113,9 @@ for details.
   same names (authored in the upstream repository, no separate licence file; covered by
   upstream's MIT licence). The room has a `RoomFloor` node with a `Floor` material; the
   drone has `Rotor*` nodes and an `LED` node. Used by `reflection-planar`.
+- `trefoil-knot.glb` — byte-identical to upstream's example asset of that name (authored in the
+  upstream repository, no separate licence file; covered by upstream's MIT licence). Used by
+  `texture-gen` and `histogram`.
 - `a_beautiful_game.glb` — ABeautifulGame chess set from Khronos glTF-Sample-Assets
   (**CC-BY 4.0** — © 2020 Academy Software Foundation for the model, © 2022 Ed Mackey
   for the glTF conversion)
@@ -195,6 +201,11 @@ Mirrored from the upstream examples (for visual parity):
   (thinned to 500k splats, SH dropped) — rerun that script to regenerate.
 - `sh_sphere.ply`, `compressed_rings.ply`, `torus_splats.ply` — procedurally
   generated splat test assets (Apache-2.0, generated). Used by `gsplat-tier2`.
+
+### cube-luts/
+- `lut-blue.png`, and `lut-teal-orange.png`, `lut-late-sunset.png`, `lut-moonlight.png`,
+  `lut-sofia.png`, `lut-bw.png` — 256x16 colour LUT strips, byte-identical to upstream's example
+  assets (MIT, as upstream's examples). Used by `post-processing`.
 
 ### cubemaps/ — complete
 - `helipad-env-atlas.png`, `table-mountain-env-atlas.png`, `morning-env-atlas.png` —

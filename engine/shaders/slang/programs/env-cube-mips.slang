@@ -8,7 +8,11 @@
 // encoded again. A blit's mip chain averages the encoded values, which darkens a bright
 // feature against a dark surround at every level; an sRGB-format texture averages in linear
 // space, and so does this. Taps land on the source texels' centres (cubeFaceUvToDir is the
-// hardware lookup's face mapping), where the bilinear sample is the texel itself.
+// hardware lookup's face mapping), where the bilinear sample is the texel itself. The `linear`
+// variant serves a cube that stores linear colours (a half-float HDR capture): a plain average.
+//
+// @variant gamma: CUBE_MIPS_GAMMA=1
+// @variant linear: CUBE_MIPS_LINEAR=1
 import vtquad;
 import vtenv;
 import vtsrgb;
@@ -44,10 +48,18 @@ float4 cubeMipsFragment(QuadVarying input) : SV_Target0
         for (uint x = 0u; x < block; ++x) {
             const float2 uv = (float2(texel * block + uint2(x, y)) + 0.5) * invSize;
             const float4 s = sourceCube.SampleLevel(cubeFaceUvToDir(u.face, uv), 0.0);
+#if defined(CUBE_MIPS_LINEAR)
+            sum += s.rgb;
+#else
             sum += srgbToLinear(s.rgb);
+#endif
             alpha += s.a;
         }
     }
     const float count = float(block * block);
+#if defined(CUBE_MIPS_LINEAR)
+    return float4(sum / count, alpha / count);
+#else
     return float4(linearToSrgb(sum / count), alpha / count);
+#endif
 }

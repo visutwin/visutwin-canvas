@@ -237,7 +237,8 @@
         // so it owes a decode before it can be added to linear light — the same split
         // the base-colour and emissive maps follow.
         float3 probeSpecular =
-            srgbToLinear(reflectionProbeCube.Sample(linearClampSampler, cubeDir).rgb) * lighting.reflectionProbeParams.y;
+            (lighting.reflectionProbeParams.w > 0.5 ? reflectionProbeCube.Sample(linearClampSampler, cubeDir).rgb
+                : srgbToLinear(reflectionProbeCube.Sample(linearClampSampler, cubeDir).rgb)) * lighting.reflectionProbeParams.y;
 
         // Gloss-aware Fresnel, not a raw F0 multiply.
         float3 probeFresnel = ssrFresnel(NdotV, gloss, F0);

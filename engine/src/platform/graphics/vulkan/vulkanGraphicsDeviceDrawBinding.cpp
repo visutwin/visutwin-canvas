@@ -1686,6 +1686,8 @@ namespace visutwin::canvas
         _lightingUbo.reflectionProbeParams[0] = boxProjection ? 1.0f : 0.0f;
         _lightingUbo.reflectionProbeParams[1] = intensity;
         _lightingUbo.reflectionProbeParams[2] = maxLod;
+        // w: the cube stores linear colours (an HDR probe), read without the sRGB decode.
+        _lightingUbo.reflectionProbeParams[3] = cubemap && isFloatPixelFormat(cubemap->format()) ? 1.0f : 0.0f;
         _lightingNeedsUpload = true;
     }
 

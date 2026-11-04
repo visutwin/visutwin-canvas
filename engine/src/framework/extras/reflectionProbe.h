@@ -9,6 +9,7 @@
 #include <memory>
 #include <vector>
 
+#include "core/math/color.h"
 #include "core/math/vector3.h"
 
 namespace visutwin::canvas
@@ -50,7 +51,17 @@ namespace visutwin::canvas
     class ReflectionProbe
     {
     public:
-        explicit ReflectionProbe(Engine* engine, int faceSize = 128);
+        /// `hdr`: the cubes are half-float and hold LINEAR colours, rendered by face cameras
+        /// with linear output (no exposure, tone mapping or gamma), so reflections of bright
+        /// sources keep their brightness; RGBA8 gamma-encoded on a device that cannot render
+        /// half-float, or without it.
+        explicit ReflectionProbe(Engine* engine, int faceSize = 128, bool hdr = false);
+
+        /// Whether the cubes hold linear colours (an HDR probe).
+        [[nodiscard]] bool hdr() const { return _hdr; }
+
+        /// The colour the faces clear to (default black): the sky behind a room's windows.
+        void setClearColor(const Color& color);
         ~ReflectionProbe();
 
         /// World-space capture origin (probe center). Also the box-projection center.
@@ -109,6 +120,7 @@ namespace visutwin::canvas
         float _intensity = 1.0f;
 
         bool _dynamic = true;
+        bool _hdr = false;
         bool _capturing = true;   // face cameras currently enabled
         bool _installed = false;  // probe installed on the scene
     };
