@@ -44,7 +44,7 @@ namespace visutwin::canvas
         void play();
         /// Freeze the simulation.
         void pause();
-        void unpause();
+        void resume();
         /// Stop emitting and let the live particles finish their lives.
         void stop();
         /// Restart the emission stream from time zero (and pre-warm it if asked to).

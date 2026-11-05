@@ -44,6 +44,9 @@ namespace visutwin::canvas
         TextureProjection projection = TextureProjection::TEXTUREPROJECTION_NONE;
         uint32_t numLevels = 0;
         bool mipmaps = true;
+        /// The filter generating the mips of the content RENDERED into the texture (see
+        /// Texture::mipmapFilter).
+        MipmapFilter mipmapFilter = MipmapFilter::MIPMAPFILTER_BOX;
         bool storage = false;
         /// More than 1: a MULTISAMPLED 2D texture, the colour or depth a render target renders
         /// into directly and a shader reads per sample (Texture2DMS / DepthTexture2DMS). It has
@@ -203,6 +206,23 @@ namespace visutwin::canvas
         bool mipmaps() const { return _mipmaps; }
         void setMipmaps(bool mipmaps);
 
+        /// The filter generating the mips of the content RENDERED into the texture (a render
+        /// target's colour buffer after its pass, a scene colour grab): the box filter, a blit
+        /// the backend does itself, or the Gaussian one, which the Gaussian mipmap generator
+        /// (scene/graphics/gaussianMipmaps.h) renders level by level for a 2D texture; the
+        /// backends then leave such a texture's chain alone. Applies to the NEXT generation.
+        MipmapFilter mipmapFilter() const { return _mipmapFilter; }
+        void setMipmapFilter(const MipmapFilter filter) { _mipmapFilter = filter; }
+
+        /// True when the texture's chain is the Gaussian generator's to render: a mipmapped 2D
+        /// texture (no cube, array or volume) asking for the Gaussian filter. The backends'
+        /// own post-pass generation skips it.
+        bool gaussianMipmaps() const
+        {
+            return _mipmaps && _mipmapFilter == MipmapFilter::MIPMAPFILTER_GAUSSIAN &&
+                !_cubemap && !_volume && _arrayLength == 0;
+        }
+
         PixelFormat format() const { return _format; }
         bool storage() const { return _storage; }
         /// The sample count: more than 1 for a multisampled texture.
@@ -296,6 +316,7 @@ namespace visutwin::canvas
         bool _cubemap;
         bool _volume;
         bool _mipmaps;
+        MipmapFilter _mipmapFilter = MipmapFilter::MIPMAPFILTER_BOX;
         bool _storage = false;
         uint32_t _samples = 1;
         bool _renderTargetUse = false;

@@ -124,12 +124,12 @@ int main()
     {
         auto* render = boxes[1]->findComponent<RenderComponent>();
         MeshInstance* before = instanceOf(boxes[1]);
-        before->setCastShadow(false);   // per-instance state a rebuild would drop
+        before->setCastShadows(false);   // per-instance state a rebuild would drop
         render->setMaterial(materialB.get());
         MeshInstance* after = instanceOf(boxes[1]);
         check(after == before, "keeps the mesh instance: nothing is rebuilt");
         check(after->material() == materialB.get(), "and gives it the new material");
-        check(!after->castShadow(), "which keeps what was set on it");
+        check(!after->castShadows(), "which keeps what was set on it");
         check(instanceOf(boxes[2])->material() == materialA.get(), "the other boxes keep theirs");
         check(vertexBuffersCreated == 2, "no buffer was built");
     }

@@ -13,7 +13,8 @@
 // layer with a colour brighter than 1, post-processed and blooming, one on the UI layer, rendered
 // after the post-processing. The effects: anti-aliasing (MSAA, SMAA, both, TAA, TAA upscaling,
 // sharpening), bloom (threshold, high quality), SSAO, depth of field, volumetric fog scattering the
-// sun and the local lights, lens flares on the orb and the doors, auto exposure, colour grading,
+// sun and the local lights, lens flares on the orb and the doors, auto exposure, colour grading
+// with its channel mixer (N steps through upstream's presets),
 // colour enhance, a 3D colour LUT, the vignette and fringing. Only bloom, the vignette and MSAA are
 // on to start with.
 //
@@ -26,6 +27,8 @@
 //   O            SSAO                                   D       depth of field
 //   F            volumetric fog                         L       lens flares
 //   X            auto exposure                          G       colour grading
+//   N            channel mixer preset (none, monochrome, sepia, swap red and blue, infrared film,
+//                night vision, deep sea, red planet, neon nights, alien planet, opposite hues)
 //   C            colour enhance                         U       LUT: off, then each of five
 //   V            vignette                               I       fringing
 //   Z            debug view: none, bloom, ssao, dofcoc, dofblur, scene, depth
@@ -74,6 +77,37 @@ namespace
     constexpr std::array<const char*, 5> kLuts = {"lut-teal-orange", "lut-late-sunset", "lut-moonlight", "lut-sofia",
         "lut-bw"};
     constexpr std::array<const char*, 7> kDebugViews = {"", "bloom", "ssao", "dofcoc", "dofblur", "scene", "depth"};
+
+    // The channel mixer presets of the grading: the weights of the red, green and blue input
+    // channels in the red, green and blue output channels (upstream's presets, selected in turn).
+    struct MixerPreset
+    {
+        const char* name;
+        float red[3];
+        float green[3];
+        float blue[3];
+    };
+    constexpr std::array<MixerPreset, 11> kMixerPresets = {{
+        {"none", {1, 0, 0}, {0, 1, 0}, {0, 0, 1}},
+        // black and white, using the luminance weights of linear sRGB in all three output channels
+        {"monochrome", {0.2126f, 0.7152f, 0.0722f}, {0.2126f, 0.7152f, 0.0722f}, {0.2126f, 0.7152f, 0.0722f}},
+        {"sepia", {0.393f, 0.769f, 0.189f}, {0.349f, 0.686f, 0.168f}, {0.272f, 0.534f, 0.131f}},
+        {"swapRedBlue", {0, 0, 1}, {0, 1, 0}, {1, 0, 0}},
+        // false-colour infrared film: greens turn red, and reds turn green
+        {"infraredFilm", {0.2f, 1.0f, 0.0f}, {0.9f, 0.1f, 0.0f}, {0.0f, 0.1f, 0.9f}},
+        // the luminance, boosted into the green channel
+        {"nightVision", {0.06f, 0.21f, 0.02f}, {0.43f, 1.43f, 0.14f}, {0.06f, 0.21f, 0.02f}},
+        // the red light is absorbed, as deep under water
+        {"deepSea", {0.15f, 0.1f, 0.0f}, {0.15f, 0.85f, 0.15f}, {0.2f, 0.35f, 0.95f}},
+        // a dusty orange world under an orange sky
+        {"redPlanet", {0.6f, 0.6f, 0.2f}, {0.25f, 0.35f, 0.1f}, {0.05f, 0.1f, 0.1f}},
+        // neon lights: warm colours turn hot pink, and cool colours violet
+        {"neonNights", {1.0f, 0.0f, 0.6f}, {0.0f, 0.6f, 0.2f}, {0.3f, 0.4f, 1.2f}},
+        // the channels rotated: reds turn blue, greens turn red and blues turn green
+        {"alienPlanet", {0, 1, 0}, {0, 0, 1}, {1, 0, 0}},
+        // every hue rotated half way around the colour wheel, while the greys stay grey
+        {"oppositeHues", {-0.333f, 0.667f, 0.667f}, {0.667f, -0.333f, 0.667f}, {0.667f, 0.667f, -0.333f}}
+    }};
     constexpr std::array<int, 8> kToneMappings = {TONEMAP_LINEAR, TONEMAP_FILMIC, TONEMAP_HEJL, TONEMAP_ACES,
         TONEMAP_ACES2, TONEMAP_NEUTRAL, TONEMAP_AGX, TONEMAP_AGX_PUNCHY};
 
@@ -134,6 +168,7 @@ namespace
         bool lensFlare = false;
         bool autoExposure = false;
         bool grading = false;
+        int mixer = 0;   // kMixerPresets
         bool colorEnhance = false;
         int lut = -1;   // off
         bool vignette = true;
@@ -354,7 +389,7 @@ protected:
         applySettings();
         spdlog::info("post-processing: E frame, M tone mapping, A anti-aliasing, 1/2 scale, 3/4 sharpening, B bloom, "
                      "[ ] intensity, H high quality, J/K threshold, O SSAO, D DOF, F fog, L lens flares, X auto "
-                     "exposure, G grading, C colour enhance, U LUT, V vignette, I fringing, Z debug, -/= sky, 9/0 "
+                     "exposure, G grading, N channel mixer, C colour enhance, U LUT, V vignette, I fringing, Z debug, -/= sky, 9/0 "
                      "emissive, T text, Space pause");
         return true;
     }
@@ -390,6 +425,7 @@ protected:
         case SDLK_L: s.lensFlare = !s.lensFlare; break;
         case SDLK_X: s.autoExposure = !s.autoExposure; break;
         case SDLK_G: s.grading = !s.grading; break;
+        case SDLK_N: s.mixer = (s.mixer + 1) % static_cast<int>(kMixerPresets.size()); break;
         case SDLK_C: s.colorEnhance = !s.colorEnhance; break;
         case SDLK_U: s.lut = s.lut + 1 >= static_cast<int>(kLuts.size()) ? -1 : s.lut + 1; break;
         case SDLK_V: s.vignette = !s.vignette; break;
@@ -496,6 +532,11 @@ private:
         rendering.gradingSaturation = 1.0f;
         rendering.gradingBrightness = 1.0f;
         rendering.gradingContrast = 1.0f;
+        // the channel mixer preset: the weights of each output channel
+        const MixerPreset& mixer = kMixerPresets[static_cast<size_t>(s.mixer)];
+        std::copy(std::begin(mixer.red), std::end(mixer.red), rendering.gradingMixerRed);
+        std::copy(std::begin(mixer.green), std::end(mixer.green), rendering.gradingMixerGreen);
+        std::copy(std::begin(mixer.blue), std::end(mixer.blue), rendering.gradingMixerBlue);
         // Colour enhance and grading start at upstream's neutral values (no change) when switched on.
         rendering.colorEnhanceShadows = 0.0f;
         rendering.colorEnhanceHighlights = 0.0f;
@@ -560,11 +601,11 @@ private:
         _cameraComp->camera()->setClearColor(Color(sky.r * s.sky, sky.g * s.sky, sky.b * s.sky, 1.0f));
 
         spdlog::info("[settings] frame={} aa={} scale={:.1f} sharpen={:.1f} bloom={}({:.0f}, threshold {:.1f}{}) ssao={} "
-                     "dof={} fog={} flares={} autoExposure={} grading={} enhance={} lut={} vignette={} fringing={} "
-                     "debug={} sky={:.0f} emissive={:.2f}",
+                     "dof={} fog={} flares={} autoExposure={} grading={}(mixer {}) enhance={} lut={} vignette={} "
+                     "fringing={} debug={} sky={:.0f} emissive={:.2f}",
             s.frame, method.name, s.scale, s.sharpness, s.bloom, s.bloomIntensity, s.bloomThreshold,
             s.bloomHighQuality ? ", hq" : "", s.ssao, s.dof, s.fog, s.lensFlare, s.autoExposure, s.grading,
-            s.colorEnhance, s.lut >= 0 ? kLuts[static_cast<size_t>(s.lut)] : "off", s.vignette, s.fringing,
+            kMixerPresets[static_cast<size_t>(s.mixer)].name, s.colorEnhance, s.lut >= 0 ? kLuts[static_cast<size_t>(s.lut)] : "off", s.vignette, s.fringing,
             kDebugViews[static_cast<size_t>(s.debug)], s.sky, s.emissive);
     }
 

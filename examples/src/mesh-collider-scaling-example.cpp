@@ -190,7 +190,7 @@ private:
         torus->setEngine(engine());
         auto* render = static_cast<RenderComponent*>(torus->addComponent<RenderComponent>());
         auto meshInstance = std::make_unique<MeshInstance>(_torusMesh, _torusMaterial, torus);
-        meshInstance->setCastShadow(true);
+        meshInstance->setCastShadows(true);
         render->setCastShadows(true);
         render->addMeshInstance(std::move(meshInstance));
         torus->setLocalScale(scale, scale, scale);

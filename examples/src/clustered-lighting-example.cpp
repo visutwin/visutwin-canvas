@@ -196,8 +196,8 @@ protected:
             render->setMaterial(_material.get());
             auto meshInstance = std::make_unique<MeshInstance>(
                 _cylinderMesh.get(), _material.get(), cylinder);
-            meshInstance->setCastShadow(true);
-            meshInstance->setReceiveShadow(true);
+            meshInstance->setCastShadows(true);
+            meshInstance->setReceiveShadows(true);
             render->setCastShadows(true);
             render->setReceiveShadows(true);
             render->addMeshInstance(std::move(meshInstance));

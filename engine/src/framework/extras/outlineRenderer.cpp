@@ -126,8 +126,8 @@ namespace visutwin::canvas
                 // Clone shares mesh and node — transforms follow the source entity.
                 auto clone = std::make_unique<MeshInstance>(
                     meshInstance->mesh(), material.get(), meshInstance->node());
-                clone->setCastShadow(false);
-                clone->setReceiveShadow(false);
+                clone->setCastShadows(false);
+                clone->setReceiveShadows(false);
                 clones.push_back(std::move(clone));
             }
         }

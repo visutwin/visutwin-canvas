@@ -113,6 +113,8 @@ namespace visutwin::canvas
 
     private:
         AnimState* findState(const std::string& stateName) const;
+        const AnimClip* activeStateClip() const;
+        float activeStateTimeScale() const;
         float getActiveStateProgressForTime(float time) const;
         const std::vector<AnimTransition*>& findTransitionsFromState(const std::string& stateName);
         const std::vector<AnimTransition*>& findTransitionsBetweenStates(

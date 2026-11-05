@@ -195,7 +195,7 @@ protected:
                 if (instancing.vertexBuffer && instancing.count > 0) {
                     cap->setInstancing(instancing.vertexBuffer, instancing.count);
                 }
-                cap->setCastShadow(false);
+                cap->setCastShadows(false);
                 _capsRender->addMeshInstance(std::move(cap));
             }
         }

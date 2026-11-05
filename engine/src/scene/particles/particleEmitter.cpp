@@ -578,8 +578,8 @@ namespace visutwin::canvas
             spdlog::warn("ParticleEmitter: the particle mesh is not the packed 14-float vertex layout; drawing quads");
         }
         auto meshInstance = std::make_unique<MeshInstance>(useMesh ? _options.mesh : _quadMesh, _material, node);
-        meshInstance->setCastShadow(false);
-        meshInstance->setReceiveShadow(false);
+        meshInstance->setCastShadows(false);
+        meshInstance->setReceiveShadows(false);
         // Particles move freely (world-space mode ignores the node transform
         // entirely) — skip frustum culling rather than track a moving AABB.
         meshInstance->setCull(false);

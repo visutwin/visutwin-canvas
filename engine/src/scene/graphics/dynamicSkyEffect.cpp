@@ -319,8 +319,8 @@ namespace visutwin::canvas
             // Shown only while its camera leaves the sky to the effect: from the frame the effect
             // stops (removed, disabled, or the camera out of its frame) the scene's sky is back.
             _meshInstance->setReplacesSky(true);
-            _meshInstance->setCastShadow(false);
-            _meshInstance->setReceiveShadow(false);
+            _meshInstance->setCastShadows(false);
+            _meshInstance->setReceiveShadows(false);
         }
         _meshInstance->setOnlyCamera(cameraComponent->camera());
         if (const auto& layers = _scene->layers()) {

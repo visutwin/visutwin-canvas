@@ -229,6 +229,14 @@ namespace visutwin::canvas
         const std::shared_ptr<SceneDepthMapHandle>& sceneDepthMapHandle() const { return _camera->sceneDepthMapHandle(); }
         const std::shared_ptr<SceneColorMapHandle>& sceneColorMapHandle() const { return _camera->sceneColorMapHandle(); }
 
+        /// Whether the scene colour map has mipmaps, and the filter generating them
+        /// (Camera::sceneColorMapMipmaps / sceneColorMapMipmapFilter). The grab reallocates
+        /// its texture when the first changes; the second applies to its next generation.
+        bool sceneColorMapMipmaps() const { return _camera->sceneColorMapMipmaps(); }
+        void setSceneColorMapMipmaps(const bool value) { _camera->setSceneColorMapMipmaps(value); }
+        MipmapFilter sceneColorMapMipmapFilter() const { return _camera->sceneColorMapMipmapFilter(); }
+        void setSceneColorMapMipmapFilter(const MipmapFilter value) { _camera->setSceneColorMapMipmapFilter(value); }
+
         Camera* camera() { return _camera; }
 
         const Camera* camera() const { return _camera; }

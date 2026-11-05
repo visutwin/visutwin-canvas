@@ -157,11 +157,11 @@ int main()
         Rig rig = build(0.0f, AnimLayerBlendType::OVERWRITE, false);
         check(nearStrict(rig.bone->localPosition(), 10.0f, 0.0f, 0.0f, kTolerance),
             "a zero-weight layer contributes nothing: " + str(rig.bone->localPosition()));
-        rig.anim->findAnimationLayer("B")->setWeight(1.0f);
+        rig.anim->findLayer("B")->setWeight(1.0f);
         rig.anim->update(0.1f);
         check(nearStrict(rig.bone->localPosition(), 0.0f, 4.0f, 0.0f, kTolerance),
             "a layer weight raised at runtime applies on the next update: " + str(rig.bone->localPosition()));
-        rig.anim->findAnimationLayer("B")->setWeight(0.5f);
+        rig.anim->findLayer("B")->setWeight(0.5f);
         rig.anim->update(0.1f);
         check(nearStrict(rig.bone->localPosition(), 5.0f, 2.0f, 0.0f, kTolerance),
             "half weight is the midpoint of A and B: " + str(rig.bone->localPosition()));
@@ -252,7 +252,7 @@ int main()
     {
         Rig rig = build(0.0f, AnimLayerBlendType::OVERWRITE, false, {}, false);
         AnimComponentLayer* added = rig.anim->addLayer("Added", 0.5f);
-        check(added != nullptr && rig.anim->findAnimationLayer("Added") == added && added->activeState() != "Pose",
+        check(added != nullptr && rig.anim->findLayer("Added") == added && added->activeState() != "Pose",
             "addLayer adds a layer that starts in no state");
         check(rig.anim->addLayer("Added", 1.0f) == added, "adding a layer of the same name returns the existing one");
         added->assignAnimation("Pose", constantTranslation(Vector3(0.0f, 4.0f, 0.0f)));

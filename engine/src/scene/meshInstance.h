@@ -120,8 +120,8 @@ namespace visutwin::canvas
 
         GraphNode* node() const { return _node; }
 
-        bool castShadow() const { return _castShadow; }
-        void setCastShadow(const bool value) { _castShadow = value; }
+        bool castShadows() const { return _castShadows; }
+        void setCastShadows(const bool value) { _castShadows = value; }
 
         /// How the mesh is drawn (RenderStyle): its triangles, or their edges as lines. Setting
         /// RENDERSTYLE_WIREFRAME builds the mesh's line list (Mesh::generateWireframe), which
@@ -132,8 +132,8 @@ namespace visutwin::canvas
 
         //receiveShadow getter/setter.
         // When false, the SHADERDEF_NOSHADOW flag is set on the shader defs.
-        bool receiveShadow() const { return _receiveShadow; }
-        void setReceiveShadow(const bool value) { _receiveShadow = value; }
+        bool receiveShadows() const { return _receiveShadows; }
+        void setReceiveShadows(const bool value) { _receiveShadows = value; }
 
         // A lightmap of this mesh instance's own, which is what a lightmapper bakes.
         // It takes PRIORITY over the material's lightMap, and binds in the same slot, so meshes that
@@ -203,7 +203,7 @@ namespace visutwin::canvas
             _screenSpace = value;
             if (value) {
                 _cull = false;
-                _castShadow = false;
+                _castShadows = false;
             }
         }
 
@@ -578,9 +578,9 @@ namespace visutwin::canvas
         };
         GpuCullingCount _gpuCullingCount;
 
-        bool _castShadow = true;
+        bool _castShadows = true;
         int _renderStyle = 0;  // RENDERSTYLE_SOLID
-        bool _receiveShadow = true;
+        bool _receiveShadows = true;
         std::shared_ptr<Texture> _lightMap;
 
         // Uniform overrides (setParameter) and the block built from them.

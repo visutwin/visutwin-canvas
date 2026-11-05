@@ -289,7 +289,7 @@ namespace visutwin::canvas
         instance->setStorageDraw(segmentBuffer, count, &_params, sizeof(_params));
         // Lines are given in world space and reach wherever their points do.
         instance->setCull(false);
-        instance->setCastShadow(false);
+        instance->setCastShadows(false);
         render->addMeshInstance(std::move(instance));
     }
 }

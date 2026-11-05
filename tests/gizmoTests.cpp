@@ -284,7 +284,7 @@ namespace
         gizmo->pointerUp(to.getX(), to.getY(), 0);
 
         // a disabled shape cannot be dragged
-        gizmo->enableShape(GizmoAxis::X, false);
+        gizmo->setShapeEnabled(GizmoAxis::X, false);
         const Vector3 head2 = screenOf(scene.camera, box->position() + Vector3(0.59f * s, 0.0f, 0.0f));
         gizmo->pointerDown(head2.getX(), head2.getY(), 0);
         check(gizmo->selectedAxis() == GizmoAxis::None, "a disabled shape is not selected");
@@ -311,7 +311,7 @@ namespace
             "the X ring, edge on, shows its half facing the camera");
 
         // the view ring (radius 0.55) overlaps the Z ring's pick tolerance; take it out
-        gizmo->enableShape(GizmoAxis::F, false);
+        gizmo->setShapeEnabled(GizmoAxis::F, false);
 
         // press on the Z ring at 45 degrees, drag around it to 75 degrees
         const float r = 0.52f * s;
@@ -815,7 +815,7 @@ namespace
             gizmo->rotationMode = RotateGizmo::RotationMode::Orbit;
             gizmo->attach(box);
             gizmo->prerender();
-            gizmo->enableShape(GizmoAxis::F, false);
+            gizmo->setShapeEnabled(GizmoAxis::F, false);
             float lastAngle = -1.0f;
             gizmo->on(TransformGizmo::EVENT_TRANSFORMREADOUT, [&](GizmoAxis, bool, const float angle) {
                 lastAngle = angle;

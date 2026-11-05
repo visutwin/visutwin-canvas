@@ -965,7 +965,7 @@ namespace visutwin::canvas
                         meshInstance->setScreenSpace(!visual.worldSpace);
                         // A UI element casts no shadow, in world space too: the shadow
                         // passes take every mesh with castShadow set, blended or not.
-                        meshInstance->setCastShadow(false);
+                        meshInstance->setCastShadows(false);
                         part.meshInstance = meshInstance.get();
                         visual.render->addMeshInstance(std::move(meshInstance));
                     }
@@ -973,7 +973,7 @@ namespace visutwin::canvas
                         const VisualPart& part = visual.parts.front();
                         auto unmask = std::make_unique<MeshInstance>(part.mesh.get(), part.material.get(), visual.entity);
                         unmask->setScreenSpace(!visual.worldSpace);
-                        unmask->setCastShadow(false);
+                        unmask->setCastShadows(false);
                         visual.unmask = unmask.get();
                         visual.render->addMeshInstance(std::move(unmask));
                     }

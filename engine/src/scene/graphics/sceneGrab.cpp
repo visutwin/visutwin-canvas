@@ -46,7 +46,8 @@ namespace visutwin::canvas
             : (depth ? device->backBufferDepthFormat() : device->backBufferColorFormat());
 
         if (!destination || destination->width() != width ||
-            destination->height() != height || destination->format() != format) {
+            destination->height() != height || destination->format() != format ||
+            destination->mipmaps() != mipmaps) {
             TextureOptions options;
             options.name = name;
             options.width = width;

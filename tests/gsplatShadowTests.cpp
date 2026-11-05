@@ -101,16 +101,16 @@ int main()
         gsplat->setAlphaClip(0.25f);
         gsplat->setResource(makeResource(device, 2));
         MeshInstance* mi = splatInstance(entity);
-        check(mi && mi->castShadow(), "set before the resource, the switch reaches its instance");
+        check(mi && mi->castShadows(), "set before the resource, the switch reaches its instance");
         check(mi && mi->gsplatInstance() && nearStrict(mi->gsplatInstance()->alphaClip(), 0.25f, kTolerance),
             "and so does the clip");
         gsplat->setCastShadows(false);
-        check(!mi->castShadow(), "switched off afterwards, the instance stops casting");
+        check(!mi->castShadows(), "switched off afterwards, the instance stops casting");
         gsplat->setAlphaClip(0.6f);
         check(nearStrict(mi->gsplatInstance()->alphaClip(), 0.6f, kTolerance), "the clip follows a change");
         gsplat->setResource(makeResource(device, 1));
         mi = splatInstance(entity);
-        check(mi && !mi->castShadow() && nearStrict(mi->gsplatInstance()->alphaClip(), 0.6f, kTolerance),
+        check(mi && !mi->castShadows() && nearStrict(mi->gsplatInstance()->alphaClip(), 0.6f, kTolerance),
             "a replaced resource's instance takes the component's settings");
     }
 

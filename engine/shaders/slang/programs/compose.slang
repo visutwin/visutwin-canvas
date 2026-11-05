@@ -66,9 +66,16 @@ struct ComposeUniforms
     float gradingBrightness;
     float gradingContrast;
     float gradingSaturation;
-    float gradingTintR;
-    float gradingTintG;
-    float gradingTintB;
+    // the channel mixer rows, the tint folded in
+    float gradingMixerRedR;
+    float gradingMixerRedG;
+    float gradingMixerRedB;
+    float gradingMixerGreenR;
+    float gradingMixerGreenG;
+    float gradingMixerGreenB;
+    float gradingMixerBlueR;
+    float gradingMixerBlueG;
+    float gradingMixerBlueB;
     uint colorEnhanceEnabled;
     float ceShadows;
     float ceHighlights;
@@ -230,10 +237,12 @@ float3 applyFringing(float3 color, float2 uv, float intensity)
     return color;
 }
 
-// HDR colour grading; 1.0 = no change for every parameter.
-float3 applyGrading(float3 color, float brt, float sat, float con, float3 tint)
+// HDR colour grading; 1.0 = no change for every parameter. The channel mixer comes first, each
+// output channel a weighted mix of the input channels, with the tint folded into its rows.
+float3 applyGrading(float3 color, float brt, float sat, float con, float3 mixerRed, float3 mixerGreen,
+    float3 mixerBlue)
 {
-    color *= tint;
+    color = float3(dot(mixerRed, color), dot(mixerGreen, color), dot(mixerBlue, color));
     color = color * brt;
     float grey = dot(color, float3(0.3, 0.59, 0.11));
     grey = grey / max(1.0, max(color.r, max(color.g, color.b)));   // normalise luminance in HDR
@@ -559,7 +568,9 @@ float4 composeFragment(QuadVarying input) : SV_Target0
     // 7. Colour grading (HDR).
     if (composeSwitch(kComposeSwitchGrading) && u.gradingEnabled != 0u) {
         result = applyGrading(result, u.gradingBrightness, u.gradingSaturation, u.gradingContrast,
-            float3(u.gradingTintR, u.gradingTintG, u.gradingTintB));
+            float3(u.gradingMixerRedR, u.gradingMixerRedG, u.gradingMixerRedB),
+            float3(u.gradingMixerGreenR, u.gradingMixerGreenG, u.gradingMixerGreenB),
+            float3(u.gradingMixerBlueR, u.gradingMixerBlueG, u.gradingMixerBlueB));
     }
 
     // Compose effects in linear HDR.

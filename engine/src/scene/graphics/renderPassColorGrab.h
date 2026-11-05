@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "gaussianMipmaps.h"
 #include "platform/graphics/renderPass.h"
 
 namespace visutwin::canvas
@@ -21,7 +22,7 @@ namespace visutwin::canvas
     {
     public:
         RenderPassColorGrab(const std::shared_ptr<GraphicsDevice>& device, Camera* camera)
-            : RenderPass(device), _camera(camera) {}
+            : RenderPass(device), _gaussianMipmaps(device), _camera(camera) {}
 
         /// Whether the grabbed colour is gamma-encoded (true, a camera rendering straight to its
         /// target) or linear (a camera frame's HDR scene), as the camera's handle reports it.
@@ -42,9 +43,13 @@ namespace visutwin::canvas
         /// source resizes.
         Texture* texture() const { return _grabTexture.get(); }
 
+        void prepareShaders() override;
         void execute() override;
 
     private:
+        // Renders the copy's chain when the camera asks for the Gaussian filter.
+        GaussianMipmapGenerator _gaussianMipmaps;
+
         // The camera the grabbed colour is published for; null publishes no handle.
         Camera* _camera = nullptr;
         bool _gamma = true;

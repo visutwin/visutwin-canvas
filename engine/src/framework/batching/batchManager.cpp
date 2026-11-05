@@ -138,8 +138,8 @@ namespace visutwin::canvas
             candidate.formatBatchingHash = vertexBuffer && vertexBuffer->format()
                 ? vertexBuffer->format()->batchingHash() : 0u;
             candidate.primitiveType = static_cast<int>(meshInstance->mesh()->getPrimitive().type);
-            candidate.castShadow = meshInstance->castShadow();
-            candidate.receiveShadow = meshInstance->receiveShadow();
+            candidate.castShadow = meshInstance->castShadows();
+            candidate.receiveShadow = meshInstance->receiveShadows();
             candidate.aabb = meshInstance->aabb();
             candidate.mask = meshInstance->mask();
             const auto& stencilFront = meshInstance->stencilFront();
@@ -180,8 +180,8 @@ namespace visutwin::canvas
         // guaranteed every source agrees on it.
         void copyBatchDrawState(MeshInstance& batchInstance, const MeshInstance& source)
         {
-            batchInstance.setCastShadow(source.castShadow());
-            batchInstance.setReceiveShadow(source.receiveShadow());
+            batchInstance.setCastShadows(source.castShadows());
+            batchInstance.setReceiveShadows(source.receiveShadows());
             batchInstance.setMask(source.mask());
             batchInstance.setStencil(source.stencilFront(), source.stencilBack());
             batchInstance.setDrawBucket(source.drawBucket());

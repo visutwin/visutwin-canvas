@@ -201,7 +201,7 @@ protected:
                     meshInstance->mesh(), _xrayMaterial.get(), meshInstance->node());
                 xrayInstance->setSkinInstance(meshInstance->skinInstanceShared());
                 xrayInstance->setMorphInstance(meshInstance->morphInstanceShared());
-                xrayInstance->setCastShadow(false);
+                xrayInstance->setCastShadows(false);
                 xrayMeshInstances.push_back(xrayInstance);
             }
         }

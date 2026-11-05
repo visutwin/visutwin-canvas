@@ -2371,6 +2371,10 @@ namespace visutwin::canvas
                         if (!(ops && ops->genMipmaps && colorBuffer && colorBuffer->mipmaps())) {
                             continue;
                         }
+                        // A Gaussian chain is rendered by the generator's pass after this one.
+                        if (colorBuffer->gaussianMipmaps()) {
+                            continue;
+                        }
                         auto* hwTexture = dynamic_cast<gpu::MetalTexture*>(colorBuffer->impl());
                         if (!hwTexture || !hwTexture->raw()) {
                             continue;

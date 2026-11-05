@@ -24,6 +24,20 @@ namespace visutwin::canvas
         FILTER_LINEAR_MIPMAP_LINEAR     = 5  // Linearly interpolate both the mipmap levels and between texels
     };
 
+    /// How a texture's mip levels are generated from the content RENDERED into it (a render
+    /// target's colour buffer, a scene colour grab): each level from the previous one.
+    enum class MipmapFilter : uint32_t {
+        /// The average of each 2x2 block of the previous level (a blit).
+        MIPMAPFILTER_BOX = 0,
+        /// A wider, smooth filter approximating a Gaussian blur (13 bilinear taps over about
+        /// 6x6 texels of the previous level). Sampling the small levels of such a texture to
+        /// blur it, as the reflection of a rough surface does, avoids the blocks and the
+        /// flickering of the box filter; generating them costs more. Applies to 2D textures of
+        /// filterable formats; cubemaps, arrays, volumes and the mips of uploaded data use the
+        /// box filter.
+        MIPMAPFILTER_GAUSSIAN = 1
+    };
+
     enum class TextureProjection : uint32_t {
         TEXTUREPROJECTION_NONE = 0,        // Texture data is not stored in a specific projection format
         TEXTUREPROJECTION_CUBE = 1,        // Cubemap projection (six faces)

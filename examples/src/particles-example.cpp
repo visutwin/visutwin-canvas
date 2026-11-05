@@ -512,7 +512,7 @@ protected:
                 &_renderParams, sizeof(_renderParams));
             // Particles live in world space and roam far past the node's own bounds.
             meshInstance->setCull(false);
-            meshInstance->setCastShadow(false);
+            meshInstance->setCastShadows(false);
             render->addMeshInstance(std::move(meshInstance));
         }
 

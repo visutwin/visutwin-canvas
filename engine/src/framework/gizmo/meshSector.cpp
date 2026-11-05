@@ -74,7 +74,7 @@ namespace visutwin::canvas
             auto instance = std::make_unique<MeshInstance>(mesh, std::static_pointer_cast<Material>(_material),
                 _entity);
             instance->setCull(false);
-            instance->setCastShadow(false);
+            instance->setCastShadows(false);
             instance->setVisible(i == 0);
             _instances.push_back(render->addMeshInstance(std::move(instance)));
             _meshes.push_back(std::move(mesh));

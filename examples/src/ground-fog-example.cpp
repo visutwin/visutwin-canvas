@@ -429,8 +429,8 @@ protected:
         ground->setEngine(engine());
         if (auto* render = static_cast<RenderComponent*>(ground->addComponent<RenderComponent>())) {
             auto meshInstance = std::make_unique<MeshInstance>(_planeMesh.get(), _material.get(), ground);
-            meshInstance->setCastShadow(false);
-            meshInstance->setReceiveShadow(false);
+            meshInstance->setCastShadows(false);
+            meshInstance->setReceiveShadows(false);
             render->addMeshInstance(std::move(meshInstance));
             render->setCastShadows(false);
             render->setReceiveShadows(false);

@@ -977,7 +977,7 @@ namespace visutwin::canvas
         //set receiveShadows() propagates to all mesh instances.
         for (const auto& mi : _meshInstances) {
             if (mi) {
-                mi->setReceiveShadow(value);
+                mi->setReceiveShadows(value);
             }
         }
     }
@@ -988,7 +988,7 @@ namespace visutwin::canvas
         //set castShadows() propagates to all mesh instances.
         for (const auto& mi : _meshInstances) {
             if (mi) {
-                mi->setCastShadow(value);
+                mi->setCastShadows(value);
             }
         }
     }
@@ -1112,8 +1112,8 @@ namespace visutwin::canvas
 
         _ownedMeshes.push_back(mesh);
         auto meshInstance = std::make_unique<MeshInstance>(mesh.get(), _material, owner);
-        meshInstance->setReceiveShadow(_receiveShadows);
-        meshInstance->setCastShadow(_castShadows);
+        meshInstance->setReceiveShadows(_receiveShadows);
+        meshInstance->setCastShadows(_castShadows);
         meshInstance->setBatchGroupId(_batchGroupId);
         addMeshInstance(std::move(meshInstance));
     }

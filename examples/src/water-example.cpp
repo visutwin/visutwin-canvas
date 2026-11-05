@@ -196,7 +196,7 @@ protected:
             render->setLayers({LAYERID_WATER});
             render->setCastShadows(false);
             auto meshInstance = std::make_unique<MeshInstance>(_waterMesh.get(), _waterPlaceholder.get(), water);
-            meshInstance->setCastShadow(false);
+            meshInstance->setCastShadows(false);
             render->addMeshInstance(std::move(meshInstance));
         }
         // The island model's sea level.

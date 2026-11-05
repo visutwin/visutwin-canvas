@@ -253,8 +253,8 @@ protected:
 
         auto decalMeshInstance = std::make_unique<MeshInstance>(
             _decalMesh.get(), _decalMaterial.get(), decalEntity);
-        decalMeshInstance->setCastShadow(false);
-        decalMeshInstance->setReceiveShadow(false);
+        decalMeshInstance->setCastShadows(false);
+        decalMeshInstance->setReceiveShadows(false);
 
         if (auto* rc = static_cast<RenderComponent*>(decalEntity->addComponent<RenderComponent>())) {
             rc->setMaterial(_decalMaterial.get());

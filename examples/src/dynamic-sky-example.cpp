@@ -184,7 +184,7 @@ protected:
             render->setLayers({LAYERID_WATER});
             render->setCastShadows(false);
             auto meshInstance = std::make_unique<MeshInstance>(_waterMesh.get(), _waterPlaceholder.get(), water);
-            meshInstance->setCastShadow(false);
+            meshInstance->setCastShadows(false);
             render->addMeshInstance(std::move(meshInstance));
         }
         water->setLocalPosition(0.0f, -0.62f, 0.0f);

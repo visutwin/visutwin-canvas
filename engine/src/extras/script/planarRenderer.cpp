@@ -227,6 +227,10 @@ namespace visutwin::canvas
         if (!camera->active()) {
             return nullptr;
         }
+        // applies to the next generation of the mips
+        if (_texture) {
+            _texture->setMipmapFilter(_mipmapFilter);
+        }
 
         const Matrix4& sceneTransform = _sceneCameraEntity->worldTransform();
         const Vector3 position = Vector3(sceneTransform.getColumn(3));
@@ -254,6 +258,9 @@ namespace visutwin::canvas
         planar->setAperture(scene->aperture());
         planar->setSensitivity(scene->sensitivity());
         planar->setShutter(scene->shutter());
+        // The scene camera's temporal antialiasing then antialiases the reflection as well: the
+        // texture is sampled with the projection without the jitter.
+        planar->setJitter(scene->jitter());
 
         // Oblique clipping through the projection hook.
         if (_obliqueClipping) {

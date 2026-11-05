@@ -460,8 +460,8 @@ protected:
             auto meshInstance = std::make_unique<MeshInstance>(_quadMesh.get(), _material.get(), fog);
             // the quad covers the screen, and is not culled by the camera frustum
             meshInstance->setCull(false);
-            meshInstance->setCastShadow(false);
-            meshInstance->setReceiveShadow(false);
+            meshInstance->setCastShadows(false);
+            meshInstance->setReceiveShadows(false);
             render->addMeshInstance(std::move(meshInstance));
             render->setCastShadows(false);
         }

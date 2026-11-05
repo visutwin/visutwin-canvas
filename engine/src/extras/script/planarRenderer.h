@@ -18,7 +18,9 @@
 // with hdr RGBA16F holding linear colours (the camera's own exposure, tone mapping and gamma
 // set aside: Camera::setLinearOutput). A StandardMaterial reflects it through
 // setPlanarReflectionMap and setPlanarReflectionMatrix(viewProjectionMatrix()); with mipmaps a
-// rough surface reads a blurred mip.
+// rough surface reads a blurred mip. The camera takes the scene camera's jitter, so that
+// camera's temporal antialiasing antialiases the reflection too (the material samples the
+// texture with the projection without the jitter).
 // DEVIATIONS: upstream renders into an sRGB texture the sampler decodes, and its entity fires
 // "onPlanarPostRender", which no user here needs yet.
 //
@@ -32,6 +34,7 @@
 #include "framework/destroyWatch.h"
 #include "framework/script/script.h"
 #include "framework/script/scriptRegistry.h"
+#include "platform/graphics/constants.h"
 
 namespace visutwin::canvas
 {
@@ -74,6 +77,13 @@ namespace visutwin::canvas
         /// rough surface reading the planar reflection blurs with.
         void setMipmaps(const bool value) { _mipmaps = value; }
         [[nodiscard]] bool mipmaps() const { return _mipmaps; }
+
+        /// The filter generating those mips (default the Gaussian one): the blurred reflections
+        /// of rough surfaces sample the small levels, which the Gaussian filter keeps smooth
+        /// where the box filter shows blocks that flicker as the camera moves, at a higher
+        /// cost of generating them (Texture::mipmapFilter). Applies to the next render.
+        void setMipmapFilter(const MipmapFilter value) { _mipmapFilter = value; }
+        [[nodiscard]] MipmapFilter mipmapFilter() const { return _mipmapFilter; }
 
         /// A high dynamic range texture (RGBA16F) holding linear colours, so bright lights keep
         /// their brightness in it; the camera rendering the material that reads it applies the
@@ -125,6 +135,7 @@ namespace visutwin::canvas
         float _scale = 0.5f;
         bool _depth = true;
         bool _mipmaps = false;
+        MipmapFilter _mipmapFilter = MipmapFilter::MIPMAPFILTER_GAUSSIAN;
         bool _hdr = false;
         // The camera's linear-output setting while it renders HDR, to restore.
         bool _ldrStored = false;

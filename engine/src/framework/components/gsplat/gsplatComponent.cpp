@@ -81,7 +81,7 @@ namespace visutwin::canvas
         if (!_meshInstance) {
             return;
         }
-        _meshInstance->setCastShadow(_castShadows);
+        _meshInstance->setCastShadows(_castShadows);
         if (auto* gsplat = _meshInstance->gsplatInstance()) {
             gsplat->setAlphaClip(_alphaClip);
         }

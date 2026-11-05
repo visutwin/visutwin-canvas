@@ -164,9 +164,12 @@ namespace visutwin::canvas
         uniforms.gradingBrightness = c.gradingBrightness;
         uniforms.gradingContrast = c.gradingContrast;
         uniforms.gradingSaturation = c.gradingSaturation;
-        uniforms.gradingTintR = c.gradingTint[0];
-        uniforms.gradingTintG = c.gradingTint[1];
-        uniforms.gradingTintB = c.gradingTint[2];
+        // the tint scales each output channel of the mixer, so it is folded into its rows
+        for (int i = 0; i < 3; ++i) {
+            uniforms.gradingMixerRed[i] = c.gradingMixerRed[i] * c.gradingTint[0];
+            uniforms.gradingMixerGreen[i] = c.gradingMixerGreen[i] * c.gradingTint[1];
+            uniforms.gradingMixerBlue[i] = c.gradingMixerBlue[i] * c.gradingTint[2];
+        }
 
         uniforms.colorEnhanceEnabled =
             (c.colorEnhanceShadows != 0.0f || c.colorEnhanceHighlights != 0.0f ||

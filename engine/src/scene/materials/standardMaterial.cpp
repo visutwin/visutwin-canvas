@@ -455,7 +455,10 @@ namespace visutwin::canvas
         uniforms.diffuseTransmissionMapParams[1] = static_cast<float>(_diffuseTransmissionMapChannel);
         uniforms.diffuseTransmissionMapParams[2] = _diffuseTransmissionColorMapUv == 1 ? 1.0f : 0.0f;
 
-        // the planar reflection map: its camera's view-projection, its coarsest mip and encoding.
+        // the planar reflection map: its camera's view-projection, its coarsest mip, its encoding
+        // and the last mip level it has (0 without mipmaps: the top level is sampled whatever the
+        // gloss). The size is read off the map at each pack, so a map resized by its renderer
+        // without a material update is sampled at every level it has.
         _planarReflectionMatrix.getColumn(0).store(uniforms.planarReflectionMatrix0);
         _planarReflectionMatrix.getColumn(1).store(uniforms.planarReflectionMatrix1);
         _planarReflectionMatrix.getColumn(2).store(uniforms.planarReflectionMatrix2);
@@ -464,6 +467,10 @@ namespace visutwin::canvas
             ? std::log2(static_cast<float>(std::max(_planarReflectionMap->width(), 1u))) : 0.0f;
         uniforms.planarReflectionParams[1] = _planarReflectionMap && isFloatPixelFormat(_planarReflectionMap->format())
             ? 1.0f : 0.0f;
+        uniforms.planarReflectionParams[2] = _planarReflectionMap && _planarReflectionMap->mipmaps()
+            ? std::floor(std::log2(static_cast<float>(std::max(
+                std::max(_planarReflectionMap->width(), _planarReflectionMap->height()), 1u))))
+            : 0.0f;
 
         // detail normals + displacement.
         uniforms.detailDisplacementParams[0] = _detailNormalScale;

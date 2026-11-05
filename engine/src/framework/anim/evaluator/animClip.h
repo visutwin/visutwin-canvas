@@ -34,7 +34,6 @@ namespace visutwin::canvas
         void update(float dt);
 
         /** Normalized progress the clip reaches at `time`. */
-        float progressForTime(float time) const;
 
         /// The track at the clip's time; see AnimTrack::eval.
         void eval(AnimTransform* out, uint8_t* touched) const;

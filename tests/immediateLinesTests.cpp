@@ -116,7 +116,7 @@ int main()
         const auto& layerInstances = immediateLayer->meshInstances();
         check(std::find(layerInstances.begin(), layerInstances.end(), instance) != layerInstances.end(),
             "the batch's mesh instance joins its layer");
-        check(instance->visible() && !instance->cull() && !instance->castShadow(),
+        check(instance->visible() && !instance->cull() && !instance->castShadows(),
             "and is visible, never culled and casts no shadow");
         const Primitive& primitive = batch.mesh()->getPrimitive(0);
         auto first = batch.mesh()->getVertexBuffer();

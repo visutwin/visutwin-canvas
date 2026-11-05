@@ -75,9 +75,11 @@ namespace visutwin::canvas::compose_shaders
         float gradingBrightness = 1.0f;
         float gradingContrast = 1.0f;
         float gradingSaturation = 1.0f;
-        float gradingTintR = 1.0f;
-        float gradingTintG = 1.0f;
-        float gradingTintB = 1.0f;
+        // The channel mixer rows, the tint folded in: each output channel's weights of the
+        // red, green and blue input channels.
+        float gradingMixerRed[3] = {1.0f, 0.0f, 0.0f};
+        float gradingMixerGreen[3] = {0.0f, 1.0f, 0.0f};
+        float gradingMixerBlue[3] = {0.0f, 0.0f, 1.0f};
         // Color enhance
         uint32_t colorEnhanceEnabled = 0u;
         float ceShadows = 0.0f;
@@ -108,7 +110,7 @@ namespace visutwin::canvas::compose_shaders
 
     // Scalars, then a float4 array: packs identically under MSL and std140, so the program
     // declares this same field list.
-    static_assert(offsetof(ComposeUniforms, effectData) == 208, "compose.slang places effectData at 208");
+    static_assert(offsetof(ComposeUniforms, effectData) == 224, "compose.slang places effectData at 224");
     static_assert(sizeof(ComposeUniforms) <= 656, "kept within the per-draw block's former size");
 
     /// The compose program's SWITCHES: which stages this frame runs, given to the program as

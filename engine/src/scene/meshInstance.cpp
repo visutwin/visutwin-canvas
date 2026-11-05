@@ -110,9 +110,9 @@ namespace visutwin::canvas
         auto clone = std::make_unique<MeshInstance>(_mesh, _material, node);
         clone->_meshOwned = _meshOwned;
         clone->_materialOwned = _materialOwned;
-        clone->_castShadow = _castShadow;
+        clone->_castShadows = _castShadows;
         clone->_renderStyle = _renderStyle;
-        clone->_receiveShadow = _receiveShadow;
+        clone->_receiveShadows = _receiveShadows;
         clone->_cull = _cull;
         clone->_drawOncePerFrame = _drawOncePerFrame;
         clone->_pick = _pick;

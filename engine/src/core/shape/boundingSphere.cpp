@@ -51,7 +51,11 @@ namespace visutwin::canvas
             return false;
         }
 
-        const float t = std::abs(-b - std::sqrt(discr));
+        // A negative entry distance means the ray starts inside the sphere: the point is then
+        // where the ray leaves it.
+        const float sqrtDiscr = std::sqrt(discr);
+        const float tEnter = -b - sqrtDiscr;
+        const float t = tEnter >= 0.0f ? tEnter : -b + sqrtDiscr;
         if (point) {
             *point = ray.origin() + rayDirection * t;
         }

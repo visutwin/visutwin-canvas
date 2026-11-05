@@ -56,6 +56,10 @@ namespace visutwin::canvas
                 transitionDesc.from, transitionDesc.to, transitionDesc.time, transitionDesc.priority,
                 transitionDesc.conditions, transitionDesc.exitTime, transitionDesc.transitionOffset,
                 transitionDesc.interruptionSource));
+            if (_transitions.back()->hasExitTime() && isAnimControlState(transitionDesc.from)) {
+                spdlog::warn("AnimController: the exit time of the transition from {} to {} is ignored, as the {} "
+                             "state plays no animation", transitionDesc.from, transitionDesc.to, transitionDesc.from);
+            }
         }
     }
 
@@ -107,19 +111,43 @@ namespace visutwin::canvas
         }
     }
 
+    const AnimClip* AnimController::activeStateClip() const
+    {
+        const AnimState* state = activeState();
+        if (state && !state->animations().empty()) {
+            if (const auto* animation = state->animations()[0]) {
+                return _animEvaluator->findClip(animation->name());
+            }
+        }
+        return nullptr;
+    }
+
+    float AnimController::activeStateTimeScale() const
+    {
+        // The playback speed of the state's first clip rather than the state's speed: the two
+        // differ (a blend tree's children play at their own speed), and the exit times, the
+        // progress and the end of a non-looping state are all measured against what the clip
+        // plays.
+        if (const AnimClip* clip = activeStateClip()) {
+            return clip->speed();
+        }
+        const AnimState* state = activeState();
+        return state ? state->speed() : 1.0f;
+    }
+
     float AnimController::getActiveStateProgressForTime(const float time) const
     {
         if (isAnimControlState(_activeStateName)) {
             return 1.0f;
         }
-        const AnimState* state = activeState();
-        if (state && !state->animations().empty()) {
-            const auto* animation = state->animations()[0];
-            if (animation) {
-                if (const AnimClip* clip = _animEvaluator->findClip(animation->name())) {
-                    return clip->progressForTime(time);
-                }
+        if (const AnimClip* clip = activeStateClip()) {
+            // The time in state advances at the clip's speed, so it is already the clip's
+            // playback time; a clip playing in reverse runs from 0 toward negative values.
+            const float duration = clip->track() ? clip->track()->duration() : 0.0f;
+            if (duration <= 0.0f) {
+                return 1.0f;
             }
+            return (clip->speed() < 0.0f ? -time : time) / duration;
         }
         return 0.0f;
     }
@@ -235,8 +263,10 @@ namespace visutwin::canvas
             if (transition->to() == _activeStateName) {
                 continue;
             }
-            // when an exit time is present, only exit if it falls within the frame's delta time
-            if (transition->hasExitTime()) {
+            // when an exit time is present, only exit if it falls within the frame's delta time.
+            // A transition out of a state without a timeline (START, END: they play nothing)
+            // ignores its exit time, which could never be met.
+            if (transition->hasExitTime() && !isAnimControlState(transition->from())) {
                 float progressBefore = getActiveStateProgressForTime(_timeInStateBefore);
                 float progress = getActiveStateProgressForTime(_timeInState);
                 // exit times < 1 on looping states are checked every loop
@@ -481,13 +511,16 @@ namespace visutwin::canvas
             return;
         }
 
-        // Advance time when looping or before the active state's end.
+        // Advance time when looping or before the active state's end, at the clip's playback
+        // speed. Past a non-looping state's end the frame is shortened to what the clip takes
+        // to reach it, divided back into real time.
         if (state->loop() || _timeInState < activeStateDuration()) {
+            const float timeScale = activeStateTimeScale();
             _timeInStateBefore = _timeInState;
-            _timeInState += dt * state->speed();
+            _timeInState += dt * timeScale;
             if (!state->loop() && _timeInState > activeStateDuration()) {
                 _timeInState = activeStateDuration();
-                dt = activeStateDuration() - _timeInStateBefore;
+                dt = timeScale != 0.0f ? (activeStateDuration() - _timeInStateBefore) / timeScale : 0.0f;
             }
         }
 

@@ -164,15 +164,6 @@ namespace visutwin::canvas
         _playing = true;
     }
 
-    float AnimClip::progressForTime(const float time) const
-    {
-        const float duration = _track ? _track->duration() : 0.0f;
-        if (duration <= 0.0f) {
-            return 1.0f;
-        }
-        return (time * _speed) / duration;
-    }
-
     void AnimClip::stop()
     {
         _playing = false;

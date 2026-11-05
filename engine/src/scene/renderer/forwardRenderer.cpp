@@ -461,6 +461,13 @@ namespace visutwin::canvas
                 if (renderAction->renderTarget && renderAction->renderTarget->depthResolveBuffer()) {
                     addDepthResolvePass(frameGraph, renderAction->renderTarget);
                 }
+                // a target whose colour buffer takes the Gaussian mipmap filter gets its chain
+                // rendered after it (the backends leave such a chain alone)
+                if (renderAction->renderTarget && renderAction->renderTarget->colorBufferCount() > 0 &&
+                    renderAction->renderTarget->getColorBuffer(0) &&
+                    renderAction->renderTarget->getColorBuffer(0)->gaussianMipmaps()) {
+                    addGaussianMipmapPass(frameGraph, renderAction->renderTarget);
+                }
                 // after the camera's last block, its grabs included
                 if (renderAction->lastCameraUse) {
                     addCameraAfterPasses(frameGraph, renderAction->camera);
@@ -487,6 +494,24 @@ namespace visutwin::canvas
         }
         resolve->update();
         frameGraph->addRenderPass(resolve);
+    }
+
+    void ForwardRenderer::addGaussianMipmapPass(FrameGraph* frameGraph, const std::shared_ptr<RenderTarget>& target)
+    {
+        // The passes of targets that are gone go with them.
+        std::erase_if(_gaussianMipmapPasses, [](const auto& pass) { return !pass->target(); });
+        std::shared_ptr<RenderPassGaussianMipmaps> mipmaps;
+        for (const auto& pass : _gaussianMipmapPasses) {
+            if (pass->target() == target) {
+                mipmaps = pass;
+                break;
+            }
+        }
+        if (!mipmaps) {
+            mipmaps = std::make_shared<RenderPassGaussianMipmaps>(_device, target);
+            _gaussianMipmapPasses.push_back(mipmaps);
+        }
+        frameGraph->addRenderPass(mipmaps);
     }
 
     void ForwardRenderer::addCameraAfterPasses(FrameGraph* frameGraph, const CameraComponent* camera)

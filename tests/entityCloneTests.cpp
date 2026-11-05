@@ -276,7 +276,7 @@ int main()
     check(cRender && cRender->meshInstances().size() == 1, "one mesh instance, as the source");
     MeshInstance* cMi = cRender && !cRender->meshInstances().empty() ? cRender->meshInstances()[0] : nullptr;
     MeshInstance* mi = render->meshInstances()[0];
-    check(cMi && cMi->mesh() == mi->mesh() && cMi->material() == material.get() && !cMi->castShadow(),
+    check(cMi && cMi->mesh() == mi->mesh() && cMi->material() == material.get() && !cMi->castShadows(),
         "shares the mesh and material, keeps the shadow flag");
     check(cMi && cMi->node() == cBone, "and is drawn at the clone's node");
     check(cMi && cMi->skinInstance() && cMi->skinInstance() != mi->skinInstance(), "its own skin instance");

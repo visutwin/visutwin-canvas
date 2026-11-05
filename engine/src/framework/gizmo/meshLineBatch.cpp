@@ -157,8 +157,8 @@ namespace visutwin::canvas
                 for (const auto& material : {_occludedMaterial, _material}) {
                     auto instance = std::make_unique<MeshInstance>(_mesh, material, run->entity);
                     instance->setCull(false);
-                    instance->setCastShadow(false);
-                    instance->setReceiveShadow(false);
+                    instance->setCastShadows(false);
+                    instance->setReceiveShadows(false);
                     run->meshInstances.push_back(render->addMeshInstance(std::move(instance)));
                 }
             }

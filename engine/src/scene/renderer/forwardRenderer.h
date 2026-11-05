@@ -6,6 +6,7 @@
 #pragma once
 
 #include "renderer.h"
+#include "../graphics/gaussianMipmaps.h"
 #include "../graphics/renderPassDepthResolve.h"
 #include "../frameGraph.h"
 #include "../composition/layerComposition.h"
@@ -42,6 +43,9 @@ namespace visutwin::canvas
 
     private:
         std::vector<std::shared_ptr<RenderPassDepthResolve>> _depthResolvePasses;
+        // One per target whose colour buffer takes the Gaussian mipmap filter, run after each
+        // block rendering it.
+        std::vector<std::shared_ptr<RenderPassGaussianMipmaps>> _gaussianMipmapPasses;
 
         // buildFrameGraph's stages, in the order it runs them.
 
@@ -73,6 +77,7 @@ namespace visutwin::canvas
         /// Resolves the multisampled depth of a target with a depth resolve buffer, after a block
         /// that rendered it (one pass per target, kept while the target lives).
         void addDepthResolvePass(FrameGraph* frameGraph, const std::shared_ptr<RenderTarget>& target);
+        void addGaussianMipmapPass(FrameGraph* frameGraph, const std::shared_ptr<RenderTarget>& target);
         /// Whether the block that `action` belongs to ends with it.
         bool endsRenderActionBlock(const RenderAction& action, const RenderAction* next,
             const RenderTarget* blockTarget) const;

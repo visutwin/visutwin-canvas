@@ -110,7 +110,7 @@ namespace visutwin::canvas
         }
     }
 
-    void ParticleSystemComponent::unpause()
+    void ParticleSystemComponent::resume()
     {
         if (_emitter) {
             _emitter->setPlaying(true);

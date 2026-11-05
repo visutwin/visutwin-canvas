@@ -19,23 +19,45 @@ namespace visutwin::canvas
         }
     }
 
+    void RenderPassColorGrab::prepareShaders()
+    {
+        if (_camera && _camera->sceneColorMapMipmaps() &&
+            _camera->sceneColorMapMipmapFilter() == MipmapFilter::MIPMAPFILTER_GAUSSIAN) {
+            _gaussianMipmaps.prepareShaders();
+        }
+    }
+
     void RenderPassColorGrab::execute()
     {
         // Copy the scene colour rendered so far (opaque + depth layers) into a
         // mipmapped texture for dynamic grab-pass refraction: rough surfaces read
-        // the blurrier mips. The device only offers the generic copy, so the
-        // destination and the decision to mip it belong here.
+        // the blurrier mips, unless the camera asks for no mipmaps. The device only offers
+        // the generic copy, so the destination and the decision to mip it belong here.
         const auto device = this->device();
         if (!device) {
             return;
         }
+        const bool mipmaps = !_camera || _camera->sceneColorMapMipmaps();
         Texture* destination = ensureGrabTexture(device.get(), _source.get(),
-            _grabTexture, false, true, "sceneColorGrab");
+            _grabTexture, false, mipmaps, "sceneColorGrab");
         if (!destination) {
             return;
         }
+        // The filter the camera asks for applies to this generation; the Gaussian one needs its
+        // render targets BEFORE the copy (GaussianMipmapGenerator::prepare).
+        if (mipmaps) {
+            destination->setMipmapFilter(_camera ? _camera->sceneColorMapMipmapFilter()
+                                                 : MipmapFilter::MIPMAPFILTER_BOX);
+            if (destination->gaussianMipmaps()) {
+                _gaussianMipmaps.prepare(destination);
+            }
+        }
         device->copyRenderTarget(_source.get(), destination, nullptr);
-        device->generateMipmaps(destination);
+        if (mipmaps) {
+            if (!destination->gaussianMipmaps() || !_gaussianMipmaps.generate(destination)) {
+                device->generateMipmaps(destination);
+            }
+        }
         device->setSceneColorMap(destination);
         if (_camera) {
             _camera->publishSceneColorMap(_grabTexture, _gamma);

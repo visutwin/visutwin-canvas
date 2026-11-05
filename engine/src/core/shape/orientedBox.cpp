@@ -43,7 +43,9 @@ namespace visutwin::canvas
         const Vector3 tMinDist = -_halfExtents - origin;
         const Vector3 tMaxDist = _halfExtents - origin;
 
-        // Per axis, because a zero direction component selects instead of dividing.
+        // Per axis, because a zero direction component selects instead of dividing: a ray
+        // parallel to a slab is inside it when min <= origin <= max, so a ray lying in either
+        // face plane of the slab is inside it.
         float txMin = tMinDist.getX();
         float txMax = tMaxDist.getX();
         float tyMin = tMinDist.getY();
@@ -52,21 +54,21 @@ namespace visutwin::canvas
         float tzMax = tMaxDist.getZ();
 
         if (dir.getX() == 0.0f) {
-            txMin = txMin < 0.0f ? -std::numeric_limits<float>::max() : std::numeric_limits<float>::max();
+            txMin = txMin <= 0.0f ? -std::numeric_limits<float>::max() : std::numeric_limits<float>::max();
             txMax = txMax < 0.0f ? -std::numeric_limits<float>::max() : std::numeric_limits<float>::max();
         } else {
             txMin /= dir.getX();
             txMax /= dir.getX();
         }
         if (dir.getY() == 0.0f) {
-            tyMin = tyMin < 0.0f ? -std::numeric_limits<float>::max() : std::numeric_limits<float>::max();
+            tyMin = tyMin <= 0.0f ? -std::numeric_limits<float>::max() : std::numeric_limits<float>::max();
             tyMax = tyMax < 0.0f ? -std::numeric_limits<float>::max() : std::numeric_limits<float>::max();
         } else {
             tyMin /= dir.getY();
             tyMax /= dir.getY();
         }
         if (dir.getZ() == 0.0f) {
-            tzMin = tzMin < 0.0f ? -std::numeric_limits<float>::max() : std::numeric_limits<float>::max();
+            tzMin = tzMin <= 0.0f ? -std::numeric_limits<float>::max() : std::numeric_limits<float>::max();
             tzMax = tzMax < 0.0f ? -std::numeric_limits<float>::max() : std::numeric_limits<float>::max();
         } else {
             tzMin /= dir.getZ();
@@ -80,9 +82,11 @@ namespace visutwin::canvas
 
         const float minMax = std::min(std::min(realMax.getX(), realMax.getY()), realMax.getZ());
         const float maxMin = std::max(std::max(realMin.getX(), realMin.getY()), realMin.getZ());
-        const bool intersects = minMax >= maxMin && maxMin >= 0.0f;
+        // The box must not be entirely behind the ray; a ray starting inside the box
+        // (maxMin < 0) intersects it where it leaves the box.
+        const bool intersects = minMax >= maxMin && minMax >= 0.0f;
         if (intersects && localPoint) {
-            *localPoint = localRay.origin() + localRay.direction() * maxMin;
+            *localPoint = localRay.origin() + localRay.direction() * (maxMin >= 0.0f ? maxMin : minMax);
         }
         return intersects;
     }

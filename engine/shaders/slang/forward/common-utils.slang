@@ -49,20 +49,78 @@ float3 decodeRGBP(float4 raw) { float3 c = raw.rgb * (-raw.a * 7.0 + 8.0); retur
 float3 decodeRGBM(float4 raw) { float3 c = (8.0 * raw.a) * raw.rgb; return c * c; }
 // srgbToLinear / linearToSrgb come from the vtsrgb module, which the program imports.
 
+// A texel of a material's planar reflection map, decoded: a float map holds linear colours.
+float3 decodePlanarReflection(float4 texel)
+{
+    return material.planarReflectionParams.y > 0.5 ? texel.rgb : srgbToLinear(texel.rgb);
+}
+
+// The weights of the cubic B-spline of the four texels around a sample position.
+float4 planarCubicWeights(float v)
+{
+    const float4 n = float4(1.0, 2.0, 3.0, 4.0) - v;
+    const float4 s = n * n * n;
+    const float x = s.x;
+    const float y = s.y - 4.0 * s.x;
+    const float z = s.z - 4.0 * s.y + 6.0 * s.x;
+    return float4(x, y, z, 6.0 - x - y - z) * (1.0 / 6.0);
+}
+
+// A mip level of the planar reflection map, filtered by a bicubic B-spline from four bilinear
+// taps. Where a small mip level covers many pixels this is smooth, while the bilinear filtering
+// shows its texels.
+float3 samplePlanarBicubic(float2 uv, float level)
+{
+    uint width, height, levels;
+    planarReflectionMap.GetDimensions(uint(level), width, height, levels);
+    const float2 size = float2(max(width, 1u), max(height, 1u));
+    float2 texel = uv * size - 0.5;
+    const float2 f = frac(texel);
+    texel -= f;
+
+    const float4 wx = planarCubicWeights(f.x);
+    const float4 wy = planarCubicWeights(f.y);
+    const float4 c = texel.xxyy + float2(-0.5, 1.5).xyxy;
+    const float4 s = float4(wx.xz + wx.yw, wy.xz + wy.yw);
+    const float4 offset = (c + float4(wx.yw, wy.yw) / s) / size.xxyy;
+
+    const float3 s0 = decodePlanarReflection(planarReflectionMap.SampleLevel(materialSampler, offset.xz, level));
+    const float3 s1 = decodePlanarReflection(planarReflectionMap.SampleLevel(materialSampler, offset.yz, level));
+    const float3 s2 = decodePlanarReflection(planarReflectionMap.SampleLevel(materialSampler, offset.xw, level));
+    const float3 s3 = decodePlanarReflection(planarReflectionMap.SampleLevel(materialSampler, offset.yw, level));
+
+    const float sx = s.x / (s.x + s.y);
+    const float sy = s.z / (s.z + s.w);
+    return lerp(lerp(s3, s2, sx), lerp(s1, s0, sx), sy);
+}
+
 // A material's planar reflection map (VT_FEATURE_PLANAR_REFLECTION_MAP) along a reflected
 // direction from `worldPos`: the point a short way along the ray is projected by the mirrored
 // camera's view-projection into the map. For a surface lying on the plane this is the texel the
 // surface itself projects to; a normal tilted by a normal map or a bevel moves it and distorts
-// the reflection. A rougher surface reads a smaller mip, blurring it.
+// the reflection. A rougher surface reads a smaller mip, blurring it, up to the map's last level
+// (planarReflectionParams.z, 0 without mipmaps). The top level is sampled bilinearly, which keeps
+// a mirror sharp, the blurred levels by the bicubic B-spline, blending the two levels around the
+// level of detail.
 float3 samplePlanarReflectionMap(float3 worldPos, float3 reflDir, float gloss)
 {
     const float4x4 m = float4x4(material.planarReflectionMatrix0, material.planarReflectionMatrix1,
                                 material.planarReflectionMatrix2, material.planarReflectionMatrix3);
     const float4 clip = mul(float4(worldPos + reflDir * 0.2, 1.0), m);
     const float2 uv = saturate(clip.xy / max(clip.w, 1e-6) * float2(0.5, -0.5) + 0.5);
-    const float lod = (1.0 - gloss) * material.planarReflectionParams.x;
-    const float3 texel = planarReflectionMap.SampleLevel(materialSampler, uv, lod).rgb;
-    return material.planarReflectionParams.y > 0.5 ? texel : srgbToLinear(texel);
+    const float lod = min((1.0 - gloss) * material.planarReflectionParams.x, material.planarReflectionParams.z);
+    const float level = floor(lod);
+
+    float3 reflection;
+    if (level < 1.0) {
+        reflection = decodePlanarReflection(planarReflectionMap.SampleLevel(materialSampler, uv, 0.0));
+    } else {
+        reflection = samplePlanarBicubic(uv, level);
+    }
+    if (lod > level) {
+        reflection = lerp(reflection, samplePlanarBicubic(uv, level + 1.0), lod - level);
+    }
+    return reflection;
 }
 
 // An environment texel decoded by its encoding: 0 gamma, 1 RGBP, 2 RGBM, 3 linear.

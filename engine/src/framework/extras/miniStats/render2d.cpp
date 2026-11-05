@@ -89,7 +89,7 @@ namespace visutwin::canvas
         _node = std::make_unique<GraphNode>("Render2d");
         _meshInstance = std::make_unique<MeshInstance>(_mesh.get(), _material.get(), _node.get());
         _meshInstance->setScreenSpace(true);
-        _meshInstance->setReceiveShadow(false);
+        _meshInstance->setReceiveShadows(false);
         _meshInstance->setDrawOncePerFrame(true);
         // After every other draw of a manually sorted (UI) layer.
         _meshInstance->setDrawOrder(std::numeric_limits<double>::infinity());

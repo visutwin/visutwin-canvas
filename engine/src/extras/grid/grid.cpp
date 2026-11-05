@@ -171,7 +171,7 @@ namespace visutwin::canvas
         for (size_t i = 0; i < _materials.size(); ++i) {
             auto instance = std::make_unique<MeshInstance>(mesh, _materials[i], entity);
             instance->setCull(false);
-            instance->setCastShadow(false);
+            instance->setCastShadows(false);
             instance->setDrawBucket(255);
             _meshInstances[i] = render->addMeshInstance(std::move(instance));
         }

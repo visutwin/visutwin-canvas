@@ -29,7 +29,7 @@ namespace visutwin::canvas
             // Shared ownership: instantiated entities must survive Asset::unload()
             // deleting this container.
             auto meshInstance = std::make_unique<MeshInstance>(meshPayload.mesh, meshPayload.material, nodeEntity);
-            meshInstance->setCastShadow(meshPayload.castShadow);
+            meshInstance->setCastShadows(meshPayload.castShadow);
 
             // Morph targets: each mesh instance gets its own weight set.
             if (meshPayload.morph) {

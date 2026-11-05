@@ -37,6 +37,14 @@ namespace visutwin::canvas
         float gradingContrast = 1.0f;
         float gradingSaturation = 1.0f;
         float gradingTint[3] = {1.0f, 1.0f, 1.0f};
+        // The channel mixer: the weights of the red, green and blue INPUT channels in each
+        // output channel, -2 to 2 per weight (the identity is no change). Applied first, in
+        // linear HDR, with the tint folded into its rows; being linear its result does not
+        // depend on the exposure, so it works the same under auto exposure. Black and white
+        // with custom weights, swapped channels, colour vision deficiencies.
+        float gradingMixerRed[3] = {1.0f, 0.0f, 0.0f};
+        float gradingMixerGreen[3] = {0.0f, 1.0f, 0.0f};
+        float gradingMixerBlue[3] = {0.0f, 0.0f, 1.0f};
 
         // Color enhance (pre-tonemap); 0 = no change
         float colorEnhanceShadows = 0.0f;

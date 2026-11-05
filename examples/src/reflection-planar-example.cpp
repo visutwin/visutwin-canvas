@@ -10,7 +10,9 @@
 // each frame, and the floor material reflects it (StandardMaterial::setPlanarReflectionMap) in
 // place of its environment reflection: unlike the box-projected cubemap baked from the empty
 // room, it reflects the statue, the drone circling it and the spinning gold torus exactly, also
-// where they touch the floor. A rougher floor reads a smaller mip, blurring the reflection. The
+// where they touch the floor. A rougher floor reads a smaller mip, blurring the reflection (the
+// mips Gaussian-filtered and the blurred levels sampled bicubically, so the blur stays smooth; the
+// reflection camera takes the scene camera's jitter, so TAA antialiases the reflection too). The
 // room, the statue and the drone reflect the room's own environment atlas, box projected onto
 // the room; the helipad sky shows through the windows. Three glowing doors with spot lights and
 // an omni light over the statue light it; the camera frame (4x MSAA, ACES) adds bloom and a
@@ -33,8 +35,10 @@
 //
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "../exampleApp.h"
@@ -275,6 +279,12 @@ protected:
         _planarRenderer->setSceneCameraEntity(camera);
         _planarRenderer->setMipmaps(true);
         _planarRenderer->setHdr(true);
+        // The mips are Gaussian by default (the blurred reflection of a rough floor stays smooth);
+        // VISUTWIN_MIPMAP_FILTER=box takes the box chain, for a capture of either.
+        if (const char* filter = std::getenv("VISUTWIN_MIPMAP_FILTER")) {
+            _planarRenderer->setMipmapFilter(std::string_view(filter) == "box" ? MipmapFilter::MIPMAPFILTER_BOX
+                                                                              : MipmapFilter::MIPMAPFILTER_GAUSSIAN);
+        }
         _planarRenderer->setPlane(Vector3(0.0f, 0.0f, 0.0f), Vector3(0.0f, 1.0f, 0.0f));
 
         applySettings();

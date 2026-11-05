@@ -56,7 +56,7 @@ namespace visutwin::canvas
 
         /// Enables or disables a shape, keyed as the shapes are ('x', 'yz', 'xyz',
         /// 'f' ...).
-        void enableShape(GizmoAxis shapeAxis, bool enabled);
+        void setShapeEnabled(GizmoAxis shapeAxis, bool enabled);
         bool isShapeEnabled(GizmoAxis shapeAxis) const;
 
         /// The shape under a key, or null.

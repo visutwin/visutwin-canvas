@@ -104,11 +104,11 @@ float sampleDirectionalShadow(int slot, float3 worldPos, float viewDepth, float3
         cascade = ditherShadowCascadeIndex(distances, cascade, cascadeCount, cascadeBlend, viewDepth);
     }
 
-    // World-space normal bias, scaled by grazing angle to curb peter-panning
-    // on directly-lit faces while offsetting shadow-acne on grazing ones.
-    float ndl = clamp(dot(N, L), 0.0, 1.0);
-    float sinAngle = sqrt(max(1.0 - ndl * ndl, 0.0));
-    float3 biased = worldPos + N * (params2.x * sinAngle);
+    // The receiver moves along its normal by the whole normal bias, in world units, whatever
+    // its angle to the light. Scaled by the sine of that angle, a surface facing the light kept
+    // a fraction of it, and a PCSS kernel spread over a bumpy receiver (procedural-sky's dunes)
+    // shadowed it with itself.
+    float3 biased = worldPos + N * params2.x;
 
     // Project into the cascade's atlas: the matrix bakes projection, view,
     // NDC→UV, and Z[0,1]; a perspective divide yields UV + depth directly.
@@ -177,10 +177,8 @@ float sampleSpotShadow(int slot, float3 worldPos, float3 N, float3 L, float ligh
     // A VSM spot (pcss.w): no normal offset.
     bool vsm = pc.w > 0.5;
 
-    // World-space normal bias, scaled by grazing angle.
-    float ndl = clamp(dot(N, L), 0.0, 1.0);
-    float sinAngle = sqrt(max(1.0 - ndl * ndl, 0.0));
-    float3 biased = vsm ? worldPos : worldPos + N * (sp.y * sinAngle);
+    // The whole normal bias in world units, as the directional path (sampleDirectionalShadow).
+    float3 biased = vsm ? worldPos : worldPos + N * sp.y;
 
     float4 sc = mul(float4(biased, 1.0), m);
     if (sc.w <= 0.0) {

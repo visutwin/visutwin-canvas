@@ -122,7 +122,7 @@ namespace visutwin::canvas
     std::unique_ptr<MeshInstance> GSplatResource::createMeshInstance(GraphNode* node)
     {
         auto meshInstance = std::make_unique<MeshInstance>(_quadMesh, _material, node);
-        meshInstance->setCastShadow(false);
+        meshInstance->setCastShadows(false);
         meshInstance->setGSplatInstance(
             std::make_shared<GSplatInstance>(shared_from_this()));
         return meshInstance;

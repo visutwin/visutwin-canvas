@@ -37,8 +37,8 @@ namespace visutwin::canvas
         _mesh->setAabb(BoundingBox(Vector3(0.0f, 0.0f, 0.0f), Vector3(0.0f, 0.0f, 0.0f)));
         _meshInstance = std::make_unique<MeshInstance>(_mesh, _material, node);
         _meshInstance->setCull(false);
-        _meshInstance->setCastShadow(false);
-        _meshInstance->setReceiveShadow(false);
+        _meshInstance->setCastShadows(false);
+        _meshInstance->setReceiveShadows(false);
         _meshInstance->setVisible(false);
     }
 

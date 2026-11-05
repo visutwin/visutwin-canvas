@@ -18,6 +18,7 @@
 #include "core/math/vector2.h"
 #include "core/math/vector3.h"
 #include "core/math/vector4.h"
+#include "platform/graphics/constants.h"
 #include "core/shape/boundingSphere.h"
 #include "graphics/renderPassColorGrab.h"
 #include "graphics/renderPassDepthGrab.h"
@@ -334,6 +335,8 @@ namespace visutwin::canvas
             _aperture = other._aperture;
             _shutter = other._shutter;
             _sensitivity = other._sensitivity;
+            _sceneColorMapMipmaps = other._sceneColorMapMipmaps;
+            _sceneColorMapMipmapFilter = other._sceneColorMapMipmapFilter;
             if (!(_clip == other._clip)) {
                 _clip = other._clip;
             }
@@ -363,6 +366,20 @@ namespace visutwin::canvas
         /// consumer (a Compute) may keep one past the camera; the destructor marks them.
         const std::shared_ptr<SceneDepthMapHandle>& sceneDepthMapHandle() const { return _sceneDepthMapHandle; }
         const std::shared_ptr<SceneColorMapHandle>& sceneColorMapHandle() const { return _sceneColorMapHandle; }
+
+        /// Whether the scene colour map this camera grabs has mipmaps (default true): a rough
+        /// refractive material samples its small levels, which blur what is behind it. Without
+        /// them it samples the full map and refracts sharply, which saves generating the chain
+        /// every frame and a third of the map's memory where only clear glass or a heat haze
+        /// reads it.
+        bool sceneColorMapMipmaps() const { return _sceneColorMapMipmaps; }
+        void setSceneColorMapMipmaps(const bool value) { _sceneColorMapMipmaps = value; }
+
+        /// The filter generating those mipmaps (default the box filter): the Gaussian one avoids
+        /// the blocks and the flickering of the box chain in a blurred refraction, at a higher
+        /// cost (Texture::mipmapFilter).
+        MipmapFilter sceneColorMapMipmapFilter() const { return _sceneColorMapMipmapFilter; }
+        void setSceneColorMapMipmapFilter(const MipmapFilter value) { _sceneColorMapMipmapFilter = value; }
 
         /// Records the depth a producer rendered for this camera, with how it stores it, and the
         /// camera parameters, inverse view-projection and viewport it was rendered with. Only the
@@ -490,6 +507,8 @@ namespace visutwin::canvas
 
         std::shared_ptr<SceneDepthMapHandle> _sceneDepthMapHandle = std::make_shared<SceneDepthMapHandle>();
         std::shared_ptr<SceneColorMapHandle> _sceneColorMapHandle = std::make_shared<SceneColorMapHandle>();
+        bool _sceneColorMapMipmaps = true;
+        MipmapFilter _sceneColorMapMipmapFilter = MipmapFilter::MIPMAPFILTER_BOX;
 
         // when true, the forward shader outputs distance-from-reflection-plane
         // instead of PBR lighting. Used by the depth camera in blurred planar reflections.

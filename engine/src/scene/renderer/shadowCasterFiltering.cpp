@@ -98,7 +98,7 @@ namespace visutwin::canvas
         if (!meshInstance || !meshInstance->mesh()) {
             return false;
         }
-        if (!meshInstance->castShadow()) {
+        if (!meshInstance->castShadows()) {
             return false;
         }
         if (meshInstance->node() && !meshInstance->node()->enabled()) {

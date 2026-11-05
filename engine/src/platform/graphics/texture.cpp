@@ -21,7 +21,8 @@ namespace visutwin::canvas
         _name(options.name), _device(graphicsDevice), _width(options.width), _height(options.height),
         _depth(options.depth), _arrayLength(options.arrayLength), _format(options.format), _id(_nextId++),
         _minFilter(options.minFilter), _magFilter(options.magFilter), _cubemap(options.cubemap), _volume(options.volume),
-        _mipmaps(options.mipmaps && options.samples <= 1), _storage(options.storage),
+        _mipmaps(options.mipmaps && options.samples <= 1), _mipmapFilter(options.mipmapFilter),
+          _storage(options.storage),
         _samples(std::max(options.samples, 1u)), _numLevelsRequested(options.samples > 1 ? 1u : options.numLevels),
         _profilerHint(options.profilerHint)
     {

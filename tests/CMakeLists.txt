@@ -147,6 +147,7 @@ visutwin_add_unit_test(visutwin-primitive-geometry-tests primitive-geometry prim
 # Animation layer blending: a layer weight is a per-node contribution composed across
 # layers (OVERWRITE / ADDITIVE, masks, normalised weights), not an on/off switch.
 visutwin_add_unit_test(visutwin-anim-layer-blend-tests anim-layer-blend animLayerBlendTests.cpp)
+visutwin_add_unit_test(visutwin-anim-controller-tests anim-controller animControllerTests.cpp)
 # glTF animation binding: unnamed nodes take a node_<index> identity and
 # targets are name PATHS, so duplicate names in different branches animate their
 # own entity. Builds a tinygltf model in memory, so it needs tinygltf's header.
@@ -161,6 +162,7 @@ visutwin_add_unit_test(visutwin-batch-mirror-tests batch-mirror batchMirrorTests
 visutwin_add_unit_test(visutwin-glb-material-paths-tests glb-material-paths glbMaterialPathsTests.cpp TINYGLTF)
 visutwin_add_unit_test(visutwin-glb-point-cloud-tests glb-point-cloud glbPointCloudTests.cpp TINYGLTF)
 visutwin_add_unit_test(visutwin-raycast-fallback-tests raycast-fallback raycastFallbackTests.cpp)
+visutwin_add_unit_test(visutwin-shape-ray-tests shape-ray shapeRayTests.cpp)
 visutwin_add_unit_test(visutwin-mirrored-body-tests mirrored-body mirroredBodyTests.cpp)
 visutwin_add_unit_test(visutwin-rigid-body-state-tests rigid-body-state rigidBodyStateTests.cpp)
 visutwin_add_unit_test(visutwin-immediate-lines-tests immediate-lines immediateLinesTests.cpp)

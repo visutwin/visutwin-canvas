@@ -429,9 +429,12 @@ namespace visutwin::canvas
                 }
                 if (mip == 0 && colorOps && colorOps->genMipmaps) {
                     // An array texture's pass regenerates the chain of the layer it rendered; a
-                    // cubemap's last face pass all six (the frame graph drops the others').
+                    // cubemap's last face pass all six (the frame graph drops the others'). A
+                    // Gaussian chain is rendered by the generator's pass after this one.
                     const Texture* owner = att.texture->owner();
-                    if (owner && owner->isArray() && !owner->isCubemap()) {
+                    if (owner && owner->gaussianMipmaps()) {
+                        // left to the generator
+                    } else if (owner && owner->isArray() && !owner->isCubemap()) {
                         att.texture->generateMipmaps(cmd, layer, 1);
                     } else {
                         att.texture->generateMipmaps(cmd);

@@ -76,7 +76,7 @@ namespace visutwin::canvas
 
             // Disable shadow casting on the plane's mesh instances
             for (auto* mi : renderComp->meshInstances()) {
-                mi->setCastShadow(false);
+                mi->setCastShadows(false);
             }
             spdlog::info("ShadowCatcher: RenderComponent created, {} mesh instances",
                 renderComp->meshInstances().size());

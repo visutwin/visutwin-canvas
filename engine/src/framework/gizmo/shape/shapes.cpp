@@ -218,8 +218,8 @@ namespace visutwin::canvas
             auto instance = std::make_unique<MeshInstance>(mesh, std::static_pointer_cast<Material>(_outlineMaterial),
                 outline);
             instance->setCull(false);
-            instance->setCastShadow(false);
-            instance->setReceiveShadow(false);
+            instance->setCastShadows(false);
+            instance->setReceiveShadows(false);
             instance->setVisible(_visible);
             _outlines[i] = outline;
             _outlineMeshInstances[i] = render->addMeshInstance(std::move(instance));

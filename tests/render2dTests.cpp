@@ -143,7 +143,7 @@ int main()
         const MeshInstance* instance = r.meshInstance();
         const int firstBase = instance->mesh()->getPrimitive().base;
         check(instance->visible() && instance->mesh()->getPrimitive().count == 6, "one quad: six indices, visible");
-        check(instance->screenSpace() && instance->drawOncePerFrame() && !instance->castShadow(),
+        check(instance->screenSpace() && instance->drawOncePerFrame() && !instance->castShadows(),
               "screen space, drawn once a frame, no shadow");
 
         const uint64_t version = r.material()->uniformsVersion();

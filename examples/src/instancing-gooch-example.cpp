@@ -187,7 +187,7 @@ protected:
         root()->addChild(bitmojiEntity);
         for (auto* render : bitmojiEntity->findComponents<RenderComponent>()) {
             for (auto* meshInstance : render->meshInstances()) {
-                meshInstance->setCastShadow(false);
+                meshInstance->setCastShadows(false);
                 const auto* source = dynamic_cast<const StandardMaterial*>(meshInstance->material());
                 meshInstance->setMaterial(createGoochMaterial(source ? source->diffuseMap() : nullptr));
             }

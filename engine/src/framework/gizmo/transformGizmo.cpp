@@ -540,7 +540,7 @@ namespace visutwin::canvas
         }
     }
 
-    void TransformGizmo::enableShape(const GizmoAxis shapeAxis, const bool enabled)
+    void TransformGizmo::setShapeEnabled(const GizmoAxis shapeAxis, const bool enabled)
     {
         if (Shape* s = shape(shapeAxis)) {
             s->setDisabled(!enabled);

@@ -2172,7 +2172,7 @@ namespace visutwin::canvas
                 }
 
                 // A mesh instance with receiveShadow=false gets no shadow params (SHADERDEF_NOSHADOW).
-                const bool drawReceivesShadow = !meshInstance || meshInstance->receiveShadow();
+                const bool drawReceivesShadow = !meshInstance || meshInstance->receiveShadows();
                 if (!lightingSet || drawLightMask != lightingSetMask ||
                     drawReceivesShadow != lightingSetReceivesShadow) {
                     // The draw's mask also picks which clustered lights it accepts (dynamic

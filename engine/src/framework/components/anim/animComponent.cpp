@@ -107,7 +107,7 @@ namespace visutwin::canvas
         setPlaying(src->playing());
     }
 
-    AnimComponentLayer* AnimComponent::findAnimationLayer(const std::string& name) const
+    AnimComponentLayer* AnimComponent::findLayer(const std::string& name) const
     {
         for (const auto& layer : _layers) {
             if (layer->name() == name) {
@@ -131,7 +131,7 @@ namespace visutwin::canvas
             baseLayer()->assignAnimation(path, track);
             return;
         }
-        AnimComponentLayer* layer = layerName.empty() ? baseLayer() : findAnimationLayer(layerName);
+        AnimComponentLayer* layer = layerName.empty() ? baseLayer() : findLayer(layerName);
         if (!layer) {
             spdlog::error("AnimComponent::assignAnimation: no layer '{}'", layerName.empty() ? "<base>" : layerName);
             return;
@@ -142,7 +142,7 @@ namespace visutwin::canvas
     AnimComponentLayer* AnimComponent::addLayer(const std::string& name, const float weight,
         std::unordered_set<std::string> mask, const AnimLayerBlendType blendType, std::vector<std::string> maskSubtrees)
     {
-        if (AnimComponentLayer* existing = findAnimationLayer(name)) {
+        if (AnimComponentLayer* existing = findLayer(name)) {
             return existing;
         }
         // Kept in the state graph too, so a clone rebuilds it. A layer starts in START with no

@@ -166,7 +166,7 @@ private:
         entity->setLocalPosition(position);
         auto* render = static_cast<RenderComponent*>(entity->addComponent<RenderComponent>());
         auto meshInstance = std::make_unique<MeshInstance>(_torusMesh, _red, entity);
-        meshInstance->setCastShadow(true);
+        meshInstance->setCastShadows(true);
         render->setCastShadows(true);
         render->addMeshInstance(std::move(meshInstance));
         root()->addChild(entity);

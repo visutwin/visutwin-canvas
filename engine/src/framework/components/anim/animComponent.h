@@ -45,7 +45,7 @@ namespace visutwin::canvas
         {
             return _layers.empty() ? nullptr : _layers.front().get();
         }
-        AnimComponentLayer* findAnimationLayer(const std::string& name) const;
+        AnimComponentLayer* findLayer(const std::string& name) const;
         /**
          * Adds a layer (or returns the one of that name): it starts in START with no
          * transition, so it drives nothing until a state is assigned an animation and
