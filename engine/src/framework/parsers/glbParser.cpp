@@ -35,6 +35,7 @@
 #include <draco/compression/decode.h>
 #include <draco/core/decoder_buffer.h>
 #include <draco/mesh/mesh.h>
+#include <webp/decode.h>
 #include <meshoptimizer.h>
 #include <nlohmann/json.hpp>
 
@@ -1274,16 +1275,42 @@ namespace visutwin::canvas
             return Ktx2Transcoder::isKtx2(image.image.data(), image.image.size());
         }
 
+        /// A WebP payload (EXT_texture_webp): a RIFF container whose form type is WEBP.
+        bool isWebP(const unsigned char* bytes, const size_t size)
+        {
+            return size >= 12 && std::memcmp(bytes, "RIFF", 4) == 0 && std::memcmp(bytes + 8, "WEBP", 4) == 0;
+        }
+
         /// Decodes an image loadImageData left encoded (`as_is`) straight to RGBA8, with
-        /// row 0 at the top as every texture here has it. An image stb cannot read
-        /// (a .basis payload, say) becomes a 1x1 magenta placeholder so the model's
-        /// geometry still loads. Safe on any thread: the flip is per thread.
+        /// row 0 at the top as every texture here has it: a WebP through libwebp, every other
+        /// format through stb. An image neither can read (a .basis payload, say) becomes a 1x1
+        /// magenta placeholder so the model's geometry still loads. Safe on any thread: the flip
+        /// is per thread.
         void decodeEncodedImage(const tinygltf::Image& image, const size_t imageIndex,
             PreparedGlbData::ImageData& out)
         {
             int width = 0;
             int height = 0;
             int components = 0;
+            if (isWebP(image.image.data(), image.image.size())) {
+                uint8_t* decoded = WebPDecodeRGBA(image.image.data(), image.image.size(), &width, &height);
+                if (!decoded) {
+                    spdlog::warn("GLB image #{}: libwebp cannot decode, mimeType={} — using placeholder",
+                        imageIndex, image.mimeType);
+                    out.rgbaPixels = {255, 0, 255, 255};
+                    out.width = 1;
+                    out.height = 1;
+                    out.valid = true;
+                    return;
+                }
+                const size_t byteCount = static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
+                out.rgbaPixels.assign(decoded, decoded + byteCount);
+                WebPFree(decoded);
+                out.width = width;
+                out.height = height;
+                out.valid = true;
+                return;
+            }
             stbi_uc* decoded = nullptr;
             {
                 // Row 0 at the top, as the file stores it and as glTF's UVs address it.

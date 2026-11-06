@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 193 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 194 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -206,7 +206,7 @@ ctest --preset default
 
 ## Dependencies (vcpkg)
 
-**Core:** SDL3 (3.4+), spdlog (1.17+, bundled fmt, `default-features: false`), tinyobjloader, tinygltf (header-only, use `find_path`), draco, meshoptimizer (glTF meshopt decoding only), assimp, basisu (`basisu::basisu_encoder` — transcoder + encoder + CLI tool), boost-core, imgui (SDL3+Metal+docking), implot
+**Core:** SDL3 (3.4+), spdlog (1.17+, bundled fmt, `default-features: false`), tinyobjloader, tinygltf (header-only, use `find_path`), draco, meshoptimizer (glTF meshopt decoding only), libwebp (`default-features: false`, the decoder only: a glTF's `EXT_texture_webp` images), assimp, basisu (`basisu::basisu_encoder` — transcoder + encoder + CLI tool), boost-core, imgui (SDL3+Metal+docking), implot
 
 **Vendored:** metal-cpp, stb
 
@@ -2193,7 +2193,11 @@ present, but the rule below never depends on reading it.
   tinygltf callback decodes nothing.** `GlbParser::loadImageData` keeps each image's
   encoded bytes and marks it `as_is` (KTX2 payloads are recognised by their magic);
   `prepareFromModel` decodes or transcodes every image in a `parallelFor`, straight to
-  RGBA8, top row first (`StbVerticalFlipScope(false)`, per thread). Decoding inside the
+  RGBA8, top row first (`StbVerticalFlipScope(false)`, per thread): a WebP payload (RIFF /
+  WEBP magic, `EXT_texture_webp`) through libwebp, every other format through stb, which
+  cannot read WebP (the extension was accepted as required while every such image came out a
+  magenta placeholder, until `car-showcase`'s car and showroom, all WebP, were ported); an AVIF
+  still falls to the placeholder. Decoding inside the
   callback decodes a model's images one after another on the loading thread — three
   quarters of what a textured model takes to load. An image that is NOT `as_is` holds
   pixels someone else decoded (a model built in memory) and only gets widened to RGBA.

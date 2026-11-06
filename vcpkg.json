@@ -9,6 +9,7 @@
     { "name": "spdlog",         "version>=": "1.17.0", "default-features": false, "features": ["tz-offset"] },
     { "name": "sdl3",           "version>=": "3.4.16", "features": ["vulkan"] },
     { "name": "stb"                                    },
+    { "name": "libwebp",        "default-features": false },
     { "name": "ktx"                                    },
     { "name": "tinyobjloader"                         },
     { "name": "tinygltf"                              },

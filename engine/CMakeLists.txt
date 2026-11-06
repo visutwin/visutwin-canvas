@@ -67,6 +67,7 @@ find_package(SDL3          CONFIG REQUIRED)
 find_package(tinyobjloader CONFIG REQUIRED)
 find_package(draco         CONFIG REQUIRED)
 find_package(meshoptimizer CONFIG REQUIRED)
+find_package(WebP          CONFIG REQUIRED)
 find_package(Boost         REQUIRED COMPONENTS core)
 
 foreach(_prefix IN LISTS CMAKE_PREFIX_PATH)
@@ -418,6 +419,7 @@ target_link_libraries(visutwin-canvas
         tinyobjloader::tinyobjloader
         draco::draco
         meshoptimizer::meshoptimizer
+        WebP::webpdecoder
         Boost::core
         assimp::assimp
         ${VISUTWIN_KTX2_BACKEND_LIB}
