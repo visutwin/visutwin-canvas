@@ -5,6 +5,9 @@
 //
 #include "metalShader.h"
 
+#include <cstdlib>
+#include <fstream>
+
 #include <dispatch/dispatch.h>
 
 #include "metalGraphicsDevice.h"
@@ -21,6 +24,19 @@ namespace visutwin::canvas
         MTL::Device* device = metalDevice ? metalDevice->raw() : nullptr;
         if (!device || _sourceCode.empty()) {
             return;
+        }
+        // VISUTWIN_METAL_DUMP_MSL=<dir> writes every source this device compiles to
+        // <dir>/<shader name>.metal, for a diff against the bundle's work files.
+        if (const char* dumpDir = std::getenv("VISUTWIN_METAL_DUMP_MSL"); dumpDir && dumpDir[0]) {
+            std::string fileName = definition.name;
+            for (char& c : fileName) {
+                if (c == '/' || c == ':' || c == ' ') {
+                    c = '_';
+                }
+            }
+            if (std::ofstream out(std::string(dumpDir) + "/" + fileName + ".metal"); out) {
+                out << _sourceCode;
+            }
         }
 
         _compileDevice = device;
@@ -109,7 +125,12 @@ namespace visutwin::canvas
     MTL::CompileOptions* MetalShader::newCompileOptions() const
     {
         auto* compileOptions = MTL::CompileOptions::alloc()->init();
-        compileOptions->setFastMathEnabled(true);
+        // The RELAXED math mode, the one the bundle's metallibs are built with
+        // (tools/generate_slang_bundle.py), so a runtime compile of a program or an override
+        // is bit-identical to its bundled twin. The deprecated fastMathEnabled is ignored on
+        // macOS 27, and the fast mode's lossy optimisations drew a blended glass up to 30%
+        // darker than the relaxed compile of the same MSL, which MoltenVK agreed with.
+        compileOptions->setMathMode(MTL::MathModeRelaxed);
         return compileOptions;
     }
 

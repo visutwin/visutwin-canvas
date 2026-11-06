@@ -275,9 +275,21 @@ bindings like a program of the tree, so it needs the source tree at run time. Wh
   `bindings.slang` text. Every `.slang` under the tree is a dependency. `slangc -target metal`
   does NOT validate what it emits; the metallib step (Apple's compiler) is what rejects a bad
   binding, so check a new program by building, not by its MSL alone. The metallib is built by
-  `xcrun metal -ffast-math` from that MSL, NOT by slangc's metallib target: slangc passes the
-  compiler options of its own, and its library rounded differently from the runtime compile of
-  the same MSL (`MetalShader`, fast math on), so the bundle and an override disagreed.
+  `xcrun metal -fmetal-math-mode=relaxed` from that MSL, NOT by slangc's metallib target: slangc
+  passes the compiler options of its own, and its library rounded differently from the runtime
+  compile of the same MSL, so the bundle and an override disagreed. The math mode is RELAXED on
+  BOTH sides (`MetalShader::newCompileOptions` sets `MTL::MathModeRelaxed`), and with it a
+  program compiled at run time is bit-identical to its bundled twin. It was `-ffast-math` offline
+  against the deprecated `fastMathEnabled` at run time, which macOS 27 ignores: the fast mode's
+  lossy optimisations drew `car-showcase`'s blended glass (the opacity-keeps-specular variant) up
+  to 30% darker than the relaxed compile of the SAME MSL, which MoltenVK agreed with, 8k pixels
+  of the frame, and every runtime-compiled override disagreed with the bundle by rounding. Two
+  diagnostics tell a difference in the MSL from one in the compile: `VISUTWIN_METAL_BUNDLE_SOURCE=1`
+  leaves the bundle's metallib aside so Metal compiles the bundle's own MSL at run time, and
+  `VISUTWIN_METAL_DUMP_MSL=<dir>` writes every source `MetalShader` compiles to `<dir>/<name>.metal`
+  (the bundle's are under `<build>/engine/generated/slang/work/`). A probe of a NaN or Inf has to
+  test the exponent bits (`(asuint(x) & 0x7f800000u) == 0x7f800000u`): `isnan()` folds to false
+  under a fast-math compile, and three probes read "no NaN" before that was noticed.
 - **A read-only buffer is `const device` in the MSL, by a pass over slangc's output.** slangc emits
   every `StructuredBuffer` / `ByteAddressBuffer` as `device T*`, and Apple's compiler (Metal 27 on)
   warns "writable resources in non-void vertex function" wherever a vertex entry sees one, which

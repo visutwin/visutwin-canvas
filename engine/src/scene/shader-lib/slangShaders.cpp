@@ -441,7 +441,14 @@ namespace visutwin::canvas
             if (metal) {
                 // The precompiled library, so the first use costs a load, not an MSL
                 // compile; MetalShader takes the source only when no library is given.
-                if (bundled.metalLibrary && bundled.metalLibraryBytes > 0) {
+                // VISUTWIN_METAL_BUNDLE_SOURCE=1 leaves the library aside, so Metal compiles the
+                // bundle's own MSL at run time: tells a difference in the MSL from one in the
+                // offline compile (xcrun metal) when the bundle and the runtime path disagree.
+                static const bool bundleSource = [] {
+                    const char* value = std::getenv("VISUTWIN_METAL_BUNDLE_SOURCE");
+                    return value && value[0] == '1';
+                }();
+                if (bundled.metalLibrary && bundled.metalLibraryBytes > 0 && !bundleSource) {
                     code.metalLibrary.assign(bundled.metalLibrary, bundled.metalLibrary + bundled.metalLibraryBytes);
                 }
                 code.metalSource = std::string(bundled.metalSource);

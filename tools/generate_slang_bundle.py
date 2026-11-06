@@ -350,10 +350,15 @@ def main() -> None:
                 # MetalShader compiles source at run time, not through slangc's metallib
                 # target: slangc invokes the compiler with options of its own, and the library it
                 # built rounded differently from the runtime compile of the very same MSL (TAA
-                # by a count over 44,000 pixels), so the bundle and an override disagreed.
+                # by a count over 44,000 pixels), so the bundle and an override disagreed. The
+                # math mode is the RELAXED one, which MetalShader sets at run time too: with
+                # -ffast-math the library drew a blended glass up to 30% darker than the runtime
+                # compile of the same MSL (car-showcase), which MoltenVK agreed with, while the
+                # runtime's deprecated fastMathEnabled no longer enables anything on macOS 27.
                 air_path = args.work_dir / f"{stem}.air"
                 lib_path = args.work_dir / f"{stem}.metallib"
-                run(["xcrun", "-sdk", "macosx", "metal", "-ffast-math", "-c", str(msl_path), "-o", str(air_path)])
+                run(["xcrun", "-sdk", "macosx", "metal", "-fmetal-math-mode=relaxed", "-c", str(msl_path),
+                     "-o", str(air_path)])
                 run(["xcrun", "-sdk", "macosx", "metallib", str(air_path), "-o", str(lib_path)])
                 data = lib_path.read_bytes()
                 if data[:4] != b"MTLB":
