@@ -14,7 +14,9 @@ vertex-color routing, spec-gloss and friends, scalar material maps, the material
 system. Lighting: ambient SH probes, reflection probes, LTC area lights, light
 cookies, lightmaps. Geometry and effects: skinning and morphs, the anim state
 graph, refraction, screen-space reflections, Gaussian splatting, particles,
-app-facing compute, extras, gizmos, the reference grid, the GPU profiler.
+app-facing compute, extras, gizmos, the reference grid, the GPU profiler. The last
+section, design directions from the Bevy comparison, is a design note: directions judged
+worth borrowing, each tied to the seam it would grow from, none implemented.
 
 ### Hardware Instancing
 Two per-instance strides, both column-major `float4x4` model matrix first,
@@ -1838,3 +1840,125 @@ Two traps, both of which silently produce no sky at all:
 
 With the ray stuck underground, changing sun direction or intensity looks like it
 does nothing, which is a misleading symptom.
+
+## Design directions from the Bevy comparison (2026-11-06)
+
+A design note, not a plan: four directions judged worth borrowing from Bevy (0.20-dev
+at 2026-11-05, checkout `~/sources/visualization/bevy`), each tied to the seam in this
+engine it would grow from, and the three directions judged NOT worth it. The survey itself
+(numbers, feature gaps in both directions, what changed in Bevy month by month) is in the
+local engineering notes; what stays here is only what should shape a design decision.
+Nothing in this section is implemented, and nothing elsewhere in this file depends on it.
+
+The two engines bet opposite ways. Bevy is an ECS first and a renderer second: the renderer
+is a second ECS world filled by an extract step, rendering is a set of per-camera schedules,
+and everything sits on wgpu. This engine is a renderer first: a frame graph rebuilt every
+frame over two backends it owns and tunes, with bit-identical golden images across them.
+Each direction below keeps that bet and takes a MECHANISM, never the ECS or wgpu shape
+around it.
+
+### 1. Retained draw lists, Hi-Z occlusion and multi-draw
+
+Bevy's mesh path keeps, per view, a binned draw list across frames (bins keyed on
+pipeline, material and mesh; an entity that did not change is not re-queued), culls on the
+GPU in two phases (draw last frame's visible set, build a depth pyramid from it, test the
+rest against the pyramid, draw what passes), and issues each bin as one multi-draw indirect
+call. The per-frame CPU cost of a large, mostly static scene is then near constant.
+
+Here every frame re-culls on the CPU (`Renderer::cullMeshInstances`, once per camera and
+layer into `CulledInstances`, keyed on the frustum), re-sorts (`sortKey.h`) and binds per
+draw with change-detection caches. The pieces a retained path would be built from exist
+and are opt-ins no example uses: `ComputeInstanceCuller` (the `instance-cull-reset` and
+`instance-cull` programs, one output per camera through `MeshInstance::gpuCullOutputFor`),
+the per-frame indirect slots (`GraphicsDevice::getIndirectDrawSlot`,
+`MeshInstance::setIndirect`), the sub-draw lists (`DrawCommands`, `MeshInstance::setMultiDraw`,
+issued as one draw call per sub-draw today), `RenderPassDepthResolve` and the mip generators
+for a depth pyramid. The order to build it in: (a) keep each (camera, layer) cull set when
+nothing in it moved (a mesh instance version bumped by transform, material, mask and
+visibility changes, compared against the set's stamp, so a static scene skips the sweep and
+the sort); (b) a Hi-Z pass after the prepass or the previous frame's depth, a min-max pyramid
+rendered level by level as `GaussianMipmapGenerator` renders its chain; (c) a second cull
+dispatch testing instances against it, writing the indirect slots; (d) a true multi-draw
+call behind `drawWithCommands` on both backends (Metal `drawIndexedPrimitives` with an
+indirect buffer per draw, or indirect command buffers; Vulkan `vkCmdDrawIndexedIndirectCount`).
+Each step is testable alone: (a) against the inline old sweep, as the cull cache was
+verified; (b) and (c) against the CPU cull, as `tests/gpuInstanceCullTests.cpp` does.
+Scope rule: a retained list must be invalidated by everything the sweep reads (`active()`,
+layers, masks, the frustum), or a disabled entity keeps rendering, which is the failure the
+`active()` rules in `CLAUDE.md` exist to prevent.
+
+### 2. Bindless material binding
+
+Bevy binds materials through binding arrays (one slab of textures indexed by a per-draw
+material index), so a material's maps are not slots of a pipeline layout. Here a material
+is the binding table in `shaderBindings.h`: one row per map with a Metal slot and a Vulkan
+set-1 binding, fifty-two slots taken, MoltenVK's sixteen samplers per stage reached, every
+new map a SEPARATE image through the shared sampler, and the quad inputs sharing the rows.
+Metal argument buffers (`metalPipelineLayout.h` already holds a bind group over an
+argument encoder, kept in the device's bind-group formats and off the per-draw path today)
+and Vulkan descriptor indexing (`VK_EXT_descriptor_indexing` is core in 1.2,
+with `runtimeDescriptorArray`; MoltenVK supports it on Apple GPUs) would replace the
+material rows with one texture array and one sampler array indexed from `MaterialUniforms`:
+a new map is then a field in `materialUniformFields.h` and an index, not a row, a slot, a
+macro and a binder case. What it must keep: `TextureSlot::slot` as the material-facing
+name (so parsers and `StandardMaterial` do not change), the scene rows (set 3) as they are,
+and the bundle's reflection check (`validateForwardLayout`) extended to the array. What it
+would retire: `vulkanMaterialBindingForMetalSlot`, the Metal sampler budget, and the
+append-only rule for material rows. Bevy's own change of 2026-10 that merges redundant
+view-binding samplers to stay under WebGPU's sampler limit is the same ceiling this engine
+meets on MoltenVK, and the planned WebGPU backend will meet it again: do this before that
+backend, not after.
+
+### 3. An extract and render split with a task pool
+
+Bevy runs simulation and rendering one frame apart on two threads (pipelined rendering:
+frame N renders while frame N+1 updates) and its systems in parallel on a task pool. This
+engine's frame is single-threaded end to end; threads appear only in loading, the
+lightmapper, Jolt and the splat sorter. What to take is the THREAD SHAPE, not the ECS:
+`Engine::render` would copy what the frame reads from the scene (the cull sets, the
+transforms of the instances in them, the light list, the camera and layer state: the
+inputs `buildFrameGraph` and `renderForwardLayer` take) into a render-side snapshot and
+encode the previous frame's snapshot while the next update runs. The backends are nearer
+to this than the framework: the uniform and palette rings, the frames-in-flight rules for
+CPU-written buffers and the per-draw caches already assume the CPU runs ahead of the GPU.
+The framework is not: component lists, `GraphNode` world transforms (lazy, synced on
+read), scripts and the UI sync all run on the one thread and mutate what the renderer
+reads. Two rules follow before any of it is attempted: the snapshot is a COPY (a renderer
+reading scene objects from a second thread would race every setter), and a frame of input
+latency is the price (the `waitForNextFrame` rule above measured 7 ms against 18 at
+120 Hz; a pipelined frame gives most of that back). A task pool for `parallelFor`-shaped
+work (the cull sweep per camera, the sort per layer, shadow caster lists per light) is the
+smaller, separable half and can come first.
+
+### 4. A remote protocol and a reflection-lite inspector
+
+Bevy's remote protocol is JSON-RPC over HTTP with eighteen world methods (query, get and
+mutate components and resources, spawn, despawn, reparent, trigger an event) and a schema
+registry; its inspector is built on it and attaches to a running app, driven by
+annotations (range, step, units) on the reflected types. For a digital twin that surface
+is the product's own API as much as a debugging aid. This engine has no reflection and
+should not build one; the minimum is a per-component-type registration of named
+properties (getter, setter, type, range and unit) alongside `listInstance`, served over a
+WebSocket or HTTP endpoint from `Engine::components()` (`ComponentRegistry`, entities by
+name or path through the hierarchy), with the ImGui overlay (`engine/src/overlay/`) as the
+first local client. Keep the protocol's shape (method names, JSON encoding of the math
+types) stable from the first version, since visutwin-geo and visutwin-viz would speak it
+too.
+
+### Cheap and separable
+
+Order-independent transparency (per-pixel linked lists, a viz need: overlapping
+transparent isosurfaces and streamlines composite wrongly back-to-front); a settings file
+framework (reflect-derived in Bevy, a named-property table here, the same table item 4
+needs); a shader file watcher over `VISUTWIN_SLANG_RUNTIME` and `shaderSourceRoots()`
+(the override path already recompiles from the tree, so a watcher only has to bump the
+chunk registry's version); visibility-range LOD with a dithered crossfade (the opacity
+dither feature already exists for the fade).
+
+### Not worth borrowing
+
+A render-world ECS (the ergonomics are the language's, not a rendering gain; the frame
+graph is what makes a frame readable and debuggable here); wgpu or any shared translation
+layer as the Metal and Vulkan backend (it would forfeit the per-backend tuning the golden
+suite and the GPU-counter work rest on, and Bevy still fixes Metal-only layout traps of the
+kind `CLAUDE.md`'s 3-vector-then-scalar rule records); a reflection system as such.
