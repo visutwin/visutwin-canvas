@@ -56,6 +56,8 @@ namespace visutwin::canvas
 
     class Compute;
     class Texture;
+    struct BindlessTableDesc;
+    class BindlessTable;
     class Material;
     struct MaterialUniforms;
     struct RenderTargetOptions;
@@ -1228,6 +1230,24 @@ namespace visutwin::canvas
 
         virtual std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions& options) = 0;
         virtual bool supportsCompute() const { return false; }
+
+        /// EXPERIMENTAL (bindlessTable.h): whether createBindlessTable() can build a table
+        /// of textures and samplers a program indexes at run time. Metal: argument buffers
+        /// tier 2. Vulkan: descriptor indexing with update-after-bind sampled images and
+        /// partially bound bindings, and an eighth descriptor set.
+        virtual bool supportsBindlessTextures() const { return false; }
+        /// The array sizes a program declares for the table (0 without support).
+        virtual uint32_t bindlessTextureCapacity() const { return 0; }
+        virtual uint32_t bindlessSamplerCapacity() const { return 0; }
+        /// Null without support, or when the description exceeds the capacities.
+        virtual std::shared_ptr<BindlessTable> createBindlessTable(const BindlessTableDesc& desc)
+        {
+            (void)desc;
+            return nullptr;
+        }
+        /// The table every draw that follows binds (null: none), whether or not its program
+        /// reads it; set it before the pass or between draws.
+        virtual void setBindlessTable(BindlessTable* table) { (void)table; }
         virtual void computeDispatch(const std::vector<Compute*>& computes, const std::string& label = "")
         {
             (void)computes; (void)label;

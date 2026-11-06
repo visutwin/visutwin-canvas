@@ -9,6 +9,8 @@
 #include "vulkanRenderPipeline.h"
 
 #include <algorithm>
+#include <array>
+#include <iterator>
 #include "vulkanGraphicsDevice.h"
 #include "vulkanShader.h"
 #include "vulkanUtils.h"
@@ -296,6 +298,10 @@ namespace visutwin::canvas
             vkDestroyDescriptorSetLayout(vk, _gpuDrivenSetLayout, nullptr);
             _gpuDrivenSetLayout = VK_NULL_HANDLE;
         }
+        if (_bindlessSetLayout != VK_NULL_HANDLE) {
+            vkDestroyDescriptorSetLayout(vk, _bindlessSetLayout, nullptr);
+            _bindlessSetLayout = VK_NULL_HANDLE;
+        }
     }
 
     void VulkanRenderPipeline::createLayouts()
@@ -448,6 +454,34 @@ namespace visutwin::canvas
         createSetLayout(
             gpuLayoutInfo, _gpuDrivenSetLayout, "GPU-driven");
 
+        // EXPERIMENTAL set 7, the bindless table (bindlessTable.h): the samplers at
+        // binding 0, the sampled images at binding 1, both update-after-bind (the kind of
+        // set MoltenVK backs with a Metal argument buffer, with its own larger limits) and
+        // partially bound (an entry nothing wrote is legal as long as no draw reads it).
+        // Only with descriptor indexing; every pipeline then carries the eighth set, read
+        // or not.
+        if (_device->supportsBindlessTextures()) {
+            std::array<VkDescriptorSetLayoutBinding, 2> bindlessBindings{};
+            bindlessBindings[0] = {0, VK_DESCRIPTOR_TYPE_SAMPLER, _device->bindlessSamplerCapacity(),
+                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+            bindlessBindings[1] = {1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, _device->bindlessTextureCapacity(),
+                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+            const VkDescriptorBindingFlags bindlessFlag =
+                VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+            const std::array<VkDescriptorBindingFlags, 2> bindlessFlags{bindlessFlag, bindlessFlag};
+            VkDescriptorSetLayoutBindingFlagsCreateInfo bindlessFlagsInfo{
+                VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO};
+            bindlessFlagsInfo.bindingCount = static_cast<uint32_t>(bindlessFlags.size());
+            bindlessFlagsInfo.pBindingFlags = bindlessFlags.data();
+            VkDescriptorSetLayoutCreateInfo bindlessLayoutInfo{
+                VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+            bindlessLayoutInfo.pNext = &bindlessFlagsInfo;
+            bindlessLayoutInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+            bindlessLayoutInfo.bindingCount = static_cast<uint32_t>(bindlessBindings.size());
+            bindlessLayoutInfo.pBindings = bindlessBindings.data();
+            createSetLayout(bindlessLayoutInfo, _bindlessSetLayout, "bindless");
+        }
+
         // Push constants: 2 × mat4 = 128 bytes. The fragment stage reads the model
         // matrix too (dynamic refraction's per-axis model scale).
         VkPushConstantRange pushRange{};
@@ -458,10 +492,11 @@ namespace visutwin::canvas
         VkDescriptorSetLayout setLayouts[] = {
             _materialSetLayout, _textureSetLayout, _lightingSetLayout,
             _sceneSetLayout, _geometrySetLayout, _clusterSetLayout,
-            _gpuDrivenSetLayout};
+            _gpuDrivenSetLayout, _bindlessSetLayout};
+        static_assert(std::size(setLayouts) == kBindlessTableVulkanSet + 1);
 
         VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-        layoutInfo.setLayoutCount = 7;
+        layoutInfo.setLayoutCount = _bindlessSetLayout != VK_NULL_HANDLE ? kBindlessTableVulkanSet + 1 : kBindlessTableVulkanSet;
         layoutInfo.pSetLayouts = setLayouts;
         layoutInfo.pushConstantRangeCount = 1;
         layoutInfo.pPushConstantRanges = &pushRange;

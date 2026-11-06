@@ -66,6 +66,10 @@ if(VISUTWIN_SHADER_SLANG)
     # (VISUTWIN_SLANG_RUNTIME) produces code for the same backend.
     visutwin_add_unit_test(visutwin-slang-bundle-tests slang-bundle slangBundleTests.cpp)
     visutwin_add_unit_test(visutwin-slang-gpu-tests slang-gpu slangGpuTests.cpp LABELS gpu TIMEOUT 120)
+    # EXPERIMENTAL bindless table (tests/bindlessGpuTests.cpp): one Slang program reading 64
+    # textures through 4 samplers by run-time index on this build's device, Metal argument
+    # buffer or Vulkan update-after-bind set; `gpu` label.
+    visutwin_add_unit_test(visutwin-bindless-gpu-tests bindless-gpu bindlessGpuTests.cpp LABELS gpu TIMEOUT 120)
 endif()
 
 # Golden images (tools/golden_images.py): renders deterministic examples with this

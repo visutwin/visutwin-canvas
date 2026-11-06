@@ -193,6 +193,14 @@ namespace visutwin::canvas
             const std::vector<uint8_t>& data = {}) override;
         std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions& options) override;
         bool supportsCompute() const override { return true; }
+
+        // EXPERIMENTAL bindless table (bindlessTable.h): one argument buffer of GPU
+        // resource ids at buffer slot kBindlessTableMetalBufferSlot, both stages.
+        bool supportsBindlessTextures() const override;
+        uint32_t bindlessTextureCapacity() const override { return kBindlessTextures; }
+        uint32_t bindlessSamplerCapacity() const override { return kBindlessSamplers; }
+        std::shared_ptr<BindlessTable> createBindlessTable(const BindlessTableDesc& desc) override;
+        void setBindlessTable(BindlessTable* table) override;
         void computeDispatch(const std::vector<Compute*>& computes, const std::string& label = "") override;
 
         /// A shared-storage MTLBuffer write lands directly in the memory the GPU
@@ -423,6 +431,14 @@ namespace visutwin::canvas
         // GPU pass profiler (nullptr when unsupported). Also stored in the base
         // class _gpuProfiler for the public accessor.
         std::shared_ptr<gpu::MetalGpuProfiler> _metalGpuProfiler;
+
+        // EXPERIMENTAL bindless table: the one set, and the one the open encoder has
+        // bound (forgotten with the encoder by resetEncoderStateCache). Not one-shot.
+        static constexpr uint32_t kBindlessTextures = 1024;
+        static constexpr uint32_t kBindlessSamplers = 16;
+        BindlessTable* _bindlessTable = nullptr;
+        BindlessTable* _encoderBindlessTable = nullptr;
+        void bindBindlessTable(MTL::RenderCommandEncoder* passEncoder);
 
         // Gaussian splat state: set by setGSplatState(), consumed by draw().
         // Splats bind at vertex slot 7, order at 8, SH coeffs at 12, params bytes at 11.

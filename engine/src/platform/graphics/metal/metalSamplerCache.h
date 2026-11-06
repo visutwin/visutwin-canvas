@@ -48,6 +48,12 @@ namespace visutwin::canvas
         /// The sampler for a texture left at its defaults: repeat, trilinear, anisotropic.
         [[nodiscard]] MTL::SamplerState* defaultSampler() const { return _defaultSampler; }
 
+        /// A new sampler state for `state` (the caller releases it). With
+        /// `supportArgumentBuffers` it may be written into an argument buffer (a bindless
+        /// table); such a sampler counts against the device's maxArgumentBufferSamplerCount.
+        [[nodiscard]] static MTL::SamplerState* newSamplerState(MTL::Device* device,
+            const TextureSamplerState& state, bool supportArgumentBuffers);
+
         /// The sampler for `texture`'s own state; the default sampler for null.
         [[nodiscard]] MTL::SamplerState* forTexture(const Texture* texture);
 

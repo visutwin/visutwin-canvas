@@ -640,7 +640,10 @@ reflected bindings fall outside the table. The rules the rows encode:
 7-8=clustered (fragment) / gsplat data and order, particle pool and sort order (vertex),
 9=morph deltas / a mesh emitter's vertices (vertex only; the atmosphere the fragment stage
 once took there is inside the lighting block), 10=morph params, 11=gsplat / particle params
-(particle params reach the fragment stage too).
+(particle params reach the fragment stage too), 12=gsplat SH (vertex), 13=the EXPERIMENTAL
+bindless table's argument buffer (both stages; `platform/graphics/bindlessTable.h`, whose
+Vulkan twin is descriptor set 7, the eighth and last MoltenVK allows: the draw layout has eight
+sets when descriptor indexing is on).
 
 Vulkan does NOT mirror these numerically — it binds through descriptor sets
 (`vulkanUniformLayouts.h`). Keep the two mappings in sync conceptually, not by

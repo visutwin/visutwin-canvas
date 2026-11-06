@@ -582,6 +582,7 @@ namespace visutwin::canvas
             !bindGpuDrivenSet(cmd, resources)) {
             return;
         }
+        bindBindlessSet(cmd);
 
         issueDraw(cmd, primitive, indexBuffer, numInstances, indirectSlot);
         recordDraw(primitive, numInstances);

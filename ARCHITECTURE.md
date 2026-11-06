@@ -1909,6 +1909,70 @@ view-binding samplers to stay under WebGPU's sampler limit is the same ceiling t
 meets on MoltenVK, and the planned WebGPU backend will meet it again: do this before that
 backend, not after.
 
+**Spike result (2026-11-06): the mechanism works on both backends.** `tests/bindlessGpuTests.cpp`
+(`gpu` label) draws a Slang program that reads 64 two-by-two textures through 4 samplers from
+ONE table by a run-time index, per pixel (each 8x8 cell its own entry, a divergent index) and
+per draw (a uniform index), on this build's device, and checks every cell's texture (red) and
+sampler (the quadrant its wrap mode selects). Both pass 11 of 11, under Metal's API validation
+and Vulkan's validation layer. The seam is EXPERIMENTAL and nothing in the engine's own programs
+reads it: `platform/graphics/bindlessTable.h` (`BindlessTableDesc`, `BindlessTable`, the slot
+constants), `GraphicsDevice::supportsBindlessTextures` / `bindlessTextureCapacity` /
+`bindlessSamplerCapacity` / `createBindlessTable` / `setBindlessTable`, Metal's
+`MetalGraphicsDevice::createBindlessTable` (an argument buffer of GPU resource ids, no
+argument encoder: `gpuResourceID()` written straight into a shared buffer, bound at buffer 13 on
+both stages once per encoder with `useResources` for the textures) and Vulkan's
+`createBindlessTable` in `vulkanGraphicsDeviceDescriptors.cpp` (descriptor set 7, update-after-bind
+and partially bound, from a pool of its own; the draw layout has eight sets when descriptor
+indexing is on, `VulkanRenderPipeline::bindlessSetLayout`). What the spike found:
+
+- **Slang.** The table is a `ParameterBlock<struct>` with SIZED arrays, samplers first: on
+  Metal that is an argument buffer struct (`array<texture2d, N>` members) at the block's
+  `register(bN)`; a sized array OUTSIDE a parameter block is a texture TABLE argument
+  (`array<texture2d, N> [[texture(n)]]`, which spends the argument-table slots this is meant to
+  escape); an unbounded array is a flexible array member in the MSL, which Apple's compiler
+  rejects ("flexible array members are a C99 feature"), while on SPIR-V it is a
+  `RuntimeDescriptorArray`. `NonUniformResourceIndex` is refused on the Metal target
+  (E36107, so it is the `VT_NONUNIFORM` macro: the bare index on Metal, where a divergent
+  index needs no qualifier), and on SPIR-V the `NonUniform` decoration is LOST when the
+  intrinsic sits inside a helper function instead of at the indexing expression (the
+  decoration count read 0 through a helper, 7 inline): write it at the subscript. The block's
+  members take consecutive bindings of its set (samplers 0, textures 1).
+- **Metal (Apple M2 Max).** Argument buffers tier 2. 1024 textures and 16 samplers tested;
+  Apple's compiler accepts tables of 65,536 and 500,000 textures. A sampler in an argument
+  buffer must be created with `supportArgumentBuffers` (`MetalSamplerCache::newSamplerState`
+  takes the flag; the cache's own samplers do not have it) and counts against
+  `maxArgumentBufferSamplerCount`, 1024 for the whole device. The textures must be made resident
+  per encoder (`useResources`, one call with the array); a heap and `useHeap` would replace
+  that for thousands. The buffer is 8 bytes an entry.
+- **Vulkan (MoltenVK 1.4.2).** Every descriptor-indexing feature is there (non-uniform
+  sampled-image indexing, partially bound, variable count, runtime arrays, update-after-bind).
+  The limits are the finding: `maxBoundDescriptorSets` is 8, so set 7 is the LAST set
+  (nothing is left for a second table); an ordinary set is bounded by 16 samplers and 256
+  sampled images a stage, an UPDATE-AFTER-BIND set by 1024 samplers and 1,000,000 images. So
+  MoltenVK's sampler ceiling does NOT apply to a sampler array in an update-after-bind set, and
+  what lifts it is MoltenVK backing such sets with Metal argument buffers: with
+  `MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0` the after-bind limits fall to 16 and 128 and the
+  device declines the table (the default of 1.4.2 is on). The other seven sets stay on argument
+  tables, so their per-draw cost is unchanged. One unexplained one-off: the first Vulkan run
+  after the build spent 21 s between the shader's creation and the table's (the second run
+  took 2 s in all); not reproduced.
+- **What makes the full replacement harder than the note above assumed.** (1) With set 7
+  the last one on MoltenVK, the material rows cannot sit BESIDE a table: set 1 itself has to
+  become the bindless set, with the quad inputs and the per-texture samplers moving into it,
+  and the scene rows (set 3) staying. (2) A Metal table is sized at COMPILE time, so the
+  capacity is a define the bundle builds every program with (one constant per build), and a
+  table bigger than it needs a rebuild. (3) A table names the textures' GPU objects at creation:
+  a texture recreated afterwards (a render target made over it, a resize, a Vulkan re-upload at
+  a changed shape) must rewrite its entry, so `Texture` needs a hook that publishes a new GPU
+  object and the table a per-frame update path, under the frames-in-flight rule on Metal (a
+  shared buffer a frame in flight still reads: a ring of tables, or a per-frame copy) while
+  update-after-bind lets Vulkan write a bound set. (4) The per-draw material index replaces the
+  texture slots in `MaterialUniforms` (one `uint` per map), and the material's uniforms
+  version then covers a texture change for free, where today a texture setter that skips
+  `markUniformsDirty` is a trap. (5) The WebGPU backend: wgpu's binding arrays are a native
+  feature, not in the browser standard, so that backend would need the slot path kept as its
+  fallback; verify before counting on it.
+
 ### 3. An extract and render split with a task pool
 
 Bevy runs simulation and rendering one frame apart on two threads (pipelined rendering:

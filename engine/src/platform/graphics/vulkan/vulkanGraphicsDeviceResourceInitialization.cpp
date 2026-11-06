@@ -929,7 +929,66 @@ namespace visutwin::canvas
             _volumeSliceRendering = portabilityFeatures.imageView2DOn3DImage == VK_TRUE;
         }
 
+        // EXPERIMENTAL bindless table (bindlessTable.h): descriptor indexing, enabled only
+        // when every piece set 7 needs is there. The capacities are read off the
+        // update-after-bind limits, which are the ones a layout holding such a set is
+        // checked against (MoltenVK 1.4.2: 16 samplers a stage otherwise, 1024 after bind;
+        // 256 sampled images otherwise, a million after bind).
+        VkPhysicalDeviceVulkan12Features features12Supported{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+        {
+            VkPhysicalDeviceFeatures2 query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+            query.pNext = &features12Supported;
+            vkGetPhysicalDeviceFeatures2(_physicalDevice, &query);
+            features12Supported.pNext = nullptr;
+        }
+        VkPhysicalDeviceVulkan12Properties props12{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES};
+        {
+            VkPhysicalDeviceProperties2 query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+            query.pNext = &props12;
+            vkGetPhysicalDeviceProperties2(_physicalDevice, &query);
+            props12.pNext = nullptr;
+        }
+        constexpr uint32_t kBindlessTexturesWanted = 1024;
+        // Every other set's images and samplers also count against the after-bind limits
+        // once the layout holds such a set; leave them a generous margin.
+        constexpr uint32_t kOtherSetsMargin = 256;
+        _descriptorIndexing =
+            features12Supported.descriptorIndexing == VK_TRUE &&
+            features12Supported.shaderSampledImageArrayNonUniformIndexing == VK_TRUE &&
+            features12Supported.descriptorBindingPartiallyBound == VK_TRUE &&
+            features12Supported.descriptorBindingSampledImageUpdateAfterBind == VK_TRUE &&
+            props.limits.maxBoundDescriptorSets > kBindlessTableVulkanSet &&
+            props12.maxPerStageDescriptorUpdateAfterBindSamplers >= kBindlessSamplers + kOtherSetsMargin &&
+            props12.maxPerStageDescriptorUpdateAfterBindSampledImages > kOtherSetsMargin;
+        _bindlessTextureCapacity = _descriptorIndexing
+            ? std::min(kBindlessTexturesWanted, props12.maxPerStageDescriptorUpdateAfterBindSampledImages - kOtherSetsMargin)
+            : 0;
+        VkPhysicalDeviceVulkan12Features features12Enable{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+        features12Enable.descriptorIndexing = VK_TRUE;
+        features12Enable.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+        features12Enable.descriptorBindingPartiallyBound = VK_TRUE;
+        features12Enable.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+        // Unbounded arrays are allowed where the driver has them, though the table's
+        // arrays are sized (Metal needs them so).
+        features12Enable.runtimeDescriptorArray = features12Supported.runtimeDescriptorArray;
+        spdlog::info("Vulkan descriptor indexing: {} (bound sets {}, samplers/stage {} after bind {}, "
+            "sampled images/stage {} after bind {}, nonuniform {}, partially bound {}, runtime arrays {}); "
+            "bindless table {} textures, {} samplers",
+            _descriptorIndexing ? "enabled" : "not enabled", props.limits.maxBoundDescriptorSets,
+            props.limits.maxPerStageDescriptorSamplers, props12.maxPerStageDescriptorUpdateAfterBindSamplers,
+            props.limits.maxPerStageDescriptorSampledImages, props12.maxPerStageDescriptorUpdateAfterBindSampledImages,
+            features12Supported.shaderSampledImageArrayNonUniformIndexing == VK_TRUE,
+            features12Supported.descriptorBindingPartiallyBound == VK_TRUE,
+            features12Supported.runtimeDescriptorArray == VK_TRUE,
+            _bindlessTextureCapacity, bindlessSamplerCapacity());
+
         vkb::DeviceBuilder deviceBuilder{vkbPhysical};
+        if (_descriptorIndexing) {
+            deviceBuilder.add_pNext(&features12Enable);
+        }
         deviceBuilder.add_pNext(&features13);
         deviceBuilder.add_pNext(&features2);
         if (portabilitySubset) {

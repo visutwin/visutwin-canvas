@@ -5,6 +5,7 @@
 //
 #include <cmath>
 #include "metalGraphicsDevice.h"
+#include "platform/graphics/bindlessTable.h"
 
 #include "platform/graphics/textureSamplerState.h"
 #include "platform/graphics/runLoopWait.h"
@@ -708,12 +709,118 @@ namespace visutwin::canvas
 
     void MetalGraphicsDevice::resetEncoderStateCache()
     {
+        _encoderBindlessTable = nullptr;
         _pipelineState = nullptr;
         _encoderVertexBuffer0 = nullptr;
         _encoderInstancingBuffer = nullptr;
         _encoderDepthStencilState = nullptr;
         _encoderCullMode = -1;
         _encoderStencilReferenceValid = false;
+    }
+
+    namespace
+    {
+        // EXPERIMENTAL bindless table: samplers first, then textures, one 64-bit GPU
+        // resource id per entry, the layout Slang gives the parameter block's struct
+        // (array<sampler, S> then array<texture2d, T>).
+        class MetalBindlessTable final : public BindlessTable
+        {
+        public:
+            MTL::Buffer* buffer = nullptr;
+            std::vector<MTL::SamplerState*> samplers;   // owned
+            std::vector<MTL::Texture*> textures;        // retained
+            std::vector<MTL::Resource*> residency;       // the textures, for useResources
+
+            ~MetalBindlessTable() override
+            {
+                for (auto* sampler : samplers) {
+                    sampler->release();
+                }
+                for (auto* texture : textures) {
+                    texture->release();
+                }
+                if (buffer) {
+                    buffer->release();
+                }
+            }
+        };
+        static_assert(sizeof(MTL::ResourceID) == 8, "a GPU resource id is one 64-bit word");
+    }
+
+    bool MetalGraphicsDevice::supportsBindlessTextures() const
+    {
+        return _device != nullptr && _device->argumentBuffersSupport() == MTL::ArgumentBuffersTier2;
+    }
+
+    std::shared_ptr<BindlessTable> MetalGraphicsDevice::createBindlessTable(const BindlessTableDesc& desc)
+    {
+        if (!supportsBindlessTextures()) {
+            spdlog::error("MetalGraphicsDevice: bindless tables need argument buffers tier 2");
+            return nullptr;
+        }
+        if (desc.textures.size() > kBindlessTextures || desc.samplers.size() > kBindlessSamplers) {
+            spdlog::error("MetalGraphicsDevice: bindless table of {} textures / {} samplers exceeds {} / {}",
+                desc.textures.size(), desc.samplers.size(), kBindlessTextures, kBindlessSamplers);
+            return nullptr;
+        }
+        auto table = std::make_shared<MetalBindlessTable>();
+        const size_t bytes = (kBindlessSamplers + kBindlessTextures) * sizeof(MTL::ResourceID);
+        table->buffer = _device->newBuffer(bytes, MTL::ResourceStorageModeShared);
+        if (!table->buffer) {
+            spdlog::error("MetalGraphicsDevice: bindless table buffer allocation failed");
+            return nullptr;
+        }
+        table->buffer->setLabel(NS::String::string("bindless table", NS::UTF8StringEncoding));
+        auto* ids = static_cast<MTL::ResourceID*>(table->buffer->contents());
+        std::memset(ids, 0, bytes);
+        for (size_t i = 0; i < desc.samplers.size(); ++i) {
+            MTL::SamplerState* sampler = MetalSamplerCache::newSamplerState(_device, desc.samplers[i], true);
+            if (!sampler) {
+                spdlog::error("MetalGraphicsDevice: bindless sampler {} failed", i);
+                return nullptr;
+            }
+            table->samplers.push_back(sampler);
+            ids[i] = sampler->gpuResourceID();
+        }
+        for (size_t i = 0; i < desc.textures.size(); ++i) {
+            Texture* texture = desc.textures[i];
+            auto* hw = texture ? dynamic_cast<gpu::MetalTexture*>(texture->impl()) : nullptr;
+            MTL::Texture* raw = hw ? hw->raw() : nullptr;
+            if (!raw) {
+                continue;
+            }
+            raw->retain();
+            table->textures.push_back(raw);
+            table->residency.push_back(raw);
+            ids[kBindlessSamplers + i] = raw->gpuResourceID();
+        }
+        spdlog::info("Metal bindless table: {} textures and {} samplers in a {}-byte argument buffer "
+            "(tier 2; device maxArgumentBufferSamplerCount={})",
+            table->textures.size(), table->samplers.size(), bytes, _device->maxArgumentBufferSamplerCount());
+        return table;
+    }
+
+    void MetalGraphicsDevice::setBindlessTable(BindlessTable* table)
+    {
+        _bindlessTable = table;
+    }
+
+    void MetalGraphicsDevice::bindBindlessTable(MTL::RenderCommandEncoder* passEncoder)
+    {
+        if (_bindlessTable == _encoderBindlessTable) {
+            return;
+        }
+        if (auto* table = static_cast<MetalBindlessTable*>(_bindlessTable)) {
+            passEncoder->setVertexBuffer(table->buffer, 0, kBindlessTableMetalBufferSlot);
+            passEncoder->setFragmentBuffer(table->buffer, 0, kBindlessTableMetalBufferSlot);
+            // An argument buffer only names its textures; the encoder must be told they
+            // are read, or they may not be resident when the draw runs.
+            if (!table->residency.empty()) {
+                passEncoder->useResources(table->residency.data(), table->residency.size(),
+                    MTL::ResourceUsageRead, MTL::RenderStageVertex | MTL::RenderStageFragment);
+            }
+        }
+        _encoderBindlessTable = _bindlessTable;
     }
 
     MTL::DepthStencilState* MetalGraphicsDevice::resolveDepthStencilState(const DepthState* depthState,
@@ -1487,6 +1594,7 @@ namespace visutwin::canvas
         bindDrawSampler(passEncoder);
         applyDepthStencilState(passEncoder);
         bindPendingDrawResources(passEncoder);
+        bindBindlessTable(passEncoder);
 
         encodeDraw(passEncoder, primitive, *indexBinding, numInstances, indirectSlot);
         recordDraw(primitive, numInstances);

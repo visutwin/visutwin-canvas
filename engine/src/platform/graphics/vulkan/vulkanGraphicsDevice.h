@@ -27,6 +27,7 @@
 
 #include "platform/graphics/shaderDiskCache.h"
 #include "platform/graphics/gpu.h"
+#include "platform/graphics/bindlessTable.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
 #include "platform/graphics/shaderBindings.h"
@@ -344,6 +345,15 @@ namespace visutwin::canvas
                 ? PixelFormat::PIXELFORMAT_RGBA8 : PixelFormat::PIXELFORMAT_BGRA8;
         }
         bool supportsCompute() const override { return true; }
+
+        // EXPERIMENTAL bindless table (bindlessTable.h): descriptor set
+        // kBindlessTableVulkanSet, update-after-bind and partially bound, which is the
+        // set kind MoltenVK gives a Metal argument buffer and its larger limits.
+        bool supportsBindlessTextures() const override { return _descriptorIndexing; }
+        uint32_t bindlessTextureCapacity() const override { return _bindlessTextureCapacity; }
+        uint32_t bindlessSamplerCapacity() const override { return _descriptorIndexing ? kBindlessSamplers : 0; }
+        std::shared_ptr<BindlessTable> createBindlessTable(const BindlessTableDesc& desc) override;
+        void setBindlessTable(BindlessTable* table) override;
         void computeDispatch(const std::vector<Compute*>& computes,
             const std::string& label = "") override;
 
@@ -948,7 +958,7 @@ namespace visutwin::canvas
                 VkDescriptorSet set = VK_NULL_HANDLE;
                 uint32_t dynamicOffset = 0;
             };
-            std::array<Set, 7> sets{};
+            std::array<Set, 8> sets{};
             VkBuffer vertexBuffer = VK_NULL_HANDLE;
             VkBuffer instanceBuffer = VK_NULL_HANDLE;
             VkBuffer indexBuffer = VK_NULL_HANDLE;
@@ -976,6 +986,8 @@ namespace visutwin::canvas
         void resetBoundDrawState();
         // Binds `set` at `index` unless it is what is bound there; `dynamicOffset` is
         // null for a set with no dynamic buffer.
+        /// EXPERIMENTAL: binds the set bindless table at set kBindlessTableVulkanSet, if one is set.
+        void bindBindlessSet(VkCommandBuffer cmd);
         void bindSetIfChanged(VkCommandBuffer cmd, uint32_t index, VkDescriptorSet set,
             const uint32_t* dynamicOffset = nullptr);
         struct ClusterSetReuse
@@ -996,6 +1008,13 @@ namespace visutwin::canvas
         // as maxAnisotropy(), which both backends' samplers read.
         bool _samplerAnisotropyEnabled = false;
         bool _dualSrcBlendEnabled = false;
+        // EXPERIMENTAL bindless table: the device enabled descriptor indexing with
+        // update-after-bind sampled images and partially bound bindings, and has an eighth
+        // descriptor set to spare; the capacities the draw layout's set 7 is sized with.
+        static constexpr uint32_t kBindlessSamplers = 16;
+        bool _descriptorIndexing = false;
+        uint32_t _bindlessTextureCapacity = 0;
+        BindlessTable* _bindlessTable = nullptr;
         bool _independentBlendEnabled = false;
         bool _textureCompressionAstcLdr = false;
         bool _textureCompressionBc = false;

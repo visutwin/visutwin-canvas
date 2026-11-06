@@ -9,6 +9,7 @@
 #include "vulkanGraphicsDevice.h"
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <VkBootstrap.h>
 #include <SDL3/SDL_vulkan.h>
@@ -287,6 +288,153 @@ namespace visutwin::canvas
                 _uniformRing->capacityPerFrame());
         }
         return offset;
+    }
+
+    // ---- EXPERIMENTAL bindless table (bindlessTable.h) --------------------------------
+
+    namespace
+    {
+        class VulkanBindlessTable final : public BindlessTable
+        {
+        public:
+            VulkanGraphicsDevice* device = nullptr;
+            VkDescriptorPool pool = VK_NULL_HANDLE;
+            VkDescriptorSet set = VK_NULL_HANDLE;
+            std::vector<VkSampler> samplers;
+
+            ~VulkanBindlessTable() override
+            {
+                if (!device) {
+                    return;
+                }
+                device->deferDestroy([vk = device->device(), pool = pool, samplers = samplers] {
+                    for (const VkSampler sampler : samplers) {
+                        vkDestroySampler(vk, sampler, nullptr);
+                    }
+                    if (pool != VK_NULL_HANDLE) {
+                        vkDestroyDescriptorPool(vk, pool, nullptr);
+                    }
+                });
+            }
+        };
+    }
+
+    std::shared_ptr<BindlessTable> VulkanGraphicsDevice::createBindlessTable(const BindlessTableDesc& desc)
+    {
+        if (!_descriptorIndexing || !_renderPipeline || _renderPipeline->bindlessSetLayout() == VK_NULL_HANDLE) {
+            spdlog::error("VulkanGraphicsDevice: bindless tables need descriptor indexing");
+            return nullptr;
+        }
+        if (desc.textures.size() > _bindlessTextureCapacity || desc.samplers.size() > kBindlessSamplers) {
+            spdlog::error("VulkanGraphicsDevice: bindless table of {} textures / {} samplers exceeds {} / {}",
+                desc.textures.size(), desc.samplers.size(), _bindlessTextureCapacity, kBindlessSamplers);
+            return nullptr;
+        }
+        auto table = std::make_shared<VulkanBindlessTable>();
+        table->device = this;
+
+        // Its own pool: the set lives as long as the table, not a frame.
+        std::array<VkDescriptorPoolSize, 2> poolSizes{};
+        poolSizes[0] = {VK_DESCRIPTOR_TYPE_SAMPLER, kBindlessSamplers};
+        poolSizes[1] = {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, _bindlessTextureCapacity};
+        VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+        poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
+        poolInfo.maxSets = 1;
+        poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+        poolInfo.pPoolSizes = poolSizes.data();
+        if (vkCreateDescriptorPool(_device, &poolInfo, nullptr, &table->pool) != VK_SUCCESS) {
+            spdlog::error("VulkanGraphicsDevice: bindless descriptor pool creation failed");
+            return nullptr;
+        }
+        const VkDescriptorSetLayout layout = _renderPipeline->bindlessSetLayout();
+        VkDescriptorSetAllocateInfo allocInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+        allocInfo.descriptorPool = table->pool;
+        allocInfo.descriptorSetCount = 1;
+        allocInfo.pSetLayouts = &layout;
+        if (vkAllocateDescriptorSets(_device, &allocInfo, &table->set) != VK_SUCCESS) {
+            spdlog::error("VulkanGraphicsDevice: bindless descriptor set allocation failed");
+            return nullptr;
+        }
+
+        // The samplers: the state's filters and wrap modes, as VulkanTexture::createSampler
+        // builds a texture's own, without anisotropy.
+        const auto toVkFilter = [](const TextureSamplerState::Filter filter) {
+            return filter == TextureSamplerState::Filter::Nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+        };
+        std::vector<VkDescriptorImageInfo> samplerInfos;
+        for (const TextureSamplerState& state : desc.samplers) {
+            VkSamplerCreateInfo samplerInfo{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+            samplerInfo.magFilter = toVkFilter(state.magFilter);
+            samplerInfo.minFilter = toVkFilter(state.minFilter);
+            samplerInfo.mipmapMode = state.mipFilter == TextureSamplerState::Filter::Nearest
+                ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR;
+            samplerInfo.addressModeU = vulkanMapAddressMode(state.addressU);
+            samplerInfo.addressModeV = vulkanMapAddressMode(state.addressV);
+            samplerInfo.addressModeW = vulkanMapAddressMode(state.addressW);
+            samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
+            VkSampler sampler = VK_NULL_HANDLE;
+            if (vkCreateSampler(_device, &samplerInfo, nullptr, &sampler) != VK_SUCCESS) {
+                spdlog::error("VulkanGraphicsDevice: bindless sampler creation failed");
+                return nullptr;
+            }
+            table->samplers.push_back(sampler);
+            samplerInfos.push_back({sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED});
+        }
+
+        // The images, one write per bound entry (an unbound entry stays unwritten, which
+        // the partially-bound flag allows); the layout is the one every sampled texture
+        // rests in between passes.
+        std::vector<VkDescriptorImageInfo> imageInfos;
+        std::vector<uint32_t> imageEntries;
+        for (size_t i = 0; i < desc.textures.size(); ++i) {
+            Texture* texture = desc.textures[i];
+            auto* vkTex = texture ? static_cast<gpu::VulkanTexture*>(texture->impl()) : nullptr;
+            if (!vkTex || vkTex->imageView() == VK_NULL_HANDLE) {
+                continue;
+            }
+            imageInfos.push_back({VK_NULL_HANDLE, vkTex->imageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
+            imageEntries.push_back(static_cast<uint32_t>(i));
+        }
+        std::vector<VkWriteDescriptorSet> writes;
+        writes.reserve(imageInfos.size() + 1);
+        if (!samplerInfos.empty()) {
+            VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            write.dstSet = table->set;
+            write.dstBinding = 0;
+            write.dstArrayElement = 0;
+            write.descriptorCount = static_cast<uint32_t>(samplerInfos.size());
+            write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+            write.pImageInfo = samplerInfos.data();
+            writes.push_back(write);
+        }
+        for (size_t i = 0; i < imageInfos.size(); ++i) {
+            VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            write.dstSet = table->set;
+            write.dstBinding = 1;
+            write.dstArrayElement = imageEntries[i];
+            write.descriptorCount = 1;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            write.pImageInfo = &imageInfos[i];
+            writes.push_back(write);
+        }
+        if (!writes.empty()) {
+            vkUpdateDescriptorSets(_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+        }
+        spdlog::info("Vulkan bindless table: {} textures and {} samplers in an update-after-bind set "
+            "(capacity {} / {})", imageInfos.size(), samplerInfos.size(), _bindlessTextureCapacity, kBindlessSamplers);
+        return table;
+    }
+
+    void VulkanGraphicsDevice::setBindlessTable(BindlessTable* table)
+    {
+        _bindlessTable = table;
+    }
+
+    void VulkanGraphicsDevice::bindBindlessSet(VkCommandBuffer cmd)
+    {
+        if (auto* table = static_cast<VulkanBindlessTable*>(_bindlessTable)) {
+            bindSetIfChanged(cmd, kBindlessTableVulkanSet, table->set);
+        }
     }
 }
 

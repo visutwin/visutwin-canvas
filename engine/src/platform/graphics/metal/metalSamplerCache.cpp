@@ -70,6 +70,25 @@ namespace visutwin::canvas
         return get(textureSamplerState(*texture, _maxAnisotropy));
     }
 
+    MTL::SamplerState* MetalSamplerCache::newSamplerState(MTL::Device* device,
+        const TextureSamplerState& state, const bool supportArgumentBuffers)
+    {
+        // Every descriptor field the state does not name is Metal's default — normalized
+        // coordinates, LOD range [0, FLT_MAX], no compare function.
+        auto* descriptor = MTL::SamplerDescriptor::alloc()->init();
+        descriptor->setMinFilter(toMetalMinMagFilter(state.minFilter));
+        descriptor->setMagFilter(toMetalMinMagFilter(state.magFilter));
+        descriptor->setMipFilter(toMetalMipFilter(state.mipFilter));
+        descriptor->setMaxAnisotropy(static_cast<NS::UInteger>(state.maxAnisotropy));
+        descriptor->setSAddressMode(toMetalAddressMode(state.addressU));
+        descriptor->setTAddressMode(toMetalAddressMode(state.addressV));
+        descriptor->setRAddressMode(toMetalAddressMode(state.addressW));
+        descriptor->setSupportArgumentBuffers(supportArgumentBuffers);
+        MTL::SamplerState* sampler = device->newSamplerState(descriptor);
+        descriptor->release();
+        return sampler;
+    }
+
     MTL::SamplerState* MetalSamplerCache::get(const TextureSamplerState& state)
     {
         const uint64_t key = state.key();
@@ -80,21 +99,7 @@ namespace visutwin::canvas
             return _defaultSampler;
         }
 
-        // Only S and T are set: the R address mode stays at Metal's default, as the
-        // default sampler has always had it (see TextureSamplerState on why W is not
-        // part of the state). Every other descriptor field is Metal's default too —
-        // normalized coordinates, LOD range [0, FLT_MAX], no compare function.
-        auto* descriptor = MTL::SamplerDescriptor::alloc()->init();
-        descriptor->setMinFilter(toMetalMinMagFilter(state.minFilter));
-        descriptor->setMagFilter(toMetalMinMagFilter(state.magFilter));
-        descriptor->setMipFilter(toMetalMipFilter(state.mipFilter));
-        descriptor->setMaxAnisotropy(static_cast<NS::UInteger>(state.maxAnisotropy));
-        descriptor->setSAddressMode(toMetalAddressMode(state.addressU));
-        descriptor->setTAddressMode(toMetalAddressMode(state.addressV));
-        descriptor->setRAddressMode(toMetalAddressMode(state.addressW));
-        MTL::SamplerState* sampler = _device->newSamplerState(descriptor);
-        descriptor->release();
-
+        MTL::SamplerState* sampler = newSamplerState(_device, state, false);
         if (!sampler) {
             spdlog::error("MetalSamplerCache: failed to create a sampler state");
             return _defaultSampler;

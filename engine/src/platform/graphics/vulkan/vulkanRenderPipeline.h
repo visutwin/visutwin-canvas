@@ -73,6 +73,9 @@ namespace visutwin::canvas
         [[nodiscard]] VkDescriptorSetLayout geometrySetLayout() const { return _geometrySetLayout; }
         [[nodiscard]] VkDescriptorSetLayout clusterSetLayout() const { return _clusterSetLayout; }
         [[nodiscard]] VkDescriptorSetLayout gpuDrivenSetLayout() const { return _gpuDrivenSetLayout; }
+        /// EXPERIMENTAL: set kBindlessTableVulkanSet (bindlessTable.h), null without
+        /// descriptor indexing; the layout then has seven sets.
+        [[nodiscard]] VkDescriptorSetLayout bindlessSetLayout() const { return _bindlessSetLayout; }
 
     private:
         VkPipeline create(const Primitive& primitive,
@@ -102,6 +105,7 @@ namespace visutwin::canvas
         VkDescriptorSetLayout _geometrySetLayout = VK_NULL_HANDLE;
         VkDescriptorSetLayout _clusterSetLayout = VK_NULL_HANDLE;
         VkDescriptorSetLayout _gpuDrivenSetLayout = VK_NULL_HANDLE;
+        VkDescriptorSetLayout _bindlessSetLayout = VK_NULL_HANDLE;
 
         // The full pipeline-state key, compared exactly on a hash hit: a 64-bit hash alone
         // would hand a colliding state the wrong pipeline. Fixed size, so a lookup does not
