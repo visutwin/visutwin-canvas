@@ -845,38 +845,58 @@ namespace visutwin::canvas
 
     void Renderer::dispatchGpuInstanceCulling(const std::vector<Camera*>& cameras)
     {
-        if (!_device) {
+        if (!_device || MeshInstance::gpuCulledInstanceCount() == 0) {
             return;
         }
-        // Nothing to cull: skip the sweep below, which visits every component in the
-        // scene to find the few instances that use this.
-        if (MeshInstance::gpuCulledInstanceCount() == 0) {
-            return;
-        }
-
         // Each camera's frustum planes, once. The extraction expects a column-major
-        // float[16], which is Matrix4's in-memory layout.
-        struct CameraPlanes
-        {
-            Camera* camera;
-            float planes[6][4];
-        };
-        std::vector<CameraPlanes> views;
+        // float[16], which is Matrix4's in-memory layout. Occlusion, for a camera whose frame
+        // does not cull in the frame itself, against its pyramid of the frame before (this
+        // frame's does not exist yet), with the matrix that pyramid's depth was rendered with.
+        const int version = _device->renderVersion();
+        std::vector<GpuCullView> views;
         views.reserve(cameras.size());
         for (Camera* camera : cameras) {
             if (!camera || !camera->node()) {
                 continue;
             }
-            CameraPlanes view{camera, {}};
-            const Matrix4 viewMatrix = camera->node()->worldTransform().inverse();
-            const Matrix4 vp = camera->projectionMatrix() * viewMatrix;
+            GpuCullView view;
+            view.camera = camera;
+            const Matrix4 vp = camera->projectionMatrix() * camera->node()->worldTransform().inverse();
             InstanceCuller::extractFrustumPlanes(reinterpret_cast<const float*>(&vp), view.planes);
-            views.push_back(view);
+            const auto& handle = camera->hiZMapHandle();
+            if (!camera->gpuOcclusionInFrame() && handle && handle->renderVersion == version - 1 &&
+                !handle->texture.expired()) {
+                view.hiZ = handle;
+                view.occlusionViewProjection = handle->viewProjection;
+            }
+            views.push_back(std::move(view));
         }
+        cullGpuInstances(views);
+    }
+
+    void Renderer::cullGpuInstancesInFrame(Camera* camera, const Matrix4& depthViewProjection)
+    {
+        if (!_device || !camera || !camera->node() || MeshInstance::gpuCulledInstanceCount() == 0) {
+            return;
+        }
+        const auto& handle = camera->hiZMapHandle();
+        if (!handle || handle->renderVersion != _device->renderVersion() || handle->texture.expired()) {
+            return;
+        }
+        GpuCullView view;
+        view.camera = camera;
+        const Matrix4 vp = camera->projectionMatrix() * camera->node()->worldTransform().inverse();
+        InstanceCuller::extractFrustumPlanes(reinterpret_cast<const float*>(&vp), view.planes);
+        view.hiZ = handle;
+        view.occlusionViewProjection = depthViewProjection;
+        cullGpuInstances({view});
+    }
+
+    void Renderer::cullGpuInstances(const std::vector<GpuCullView>& views)
+    {
         if (views.empty()) {
             return;
         }
-
         const int version = _device->renderVersion();
         // An output no camera has culled for this long belongs to a camera that is gone or
         // no longer draws.
@@ -931,27 +951,24 @@ namespace visutwin::canvas
                 params.baseVertex  = static_cast<int32_t>(prim.baseVertex);
                 params.baseInstance = 0u;
 
-                for (const CameraPlanes& view : views) {
+                for (const GpuCullView& view : views) {
                     auto* output = mi->gpuCullOutputFor(view.camera);
                     if (!output) {
                         continue;
                     }
-                    // Occlusion against the camera's pyramid of the frame before, its
-                    // view-projection carried into the instances' space as the planes are;
-                    // any other age (none built, the camera stopped asking) culls by the
+                    // Occlusion against the view's pyramid (last frame's at graph build, this
+                    // frame's in the frame), its depth's view-projection carried into the
+                    // instances' space as the planes are; a view without one culls by the
                     // frustum alone.
                     std::shared_ptr<HiZMapHandle> hiZ;
                     params.occlusion[0] = 0.0f;
-                    if (mi->gpuOcclusionCulling()) {
-                        const auto& handle = view.camera->hiZMapHandle();
-                        if (handle && handle->renderVersion == version - 1 && !handle->texture.expired()) {
-                            hiZ = handle;
-                            const Matrix4 toClip = handle->viewProjection *
-                                (mi->node() ? mi->node()->worldTransform() : Matrix4::identity());
-                            toClip.store(params.occlusionMatrix);
-                            params.occlusion[0] = 1.0f;
-                            params.occlusion[1] = mi->instanceCullRadius();
-                        }
+                    if (mi->gpuOcclusionCulling() && view.hiZ) {
+                        hiZ = view.hiZ;
+                        const Matrix4 toClip = view.occlusionViewProjection *
+                            (mi->node() ? mi->node()->worldTransform() : Matrix4::identity());
+                        toClip.store(params.occlusionMatrix);
+                        params.occlusion[0] = 1.0f;
+                        params.occlusion[1] = mi->instanceCullRadius();
                     }
                     if (identity) {
                         std::memcpy(params.frustumPlanes, view.planes, sizeof(view.planes));

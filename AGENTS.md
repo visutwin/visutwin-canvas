@@ -1883,7 +1883,14 @@ present, but the rule below never depends on reading it.
   to its camera's handle: the standalone grabs (`RenderPassColorGrab` gamma, the standalone
   `RenderPassDepthGrab` its copy) and the camera frame (`publishSceneInputs`: its
   `_sceneDepthTexture`, single-sampled or written by the prepass; its colour grab linear). A
-  new producer must publish too, or a kernel reads the substitute. The texture is held WEAKLY,
+  new producer must publish too, or a kernel reads the substitute. The handle's matrices are
+  the camera's stored ones (`storeShaderMatrices`, from the forward view) unless the producer
+  passes its own: a producer that publishes BEFORE the camera has drawn in the frame must pass
+  the matrix its depth is drawn with, as the camera frame does (it publishes in its first pass,
+  and passes `prepassViewProjection`); until 2026-11-07 it did not, and its handle carried the
+  previous frame's matrices, so a kernel unprojecting the depth placed every point where the
+  camera looked a frame earlier. `tests/sceneDepthPublishTests.cpp` holds it, with and
+  without TAA jitter. The texture is held WEAKLY,
   so a producer that frees it (a rebuilt camera frame) needs no withdrawal: it reads as no
   map. `Compute::setSceneDepthMap` / `setSceneColorMap` attach a handle once;
   `Compute::prepareDispatch`, which the backends call as they RECORD the dispatch, resolves it
@@ -3024,22 +3031,27 @@ present, but the rule below never depends on reading it.
   the examples, `=2` adds occlusion; it converts a 64-byte instance buffer to the 80-byte
   coloured format the cull compacts, which on Metal changes the frame by itself, so compare
   `=1` with `=2`, not with neither).
-- **GPU occlusion culling tests against the camera's Hi-Z pyramid of the PREVIOUS frame, and
-  only that one.** `MeshInstance::setGpuOcclusionCulling` (off by default) plus a camera that
-  builds a pyramid (`CameraComponent::requestHiZ`): the renderer uses the `occlusion` variant
-  of `instance-cull` only while `HiZMapHandle::renderVersion` is this frame's minus one (the
-  cull dispatches at graph build, before this frame's pyramid exists), and carries the
-  pyramid's view-projection into the instances' space as it does the planes
-  (`InstanceCullParams::occlusionMatrix`, the radius in the instances' own units in
-  `occlusion[1]`). Any other age culls by the frustum alone: a pyramid older than that was
-  rendered from another view. The test keeps everything uncertain (a box crossing the near
-  plane or leaving the depth's viewport, no pyramid) and drops an instance only when its
-  nearest depth lies beyond the FARTHEST depth of every texel its rectangle covers, so it
-  never hides what last frame's depth showed; what this frame uncovers (the camera or an
-  occluder moved) is drawn one frame late, the single-phase scheme's cost, until the second
-  phase exists. The frustum-only kernel is a variant of its own and unchanged. The GPU test's
-  occluder has ODD-texel edges: on even ones every pyramid texel holds one depth and a kernel
-  reading the nearest channel for the farthest passes.
+- **GPU occlusion culling tests against THIS frame's depth under a camera frame, and against
+  the PREVIOUS frame's pyramid otherwise.** `MeshInstance::setGpuOcclusionCulling` (off by
+  default) plus a camera that builds a pyramid (`CameraComponent::requestHiZ`). Under a camera
+  frame the request forces its depth prepass (`prepassRenders`: `CameraFrameOptions::hiZ`),
+  which draws EVERY instance of a GPU-culled mesh (a depth-only draw binds no culled set), and
+  `RenderPassOcclusionCull` right after it builds the pyramid from that depth and re-culls the
+  camera's instances against it (`Renderer::cullGpuInstancesInFrame`) before the scene pass
+  draws: exact for the frame, nothing drawn late. It marks the camera
+  (`Camera::gpuOcclusionInFrame`), and the graph-build cull of a marked camera tests the frustum
+  alone. A camera without a frame has no point between its depth and its shading, so its
+  graph-build cull tests the pyramid built in its after-passes the frame before, used only while
+  `HiZMapHandle::renderVersion` is this frame's minus one, and what this frame uncovers is drawn
+  one frame late. `RenderPassHiZ` builds at most once a frame. The projection is the depth's own
+  matrix carried into the instances' space (`InstanceCullParams::occlusionMatrix`, radius in the
+  instances' units in `occlusion[1]`): in the frame, the matrix the camera frame published
+  with its depth (`prepassViewProjection`, jittered as the prepass and the forward view draw).
+  The test keeps everything uncertain (a box crossing the near plane or leaving the
+  depth's viewport, no pyramid) and drops an instance only when its nearest depth lies beyond
+  the FARTHEST depth of every texel its rectangle covers. The frustum-only kernel is a variant
+  of its own and unchanged. The GPU test's occluder has ODD-texel edges: on even ones every
+  pyramid texel holds one depth and a kernel reading the nearest channel for the farthest passes.
 - **GPU instance culling has one output PER CAMERA and runs once a frame, before
   anything draws.** `dispatchGpuInstanceCulling` culls every GPU-culled mesh instance once
   for each camera in the frame's render actions, into that camera's own output

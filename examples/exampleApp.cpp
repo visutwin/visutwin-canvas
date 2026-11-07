@@ -271,6 +271,20 @@ namespace visutwin::canvas
             spdlog::info("Hi-Z pyramid requested on {} camera(s) from VISUTWIN_HIZ", cameras);
         }
 
+        // VISUTWIN_CAMERA_FRAME=1 renders every camera through a camera frame (an offscreen
+        // scene target and compose, RenderingSettings::useCameraFrame), which is what runs the
+        // GPU occlusion cull against the frame's own depth (VISUTWIN_GPU_CULL=2).
+        if (const char* frame = std::getenv("VISUTWIN_CAMERA_FRAME"); frame && *frame == '1') {
+            int cameras = 0;
+            for (auto* camera : _engine->components().instances<CameraComponent>()) {
+                if (camera) {
+                    camera->rendering().useCameraFrame = true;
+                    ++cameras;
+                }
+            }
+            spdlog::info("Camera frame on {} camera(s) from VISUTWIN_CAMERA_FRAME", cameras);
+        }
+
         // VISUTWIN_GPU_CULL=1 turns GPU instance culling on for every instanced mesh instance
         // (the bounding sphere from the mesh bounds and the largest instance scale), 2 adds the
         // occlusion test against the Hi-Z pyramid, which it requests on every camera. The frames

@@ -225,9 +225,11 @@ namespace visutwin::canvas
         if (!_depth || !_hiZ) {
             return;
         }
-        // Only a depth rendered in this frame: an older one is the pyramid already built.
+        // Only a depth rendered in this frame: an older one is the pyramid already built. And
+        // once a frame: a camera frame that built it after its prepass has run it already.
         const auto depth = _depth->texture.lock();
-        if (!depth || _depth->renderVersion != device()->renderVersion()) {
+        if (!depth || _depth->renderVersion != device()->renderVersion() ||
+            (_hiZ->renderVersion == device()->renderVersion() && !_hiZ->texture.expired())) {
             return;
         }
         const auto pyramid = _generator.generate(depth.get());

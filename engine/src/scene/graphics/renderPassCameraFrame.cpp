@@ -5,6 +5,7 @@
 //
 //
 #include "renderPassCameraFrame.h"
+#include "renderPassOcclusionCull.h"
 
 #include <unordered_map>
 
@@ -113,6 +114,10 @@ namespace visutwin::canvas
         _sceneColorTargetHeight = 0;
 
         _prePass.reset();
+        _occlusionCullPass.reset();
+        if (_cameraComponent && _cameraComponent->camera()) {
+            _cameraComponent->camera()->setGpuOcclusionInFrame(false);
+        }
         _scenePass.reset();
         _colorGrabPass.reset();
         _depthGrabPass.reset();
@@ -181,6 +186,7 @@ namespace visutwin::canvas
         // or stale texture.
         options.sceneColorMap = _cameraComponent->renderSceneColorMap();
         options.sceneDepthMap = _cameraComponent->renderSceneDepthMap();
+        options.hiZ = _cameraComponent->renderHiZ();
 
         options.samples = std::max(rendering.samples, 1);
         options.stencil = rendering.stencil;
@@ -251,6 +257,7 @@ namespace visutwin::canvas
             options.bloomEnabled != current.bloomEnabled ||
             options.bloomHighQuality != current.bloomHighQuality ||
             options.prepassEnabled != current.prepassEnabled ||
+            options.hiZ != current.hiZ ||
             options.sceneColorMap != current.sceneColorMap ||
             options.sceneDepthMap != current.sceneDepthMap ||
             options.dofEnabled != current.dofEnabled ||
@@ -298,6 +305,10 @@ namespace visutwin::canvas
         _ownedActions.clear();
 
         _prePass.reset();
+        _occlusionCullPass.reset();
+        if (_cameraComponent && _cameraComponent->camera()) {
+            _cameraComponent->camera()->setGpuOcclusionInFrame(false);
+        }
         _scenePass.reset();
         _scenePassTransparent.reset();
         _afterPass.reset();
@@ -623,9 +634,15 @@ namespace visutwin::canvas
             // The camera's own record of it, for whatever reads this camera's depth after the
             // frame (a compute pass among its after passes): depth buffer values, written by
             // the scene pass single-sampled and by the prepass under MSAA.
+            // Published in the frame's first pass, before the forward pass stores this frame's
+            // matrices on the camera: the matrix is the one the depth is drawn with (the
+            // prepass's, which is the forward view's, jitter included), or the handle would
+            // carry the previous frame's and a kernel would unproject the depth from there.
             if (_cameraComponent && _cameraComponent->camera()) {
-                _cameraComponent->camera()->publishSceneDepthMap(_sceneDepthTexture, gd->renderVersion(),
-                    false, false, false);
+                Camera* camera = _cameraComponent->camera();
+                const Matrix4 viewProjection = prepassViewProjection(*gd, *camera, _sceneRenderTarget.get());
+                camera->publishSceneDepthMap(_sceneDepthTexture, gd->renderVersion(), false, false, false,
+                    &viewProjection);
             }
         }
         // The depth GRAB under MSAA: the prepass texture, see setupScenePass.
@@ -650,7 +667,7 @@ namespace visutwin::canvas
 
         // The effects' passes go in at their stages, after the frame's own passes there.
         const auto& stages = _effectStagePasses;
-        std::vector<std::shared_ptr<RenderPass>> passes{_publishPass, _prePass,
+        std::vector<std::shared_ptr<RenderPass>> passes{_publishPass, _prePass, _occlusionCullPass,
             ssaoBeforeScene ? _ssaoPass : nullptr};
         passes.insert(passes.end(), stages.preScene.begin(), stages.preScene.end());
         passes.insert(passes.end(), {_scenePass, _colorGrabPass, _depthGrabPass});
@@ -800,7 +817,8 @@ namespace visutwin::canvas
     bool RenderPassCameraFrame::prepassRenders(const CameraFrameOptions& options)
     {
         return options.prepassEnabled &&
-            (options.samples > 1 || options.ssaoType == SSAOTYPE_LIGHTING || options.effectPrepassDepth);
+            (options.samples > 1 || options.ssaoType == SSAOTYPE_LIGHTING || options.effectPrepassDepth ||
+                options.hiZ);
     }
 
     void RenderPassCameraFrame::setupScenePrepass(const CameraFrameOptions& options)
@@ -812,6 +830,16 @@ namespace visutwin::canvas
             _prePass->init(_prepassRenderTarget, _sceneOptions);
             constexpr float clearDepthValue = 1.0f;
             _prePass->setClearDepth(&clearDepthValue);
+            // The prepass draws every instance of a GPU-culled mesh, so its depth is this frame's
+            // whole scene: the pyramid built from it lets the cull before the scene pass test
+            // against THIS frame, where the cull at graph build had only the frame before.
+            if (options.hiZ && _cameraComponent && _cameraComponent->camera()) {
+                _occlusionCullPass = std::make_shared<RenderPassOcclusionCull>(device(), _renderer,
+                    _cameraComponent->camera());
+            }
+        }
+        if (_cameraComponent && _cameraComponent->camera()) {
+            _cameraComponent->camera()->setGpuOcclusionInFrame(_occlusionCullPass != nullptr);
         }
     }
 

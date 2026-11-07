@@ -80,8 +80,9 @@ namespace visutwin::canvas
     /**
      * A camera's Hi-Z pyramid as a pass of the frame graph: no target of its own (so it never
      * merges); its execute() builds the pyramid from the depth `depth` names, when that depth
-     * was rendered in this frame, and publishes it to `hiZ`. A frame whose depth was not
-     * rendered leaves the handle naming the last pyramid, with its render version.
+     * was rendered in this frame, and publishes it to `hiZ`, at most once a frame (a camera
+     * frame runs it after its prepass, and the after-pass run then does nothing). A frame whose
+     * depth was not rendered leaves the handle naming the last pyramid, with its render version.
      */
     class RenderPassHiZ : public RenderPass
     {

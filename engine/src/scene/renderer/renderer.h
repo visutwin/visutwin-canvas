@@ -238,6 +238,13 @@ namespace visutwin::canvas
         // in the list takes the whole instance buffer.
         void dispatchGpuInstanceCulling(const std::vector<Camera*>& cameras);
 
+        /// The cull of `camera`'s GPU-culled instances inside its frame, after its depth prepass
+        /// (RenderPassOcclusionCull): the frustum, and for an occlusion-culled mesh instance its
+        /// Hi-Z pyramid of THIS frame, built from that prepass, projected with
+        /// `depthViewProjection` (the prepass's). It replaces the cull made at graph build for
+        /// this frame; with no pyramid of this frame it does nothing, and that cull stands.
+        void cullGpuInstancesInFrame(Camera* camera, const Matrix4& depthViewProjection);
+
         /// Sets an ASPECT_AUTO camera's aspect ratio from the viewport it will draw to:
         /// its own render target, or the back buffer, times its rect — the arithmetic
         /// renderForwardLayer uses at draw time.
@@ -368,6 +375,17 @@ namespace visutwin::canvas
         // asked for. Consumed and cleared by executeMeshInstanceCull.
         std::vector<Camera*> _cullCameras;
         std::map<Camera*, std::vector<Layer*>> _cullRequests;
+
+        // One camera's GPU cull: its frustum planes and, for occlusion, the pyramid to test
+        // against with the matrix its depth was rendered with (no pyramid: the frustum alone).
+        struct GpuCullView
+        {
+            Camera* camera = nullptr;
+            float planes[6][4] = {};
+            std::shared_ptr<HiZMapHandle> hiZ;
+            Matrix4 occlusionViewProjection = Matrix4::identity();
+        };
+        void cullGpuInstances(const std::vector<GpuCullView>& views);
 
         void cullMeshInstancesInto(Camera* camera, GraphNode* cameraNode, Layer* layer,
             CulledInstances& out);

@@ -8,6 +8,7 @@
 
 #include <vector>
 
+#include "core/math/matrix4.h"
 #include "platform/graphics/renderPass.h"
 
 namespace visutwin::canvas
@@ -17,6 +18,15 @@ namespace visutwin::canvas
     class Scene;
     class Renderer;
     struct RenderAction;
+
+    class Camera;
+    class GraphicsDevice;
+    class RenderTarget;
+
+    /// The view-projection the prepass draws `camera`'s depth with into `target`: the camera's,
+    /// with the frame's TAA jitter as the forward pass applies it. What a test against that
+    /// depth projects with (RenderPassOcclusionCull).
+    Matrix4 prepassViewProjection(GraphicsDevice& device, Camera& camera, const RenderTarget* target);
 
     class RenderPassPrepass : public RenderPass
     {

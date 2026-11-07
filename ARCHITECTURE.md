@@ -2013,6 +2013,53 @@ where the draws it removes are worth about 0.4 ms (Metal) or 1 ms (Vulkan). Next
 second phase, a scene where the payoff can be measured (none ships), and step (d), issuing the
 survivors as multi-draw.
 
+**Second phase (2026-11-07).** Not Bevy's early and late draws: this engine's depth prepass
+already draws EVERY instance of a GPU-culled mesh (a depth-only draw binds no culled set), so
+the depth it leaves is this frame's whole scene. Under a camera frame, a requested pyramid now
+forces the prepass to render (`CameraFrameOptions::hiZ` in `prepassRenders`), and
+`RenderPassOcclusionCull` (`scene/graphics/renderPassOcclusionCull.h`), right after it, builds the
+pyramid from that depth and re-culls the camera's occlusion-culled instances against it with the
+prepass's own jittered view-projection (`prepassViewProjection`, shared with the prepass), through
+`Renderer::cullGpuInstancesInFrame`, before the scene pass draws. That is the two-phase scheme's
+end state with no frame of lag, and one pyramid per frame (`RenderPassHiZ` builds at most once a
+frame, so its after-pass run is skipped). The pass marks the camera
+(`Camera::gpuOcclusionInFrame`), and the graph-build cull of a marked camera tests the frustum
+alone, as the fallback the in-frame cull replaces. A camera WITHOUT a frame keeps the single phase
+against last frame's pyramid: it has no point between its depth and its shading, and giving it
+one means a prepass of its own. Found on the way, and fixed: a camera frame published its depth
+handle in its first pass, before the forward pass stores this frame's matrices, so the handle's
+`viewProjection(Inverse)` were the PREVIOUS frame's (a compute kernel unprojecting the scene depth
+through a camera frame placed every point where the camera looked a frame earlier). It now passes
+the matrix its depth is drawn with (`prepassViewProjection`) to `Camera::publishSceneDepthMap`;
+`tests/sceneDepthPublishTests.cpp` holds the handle's matrices equal to the forward view's in
+every frame of a moving camera, with and without TAA jitter (before: exactly the previous
+frame's), and the in-frame cull reads the handle. scene-maps and scene-depth-read render
+unchanged. Verified: the GPU test (30
+checks, both backends) adds the in-frame cull against a pyramid of this frame (the 9 hidden
+instances dropped with the matrix given, all kept with another), the graph-build cull of a marked
+camera testing the frustum alone, and an in-frame cull without a pyramid of this frame leaving
+the earlier cull. In the examples (`VISUTWIN_CAMERA_FRAME=1`, `VISUTWIN_GPU_CULL=1|2`) with the
+camera ANIMATED, frustum-only and occlusion frames are identical on instancing-basic on both
+backends (instancing-gooch within its own run-to-run spread, 7 pixels: the cull's atomic append
+orders the instances differently from run to run); a kernel that drops every instance it tests
+makes all 1000 cylinders vanish from the frame on both backends, so the scene pass draws the
+in-frame cull's result in the same frame; the GPU_PASSES line lists one pyramid a frame, after
+the prepass. Goldens unchanged (a single Vulkan dynamic-batching run read 0.018% once; three
+reruns exact). Cost under the camera frame, frame GPU medians of three alternated runs, animated
+camera, nothing occluded in either scene:
+
+| Frame GPU (ms) | frustum | + pyramid (prepass forced) | + occlusion in the frame |
+|---|---|---|---|
+| instancing-basic, Metal | 0.430 | 0.919 | 0.966 |
+| instancing-gooch, Metal | 0.916 | 1.832 | 1.840 |
+| instancing-basic, Vulkan | 0.634 | 1.612 | 1.886 |
+| instancing-gooch, Vulkan | 0.962 | 2.249 | 2.332 |
+
+The forced prepass is the larger part of the price where the camera would not render one
+anyway (gooch draws its 500 instances twice); the cull itself is under a tenth of a millisecond
+on Metal and within the spread on Vulkan. Still unmeasured: the saving, since no shipped scene
+hides a whole instance.
+
 ### 2. Bindless material binding
 
 Bevy binds materials through binding arrays (one slab of textures indexed by a per-draw

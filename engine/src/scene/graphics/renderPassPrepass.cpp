@@ -165,17 +165,7 @@ namespace visutwin::canvas
         // The projection carries the frame's TAA jitter, exactly as the forward pass's
         // does: the depth this writes is what TAA reprojects from, and an unjittered
         // depth sits up to half a pixel off the jittered colour it is paired with.
-        Matrix4 projection = camera->projectionMatrix();
-        if (camera->jitter() > 0.0f) {
-            const RenderTarget* target = renderTarget().get();
-            const int targetWidth = std::max(target ? target->width() : gd->size().first, 1);
-            const int targetHeight = std::max(target ? target->height() : gd->size().second, 1);
-            const auto [viewportWidth, viewportHeight] = cameraViewportSize(*camera, targetWidth, targetHeight);
-            const auto [jitterX, jitterY] = camera->jitterOffset(gd->renderVersion(), viewportWidth, viewportHeight);
-            projection.setElement(2, 0, projection.getElement(2, 0) + jitterX);
-            projection.setElement(2, 1, projection.getElement(2, 1) + jitterY);
-        }
-        const Matrix4 viewProjection = projection * camera->node()->worldTransform().inverse();
+        const Matrix4 viewProjection = prepassViewProjection(*gd, *camera, renderTarget().get());
 
         // Only the sublayers that draw BEFORE the depth layer: what follows it (the
         // transparent half of the world, the UI, the gizmos) is not part of the scene
@@ -214,6 +204,21 @@ namespace visutwin::canvas
                 }
             }
         }
+    }
+
+    Matrix4 prepassViewProjection(GraphicsDevice& device, Camera& camera, const RenderTarget* target)
+    {
+        Matrix4 projection = camera.projectionMatrix();
+        if (camera.jitter() > 0.0f) {
+            const int targetWidth = std::max(target ? target->width() : device.size().first, 1);
+            const int targetHeight = std::max(target ? target->height() : device.size().second, 1);
+            const auto [viewportWidth, viewportHeight] = cameraViewportSize(camera, targetWidth, targetHeight);
+            const auto [jitterX, jitterY] = camera.jitterOffset(device.renderVersion(), viewportWidth, viewportHeight);
+            projection.setElement(2, 0, projection.getElement(2, 0) + jitterX);
+            projection.setElement(2, 1, projection.getElement(2, 1) + jitterY);
+        }
+        const Matrix4 view = camera.node() ? camera.node()->worldTransform().inverse() : Matrix4::identity();
+        return projection * view;
     }
 
     void RenderPassPrepass::after()

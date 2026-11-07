@@ -368,6 +368,13 @@ namespace visutwin::canvas
         const std::shared_ptr<RenderPassHiZ>& renderPassHiZ() const { return _renderPassHiZ; }
         void _enableHiZ(const std::shared_ptr<GraphicsDevice>& device, bool enable);
 
+        /// Set by the camera's frame while it builds the pyramid right after its depth prepass
+        /// and culls the GPU-culled instances against it in the frame (RenderPassOcclusionCull):
+        /// the cull at graph build then tests the frustum alone, since the frame's own replaces
+        /// it before the scene pass draws.
+        bool gpuOcclusionInFrame() const { return _gpuOcclusionInFrame; }
+        void setGpuOcclusionInFrame(const bool value) { _gpuOcclusionInFrame = value; }
+
         /// This camera's scene depth and colour maps: the same objects for the camera's life,
         /// naming the maps it rendered most recently (see sceneMapHandles.h). Shared, so a
         /// consumer (a Compute) may keep one past the camera; the destructor marks them.
@@ -391,10 +398,14 @@ namespace visutwin::canvas
         void setSceneColorMapMipmapFilter(const MipmapFilter value) { _sceneColorMapMipmapFilter = value; }
 
         /// Records the depth a producer rendered for this camera, with how it stores it, and the
-        /// camera parameters, inverse view-projection and viewport it was rendered with. Only the
-        /// handle: the device's global grab maps are the producer's to set.
+        /// camera parameters, view-projection and viewport it was rendered with. Only the
+        /// handle: the device's global grab maps are the producer's to set. The matrix is the
+        /// one the shaders were given this frame (storeShaderMatrices) unless `viewProjection`
+        /// is given: a producer that publishes before the camera has drawn in the frame (a camera
+        /// frame publishes in its first pass) passes the matrix the depth is drawn with, or the
+        /// handle would carry the previous frame's.
         void publishSceneDepthMap(const std::shared_ptr<Texture>& texture, int renderVersion,
-            bool linear, bool packed, bool reciprocal);
+            bool linear, bool packed, bool reciprocal, const Matrix4* viewProjection = nullptr);
         /// Records the colour a producer rendered for this camera; `gamma` when gamma-encoded.
         void publishSceneColorMap(const std::shared_ptr<Texture>& texture, bool gamma);
 
@@ -518,6 +529,7 @@ namespace visutwin::canvas
         std::shared_ptr<SceneColorMapHandle> _sceneColorMapHandle = std::make_shared<SceneColorMapHandle>();
         std::shared_ptr<HiZMapHandle> _hiZMapHandle = std::make_shared<HiZMapHandle>();
         std::shared_ptr<RenderPassHiZ> _renderPassHiZ;
+        bool _gpuOcclusionInFrame = false;
         bool _sceneColorMapMipmaps = true;
         MipmapFilter _sceneColorMapMipmapFilter = MipmapFilter::MIPMAPFILTER_BOX;
 

@@ -17,7 +17,9 @@
 // of the view and the far plane around it, its pyramid built, and instances behind the occluder
 // (dropped), beside it, across its edge, in front of it and across the near plane (all kept),
 // through the culler and through the renderer for a camera whose pyramid is a frame old, with
-// the instances in a moved node's space.
+// the instances in a moved node's space. And the cull inside a camera's frame
+// (Renderer::cullGpuInstancesInFrame, after its prepass): against a pyramid of THIS frame with
+// the matrix given, while the graph-build cull of such a camera tests the frustum alone.
 //
 // It needs a GPU and a window, so it carries the `gpu` label, which the CI test presets
 // exclude; run it with `ctest --preset gpu` (or `ctest -L gpu` in a Vulkan build).
@@ -529,6 +531,31 @@ int main()
             check(noHiddenKept && occluded.size() + 9 == frustumOnly.size(),
                 "with last frame's pyramid the 9 behind the occluder are dropped too, through the node's "
                 "transform: " + names(occluded));
+
+            std::cout << "\nin the camera's frame, against this frame's pyramid\n";
+            // A camera whose frame culls in the frame: the graph-build cull ignores last frame's
+            // pyramid and tests the frustum alone.
+            camera->setGpuOcclusionInFrame(true);
+            check(cullFor(1).size() == frustumOnly.size(),
+                "the graph-build cull of a camera that culls in its frame tests the frustum alone");
+            // The in-frame cull: a pyramid of this frame, projected with the matrix given (the
+            // prepass's); an identity matrix, which puts every instance off the depth, keeps all.
+            cameraHandle->renderVersion = device->renderVersion();
+            engine->renderer()->cullGpuInstancesInFrame(camera, viewProjection);
+            const auto* inFrame = meshInstance->culledOutput(camera, device->renderVersion());
+            const auto inFrameKept = inFrame ? survivors(inFrame->culler.get()) : std::vector<uint32_t>{};
+            check(inFrameKept == occluded, "the in-frame cull drops the 9 behind the occluder with the prepass's "
+                "matrix: " + names(inFrameKept));
+            engine->renderer()->cullGpuInstancesInFrame(camera, Matrix4::identity());
+            check(survivors(meshInstance->culledOutput(camera, device->renderVersion())->culler.get()).size() ==
+                frustumOnly.size(), "and uses the matrix it is given, not the handle's");
+            // A pyramid not of this frame: the in-frame cull does nothing, the earlier cull stands.
+            cameraHandle->renderVersion = device->renderVersion() - 1;
+            engine->renderer()->dispatchGpuInstanceCulling({camera});
+            engine->renderer()->cullGpuInstancesInFrame(camera, viewProjection);
+            check(survivors(meshInstance->culledOutput(camera, device->renderVersion())->culler.get()).size() ==
+                frustumOnly.size(), "with no pyramid of this frame the in-frame cull leaves the frustum cull");
+            camera->setGpuOcclusionInFrame(false);
         }
     }
 

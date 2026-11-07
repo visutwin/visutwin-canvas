@@ -52,7 +52,7 @@ namespace visutwin::canvas
     }
 
     void Camera::publishSceneDepthMap(const std::shared_ptr<Texture>& texture, const int renderVersion,
-        const bool linear, const bool packed, const bool reciprocal)
+        const bool linear, const bool packed, const bool reciprocal, const Matrix4* viewProjection)
     {
         auto& handle = *_sceneDepthMapHandle;
         handle.texture = texture;
@@ -64,9 +64,14 @@ namespace visutwin::canvas
             _projection == ProjectionType::Orthographic ? 1.0f : 0.0f};
 
         // The matrices the shaders were given this frame, stored when the camera first rendered
-        // in it (storeShaderMatrices).
-        handle.viewProjection = _viewProjCurrent;
-        handle.viewProjectionInverse = _viewProjInverse;
+        // in it (storeShaderMatrices), or the producer's when it publishes before that.
+        if (viewProjection) {
+            handle.viewProjection = *viewProjection;
+            handle.viewProjectionInverse = viewProjection->inverse();
+        } else {
+            handle.viewProjection = _viewProjCurrent;
+            handle.viewProjectionInverse = _viewProjInverse;
+        }
 
         // The viewport the camera rendered to, placed as the renderer places it: the rect's
         // origin is its bottom-left corner, a texture's row 0 its top.

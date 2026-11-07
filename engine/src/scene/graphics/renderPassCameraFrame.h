@@ -26,6 +26,7 @@ namespace visutwin::canvas
     class Scene;
     class RenderPassForward;
     class RenderPassPrepass;
+    class RenderPassOcclusionCull;
     class RenderPassColorGrab;
     class RenderPassDepthGrab;
     class RenderPassSsao;
@@ -69,6 +70,9 @@ namespace visutwin::canvas
         // "Something samples the scene depth": set for every depth consumer by
         // sanitizeOptions. Whether a prepass actually RENDERS for it is prepassRenders().
         bool prepassEnabled = false;
+        // The camera builds a Hi-Z pyramid (CameraComponent::requestHiZ): built after the
+        // prepass, which then renders, and the GPU cull runs against it in the frame.
+        bool hiZ = false;
         bool dofEnabled = false;
         bool dofNearBlur = false;
         bool dofHighQuality = true;
@@ -207,6 +211,9 @@ namespace visutwin::canvas
         // publish there hands each camera's passes the LAST camera's textures.
         std::shared_ptr<RenderPass> _publishPass;
         std::shared_ptr<RenderPassPrepass> _prePass;
+        // Under a requested Hi-Z pyramid (CameraFrameOptions::hiZ): builds it from the prepass
+        // depth and culls the GPU-culled instances against it before the scene pass draws.
+        std::shared_ptr<RenderPassOcclusionCull> _occlusionCullPass;
         std::shared_ptr<RenderPassForward> _scenePass;
         std::shared_ptr<RenderPassColorGrab> _colorGrabPass;
         std::shared_ptr<RenderPassDepthGrab> _depthGrabPass;

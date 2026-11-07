@@ -232,6 +232,7 @@ visutwin_add_unit_test(visutwin-clip-planes-tests clip-planes clipPlanesTests.cp
 visutwin_add_unit_test(visutwin-directional-shadow-bounds-tests directional-shadow-bounds directionalShadowBoundsTests.cpp)
 visutwin_add_unit_test(visutwin-gsplat-sh-tests gsplat-sh gsplatShTests.cpp)
 visutwin_add_unit_test(visutwin-scene-map-handle-tests scene-map-handles sceneMapHandleTests.cpp)
+visutwin_add_unit_test(visutwin-scene-depth-publish-tests scene-depth-publish sceneDepthPublishTests.cpp)
 visutwin_add_unit_test(visutwin-indirect-slots-tests indirect-slots indirectSlotsTests.cpp)
 visutwin_add_unit_test(visutwin-multi-draw-tests multi-draw multiDrawTests.cpp)
 visutwin_add_unit_test(visutwin-dds-parser-tests dds-parser ddsParserTests.cpp)
