@@ -250,6 +250,20 @@ namespace visutwin::canvas
             }
         }
 
+        // VISUTWIN_HIZ=1 requests the Hi-Z pyramid on every camera (CameraComponent::requestHiZ,
+        // which requests the scene depth map too). Nothing reads the pyramid, so the frame is
+        // the one without it unless the depth request changes it; GPU_PASSES times its passes.
+        if (const char* hiZ = std::getenv("VISUTWIN_HIZ"); hiZ && *hiZ == '1') {
+            int cameras = 0;
+            for (auto* camera : _engine->components().instances<CameraComponent>()) {
+                if (camera) {
+                    camera->requestHiZ(true);
+                    ++cameras;
+                }
+            }
+            spdlog::info("Hi-Z pyramid requested on {} camera(s) from VISUTWIN_HIZ", cameras);
+        }
+
         // VISUTWIN_CLIP_PLANE=nx,ny,nz,d[,camera] clips the scene by one world-space plane
         // (what is behind it, dot(n, p) + d < 0, is discarded): through every render
         // component's mesh instances, or with camera = 1 through every camera. The frame

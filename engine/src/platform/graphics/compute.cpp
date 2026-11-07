@@ -205,6 +205,7 @@ namespace visutwin::canvas
         // since reads as freed rather than being kept alive here.
         _boundSceneDepth.reset();
         _boundSceneColor.reset();
+        _boundHiZ.reset();
         if (const auto& handle = _sceneDepthMap) {
             _boundSceneDepth = handle->texture.lock();
             if (!_boundSceneDepth) {
@@ -257,6 +258,32 @@ namespace visutwin::canvas
             _sceneMapsBlock.flags[2] = handle->gamma ? 1u : 0u;
         } else {
             _boundSceneColor.reset();
+        }
+
+        if (const auto& handle = _hiZMap) {
+            auto& block = _sceneMapsBlock;
+            _boundHiZ = handle->texture.lock();
+            if (_boundHiZ) {
+                block.hiZInfo[0] = handle->levels;
+                block.hiZInfo[1] = handle->depthWidth;
+                block.hiZInfo[2] = handle->depthHeight;
+                std::copy_n(handle->viewport.begin(), 4, block.hiZViewport);
+            } else {
+                // Not built yet, freed, or a destroyed camera: no pyramid, and a texel whose
+                // range (nearest 0, farthest 1) hides nothing from a kernel that tests it anyway.
+                if (!_hiZSubstitute) {
+                    constexpr float range[2] = {0.0f, 1.0f};
+                    _hiZSubstitute = createSubstitute(_graphicsDevice, PixelFormat::PIXELFORMAT_RG32F,
+                        "computeSceneHiZSubstitute", range, sizeof(range));
+                }
+                _boundHiZ = _hiZSubstitute;
+                block.hiZInfo[0] = 0u;
+                block.hiZInfo[1] = block.hiZInfo[2] = 1u;
+                block.hiZViewport[0] = block.hiZViewport[1] = 0u;
+                block.hiZViewport[2] = block.hiZViewport[3] = 1u;
+            }
+            std::copy_n(handle->cameraParams.begin(), 4, block.hiZCameraParams);
+            handle->viewProjection.store(block.hiZViewProjection);
         }
     }
 } // visutwin

@@ -41,6 +41,8 @@ visutwin_add_unit_test(visutwin-texture-copy-tests texture-copy textureCopyTests
 # A ComputePass between two render passes of one frame, on a real device (tests/computePassGpuTests.cpp);
 # `gpu` label for the same reason.
 visutwin_add_unit_test(visutwin-compute-pass-gpu-tests compute-pass-gpu computePassGpuTests.cpp LABELS gpu TIMEOUT 60)
+# The Hi-Z pyramid on a real device (tests/hiZPyramidGpuTests.cpp); `gpu` label for the same reason.
+visutwin_add_unit_test(visutwin-hiz-pyramid-gpu-tests hiz-pyramid-gpu hiZPyramidGpuTests.cpp LABELS gpu TIMEOUT 60)
 # The scene maps a compute kernel reads through vtscenemaps, on a real device
 # (tests/sceneMapsGpuTests.cpp); `gpu` label for the same reason.
 visutwin_add_unit_test(visutwin-scene-maps-gpu-tests scene-maps-gpu sceneMapsGpuTests.cpp LABELS gpu TIMEOUT 60)

@@ -213,6 +213,7 @@ namespace visutwin::canvas
         case PixelFormat::PIXELFORMAT_RGBA16F:      return VK_FORMAT_R16G16B16A16_SFLOAT;
         case PixelFormat::PIXELFORMAT_RGBA32F:      return VK_FORMAT_R32G32B32A32_SFLOAT;
         case PixelFormat::PIXELFORMAT_R32F:         return VK_FORMAT_R32_SFLOAT;
+        case PixelFormat::PIXELFORMAT_RG32F:        return VK_FORMAT_R32G32_SFLOAT;
         case PixelFormat::PIXELFORMAT_DEPTH:        return VK_FORMAT_D32_SFLOAT;
         case PixelFormat::PIXELFORMAT_DEPTH16:      return VK_FORMAT_D16_UNORM;
         // 32-bit float depth with stencil: the swapchain's depth when stencil is available,

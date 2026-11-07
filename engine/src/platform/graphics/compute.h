@@ -23,19 +23,21 @@ namespace visutwin::canvas
     class VertexBuffer;
 
     /// Where a compute kernel finds the scene maps attached with Compute::setSceneDepthMap /
-    /// setSceneColorMap: FIXED slots outside the name-ordered table above, so the module that
-    /// reads them (engine/shaders/slang/modules/vtscenemaps.slang, which declares the same
-    /// numbers) works in any kernel whatever its own parameters are. Metal: the block at
-    /// buffer 30, the depth at texture 30, the colour at texture 31 and its linear clamp
-    /// sampler at sampler 15. Vulkan: descriptor SET 1, bindings 0-3 in that order (depth,
-    /// colour, sampler, block); a compute without scene maps has no set 1.
+    /// setSceneColorMap / setHiZMap: FIXED slots outside the name-ordered table above, so the
+    /// module that reads them (engine/shaders/slang/modules/vtscenemaps.slang, which declares
+    /// the same numbers) works in any kernel whatever its own parameters are. Metal: the block
+    /// at buffer 30, the depth at texture 30, the colour at texture 31 and its linear clamp
+    /// sampler at sampler 15, the Hi-Z pyramid at texture 32. Vulkan: descriptor SET 1,
+    /// bindings 0-4 in that order (depth, colour, sampler, block, pyramid); a compute without
+    /// scene maps has no set 1.
     inline constexpr uint32_t kComputeSceneMapsMetalBufferSlot = 30u;
     inline constexpr uint32_t kComputeSceneDepthMetalTextureSlot = 30u;
     inline constexpr uint32_t kComputeSceneColorMetalTextureSlot = 31u;
     inline constexpr uint32_t kComputeSceneColorMetalSamplerSlot = 15u;
+    inline constexpr uint32_t kComputeSceneHiZMetalTextureSlot = 32u;
     inline constexpr uint32_t kComputeSceneMapsVulkanSet = 1u;
 
-    /// The uniform block the scene-map module reads (`SceneMapsData` there), 112 bytes.
+    /// The uniform block the scene-map module reads (`SceneMapsData` there), 224 bytes.
     struct ComputeSceneMapsBlock
     {
         float depthCameraParams[4];             // 1 / far, far, near, orthographic
@@ -46,8 +48,15 @@ namespace visutwin::canvas
         // kernels here are compiled once (no variant compile from a Compute), so the module
         // tests these uniform flags.
         uint32_t flags[4];
+        // The Hi-Z pyramid (HiZMapHandle): the camera parameters and view-projection its depth
+        // was rendered with, x: its levels (0 when there is none), y, z: the depth map's size,
+        // and that depth's viewport.
+        float hiZCameraParams[4];
+        float hiZViewProjection[16];
+        uint32_t hiZInfo[4];
+        uint32_t hiZViewport[4];
     };
-    static_assert(sizeof(ComputeSceneMapsBlock) == 112, "ComputeSceneMapsBlock must match SceneMapsData");
+    static_assert(sizeof(ComputeSceneMapsBlock) == 224, "ComputeSceneMapsBlock must match SceneMapsData");
 
     /**
      * A representation of a compute shader with the associated resources, that can be executed on the
@@ -205,9 +214,18 @@ namespace visutwin::canvas
         /// them, linear under a camera frame and gamma-encoded otherwise. Null detaches it.
         void setSceneColorMap(std::shared_ptr<SceneColorMapHandle> handle) { _sceneColorMap = std::move(handle); }
 
+        /// Attaches a camera's Hi-Z pyramid (CameraComponent::hiZMapHandle, built on
+        /// requestHiZ): sceneHiZLevels, sceneHiZSize(level), sceneHiZLoad(texel, level) (the
+        /// nearest and farthest depth buffer value under the texel), sceneHiZDepthSize,
+        /// sceneHiZViewport and sceneHiZViewProjection. Read at every dispatch, as the depth
+        /// map is. A pyramid not built reads as no pyramid (sceneHiZLevels 0) over a 1x1
+        /// substitute whose range, 0 to 1, occludes nothing. Null detaches it.
+        void setHiZMap(std::shared_ptr<HiZMapHandle> handle) { _hiZMap = std::move(handle); }
+
         const std::shared_ptr<SceneDepthMapHandle>& sceneDepthMap() const { return _sceneDepthMap; }
         const std::shared_ptr<SceneColorMapHandle>& sceneColorMap() const { return _sceneColorMap; }
-        bool hasSceneMaps() const { return _sceneDepthMap || _sceneColorMap; }
+        const std::shared_ptr<HiZMapHandle>& hiZMap() const { return _hiZMap; }
+        bool hasSceneMaps() const { return _sceneDepthMap || _sceneColorMap || _hiZMap; }
 
         /// Called by the backend as it records the dispatch, the point in the frame the kernel
         /// runs at: reads the attached handles into the textures and block below. A map the
@@ -218,6 +236,7 @@ namespace visutwin::canvas
         /// What prepareDispatch resolved; valid while hasSceneMaps().
         Texture* sceneDepthTexture() const { return _boundSceneDepth.get(); }
         Texture* sceneColorTexture() const { return _boundSceneColor.get(); }
+        Texture* sceneHiZTexture() const { return _boundHiZ.get(); }
         const ComputeSceneMapsBlock& sceneMapsBlock() const { return _sceneMapsBlock; }
 
     private:
@@ -250,6 +269,9 @@ namespace visutwin::canvas
         std::shared_ptr<Texture> _boundSceneColor;
         std::shared_ptr<Texture> _depthSubstitute;
         std::shared_ptr<Texture> _colorSubstitute;
+        std::shared_ptr<HiZMapHandle> _hiZMap;
+        std::shared_ptr<Texture> _boundHiZ;
+        std::shared_ptr<Texture> _hiZSubstitute;
         ComputeSceneMapsBlock _sceneMapsBlock{};
         bool _reportedMissingDepth = false;
         bool _reportedMissingColor = false;

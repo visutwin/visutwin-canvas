@@ -22,6 +22,7 @@
 #include "core/shape/boundingSphere.h"
 #include "graphics/renderPassColorGrab.h"
 #include "graphics/renderPassDepthGrab.h"
+#include "graphics/hiZPyramid.h"
 #include "platform/graphics/renderPass.h"
 #include "platform/graphics/sceneMapHandles.h"
 
@@ -361,11 +362,19 @@ namespace visutwin::canvas
         void _enableRenderPassColorGrab(const std::shared_ptr<GraphicsDevice>& device, bool enable);
         void _enableRenderPassDepthGrab(const std::shared_ptr<GraphicsDevice>& device, bool enable);
 
+        /// The pass building this camera's Hi-Z pyramid from its scene depth map, run among its
+        /// after-passes ahead of the application's; null unless requested (CameraComponent::
+        /// requestHiZ, which also requests the scene depth map).
+        const std::shared_ptr<RenderPassHiZ>& renderPassHiZ() const { return _renderPassHiZ; }
+        void _enableHiZ(const std::shared_ptr<GraphicsDevice>& device, bool enable);
+
         /// This camera's scene depth and colour maps: the same objects for the camera's life,
         /// naming the maps it rendered most recently (see sceneMapHandles.h). Shared, so a
         /// consumer (a Compute) may keep one past the camera; the destructor marks them.
         const std::shared_ptr<SceneDepthMapHandle>& sceneDepthMapHandle() const { return _sceneDepthMapHandle; }
         const std::shared_ptr<SceneColorMapHandle>& sceneColorMapHandle() const { return _sceneColorMapHandle; }
+        /// This camera's Hi-Z pyramid (see sceneMapHandles.h), built only on request.
+        const std::shared_ptr<HiZMapHandle>& hiZMapHandle() const { return _hiZMapHandle; }
 
         /// Whether the scene colour map this camera grabs has mipmaps (default true): a rough
         /// refractive material samples its small levels, which blur what is behind it. Without
@@ -507,6 +516,8 @@ namespace visutwin::canvas
 
         std::shared_ptr<SceneDepthMapHandle> _sceneDepthMapHandle = std::make_shared<SceneDepthMapHandle>();
         std::shared_ptr<SceneColorMapHandle> _sceneColorMapHandle = std::make_shared<SceneColorMapHandle>();
+        std::shared_ptr<HiZMapHandle> _hiZMapHandle = std::make_shared<HiZMapHandle>();
+        std::shared_ptr<RenderPassHiZ> _renderPassHiZ;
         bool _sceneColorMapMipmaps = true;
         MipmapFilter _sceneColorMapMipmapFilter = MipmapFilter::MIPMAPFILTER_BOX;
 

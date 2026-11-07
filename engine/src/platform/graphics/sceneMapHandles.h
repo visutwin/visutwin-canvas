@@ -3,7 +3,8 @@
 //
 // Created by Arnis Lektauers on 21.10.2026
 //
-// A camera's handles to its scene depth and colour maps. The device's grab maps
+// A camera's handles to its scene depth and colour maps and to the hierarchical depth (Hi-Z)
+// pyramid built from that depth. The device's grab maps
 // (GraphicsDevice::sceneColorMap / sceneDepthGrabMap) are shared by every camera and hold
 // whichever map was published last; a handle belongs to ONE camera, is the same object for the
 // camera's whole life, and names the map that camera rendered most recently, together with how
@@ -52,8 +53,9 @@ namespace visutwin::canvas
         /// publication, so a consumer decodes the map correctly after the camera changes.
         std::array<float, 4> cameraParams = {0.0f, 0.0f, 0.0f, 0.0f};
 
-        /// The inverse of the view-projection the shaders were given when the depth was
-        /// rendered (jitter included), GL clip conventions (NDC z in [-1, 1]).
+        /// The view-projection the shaders were given when the depth was rendered (jitter
+        /// included), GL clip conventions (NDC z in [-1, 1]), and its inverse.
+        Matrix4 viewProjection = Matrix4::identity();
         Matrix4 viewProjectionInverse = Matrix4::identity();
 
         /// The viewport the camera rendered the depth with, in texels as a compute kernel
@@ -68,6 +70,41 @@ namespace visutwin::canvas
         /// render target it is not the canvas size, so a dispatch over the map is sized by it.
         uint32_t width() const;
         uint32_t height() const;
+    };
+
+    /**
+     * The hierarchical depth (Hi-Z) pyramid a camera built most recently from its scene depth map
+     * (Camera::hiZMapHandle, CameraComponent::requestHiZ): an RG32F mip chain whose texels hold
+     * the nearest (r) and farthest (g) depth buffer value of the depth texels they cover. Level 0
+     * is half the depth map's size (rounded down, at least 1), each further level half the one
+     * above, down to 1x1; a texel of level k covers the 2x2 texels at twice its coordinate in the
+     * level above (level 0: in the depth map) and, in the last column or row of an odd-sized
+     * source, the one beyond them too. So a depth texel (x, y) is covered by level k's texel
+     * min((x, y) >> (k + 1), size(k) - 1). The pyramid holds DEPTH BUFFER values (near 0, far 1);
+     * the camera parameters and matrices are the depth's, captured when it was built.
+     */
+    struct HiZMapHandle
+    {
+        /// The pyramid; expired when the camera has built none, or its pass freed it.
+        std::weak_ptr<Texture> texture;
+
+        /// The render version it was built in (that of the depth it was built from).
+        int renderVersion = -1;
+
+        /// The size of the depth map it was built from, in texels, and its number of levels.
+        uint32_t depthWidth = 0;
+        uint32_t depthHeight = 0;
+        uint32_t levels = 0;
+
+        /// As SceneDepthMapHandle: the camera parameters, view-projection and its inverse, and
+        /// the viewport (in depth texels, row 0 at the top) the depth was rendered with.
+        std::array<float, 4> cameraParams = {0.0f, 0.0f, 0.0f, 0.0f};
+        Matrix4 viewProjection = Matrix4::identity();
+        Matrix4 viewProjectionInverse = Matrix4::identity();
+        std::array<uint32_t, 4> viewport = {0u, 0u, 0u, 0u};
+
+        /// True once the camera the handle belongs to has been destroyed.
+        bool destroyed = false;
     };
 
     /// The scene colour map a camera rendered most recently (Camera::sceneColorMapHandle).

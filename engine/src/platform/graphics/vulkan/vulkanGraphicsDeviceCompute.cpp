@@ -421,8 +421,9 @@ namespace visutwin::canvas
                 releaseDispatch();
                 return false;
             }
-            // Both maps go to SHADER_READ_ONLY with the kernel's own sampled textures.
-            for (Texture* texture : {compute.sceneDepthTexture(), compute.sceneColorTexture()}) {
+            // The maps go to SHADER_READ_ONLY with the kernel's own sampled textures.
+            for (Texture* texture : {compute.sceneDepthTexture(), compute.sceneColorTexture(),
+                     compute.sceneHiZTexture()}) {
                 if (auto* vkTexture = texture ? dynamic_cast<gpu::VulkanTexture*>(texture->impl()) : nullptr) {
                     command.textures.push_back(vkTexture);
                     command.textureTypes.push_back(VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
@@ -481,28 +482,34 @@ namespace visutwin::canvas
     bool VulkanGraphicsDevice::writeComputeSceneMaps(Compute& compute, const VkDescriptorSetLayout setLayout,
         VkDescriptorPool& pool, VkDescriptorSet& set, VkBuffer& buffer, VmaAllocation& allocation)
     {
-        // The order of compute.h's set-1 table: depth, colour, sampler, block.
+        // The order of compute.h's set-1 table: depth, colour, sampler, block, Hi-Z pyramid.
         static const std::vector<VkDescriptorType> kTypes = {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_SAMPLER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
+            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_SAMPLER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE};
         const auto viewOf = [](Texture* texture) -> VkImageView {
             auto* vkTexture = texture ? dynamic_cast<gpu::VulkanTexture*>(texture->impl()) : nullptr;
             return vkTexture ? vkTexture->imageView() : VK_NULL_HANDLE;
         };
         // A map with no image yet (a substitute just made) is uploaded first.
-        for (Texture* texture : {compute.sceneDepthTexture(), compute.sceneColorTexture()}) {
+        for (Texture* texture : {compute.sceneDepthTexture(), compute.sceneColorTexture(),
+                 compute.sceneHiZTexture()}) {
             if (texture && viewOf(texture) == VK_NULL_HANDLE) {
                 texture->upload();
             }
         }
         const VkImageView depthView = viewOf(compute.sceneDepthTexture());
         const VkImageView colorView = viewOf(compute.sceneColorTexture());
+        const VkImageView hiZView = viewOf(compute.sceneHiZTexture());
         // An unattached map takes the white image: the set is the same either way.
-        VkDescriptorImageInfo images[3] = {
+        VkDescriptorImageInfo images[5] = {
             {VK_NULL_HANDLE, depthView != VK_NULL_HANDLE ? depthView : _whiteImageView,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
             {VK_NULL_HANDLE, colorView != VK_NULL_HANDLE ? colorView : _whiteImageView,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-            {_quadExtraSampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED}};
+            {_quadExtraSampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED},
+            {},
+            {VK_NULL_HANDLE, hiZView != VK_NULL_HANDLE ? hiZView : _whiteImageView,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
 
         const ComputeSceneMapsBlock& block = compute.sceneMapsBlock();
         const auto* bytes = reinterpret_cast<const uint8_t*>(&block);
@@ -524,20 +531,20 @@ namespace visutwin::canvas
             return false;
         }
         const VkDescriptorBufferInfo blockInfo{buffer, 0, sizeof(block)};
-        VkWriteDescriptorSet writes[4];
-        for (uint32_t i = 0; i < 4; ++i) {
+        VkWriteDescriptorSet writes[5];
+        for (uint32_t i = 0; i < 5; ++i) {
             writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
             writes[i].dstSet = set;
             writes[i].dstBinding = i;
             writes[i].descriptorCount = 1;
             writes[i].descriptorType = kTypes[i];
-            if (i < 3) {
-                writes[i].pImageInfo = &images[i];
-            } else {
+            if (kTypes[i] == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) {
                 writes[i].pBufferInfo = &blockInfo;
+            } else {
+                writes[i].pImageInfo = &images[i];
             }
         }
-        vkUpdateDescriptorSets(_device, 4, writes, 0, nullptr);
+        vkUpdateDescriptorSets(_device, 5, writes, 0, nullptr);
         return true;
     }
 
@@ -575,13 +582,14 @@ namespace visutwin::canvas
         // A compute with scene maps has set 1 as well, one layout shared by every such compute.
         resources.sceneMaps = sceneMaps;
         if (sceneMaps && _computeSceneMapsSetLayout == VK_NULL_HANDLE) {
-            const VkDescriptorSetLayoutBinding sceneBindings[4] = {
+            const VkDescriptorSetLayoutBinding sceneBindings[5] = {
                 {0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
                 {1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
                 {2, VK_DESCRIPTOR_TYPE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
-                {3, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr}};
+                {3, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
+                {4, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr}};
             VkDescriptorSetLayoutCreateInfo sceneInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-            sceneInfo.bindingCount = 4;
+            sceneInfo.bindingCount = 5;
             sceneInfo.pBindings = sceneBindings;
             if (vkCreateDescriptorSetLayout(_device, &sceneInfo, nullptr, &_computeSceneMapsSetLayout) != VK_SUCCESS) {
                 spdlog::error("Failed to create the Vulkan compute scene-map descriptor layout");

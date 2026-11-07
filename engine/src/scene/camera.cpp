@@ -47,6 +47,8 @@ namespace visutwin::canvas
         _sceneDepthMapHandle->destroyed = true;
         _sceneColorMapHandle->texture.reset();
         _sceneColorMapHandle->destroyed = true;
+        _hiZMapHandle->texture.reset();
+        _hiZMapHandle->destroyed = true;
     }
 
     void Camera::publishSceneDepthMap(const std::shared_ptr<Texture>& texture, const int renderVersion,
@@ -63,6 +65,7 @@ namespace visutwin::canvas
 
         // The matrices the shaders were given this frame, stored when the camera first rendered
         // in it (storeShaderMatrices).
+        handle.viewProjection = _viewProjCurrent;
         handle.viewProjectionInverse = _viewProjInverse;
 
         // The viewport the camera rendered to, placed as the renderer places it: the rect's
@@ -245,6 +248,17 @@ namespace visutwin::canvas
             }
         } else {
             _renderPassColorGrab.reset();
+        }
+    }
+
+    void Camera::_enableHiZ(const std::shared_ptr<GraphicsDevice>& device, const bool enable)
+    {
+        if (enable) {
+            if (!_renderPassHiZ) {
+                _renderPassHiZ = std::make_shared<RenderPassHiZ>(device, _sceneDepthMapHandle, _hiZMapHandle);
+            }
+        } else {
+            _renderPassHiZ.reset();
         }
     }
 

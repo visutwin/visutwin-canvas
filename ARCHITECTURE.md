@@ -1887,6 +1887,45 @@ Scope rule: a retained list must be invalidated by everything the sweep reads (`
 layers, masks, the frustum), or a disabled entity keeps rendering, which is the failure the
 `active()` rules in `CLAUDE.md` exist to prevent.
 
+**Step (a) result (2026-11-07).** Landed as designed: a (camera, layer) cull set
+(`Renderer::CulledInstances`) is kept across frames and reused while its stamps hold — the
+`CullVersion` (`scene/cullVersion.h`, a process-wide counter every writer of something the
+sweep or the sort reads bumps: the full list is in AGENTS.md's culling entry), the camera's
+frustum, culling mask and sky flag, compared in `executeMeshInstanceCull` after `precull` —
+and each bucket's sorted draw order is kept with it (`SortedOrder`, a permutation of the whole
+bucket under one sort mode, never under a custom comparator or sort distance), so the forward
+pass collects in that order and skips the sort. A node moves the version only if a mesh
+instance is bounded through it (`GraphNode::markCullRelevant`, set by `MeshInstance` on its
+node and by its skinned bounds on each bone), so a camera or a light moving does not; a
+setter bumps only when its value changes, because the HUD and the immediate lines write
+theirs every frame. The global counter is the one O(1) answer: a per-instance version would
+have to be visited, which is the sweep. `FrameCounters::cullSetsReused` counts the sets taken
+over (the `CPU_STATS` line prints it); `VISUTWIN_CULL_REUSE=0` culls every set every frame
+(the A/B control in one binary) and `VISUTWIN_CULL_CHECK=1` culls every reused set again by
+the sweep and sorts every reused order again, counting mismatches
+(`Renderer::cullCheckMismatches`). `tests/cullSetReuseTests.cpp` (54 checks, the check on for
+the run) moves each input the sweep or the sort reads — transform, parent transform,
+material, alpha mode, mask, visibility, mesh bounds, layers, entity and parent enabled, an
+instance added and destroyed, the camera's pose and mask, a batch — and holds that unchanged
+writes keep reusing. Verification: the check over 58 Metal examples and 30 Vulkan ones for 240
+frames each found no reused set or order that a fresh sweep or sort disagrees with; the
+goldens are unchanged on both backends (the three 1x references stale since before the
+bindless work stay so, and dynamic-batching captures bit-identically with the reuse on and
+off); 121 unit tests on each backend, the 8 `gpu` tests on each, the Vulkan smoke test, and
+the reuse, frame-stats and batch-lifetime tests under ASan/UBSan. Cost, Release (the Vulkan
+examples tree; the cull and sort are backend-independent CPU work), medians of three
+alternated runs of `VISUTWIN_CPU_STATS=60,300` each, reuse on against off: ambient-occlusion
+cull 0.003 against 0.006 ms, sort 0.000 against 0.002; clearcoat cull 0.002 against 0.014;
+car-showcase cull 0.015 against 0.052, sort 0.006 against 0.009; and where nothing can reuse
+the stamp check costs nothing measurable — dynamic-batching (its batch bounds move every
+frame) 0.112 against 0.117, hierarchy (every node moves) 0.56 against 0.57, hello-world (its
+box spins) 0.003 against 0.002. The Debug Metal tree shows the same shape at ten times the
+cost (ambient-occlusion cull 0.020 against 0.195, sort 0 against 0.037). So on the shipped
+examples the saving is tens of microseconds a frame: the sweep over a few hundred draws was
+already cheap, and 22 of the 58 reuse every set while the rest animate something the sweep
+reads. The payoff is the large, mostly static twin scene (hierarchy's 0.56 ms sweep is what
+such a scene pays every frame today) and the retained list steps (b)-(d) build on this set.
+
 ### 2. Bindless material binding
 
 Bevy binds materials through binding arrays (one slab of textures indexed by a per-draw

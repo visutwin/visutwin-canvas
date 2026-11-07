@@ -3,11 +3,11 @@
 //
 // Created by Arnis Lektauers on 21.10.2026
 //
-// A camera's scene depth and colour maps in a compute kernel, attached to the Compute with
-// setSceneDepthMap / setSceneColorMap (`import vtscenemaps;`). The Compute fills these
-// resources itself at every dispatch, at FIXED slots outside its name-ordered table (the
-// constants beside ComputeSceneMapsBlock in compute.h; change both): Metal texture 30 / 31,
-// sampler 15 and buffer 30, Vulkan set 1 bindings 0-3.
+// A camera's scene depth and colour maps and its Hi-Z pyramid in a compute kernel, attached to
+// the Compute with setSceneDepthMap / setSceneColorMap / setHiZMap (`import vtscenemaps;`). The
+// Compute fills these resources itself at every dispatch, at FIXED slots outside its
+// name-ordered table (the constants beside ComputeSceneMapsBlock in compute.h; change both):
+// Metal texture 30 / 31 / 32, sampler 15 and buffer 30, Vulkan set 1 bindings 0-4.
 //
 // Depth:
 //   sceneDepthSize() -> uint2                  the size of the depth map
@@ -22,6 +22,16 @@
 //   sceneColorLoad(int2 texel, int lod) -> float4
 //   sceneColorSample(float2 uv, float lod) -> float4    filtered, clamped at the edges
 //   sceneColorToLinear(float3), sceneColorToDisplay(float3)
+// Hi-Z pyramid (depth buffer values, near 0, far 1; layout in sceneMapHandles.h, HiZMapHandle):
+//   sceneHiZLevels() -> uint                   its levels, 0 when there is no pyramid
+//   sceneHiZSize(int level) -> uint2           the size of a level (level 0: half the depth)
+//   sceneHiZLoad(int2 texel, int level)        the nearest (x) and farthest (y) depth buffer
+//                                              value of the depth texels under the texel
+//   sceneHiZDepthSize() -> uint2               the size of the depth it was built from
+//   sceneHiZViewport() -> uint4                that depth's viewport, in depth texels
+//   sceneHiZViewProjection() -> float4x4       the view-projection that depth was rendered
+//                                              with (GL clip: NDC z in [-1, 1]); a point p
+//                                              projects as mul(float4(p, 1), m)
 //
 // DEVIATION: one module for both maps where upstream has a chunk each, and the storage
 // (linear, reciprocal, gamma) is read from the block's flags rather than compiled into a
@@ -39,12 +49,19 @@ public struct SceneMapsData
     public uint4 depthViewport;
     // x: the depth is linear, y: the reciprocal of the linear depth, z: the colour is gamma-encoded
     public uint4 flags;
+    // the Hi-Z pyramid's depth: its camera parameters and view-projection, x: the levels (0
+    // when there is no pyramid), y, z: the depth's size, and its viewport
+    public float4 hiZCameraParams;
+    public float4x4 hiZViewProjection;
+    public uint4 hiZInfo;
+    public uint4 hiZViewport;
 };
 
 [[vk::binding(0, 1)]] public Texture2D<float> computeSceneDepthMap : register(t30);
 [[vk::binding(1, 1)]] public Texture2D<float4> computeSceneColorMap : register(t31);
 [[vk::binding(2, 1)]] public SamplerState computeSceneColorSampler : register(s15);
 [[vk::binding(3, 1)]] public ConstantBuffer<SceneMapsData> computeSceneMaps : register(b30);
+[[vk::binding(4, 1)]] public Texture2D<float2> computeSceneHiZMap : register(t32);
 
 public uint2 sceneDepthSize()
 {
@@ -139,4 +156,36 @@ public float3 sceneColorToLinear(float3 color)
 public float3 sceneColorToDisplay(float3 color)
 {
     return computeSceneMaps.flags.z != 0u ? color : linearToSrgb(color);
+}
+
+public uint sceneHiZLevels()
+{
+    return computeSceneMaps.hiZInfo.x;
+}
+
+public uint2 sceneHiZSize(int level)
+{
+    uint width, height, levels;
+    computeSceneHiZMap.GetDimensions(uint(level), width, height, levels);
+    return uint2(width, height);
+}
+
+public float2 sceneHiZLoad(int2 texel, int level)
+{
+    return computeSceneHiZMap.Load(int3(texel, level));
+}
+
+public uint2 sceneHiZDepthSize()
+{
+    return computeSceneMaps.hiZInfo.yz;
+}
+
+public uint4 sceneHiZViewport()
+{
+    return computeSceneMaps.hiZViewport;
+}
+
+public float4x4 sceneHiZViewProjection()
+{
+    return computeSceneMaps.hiZViewProjection;
 }

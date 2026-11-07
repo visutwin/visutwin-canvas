@@ -36,6 +36,7 @@ namespace visutwin::canvas
         // from that. R32F is the blessed MSAA depth-resolve format and BGRA8 the
         // back-buffer copy format. tests/pixelFormatTests.cpp holds the table.
         { PixelFormat::PIXELFORMAT_R32F, { .size = 4 } },
+        { PixelFormat::PIXELFORMAT_RG32F, { .size = 8 } },
         { PixelFormat::PIXELFORMAT_DEPTH16, { .size = 2 } },
         { PixelFormat::PIXELFORMAT_BGRA8, { .size = 4 } },
         // Integer formats (signed, then unsigned).
@@ -93,7 +94,8 @@ namespace visutwin::canvas
     bool isFloatPixelFormat(const PixelFormat format)
     {
         return format == PixelFormat::PIXELFORMAT_RGBA16F || format == PixelFormat::PIXELFORMAT_RGBA32F ||
-            format == PixelFormat::PIXELFORMAT_R32F || format == PixelFormat::PIXELFORMAT_BC6H;
+            format == PixelFormat::PIXELFORMAT_R32F || format == PixelFormat::PIXELFORMAT_RG32F ||
+            format == PixelFormat::PIXELFORMAT_BC6H;
     }
 
     uint32_t pixelFormatBytesPerPixel(const PixelFormat format)

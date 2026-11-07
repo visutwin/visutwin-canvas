@@ -109,6 +109,21 @@ namespace visutwin::canvas
         }
     }
 
+    void CameraComponent::requestHiZ(const bool enabled)
+    {
+        if (!enabled && _renderHiZ == 0) {
+            return;
+        }
+        _renderHiZ += enabled ? 1 : -1;
+        // The pyramid is built from the scene depth map, which is requested along with it.
+        requestSceneDepthMap(enabled);
+        if (const auto* systemPtr = system()) {
+            if (const auto* engine = systemPtr->engine()) {
+                _camera->_enableHiZ(engine->graphicsDevice(), renderHiZ());
+            }
+        }
+    }
+
     void CameraComponent::setDofEnabled(const bool enabled)
     {
         if (_dof.enabled == enabled) {

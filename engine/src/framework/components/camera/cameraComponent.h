@@ -222,6 +222,14 @@ namespace visutwin::canvas
         void requestSceneColorMap(bool enabled);
         void requestSceneDepthMap(bool enabled);
 
+        /// Requests (or releases, counted like requestSceneDepthMap) the camera's hierarchical
+        /// depth (Hi-Z) pyramid: built every frame from its scene depth map, after everything the
+        /// camera renders and ahead of its after-passes, and published to hiZMapHandle() for a
+        /// compute kernel (Compute::setHiZMap). It requests the scene depth map too.
+        void requestHiZ(bool enabled);
+        bool renderHiZ() const { return _renderHiZ > 0; }
+        const std::shared_ptr<HiZMapHandle>& hiZMapHandle() const { return _camera->hiZMapHandle(); }
+
         /// The handles to this camera's scene depth and colour maps (Camera::sceneDepthMapHandle):
         /// the same objects for the camera's life, naming the maps it rendered most recently. It
         /// renders them only on request (requestSceneDepthMap / requestSceneColorMap) or when its
@@ -379,6 +387,7 @@ namespace visutwin::canvas
 
         // A counter of requests of depth map rendering
         int _renderSceneDepthMap = 0;
+        int _renderHiZ = 0;
 
         DofSettings _dof;
         TaaSettings _taa;

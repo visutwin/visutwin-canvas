@@ -1241,7 +1241,7 @@ namespace visutwin::canvas
             // The scene maps attached to the compute, resolved now, where the kernel runs in
             // the frame, and bound at their fixed slots outside the name-ordered table
             // (compute.h): the block, the depth and the colour with the post sampler (linear,
-            // clamped, mipmapped).
+            // clamped, mipmapped), and the Hi-Z pyramid.
             if (compute->hasSceneMaps()) {
                 compute->prepareDispatch();
                 const ComputeSceneMapsBlock& block = compute->sceneMapsBlock();
@@ -1252,6 +1252,7 @@ namespace visutwin::canvas
                 };
                 bindSceneMap(compute->sceneDepthTexture(), kComputeSceneDepthMetalTextureSlot);
                 bindSceneMap(compute->sceneColorTexture(), kComputeSceneColorMetalTextureSlot);
+                bindSceneMap(compute->sceneHiZTexture(), kComputeSceneHiZMetalTextureSlot);
                 encoder->setSamplerState(_postSampler, kComputeSceneColorMetalSamplerSlot);
             }
 

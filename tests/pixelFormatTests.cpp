@@ -34,6 +34,7 @@ int main()
         {PixelFormat::PIXELFORMAT_RGBA16F, "RGBA16F"},
         {PixelFormat::PIXELFORMAT_RGBA32F, "RGBA32F"},
         {PixelFormat::PIXELFORMAT_R32F, "R32F"},
+        {PixelFormat::PIXELFORMAT_RG32F, "RG32F"},
         {PixelFormat::PIXELFORMAT_DEPTH, "DEPTH"},
         {PixelFormat::PIXELFORMAT_ASTC_4x4, "ASTC_4x4"},
         {PixelFormat::PIXELFORMAT_ASTC_5x5, "ASTC_5x5"},
@@ -84,6 +85,7 @@ int main()
         check(ok, std::string(name) + " is " + std::to_string(size) + " bytes");
     };
     expect(PixelFormat::PIXELFORMAT_R32F, 4, "R32F");
+    expect(PixelFormat::PIXELFORMAT_RG32F, 8, "RG32F");
     expect(PixelFormat::PIXELFORMAT_DEPTH16, 2, "DEPTH16");
     expect(PixelFormat::PIXELFORMAT_BGRA8, 4, "BGRA8");
     expect(PixelFormat::PIXELFORMAT_RGBA8, 4, "RGBA8");

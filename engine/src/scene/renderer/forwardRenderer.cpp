@@ -519,6 +519,11 @@ namespace visutwin::canvas
         if (!camera || !camera->camera()) {
             return;
         }
+        // The Hi-Z pyramid first, from the depth the camera rendered, so an after-pass of the
+        // application reads this frame's.
+        if (const auto& hiZ = camera->camera()->renderPassHiZ()) {
+            frameGraph->addRenderPass(hiZ);
+        }
         // The graph leaves a disabled pass out.
         for (const auto& pass : camera->afterPasses()) {
             if (pass) {

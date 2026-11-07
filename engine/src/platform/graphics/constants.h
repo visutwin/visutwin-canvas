@@ -54,6 +54,8 @@ namespace visutwin::canvas
         PIXELFORMAT_RGBA16F = 12,       // 16-bit floating point RGBA (16-bit float for each red, green, blue and alpha channel)
         PIXELFORMAT_RGBA32F = 14,       // 32-bit floating point RGBA (32-bit float for each red, green, blue and alpha channel)
         PIXELFORMAT_R32F = 15,          // 32-bit floating point single channel format
+        PIXELFORMAT_RG32F = 89,         // 32-bit floating point red and green. DEVIATION: upstream's
+                                        // value (70) is BGRA8 here
         PIXELFORMAT_DEPTHSTENCIL = 19,  // A readable depth/stencil buffer format
         PIXELFORMAT_DEPTH = 16,         // A readable depth buffer format
         PIXELFORMAT_ASTC_4x4 = 28,      // Block-compressed ASTC 4x4: 16 bytes/block (RGBA) — native on Apple GPUs
