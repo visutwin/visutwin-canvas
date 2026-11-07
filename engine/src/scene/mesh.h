@@ -12,6 +12,7 @@
 #include <core/refCountedObject.h>
 #include <platform/graphics/indexBuffer.h>
 #include <platform/graphics/vertexBuffer.h>
+#include <scene/cullVersion.h>
 
 namespace visutwin::canvas
 {
@@ -92,14 +93,23 @@ namespace visutwin::canvas
 
         const BoundingBox& aabb() const { return _aabb; }
 
+        // Both move the CullVersion only for what the cull sweep reads: the bounds when
+        // they change (the HUD sets the same box on every rebuild), the vertex buffer when
+        // it appears or goes (the immediate lines bind a ring slot every frame).
         void setAabb(const BoundingBox& bounds)
         {
+            if (!bounds.sameAs(_aabb)) {
+                CullVersion::bump();
+            }
             _aabb = bounds;
             _aabbVer++;
         }
 
         void setVertexBuffer(const std::shared_ptr<VertexBuffer>& vb)
         {
+            if ((vb == nullptr) != (_vertexBuffer == nullptr)) {
+                CullVersion::bump();
+            }
             _vertexBuffer = vb;
             _aabbVer++;
         }

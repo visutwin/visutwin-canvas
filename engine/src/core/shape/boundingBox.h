@@ -35,6 +35,14 @@ namespace visutwin::canvas
         const Vector3& halfExtents() const { return _halfExtents; }
         void setHalfExtents(const Vector3& halfExtents) { _halfExtents = halfExtents; }
 
+        /// Exact comparison of the centre and the half extents, component by component.
+        bool sameAs(const BoundingBox& other) const
+        {
+            return _center.getX() == other._center.getX() && _center.getY() == other._center.getY() &&
+                _center.getZ() == other._center.getZ() && _halfExtents.getX() == other._halfExtents.getX() &&
+                _halfExtents.getY() == other._halfExtents.getY() && _halfExtents.getZ() == other._halfExtents.getZ();
+        }
+
         void setHalfExtents(float x, float y, float z)
         {
             _halfExtents = {x, y, z};

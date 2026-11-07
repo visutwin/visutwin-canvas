@@ -448,7 +448,7 @@ namespace visutwin::canvas
                 cpuStatsFirst = cpuStatsLast = -1;
             }
         }
-        std::vector<std::array<double, 11>> cpuSamples;
+        std::vector<std::array<double, 12>> cpuSamples;
         // Per-pass GPU times of the same frames, by pass name in first-seen order.
         std::vector<std::pair<std::string, std::vector<double>>> gpuPassSamples;
         // The frame the last pass timings collected describe: the profiler resolves a frame a
@@ -536,9 +536,10 @@ namespace visutwin::canvas
                 }
                 cpuSamples.push_back({updateMs, f.renderTime, f.cullTime, f.sortTime, f.forwardTime,
                     f.shadowMapTime, f.skinTime + f.morphTime, f.lightClustersTime,
-                    static_cast<double>(stats->drawCalls().total), static_cast<double>(f.shaders), gpuMs});
+                    static_cast<double>(stats->drawCalls().total), static_cast<double>(f.shaders), gpuMs,
+                    static_cast<double>(f.cullSetsReused)});
                 if (frameIndex == cpuStatsLast) {
-                    std::array<double, 11> median{};
+                    std::array<double, 12> median{};
                     for (size_t k = 0; k < median.size(); ++k) {
                         std::vector<double> column;
                         for (const auto& sample : cpuSamples) {
@@ -549,8 +550,9 @@ namespace visutwin::canvas
                     }
                     spdlog::warn("CPU_STATS frames {}-{} median ms: update {:.3f} render {:.3f} | cull {:.3f} "
                         "sort {:.3f} forward {:.3f} shadow {:.3f} skin+morph {:.3f} clusters {:.3f} | draws {:.0f} "
-                        "shaders {:.0f} | gpu {:.3f}", cpuStatsFirst, cpuStatsLast, median[0], median[1], median[2],
-                        median[3], median[4], median[5], median[6], median[7], median[8], median[9], median[10]);
+                        "shaders {:.0f} cull sets reused {:.0f} | gpu {:.3f}", cpuStatsFirst, cpuStatsLast, median[0],
+                        median[1], median[2], median[3], median[4], median[5], median[6], median[7], median[8],
+                        median[9], median[11], median[10]);
                     std::string passes;
                     for (auto& [name, column] : gpuPassSamples) {
                         std::nth_element(column.begin(), column.begin() + column.size() / 2, column.end());

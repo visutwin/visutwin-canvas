@@ -603,6 +603,7 @@ namespace visutwin::canvas
         // frameCounters.h for who writes each; render() zeroes them as it starts).
         FrameCounters& counters = _graphicsDevice->frameCounters();
         stats.cameras = counters.camerasRendered;
+        stats.cullSetsReused = counters.cullSetsReused;
         stats.materials = counters.materialSwitches;
         stats.shaders = _graphicsDevice->_shaderSwitchesPerFrame;
         stats.shadowMapUpdates = counters.shadowMapUpdates;

@@ -864,6 +864,7 @@ namespace visutwin::canvas
         meshInstanceRaw->setRenderStyle(_renderStyle);
         _meshInstances.push_back(std::move(meshInstance));
         _meshInstanceViewDirty = true;
+        CullVersion::bump();
         // A new source for the group.
         if (auto* batches = batcher(); batches && active()) {
             batches->markGroupDirty(_batchGroupId);
@@ -900,6 +901,7 @@ namespace visutwin::canvas
     // enable and disable. Disabling is also what an entity's destroy() does first.
     void RenderComponent::onEnable()
     {
+        CullVersion::bump();
         if (auto* batches = batcher()) {
             batches->markGroupDirty(_batchGroupId);
         }
@@ -907,6 +909,7 @@ namespace visutwin::canvas
 
     void RenderComponent::onDisable()
     {
+        CullVersion::bump();
         if (auto* batches = batcher()) {
             batches->sourcesLeaving(_batchGroupId);
         }
@@ -925,6 +928,7 @@ namespace visutwin::canvas
         }
         _meshInstances.erase(it);
         _meshInstanceViewDirty = true;
+        CullVersion::bump();
         return true;
     }
 
@@ -936,6 +940,7 @@ namespace visutwin::canvas
         _meshInstances.clear();
         _meshInstanceView.clear();
         _meshInstanceViewDirty = false;
+        CullVersion::bump();
     }
 
     void RenderComponent::setType(const std::string& type)

@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "cullVersion.h"
 #include "meshInstance.h"
 
 namespace visutwin::canvas
@@ -30,6 +31,7 @@ namespace visutwin::canvas
 
         void addMeshInstances(const std::vector<MeshInstance*>& meshInstances)
         {
+            CullVersion::bump();
             for (auto* meshInstance : meshInstances) {
                 if (!meshInstance) {
                     continue;
@@ -42,6 +44,7 @@ namespace visutwin::canvas
 
         void removeMeshInstances(const std::vector<MeshInstance*>& meshInstances)
         {
+            CullVersion::bump();
             for (auto* meshInstance : meshInstances) {
                 if (!meshInstance) {
                     continue;

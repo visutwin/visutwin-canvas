@@ -36,6 +36,8 @@ namespace visutwin::canvas
         int shaders = 0;
         int materials = 0;
         int cameras = 0;
+        /// (camera, layer) cull sets reused from an earlier frame instead of swept again.
+        int cullSetsReused = 0;
         int shadowMapUpdates = 0;
         double shadowMapTime = 0.0;
         double depthMapTime = 0.0; // deprecated

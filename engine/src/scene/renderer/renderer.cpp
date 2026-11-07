@@ -17,6 +17,7 @@
 #include <chrono>
 #include <cmath>
 #include <limits>
+#include <cstdlib>
 #include <cstring>
 #include <numbers>
 #include <set>
@@ -173,6 +174,16 @@ namespace visutwin::canvas
         _lightTextureAtlas = std::make_unique<LightTextureAtlas>(device);
 
         _shadowRenderer = std::make_unique<ShadowRenderer>();
+
+        // VISUTWIN_CULL_CHECK=1: prove every reused cull set and draw order against the
+        // sweep and the sort, in this process (see cullCheckMismatches).
+        if (const char* value = std::getenv("VISUTWIN_CULL_CHECK"); value && *value && *value != '0') {
+            _cullCheck = true;
+        }
+        // VISUTWIN_CULL_REUSE=0: cull every set every frame, the A/B control.
+        if (const char* value = std::getenv("VISUTWIN_CULL_REUSE"); value && *value == '0') {
+            _cullReuse = false;
+        }
 
         _shadowRendererLocal = std::make_unique<ShadowRendererLocal>(_shadowRenderer.get());
         _shadowRendererDirectional = std::make_unique<ShadowRendererDirectional>(device, _shadowRenderer.get());
@@ -369,23 +380,47 @@ namespace visutwin::canvas
 
     void Renderer::resetCulledInstances()
     {
-        // An entry culled last frame keeps its vectors' storage for this one: a large
-        // scene's lists are the same size every frame, and clearing the map made each
-        // grow from nothing again. One that was NOT culled last frame belongs to a
-        // camera or layer that has gone, and is dropped — which also keeps the raw
-        // pointer keys from outliving what they point at by more than a frame.
+        // A set used last frame is KEPT, content and all: executeMeshInstanceCull reuses
+        // it while its stamps hold, and otherwise culls into its storage, which a large
+        // scene's lists fill to the same size every frame. One that was NOT used last
+        // frame belongs to a camera or layer that has gone, and is dropped — which also
+        // keeps the raw pointer keys from outliving what they point at by more than a
+        // frame.
         for (auto it = _culledInstances.begin(); it != _culledInstances.end();) {
-            if (!it->second.valid) {
+            if (!it->second.used) {
                 it = _culledInstances.erase(it);
                 continue;
             }
-            it->second.valid = false;
-            it->second.opaque.clear();
-            it->second.transparent.clear();
+            it->second.used = false;
             ++it;
         }
         _cullCameras.clear();
         _cullRequests.clear();
+    }
+
+    bool Renderer::cullSetCurrent(const CulledInstances& set, const Camera* camera, const Frustum& frustum) const
+    {
+        if (!_cullReuse || !set.valid || set.cullVersion != CullVersion::current()) {
+            return false;
+        }
+        const uint32_t cullingMask = camera ? camera->cullingMask() : 0xFFFFFFFFu;
+        const bool skyVisible = camera ? camera->skyVisible() : true;
+        return set.cullingMask == cullingMask && set.skyVisible == skyVisible && frustumsEqual(set.frustum, frustum);
+    }
+
+    void Renderer::checkReusedCullSet(Camera* camera, GraphNode* cameraNode, Layer* layer,
+        const CulledInstances& reused)
+    {
+        CulledInstances fresh;
+        cullMeshInstancesInto(camera, cameraNode, layer, fresh);
+        if (fresh.opaque == reused.opaque && fresh.transparent == reused.transparent) {
+            return;
+        }
+        ++_cullCheckMismatches;
+        spdlog::error("[Renderer] VISUTWIN_CULL_CHECK: the reused cull set of camera {} layer {} differs from "
+            "the sweep (opaque {} vs {}, transparent {} vs {}); something the sweep reads changed without "
+            "moving the CullVersion", static_cast<const void*>(camera), layer ? layer->id() : -1,
+            reused.opaque.size(), fresh.opaque.size(), reused.transparent.size(), fresh.transparent.size());
     }
 
     void Renderer::requestMeshInstanceCull(Camera* camera, Layer* layer)
@@ -416,15 +451,38 @@ namespace visutwin::canvas
             if (_scene) {
                 _scene->fire("precull", camera);
             }
-            // Every layer this camera asked for, in ONE sweep of the scene.
+            // Every layer this camera asked for whose kept set is not current, in ONE
+            // sweep of the scene. The stamps are compared here, after precull, so a
+            // listener that moved something there (the CullVersion) or the camera (the
+            // frustum) re-culls; one that changes things in postcull is seen next frame,
+            // as the cull itself would not see it this frame either.
             GraphNode* cameraNode = camera ? camera->node() : nullptr;
             const std::vector<Layer*>& layers = _cullRequests[camera];
             static thread_local std::vector<CulledInstances*> outs;
+            static thread_local std::vector<Layer*> layersToCull;
             outs.clear();
-            for (Layer* layer : layers) {
-                outs.push_back(&_culledInstances[{camera, layer}]);
+            layersToCull.clear();
+            {
+                const ScopedMilliseconds cullTimer(_device->frameCounters().cullTime);
+                const bool hasCameraFrustum = camera && cameraNode;
+                const Frustum frustum = hasCameraFrustum ? buildCameraFrustum(camera, cameraNode) : Frustum{};
+                for (Layer* layer : layers) {
+                    CulledInstances& set = _culledInstances[{camera, layer}];
+                    if (cullSetCurrent(set, camera, frustum)) {
+                        set.used = true;
+                        ++_device->frameCounters().cullSetsReused;
+                        if (_cullCheck) {
+                            checkReusedCullSet(camera, cameraNode, layer, set);
+                        }
+                        continue;
+                    }
+                    layersToCull.push_back(layer);
+                    outs.push_back(&set);
+                }
             }
-            cullMeshInstances(camera, cameraNode, layers.data(), outs.data(), layers.size());
+            if (!layersToCull.empty()) {
+                cullMeshInstances(camera, cameraNode, layersToCull.data(), outs.data(), layersToCull.size());
+            }
             if (_scene) {
                 _scene->fire("postcull", camera);
             }
@@ -436,22 +494,35 @@ namespace visutwin::canvas
     const Renderer::CulledInstances& Renderer::culledInstances(Camera* camera,
         GraphNode* cameraNode, Layer* layer)
     {
+        return resolveCulledInstances(camera, cameraNode, layer);
+    }
+
+    Renderer::CulledInstances& Renderer::resolveCulledInstances(Camera* camera, GraphNode* cameraNode, Layer* layer)
+    {
         const auto key = std::make_pair(camera, layer);
         CulledInstances& entry = _culledInstances[key];
 
-        // A hit only counts if it was culled against the frustum this camera has NOW.
-        // On the first frame the aspect ratio can change between the batch and the
-        // pass, so the cached set would be the answer for a differently shaped view.
+        // A set culled or reused this frame answers while it was culled against the
+        // frustum this camera has NOW: on the first frame the aspect ratio can change
+        // between the batch and the pass, so the set would be the answer for a
+        // differently shaped view. The CullVersion is not compared here: the frame draws
+        // what its build culled, as it did when every set was culled per frame.
         const bool hasCameraFrustum = camera && cameraNode;
         const Frustum current = hasCameraFrustum
             ? buildCameraFrustum(camera, cameraNode) : Frustum{};
-        if (entry.valid && frustumsEqual(entry.frustum, current)) {
+        if (entry.used && frustumsEqual(entry.frustum, current)) {
             return entry;
         }
 
-        // Either the frame graph never asked for this pair — an app-appended pass
-        // reaches here with a camera the composition never saw, and rendering nothing
-        // would be the wrong answer — or the camera has changed since it did.
+        // The frame graph never asked for this pair — an app-appended pass reaches here
+        // with a camera the composition never saw, and rendering nothing would be the
+        // wrong answer — or the camera has changed since it did. A set kept from an
+        // earlier frame still stands if nothing it reads changed.
+        if (cullSetCurrent(entry, camera, current)) {
+            entry.used = true;
+            ++_device->frameCounters().cullSetsReused;
+            return entry;
+        }
         cullMeshInstancesInto(camera, cameraNode, layer, entry);
         return entry;
     }
@@ -484,17 +555,28 @@ namespace visutwin::canvas
             ? buildCameraFrustum(camera, cameraNode) : Frustum{};
         const uint32_t cullingMask = camera ? camera->cullingMask() : 0xFFFFFFFFu;
 
+        // The stamps this set is culled under, read before the sweep: the sweep itself
+        // moves nothing.
+        const uint64_t cullVersion = CullVersion::current();
+        const bool skyVisible = camera ? camera->skyVisible() : true;
+
         std::array<int, kMaxLayersPerSweep> layerIds{};
         uint64_t requested = 0;
         for (size_t i = 0; i < layerCount; ++i) {
             CulledInstances& out = *outs[i];
             out.opaque.clear();
             out.transparent.clear();
+            out.opaqueOrder.valid = false;
+            out.transparentOrder.valid = false;
             if (!layers[i]) {
                 continue;
             }
             out.frustum = cameraFrustum;
+            out.cullVersion = cullVersion;
+            out.cullingMask = cullingMask;
+            out.skyVisible = skyVisible;
             out.valid = true;
+            out.used = true;
             layerIds[i] = layers[i]->id();
             requested |= uint64_t{1} << i;
         }
@@ -2422,15 +2504,73 @@ namespace visutwin::canvas
 
         // Culling has already happened, once for this (camera, layer) pair — see
         // Renderer::cullMeshInstancesInto. Each sublayer reads its own bucket.
-        const CulledInstances& visible = culledInstances(camera, view.cameraNode, layer);
+        CulledInstances& visible = resolveCulledInstances(camera, view.cameraNode, layer);
         view.hasFrustum = view.cameraNode != nullptr;
         view.frustum = view.hasFrustum ? buildCameraFrustum(camera, view.cameraNode) : Frustum{};
 
-        collectDrawEntries(transparent ? visible.transparent : visible.opaque, view,
+        // While the set is reused, its bucket's draw order from the last sort stands as
+        // well: the sort's inputs are the set's stamps (keys and bounds through the
+        // CullVersion, the view through the frustum) and the layer's mode. The entries
+        // are then collected in that order and the sort skipped. The order is kept
+        // only as a permutation of the WHOLE bucket (an entry dropped for the frame,
+        // such as a drawOncePerFrame instance another camera claimed, would otherwise
+        // be missing from it for good) and never under a comparator or a sort distance
+        // the stamps do not cover.
+        const std::vector<MeshInstance*>& bucket = transparent ? visible.transparent : visible.opaque;
+        CulledInstances::SortedOrder& order = transparent ? visible.transparentOrder : visible.opaqueOrder;
+        const SortMode sortMode = transparent ? layer->transparentSortMode() : layer->opaqueSortMode();
+        const bool reuseOrder = order.valid && order.mode == sortMode;
+
+        collectDrawEntries(reuseOrder ? order.instances : bucket, view,
             defaultMaterial.get(), _device->renderVersion(), drawEntryPool, drawEntries);
-        {
-            const ScopedMilliseconds sortTimer(counters.sortTime);
-            sortDrawEntries(drawEntries, *layer, transparent);
+        if (!reuseOrder) {
+            {
+                const ScopedMilliseconds sortTimer(counters.sortTime);
+                sortDrawEntries(drawEntries, *layer, transparent);
+            }
+            bool keep = sortMode != SortMode::SORTMODE_CUSTOM && drawEntries.size() == bucket.size();
+            for (const ForwardDrawEntry* entry : drawEntries) {
+                if (!keep) {
+                    break;
+                }
+                keep = entry->meshInstance && !entry->meshInstance->calculateSortDistance();
+            }
+            order.valid = keep;
+            order.mode = sortMode;
+            order.instances.clear();
+            if (keep) {
+                order.instances.reserve(drawEntries.size());
+                for (const ForwardDrawEntry* entry : drawEntries) {
+                    order.instances.push_back(entry->meshInstance);
+                }
+            }
+        } else if (_cullCheck) {
+            // Sort the bucket afresh and hold the reused order to it.
+            static thread_local ObjectPool<ForwardDrawEntry> checkPool(256);
+            static thread_local std::vector<ForwardDrawEntry*> checkEntries;
+            checkPool.freeAll();
+            checkEntries.clear();
+            collectDrawEntries(bucket, view, defaultMaterial.get(), _device->renderVersion(), checkPool, checkEntries);
+            sortDrawEntries(checkEntries, *layer, transparent);
+            // The first collect claimed this frame's drawOncePerFrame instances, so the
+            // second has none of them: compare the orders without them.
+            const auto claimedOnce = [](const ForwardDrawEntry* entry) {
+                return entry->meshInstance && entry->meshInstance->drawOncePerFrame();
+            };
+            std::erase_if(checkEntries, claimedOnce);
+            static thread_local std::vector<ForwardDrawEntry*> drawnEntries;
+            drawnEntries.assign(drawEntries.begin(), drawEntries.end());
+            std::erase_if(drawnEntries, claimedOnce);
+            bool same = checkEntries.size() == drawnEntries.size();
+            for (size_t i = 0; i < checkEntries.size() && same; ++i) {
+                same = checkEntries[i]->meshInstance == drawnEntries[i]->meshInstance;
+            }
+            if (!same) {
+                ++_cullCheckMismatches;
+                spdlog::error("[Renderer] VISUTWIN_CULL_CHECK: the reused {} draw order of camera {} layer {} "
+                    "differs from a fresh sort ({} vs {} entries)", transparent ? "transparent" : "opaque",
+                    static_cast<const void*>(camera), layer->id(), drawEntries.size(), checkEntries.size());
+            }
         }
 
         lights.reset();

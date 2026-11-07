@@ -196,6 +196,12 @@ namespace visutwin::canvas
         GraphNodeTransformHook* transformHook() const { return _transformHook; }
 
         int aabbVer() const { return _aabbVer;}
+        /// Marks this node as one whose world transform a mesh instance's bounds are
+        /// read through (its own node, a skin's bones), so that moving it moves the
+        /// CullVersion; a node nothing renders through (a camera, a light) does not.
+        /// Never cleared: a node once drawn through stays relevant.
+        void markCullRelevant() { _cullRelevant = true; }
+        bool cullRelevant() const { return _cullRelevant; }
         int graphDepth() const { return _graphDepth; }
         float worldScaleSign();
 
@@ -280,6 +286,7 @@ namespace visutwin::canvas
         bool _dirtyNormal = true;
         bool _dirtyWorldRotation = true;
         bool _frozen = false;
+        bool _cullRelevant = false;
 
         bool _scaleCompensation = false;
 

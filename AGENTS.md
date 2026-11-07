@@ -2764,10 +2764,36 @@ present, but the rule below never depends on reading it.
   requested ones as a bitmask, and an instance is tested once and pushed into every
   requested layer's bucket it belongs to. Each bucket's ORDER is components in
   creation order, then the layer's own instances; keep it, since equal sort keys keep
-  it too. The cache keeps each
-  pair's vectors across frames and drops a pair not culled the frame before.
-  `dispatchGpuInstanceCulling` returns at once when no mesh instance has GPU culling
-  on (`MeshInstance::gpuCulledInstanceCount`) instead of sweeping the scene to find none.
+  it too. `dispatchGpuInstanceCulling` returns at once when no mesh instance has GPU
+  culling on (`MeshInstance::gpuCulledInstanceCount`) instead of sweeping the scene
+  to find none.
+
+  **A (camera, layer) set is KEPT across frames and reused while nothing it reads
+  changed**, and so is each bucket's sorted draw order, so a static scene skips the
+  sweep and the sort (`FrameCounters::cullSetsReused` counts the sets taken over; the
+  CPU_STATS line prints it). The stamps are the `CullVersion` (`scene/cullVersion.h`, a
+  process-wide counter), the camera's frustum, culling mask and sky flag, compared in
+  `executeMeshInstanceCull` AFTER `precull` fires. EVERY writer of something the sweep
+  (`cullMeshInstances`' classify) or the sort (`makeOpaqueSortKey`, the sort distance,
+  `drawOrder`) reads bumps the version: a node a mesh instance is bounded through moving
+  (`GraphNode::markCullRelevant`, set by `MeshInstance`'s constructors on its node and by
+  its skinned bounds on each bone, read in `dirtifyWorldInternal`, so a camera or a light
+  moving does not count), every `MeshInstance` setter of the material, mask, visibility,
+  cull flag, bounds, instancing, skin, morph, bucket, draw order or sort callback and its
+  destructor (a set holds raw pointers), `Mesh::setAabb` / `setVertexBuffer`,
+  `Material::setTransparent` / `setIsSkybox` / `setAlphaMode`, `RenderComponent`'s layers,
+  instances, `onEnable` / `onDisable`, `Layer::addMeshInstances` / `removeMeshInstances`,
+  and a component joining or leaving a registry. A new input to the sweep or the sort is
+  a new bump, or a camera draws last frame's set for good; a change nothing stamps (the
+  picker's private layer) calls `invalidateCulledInstances`. The draw order is kept only
+  as a permutation of the WHOLE bucket (an entry dropped for the frame, a
+  `drawOncePerFrame` instance another camera claimed, would otherwise be missing for
+  good) and never under `SORTMODE_CUSTOM` or a `calculateSortDistance` callback, whose
+  inputs nothing stamps. `VISUTWIN_CULL_REUSE=0` culls every set every frame (the A/B
+  control in one binary); `VISUTWIN_CULL_CHECK=1` culls every reused set again by the
+  sweep and sorts every reused order again and logs a mismatch
+  (`Renderer::cullCheckMismatches`), which is how a change here is proved across the
+  animated examples in one process. `tests/cullSetReuseTests.cpp` moves each input.
 
   **The cache is keyed on the FRUSTUM, not just the pair.** Culling happens while the
   graph is built and the sets are read while it renders, and on the first frame a
@@ -2781,9 +2807,9 @@ present, but the rule below never depends on reading it.
 
   `Camera::cullingMask` is ANDed with `MeshInstance::mask()` here. Verify a change to
   any of this by running the OLD sweep inline alongside the new one and comparing the
-  two sets in one process — the animated examples cannot be screenshot-diffed, and
-  that comparison catches what no screenshot does, such as the aspect-ratio hole
-  above.
+  two sets in one process (`VISUTWIN_CULL_CHECK` does it for the reuse) — the animated
+  examples cannot be screenshot-diffed, and that comparison catches what no screenshot
+  does, such as the aspect-ratio hole above.
 - **Lights are CULLED per frame, and `Light::visibleThisFrame` answers a different
   question from the per-camera light list.** `visibleThisFrame` is a UNION over every
   camera — "does this light's shadow map and cookie need rendering at all" — cleared

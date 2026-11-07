@@ -232,3 +232,4 @@ visutwin_add_unit_test(visutwin-indirect-slots-tests indirect-slots indirectSlot
 visutwin_add_unit_test(visutwin-multi-draw-tests multi-draw multiDrawTests.cpp)
 visutwin_add_unit_test(visutwin-dds-parser-tests dds-parser ddsParserTests.cpp)
 visutwin_add_unit_test(visutwin-anim-component-property-tests anim-component-properties animComponentPropertyTests.cpp)
+visutwin_add_unit_test(visutwin-cull-set-reuse-tests cull-set-reuse cullSetReuseTests.cpp)

@@ -5,6 +5,7 @@
 //
 #include "graphNode.h"
 #include "graphNodeTransformHook.h"
+#include "cullVersion.h"
 
 #include <algorithm>
 #include <cmath>
@@ -72,6 +73,11 @@ namespace visutwin::canvas
         _dirtyWorldRotation = true;
         _worldScaleSign = 0;
         _aabbVer++;
+        // The nodes mesh instances are bounded through move the cull version; the
+        // recursion above reaches every descendant, so a parent moving counts too.
+        if (_cullRelevant) {
+            CullVersion::bump();
+        }
     }
 
     void GraphNode::unfreezeParentToRoot()

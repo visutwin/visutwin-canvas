@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include <scene/cullVersion.h>
 #include <scene/meshInstance.h>
 #include <scene/constants.h>
 
@@ -45,7 +46,13 @@ namespace visutwin::canvas
         void clearMeshInstances();
 
         const std::vector<int>& layers() const { return _layers; }
-        void setLayers(const std::vector<int>& layers) { _layers = layers; }
+        void setLayers(const std::vector<int>& layers)
+        {
+            if (layers != _layers) {
+                CullVersion::bump();
+            }
+            _layers = layers;
+        }
 
         const std::string& type() const { return _type; }
         void setType(const std::string& type);

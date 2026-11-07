@@ -18,6 +18,8 @@
 #include "shadowRenderer.h"
 #include "shadowRendererDirectional.h"
 #include "shadowRendererLocal.h"
+#include "scene/cullVersion.h"
+#include "scene/layer.h"
 #include "scene/scene.h"
 #include "scene/lighting/lightTextureAtlas.h"
 #include "scene/graphics/areaLightLuts.h"
@@ -109,9 +111,15 @@ namespace visutwin::canvas
 
         /**
          * The mesh instances of one layer that survived one camera's frustum, split
-         * by transparency. Filled once per (camera, layer) per frame, then read by
-         * BOTH sublayer passes, so neither sweeps the scene and culls it on its own
-         * only to throw away the half that belongs to the other.
+         * by transparency. Filled once per (camera, layer) when something it reads
+         * changed, then read by BOTH sublayer passes, so neither sweeps the scene and
+         * culls it on its own only to throw away the half that belongs to the other.
+         *
+         * The set is KEPT across frames: it is reused while the CullVersion (every
+         * change the sweep or the sort reads, cullVersion.h), the camera's frustum,
+         * culling mask and sky flag are the ones it was culled under, so a static scene
+         * skips the sweep. The sorted draw order of each bucket is kept with it, so
+         * the forward pass skips the sort as well.
          */
         struct CulledInstances
         {
@@ -124,7 +132,28 @@ namespace visutwin::canvas
             // Re-culling on a mismatch keeps the cache a cache rather than a
             // one-frame-stale answer nobody checked.
             Frustum frustum{};
+            // The other stamps the set was culled under.
+            uint64_t cullVersion = 0;
+            uint32_t cullingMask = 0xFFFFFFFFu;
+            bool skyVisible = true;
+            /// Holds a cull result, of this frame or an earlier one.
             bool valid = false;
+            /// Culled or reused THIS frame; resetCulledInstances clears it and drops a set
+            /// that was not.
+            bool used = false;
+
+            /// A bucket's draw order after the forward sort, as a permutation of the whole
+            /// bucket under one sort mode: while the set is reused the forward pass draws
+            /// from it and skips the sort. A sort whose inputs the set's stamps do not
+            /// cover (a custom comparator, a custom sort distance) is never kept.
+            struct SortedOrder
+            {
+                std::vector<MeshInstance*> instances;
+                SortMode mode = SortMode::SORTMODE_NONE;
+                bool valid = false;
+            };
+            SortedOrder opaqueOrder;
+            SortedOrder transparentOrder;
         };
 
         /**
@@ -137,14 +166,21 @@ namespace visutwin::canvas
 
         /**
          * Culls everything requested this frame and clears the requests. Per camera:
-         * "precull", then each requested layer, then "postcull";
-         * precull comes before the frustum is built so a listener can still move
-         * the camera.
+         * "precull", then each requested layer whose kept set is not current (its stamps
+         * are compared AFTER precull, so a listener that moves something there is seen),
+         * then "postcull"; precull comes before the frustum is built so a listener can
+         * still move the camera. A reused set counts in FrameCounters::cullSetsReused.
          */
         void executeMeshInstanceCull();
 
-        /// Drops last frame's culled sets. Call once at the top of a frame.
+        /// Marks every kept set as not yet used this frame and drops the ones no camera
+        /// used last frame. Call once at the top of a frame.
         void resetCulledInstances();
+
+        /// Mismatches VISUTWIN_CULL_CHECK found so far: with it set, every reused set is
+        /// culled again by the sweep and compared, and every reused draw order is sorted
+        /// again and compared, so the reuse can be proved in one process across a run.
+        uint64_t cullCheckMismatches() const { return _cullCheckMismatches; }
 
         /// Drops the per-frame grid assignments. The pooled grids themselves survive.
         void resetClusters();
@@ -156,9 +192,9 @@ namespace visutwin::canvas
          */
         const CulledInstances& culledInstances(Camera* camera, GraphNode* cameraNode, Layer* layer);
 
-        /// Forget the cached cull of (camera, layer), so the next draw of that pair culls
-        /// again. For a layer whose CONTENT changed under an unchanged frustum (the
-        /// picker's private layer): the cache is keyed on the frustum alone.
+        /// Forget the kept cull of (camera, layer), so the next draw of that pair culls
+        /// again. For a layer whose CONTENT changed in a way nothing stamps (the picker's
+        /// private layer).
         void invalidateCulledInstances(Camera* camera, Layer* layer)
         {
             _culledInstances.erase(std::make_pair(camera, layer));
@@ -312,11 +348,22 @@ namespace visutwin::canvas
         // Frame statistics are counted into GraphicsDevice::frameCounters(), which the
         // shadow passes and depth-only draws reach too; see frameCounters.h.
 
-        // Per-frame mesh-instance cull cache, keyed by (camera, layer). Emptied by
-        // resetCulledInstances at the top of each frame, which keeps an entry (for its
-        // storage) only while the pair was culled the frame before; the raw pointer keys
-        // are never dereferenced, so one that outlives its camera by a frame is harmless.
+        // The mesh-instance cull sets, keyed by (camera, layer) and kept across frames
+        // (CulledInstances). resetCulledInstances drops an entry only when the pair was
+        // not used the frame before; the raw pointer keys are never dereferenced, so one
+        // that outlives its camera by a frame is harmless.
         std::map<std::pair<Camera*, Layer*>, CulledInstances> _culledInstances;
+        // Whether a kept set may stand for this camera's view now: culled under the
+        // current CullVersion, this camera's mask and sky flag, and `frustum`.
+        bool cullSetCurrent(const CulledInstances& set, const Camera* camera, const Frustum& frustum) const;
+        // VISUTWIN_CULL_REUSE=0 culls every set every frame, for an A/B in one binary.
+        bool _cullReuse = true;
+        // culledInstances() for a caller that writes the sorted orders back.
+        CulledInstances& resolveCulledInstances(Camera* camera, GraphNode* cameraNode, Layer* layer);
+        // VISUTWIN_CULL_CHECK: re-cull a reused set and compare (see cullCheckMismatches).
+        bool _cullCheck = false;
+        uint64_t _cullCheckMismatches = 0;
+        void checkReusedCullSet(Camera* camera, GraphNode* cameraNode, Layer* layer, const CulledInstances& reused);
         // Cameras registered this frame, in registration order, each with the layers
         // asked for. Consumed and cleared by executeMeshInstanceCull.
         std::vector<Camera*> _cullCameras;

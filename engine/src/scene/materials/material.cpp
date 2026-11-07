@@ -67,6 +67,7 @@ namespace visutwin::canvas
     void Material::setAlphaMode(const AlphaMode mode)
     {
         markUniformsDirty();
+        CullVersion::bump();  // the sublayer and the sort key's alpha test follow it
         _alphaMode = mode;
         if (mode == AlphaMode::BLEND) {
             // Standard glTF "BLEND": src*srcAlpha + dst*(1-srcAlpha), with depth-write off so

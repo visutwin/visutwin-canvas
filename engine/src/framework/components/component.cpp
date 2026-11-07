@@ -9,6 +9,7 @@
 #include "componentSystem.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
+#include "scene/cullVersion.h"
 
 namespace visutwin::canvas
 {
@@ -63,6 +64,7 @@ namespace visutwin::canvas
         if (!_listAdd || registry == _registry) {
             return;
         }
+        CullVersion::bump();  // a render component joining or leaving a registry's list
         if (_registry) {
             _listRemove(*_registry, this);
         }
@@ -74,6 +76,7 @@ namespace visutwin::canvas
 
     void Component::unlistInstance()
     {
+        CullVersion::bump();
         if (_registry && _listRemove) {
             _listRemove(*_registry, this);
         }

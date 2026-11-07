@@ -7,6 +7,7 @@
 
 #include "scene/materials/materialMapLanes.h"
 #include "scene/materials/materialUniformFields.h"
+#include "scene/cullVersion.h"
 
 #include <array>
 #include <cmath>
@@ -129,7 +130,14 @@ namespace visutwin::canvas
         const std::string& name() const { return _name; }
         void setName(const std::string& name) { _name = name; markUniformsDirty(); }
         bool transparent() const { return _transparent; }
-        void setTransparent(const bool value) { _transparent = value; markUniformsDirty(); }
+        void setTransparent(const bool value)
+        {
+            if (_transparent != value) {
+                CullVersion::bump();
+            }
+            _transparent = value;
+            markUniformsDirty();
+        }
         uint64_t shaderVariantKey() const { return _shaderVariantKey; }
         void setShaderVariantKey(const uint64_t value) { _shaderVariantKey = value; markUniformsDirty(); }
         /**
@@ -293,7 +301,14 @@ namespace visutwin::canvas
         }
 
         bool isSkybox() const { return _isSkybox; }
-        void setIsSkybox(const bool value) { _isSkybox = value; markUniformsDirty(); }
+        void setIsSkybox(const bool value)
+        {
+            if (_isSkybox != value) {
+                CullVersion::bump();
+            }
+            _isSkybox = value;
+            markUniformsDirty();
+        }
         void setParameter(const std::string& name, const ParameterValue& value);
         bool removeParameter(const std::string& name);
         void clearParameters();

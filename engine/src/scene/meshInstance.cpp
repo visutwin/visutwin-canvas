@@ -24,12 +24,23 @@ namespace visutwin::canvas
     MeshInstance::MeshInstance(Mesh* mesh, Material* material, GraphNode* node)
         : _material(material), _mesh(mesh), _node(node)
     {
+        if (_node) {
+            _node->markCullRelevant();
+        }
     }
 
     MeshInstance::MeshInstance(std::shared_ptr<Mesh> mesh, std::shared_ptr<Material> material, GraphNode* node)
         : _material(material.get()), _mesh(mesh.get()),
           _meshOwned(std::move(mesh)), _materialOwned(std::move(material)), _node(node)
     {
+        if (_node) {
+            _node->markCullRelevant();
+        }
+    }
+
+    MeshInstance::~MeshInstance()
+    {
+        CullVersion::bump();
     }
 
     void MeshInstance::setParameter(const std::string& name, const Material::ParameterValue& value)
@@ -291,6 +302,7 @@ namespace visutwin::canvas
     void MeshInstance::setSkinInstance(const std::shared_ptr<SkinInstance>& skinInstance)
     {
         _skinInstance = skinInstance;
+        CullVersion::bump();
         // Skinned instances can be frustum-culled only when per-bone AABBs exist
         // (GLB parser computes them); otherwise the bind-pose AABB is invalid under
         // animation and culling must stay off.
@@ -338,6 +350,8 @@ namespace visutwin::canvas
                         if (!boneUsed[i] || !bones[i]) {
                             continue;
                         }
+                        // The bounds follow the bones, so a bone moving moves the cull version.
+                        bones[i]->markCullRelevant();
                         BoundingBox boneWorld;
                         boneWorld.setFromTransformedAabb(boneAabbs[i],
                             bones[i]->worldTransform() * inverseBinds[i]);

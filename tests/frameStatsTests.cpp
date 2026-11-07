@@ -134,6 +134,9 @@ int main()
             "the forward, cull and shadow phases each took measurable (fractional) time" + suffix);
         check(s.frame().sortTime >= 0.0 && s.frame().sortTime < s.frame().forwardTime,
             "the sort is timed on its own, inside the forward time" + suffix);
+        // Nothing moves after start() rendered the first frame, so each of these takes
+        // every (camera, layer) set from the frame before instead of sweeping again.
+        check(s.frame().cullSetsReused > 0, "the cull sets are reused from the frame before" + suffix);
     }
 
     std::cout << "\na second camera\n";

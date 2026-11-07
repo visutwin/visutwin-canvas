@@ -15,6 +15,7 @@
 #include <core/shape/boundingBox.h>
 
 #include "clipPlanes.h"
+#include "cullVersion.h"
 #include "drawCommands.h"
 #include "graphNode.h"
 #include "mesh.h"
@@ -76,6 +77,12 @@ namespace visutwin::canvas
         MeshInstance(std::shared_ptr<Mesh> mesh, std::shared_ptr<Material> material,
                      GraphNode* node = nullptr);
 
+        // Every setter below that changes what the cull sweep or the draw sort reads
+        // moves the CullVersion (cullVersion.h) — when the value CHANGES, since the
+        // HUD and the immediate lines write theirs every frame — and so does the
+        // destructor, since a cull set holds raw pointers to its instances.
+        ~MeshInstance();
+
         BoundingBox aabb();
 
         Mesh* mesh() const { return _mesh; }
@@ -105,6 +112,9 @@ namespace visutwin::canvas
          */
         void setMaterial(Material* material)
         {
+            if (material != _material) {
+                CullVersion::bump();
+            }
             _material = material;
             _materialOwned.reset();
         }
@@ -114,6 +124,9 @@ namespace visutwin::canvas
         /// outlives the container too.
         void setMaterial(std::shared_ptr<Material> material)
         {
+            if (material.get() != _material) {
+                CullVersion::bump();
+            }
             _material = material.get();
             _materialOwned = std::move(material);
         }
@@ -187,7 +200,7 @@ namespace visutwin::canvas
         bool clipped() const { return !_clip.empty(); }
 
         bool cull() const { return _cull; }
-        void setCull(const bool value) { _cull = value; }
+        void setCull(const bool value) { bumpCullVersionIf(_cull != value); _cull = value; }
 
         /**
          * The node's world transform already carries
@@ -200,6 +213,7 @@ namespace visutwin::canvas
         bool screenSpace() const { return _screenSpace; }
         void setScreenSpace(const bool value)
         {
+            bumpCullVersionIf(_screenSpace != value || (value && _cull));
             _screenSpace = value;
             if (value) {
                 _cull = false;
@@ -239,7 +253,7 @@ namespace visutwin::canvas
          */
         double drawOrder() const { return _drawOrder; }
         /// A double: an unmask draw sits BETWEEN two elements' orders.
-        void setDrawOrder(const double value) { _drawOrder = value; }
+        void setDrawOrder(const double value) { bumpCullVersionIf(_drawOrder != value); _drawOrder = value; }
 
         /// The stencil test and write this draw
         /// uses (a UI mask writes the stencil, the elements under it test it); null draws
@@ -266,7 +280,7 @@ namespace visutwin::canvas
          */
         static constexpr uint8_t kDefaultDrawBucket = 127;
         uint8_t drawBucket() const { return _drawBucket; }
-        void setDrawBucket(const uint8_t value) { _drawBucket = value; }
+        void setDrawBucket(const uint8_t value) { bumpCullVersionIf(_drawBucket != value); _drawBucket = value; }
 
         /**
          * Signed view-axis depth from the last sort (see sortDistance.h). Written by
@@ -277,7 +291,7 @@ namespace visutwin::canvas
         void setSortDistance(const float value) { _sortDistance = value; }
 
         uint32_t mask() const { return _mask; }
-        void setMask(const uint32_t value) { _mask = value; }
+        void setMask(const uint32_t value) { bumpCullVersionIf(_mask != value); _mask = value; }
 
         // / instancingData / instancingCount.
         // Sets up hardware instancing for this mesh instance. The vertexBuffer must contain
@@ -293,6 +307,7 @@ namespace visutwin::canvas
             _instancingData.vertexBuffer = vertexBuffer;
             _instancingData.count = count;
             updateInstancingAabb();
+            CullVersion::bump();
         }
 
         // GPU-driven indirect instancing (Phase 3).
@@ -409,6 +424,7 @@ namespace visutwin::canvas
         void setGSplatInstance(const std::shared_ptr<GSplatInstance>& gsplatInstance)
         {
             _gsplatInstance = gsplatInstance;
+            CullVersion::bump();
         }
 
         // --- GPU particles ---
@@ -417,6 +433,7 @@ namespace visutwin::canvas
         void setParticleEmitter(const std::shared_ptr<ParticleEmitter>& emitter)
         {
             _particleEmitter = emitter;
+            CullVersion::bump();
         }
 
         // --- App-driven storage draws ---
@@ -439,6 +456,7 @@ namespace visutwin::canvas
             _storageDrawCount = buffer ? instanceCount : 0;
             _storageParams.assign(static_cast<const uint8_t*>(params),
                 static_cast<const uint8_t*>(params) + paramsSize);
+            CullVersion::bump();
         }
 
         const std::shared_ptr<VertexBuffer>& storageBuffer() const { return _storageBuffer; }
@@ -456,6 +474,7 @@ namespace visutwin::canvas
             _morphInstance = morphInstance;
             // The local bounds grow by the morph's reach, so the cached ones are stale.
             _aabbVer = -1;
+            CullVersion::bump();
         }
 
         // --- Batching support (batchGroupId, visible) ---
@@ -465,7 +484,7 @@ namespace visutwin::canvas
 
         /** When false, the mesh instance is hidden (merged into a batch). */
         bool visible() const { return _visible; }
-        void setVisible(bool v) { _visible = v; }
+        void setVisible(bool v) { bumpCullVersionIf(_visible != v); _visible = v; }
 
         /// Whether the Picker considers the instance (default true): false leaves it out of the
         /// id buffer, so what is behind it is picked, as for a marker showing a picked point.
@@ -475,13 +494,13 @@ namespace visutwin::canvas
         /// Drawn by this camera only, culled for every other (null, the default: by any camera
         /// that renders its layer). What an effect drawing a sky of its own for its camera uses.
         const Camera* onlyCamera() const { return _onlyCamera; }
-        void setOnlyCamera(const Camera* camera) { _onlyCamera = camera; }
+        void setOnlyCamera(const Camera* camera) { bumpCullVersionIf(_onlyCamera != camera); _onlyCamera = camera; }
 
         /// A sky drawn in place of the scene's: culled for a camera that draws the scene's sky
         /// (Camera::skyVisible), so it shows exactly while an effect of the camera's frame renders
         /// the sky, and the scene's sky comes back the frame the effect stops.
         bool replacesSky() const { return _replacesSky; }
-        void setReplacesSky(const bool value) { _replacesSky = value; }
+        void setReplacesSky(const bool value) { bumpCullVersionIf(_replacesSky != value); _replacesSky = value; }
 
         // --- Dynamic batching support ---
 
@@ -502,15 +521,23 @@ namespace visutwin::canvas
         using SortDistanceCallback =
             std::function<float(const MeshInstance&, const Vector3& cameraPosition, const Vector3& cameraForward)>;
         const SortDistanceCallback& calculateSortDistance() const { return _calculateSortDistance; }
-        void setCalculateSortDistance(SortDistanceCallback callback) { _calculateSortDistance = std::move(callback); }
+        void setCalculateSortDistance(SortDistanceCallback callback) { _calculateSortDistance = std::move(callback); CullVersion::bump(); }
 
         /** Override the computed AABB with a custom value (used by dynamic batch AABB updates). */
         void setCustomAabb(const BoundingBox& aabb) {
+            bumpCullVersionIf(_updateAabb || !aabb.sameAs(_aabb));
             _aabb = aabb;
             _updateAabb = false;
         }
 
     private:
+        static void bumpCullVersionIf(const bool changed)
+        {
+            if (changed) {
+                CullVersion::bump();
+            }
+        }
+
         // Unions the mesh AABB transformed by every per-instance matrix into a
         // world-space _aabb override. Called by setInstancing.
         void updateInstancingAabb();

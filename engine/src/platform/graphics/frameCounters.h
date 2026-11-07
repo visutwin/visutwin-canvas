@@ -16,6 +16,7 @@ namespace visutwin::canvas
     struct FrameCounters
     {
         int camerasRendered = 0;    ///< cameras the frame culled for
+        int cullSetsReused = 0;     ///< (camera, layer) cull sets taken from an earlier frame unchanged
         int materialSwitches = 0;   ///< forward draws whose material differs from the previous draw's
         int forwardDrawCalls = 0;
         int shadowDrawCalls = 0;    ///< caster draws into a shadow map, every kind of light
