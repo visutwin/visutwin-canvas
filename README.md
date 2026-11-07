@@ -5,10 +5,11 @@
 # VisuTwin Canvas
 
 [![CI](https://github.com/visutwin/visutwin-canvas/actions/workflows/ci.yml/badge.svg)](https://github.com/visutwin/visutwin-canvas/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/visutwin/visutwin-canvas?include_prereleases&label=release)](https://github.com/visutwin/visutwin-canvas/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
 [![Backends](https://img.shields.io/badge/backends-Metal%20%7C%20Vulkan-orange.svg)](FEATURES.md)
-[![Examples](https://img.shields.io/badge/examples-165-purple.svg)](examples/README.md)
+[![Examples](https://img.shields.io/badge/examples-194-purple.svg)](examples/README.md)
 [![Home](https://img.shields.io/badge/home-canvas.visutwin.com-green.svg)](https://canvas.visutwin.com/?utm_source=github&utm_medium=readme)
 
 **A native C++23 port of the [PlayCanvas](https://github.com/playcanvas/engine)
@@ -21,15 +22,18 @@ you link into your application: no browser, editor or scripting VM.
   <img src="media/volumetric-shafts.gif" alt="Volumetric light shafts through a perforated sphere, rendered in real time" width="480">
 </p>
 
-Beyond the PlayCanvas feature set it adds a Vulkan backend, volumetric fog, a
+Beyond the PlayCanvas feature set it adds a Vulkan backend, single-source
+shaders with bindless material textures on both backends, volumetric fog, a
 ray-traced lightmap baker, instanced wide lines and a Jolt physics backend. The
 geospatial, scientific-visualization and robotics layers built on it have no
 PlayCanvas equivalent.
 
-> **Status: alpha.** The engine renders everything shown on this page and ships
-> 165 working examples, all but one ported from PlayCanvas's own examples so the
-> two can be compared side by side. The API is not stable and changes without
-> notice. [FEATURES.md](FEATURES.md) lists what is implemented and the known gaps.
+> **Status: alpha** — first tagged release
+> [v0.1.0](https://github.com/visutwin/visutwin-canvas/releases/tag/v0.1.0).
+> The engine renders everything shown on this page and ships 194 working
+> examples, all but one ported from PlayCanvas's own examples so the two can be
+> compared side by side. The API is not stable and changes without notice.
+> [FEATURES.md](FEATURES.md) lists what is implemented and the known gaps.
 
 ## Quick start
 
@@ -57,7 +61,7 @@ macOS, `libvulkan-dev` on Ubuntu.
 
 ## Examples
 
-A few of the 165 examples, each a small self-contained program
+A few of the 194 examples, each a small self-contained program
 ([the full list](examples/README.md)):
 
 | | | | |
@@ -89,7 +93,8 @@ overlap:
   runtime you ship a project into or a browser you render inside.
 - **Physically based, without a game engine attached** — modern PBR, shadows,
   and post-processing without an editor or a scripting VM. Scripts are C++
-  classes, and assets load from glTF/GLB, OBJ, STL, PLY and KTX2 files directly.
+  classes, and assets load from glTF/GLB, OBJ, STL, PLY, KTX2 and DDS files
+  directly.
 - **Built for instrumented scenes** — screen- and world-space UI, 3D-anchored
   labels, an ImGui/ImPlot overlay and immediate-mode debug rendering are
   first-class, because digital twins are mostly data drawn on top of geometry.
@@ -99,31 +104,51 @@ overlap:
   simulation and its visualization stay in step, and runs are reproducible.
 - **Two backends, one shader source** — every engine shader is written once in
   Slang and compiled to Metal and SPIR-V, with shader features bound as
-  function and specialization constants on both. Nine golden-image scenes are
-  checked against reference images on each backend. A few paths are still
-  Metal-only; FEATURES.md lists them.
+  function and specialization constants on both, and every material map read
+  through one bindless texture table (a Metal argument buffer, a Vulkan
+  update-after-bind set). Nine golden-image scenes are checked against
+  reference images on each backend. A few paths are still Metal-only;
+  FEATURES.md lists them.
 - **Readable by design** — an established engine architecture ported
   deliberately, with deviations from PlayCanvas documented in the code.
 
 ## What's inside
 
 - **Rendering:** forward PBR on a frame graph; StandardMaterial with clearcoat,
-  sheen, iridescence, anisotropy, transmission and refraction, parallax and
-  spec-gloss; image-based lighting, SH light probes and reflection probes;
-  screen-space reflections; GPU instancing with GPU culling; dynamic batching;
-  MSAA.
-- **Lighting and shadows:** clustered lighting with a shadow atlas, LTC area
-  lights, cascaded directional shadows (PCF, EVSM and PCSS), spot and omni
-  shadows, light cookies, volumetric fog, and two lightmap bakers (GPU UV-space
-  and CPU ray-traced).
-- **Post-processing:** TAA, SSAO, bloom, multi-pass depth of field, colour
-  grading and 3D LUTs, tone mapping, planar reflections, Nishita atmosphere.
+  sheen, iridescence, anisotropy, transmission and refraction with dispersion,
+  diffuse transmission, parallax, detail normals, displacement and spec-gloss;
+  per-instance material overrides and clipping planes; image-based lighting,
+  SH light probes and box-projected reflection probes; screen-space and planar
+  reflections; GPU instancing with GPU culling, dynamic batching and multi-draw;
+  MSAA with alpha to coverage, multiple render targets and dual-source blending.
+- **Lighting and shadows:** clustered lighting with a shadow and cookie atlas,
+  LTC area lights, cascaded directional shadows (PCF, EVSM and PCSS) or a shadow
+  fitted to a subject's bounds, spot and omni shadows, light cookies, physical
+  light units, volumetric fog lit by local lights, and two lightmap bakers (GPU
+  UV-space and CPU ray-traced).
+- **Post-processing:** TAA with temporal upscaling, SMAA, SSAO, bloom,
+  multi-pass depth of field, auto exposure, lens flares, colour grading with a
+  channel mixer and 3D LUTs, tone mapping (ACES, ACES2, AgX, Neutral and more),
+  and camera frame effects: application passes or a few lines of Slang inserted
+  into a camera's post-processing chain.
+- **Environments:** a dynamic sky with a day and night cycle and clouds, a
+  procedural sky, Nishita atmosphere, and water with reflections, refraction,
+  waves, foam and caustics.
+- **Compute and GPU-driven work:** compute passes placed between render passes,
+  kernels that write indirect draw and dispatch arguments, storage textures and
+  vertex buffers, and scene depth and colour maps readable from a kernel;
+  asynchronous texture and buffer readback.
 - **Animation and simulation:** GPU skinning, morph targets, an animation state
   graph with blend trees and per-node layer blending, Gaussian splatting with
-  spherical harmonics, GPU particles, and rigid bodies with joints through Jolt.
-- **UI and input:** anchored elements, MSDF text with markup, buttons, masks,
-  layout groups, scroll views and localization; keyboard, mouse, touch and
-  gamepad devices fed from the application's event loop.
+  spherical harmonics and shadows, GPU particles, and rigid bodies with offset
+  and compound shapes and joints through Jolt.
+- **UI, input and tools:** anchored elements, MSDF text with markup, buttons,
+  masks, layout groups, scroll views and localization; keyboard, mouse, touch
+  and gamepad devices fed from the application's event loop; transform and
+  overlay gizmos, a reference grid, id-buffer picking, 3D annotations, debug
+  lines and shader debug views, and a GPU-timed performance HUD.
+- **Assets:** glTF/GLB with Draco, meshopt, KTX2/Basis, WebP textures and most
+  material extensions; OBJ, STL, Assimp, 3DGS PLY and DDS.
 
 [FEATURES.md](FEATURES.md) has the full inventory and the known gaps.
 
@@ -220,6 +245,7 @@ int main()
 
     Uint64 previous = SDL_GetTicksNS();
     for (bool running = true; running;) {
+        engine->waitForNextFrame();  // before polling, so input is as fresh as it can be
         for (SDL_Event event; SDL_PollEvent(&event);) {
             running &= event.type != SDL_EVENT_QUIT;
         }
@@ -271,10 +297,11 @@ animation, `VISUTWIN_MAX_PIXEL_RATIO`, `VISUTWIN_CPU_STATS` and others — liste
 in [AGENTS.md](AGENTS.md).
 
 `ctest --preset default` runs the unit tests (also under the `sanitize` and
-`vulkan` presets). Two GPU suites need a window and run locally:
+`vulkan` presets). Three GPU suites need a GPU and a window and run locally:
 `ctest --preset vulkan-smoke` runs the Vulkan backend under the validation
-layers, and `ctest --preset golden` compares nine deterministic examples against
-reference images. CI builds the Metal preset with every example, runs the unit
+layers, `ctest --preset gpu` runs kernels and readbacks on the build's own
+device, and `ctest --preset golden` compares nine deterministic examples against
+reference images on each backend. CI builds the Metal preset with every example, runs the unit
 tests on macOS (also under the sanitizers) and on Linux with Vulkan, and checks
 the SIMD math on each backend.
 
@@ -306,6 +333,15 @@ that automatically.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — how each subsystem works and where it deviates from upstream
 - [AGENTS.md](AGENTS.md) — the rules, contracts and known traps for anyone changing the code
 - [canvas.visutwin.com](https://canvas.visutwin.com/?utm_source=github&utm_medium=readme) — project home page
+- [Releases](https://github.com/visutwin/visutwin-canvas/releases) — tagged versions and release notes
+
+## Getting help and contributing
+
+Bugs and feature requests go in [issues](https://github.com/visutwin/visutwin-canvas/issues/new/choose),
+questions and ideas in [discussions](https://github.com/visutwin/visutwin-canvas/discussions).
+Security issues are reported privately, as described in [SECURITY.md](SECURITY.md).
+Contributions are welcome: start with [CONTRIBUTING.md](CONTRIBUTING.md). Everyone
+taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Related projects
 
