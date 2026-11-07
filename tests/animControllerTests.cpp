@@ -52,8 +52,9 @@ namespace
         times.components = 1;
         times.data = {0.0f, 2.0f, 4.0f};
         AnimData values;
-        values.components = 1;
-        values.data = {0.0f, 1.0f, 2.0f};
+        // A position curve: three components per key, or the evaluator reads past the end.
+        values.components = 3;
+        values.data = {0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 2.0f, 2.0f, 2.0f};
         result->addInput(times);
         result->addOutput(values);
         AnimCurve curve;
