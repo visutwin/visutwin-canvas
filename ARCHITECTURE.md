@@ -1926,6 +1926,44 @@ already cheap, and 22 of the 58 reuse every set while the rest animate something
 reads. The payoff is the large, mostly static twin scene (hierarchy's 0.56 ms sweep is what
 such a scene pays every frame today) and the retained list steps (b)-(d) build on this set.
 
+**Step (b) result (2026-11-07).** The pyramid exists and is tested; nothing consumes it yet.
+`CameraComponent::requestHiZ` (counted, and requesting the scene depth map with it) gives the
+camera a `RenderPassHiZ` (`scene/graphics/hiZPyramid.h`), which the forward renderer runs after
+everything the camera renders and ahead of its after-passes. From the depth the camera's
+`SceneDepthMapHandle` names, when it was rendered this frame, `HiZPyramidGenerator` renders an
+RG32F mip chain (a new pixel format, `PIXELFORMAT_RG32F`) of the nearest (r) and farthest (g)
+depth buffer value: level 0 half the depth map, each level half the one above, down to 1x1. A
+texel covers the 2x2 source texels at twice its coordinate and, in the last column or row of
+an odd-sized source, the one beyond them, so every source texel is covered by a floor-sized
+chain; texels are read by coordinate (the depth point-sampled at texel centres, which a depth
+input allows on both backends), so every value is exact. The Slang program `hiz-pyramid` has a
+variant per source (`depth`, `float` for an R32F depth), `reduce` and `copy`: a level k > 0 is
+reduced into a scratch texture the size of level 1 and copied back into the chain, since a
+texture cannot be sampled while one of its levels is the attachment, and each of those passes
+turns off the end-of-pass mip regeneration both backends would otherwise run. The pass
+publishes to the camera's `HiZMapHandle` (the depth's size, level count, camera parameters,
+view-projection — the depth handle now carries the forward matrix beside its inverse — and
+viewport), and a compute kernel reads it through `vtscenemaps` (`sceneHiZLevels`,
+`sceneHiZSize`, `sceneHiZLoad`, `sceneHiZDepthSize`, `sceneHiZViewport`,
+`sceneHiZViewProjection`) at Metal texture 32 / Vulkan set 1 binding 4 (`Compute::setHiZMap`),
+a pyramid not built reading as 0 levels over a 1x1 range of 0 to 1 that occludes nothing.
+`tests/hiZPyramidGpuTests.cpp` (`gpu`, 34 checks) holds every level of R32F maps of random
+depths at 37x23, 16x16, 1x5, 6x1 and 3x3 and of a depth texture with an asymmetric rect,
+exactly, against a CPU reduction, on both backends (Vulkan under validation, clean), plus the
+pass's publication and the kernel's reads at the fixed slots; a copy of the shader tree without
+the odd-column rule fails it on the odd sizes, and an unmodified copy on the same runtime path
+passes. Goldens unchanged on both backends (nothing requests a pyramid by default; the three
+stale 1x references stay). Cost, from `VISUTWIN_HIZ=1` (the harness switch requesting it on
+every camera) and the GPU_PASSES line, medians of three runs: ambient-occlusion (900x700, 9
+levels, 17 passes) 0.246 ms on Vulkan and 0.231 on Metal; car-showcase (1280x720, 10 levels,
+19 passes) 0.126 and 0.160. Every pass costs 10-22 us whatever its size, level 0 at 450x350
+included, so the cost is the pass COUNT: a single-dispatch compute downsampler writing several
+levels per dispatch would take most of it away, but needs a storage write to a chosen mip level,
+which `Compute` does not bind yet. A camera that renders no depth otherwise pays for the depth
+request as well (car-showcase gains its prepass: the frame's GPU time rises 1.4 ms on Vulkan,
+1.3 on Metal, almost all of it not the pyramid). Step (c) tests instances against this pyramid
+in the cull kernel, as last frame's occluders, and step (d) issues the survivors.
+
 ### 2. Bindless material binding
 
 Bevy binds materials through binding arrays (one slab of textures indexed by a per-draw

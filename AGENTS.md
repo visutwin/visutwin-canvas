@@ -1691,7 +1691,14 @@ present, but the rule below never depends on reading it.
   was clamped), and both backends' end-of-pass generation skips such a texture. A texture cannot
   be sampled while one of its levels is the attachment, so each level is rendered into a
   SCRATCH texture of the format (half size, one per format, grown to the largest served) and
-  copied back by a second quad: two small passes per level, between device passes. Two owners:
+  copied back by a second quad: two small passes per level, between device passes. A level fills
+  only the scratch's CORNER (every level from 2 on, and level 1 too once a larger texture grew
+  the scratch), so the copy scales its uv by the level's size over the scratch's
+  (`MipmapUniforms::scale`); reading the whole scratch, as it did until 2026-11-07, stretched
+  each level and showed the level above around it (a doubled image in `grab-pass`'s frosted
+  panel and in `car-showcase`'s floor reflection, identical on both backends, so no backend
+  comparison saw it). `tests/gaussianMipmapsGpuTests.cpp` (`gpu`) holds every level of a linear
+  ramp, which a symmetric blur leaves unchanged, in both scratch cases. Two owners:
   the forward renderer adds `RenderPassGaussianMipmaps` after each block rendering a target whose
   colour buffer asks for it (a `PlanarRenderer` with mipmaps, Gaussian by default), and the colour
   grab runs the generator in its execute, under the camera's `setSceneColorMapMipmapFilter`
@@ -1700,8 +1707,8 @@ present, but the rule below never depends on reading it.
   (`GaussianMipmapGenerator::prepare`, which the grab calls before its copy): the first render
   target over a texture created empty RECREATES its GPU image, and a copy made before that is
   lost with the image. Check a change with `VISUTWIN_MIPMAP_FILTER=box` on `grab-pass` and
-  `reflection-planar`: the two filters must differ on both backends (56k pixels of `grab-pass`)
-  and the backends agree on each (45 pixels above 8 counts, as the box chains do).
+  `reflection-planar`: the two filters must differ on both backends and the backends agree on
+  each (51 pixels of `grab-pass` above 8 counts, as the box chains do).
 - **A dynamic sky's haze is a FOG TYPE a camera is given, not a scene setting.**
   `DynamicSkyEffect::haze` gives its camera `FOG_DYNAMIC_SKY_HAZE` (`Camera::setFog`, which
   `Scene::fogFor` prefers to the scene's fog) carrying the sky it is coloured by

@@ -9,7 +9,9 @@
 // rough reflection or refraction samples stay smooth where a box chain shows blocks that flicker
 // as the scene moves. The `copy` variant samples the source level once: it carries a level
 // rendered into the scratch texture back into the texture's own chain, since a texture cannot
-// be sampled while one of its levels is the attachment.
+// be sampled while one of its levels is the attachment. The level fills only the scratch's
+// corner (the scratch is the size of the largest level 1 served), so the copy scales its uv to
+// that corner, landing on the texel centres it was rendered at.
 //
 // @variant gaussian: MIPMAP_GAUSSIAN=1
 // @variant copy: MIPMAP_COPY=1
@@ -19,6 +21,7 @@ import vtquad;
 struct MipmapUniforms
 {
     float4 source;   // xy: the source level's texel size, z: the source level, w: unused
+    float4 scale;    // xy: the copy's uv scale (the level's size over the scratch's)
 };
 VT_DECLARE_QUAD_UNIFORMS(MipmapUniforms, u)
 VT_DECLARE_QUAD_INPUT0(sourceTexture)
@@ -43,7 +46,7 @@ float4 mipmapFragment(QuadVarying input) : SV_Target0
 {
     const float2 uv = input.uv;
 #if defined(MIPMAP_COPY)
-    return tap(uv, 0.0, 0.0);
+    return tap(uv * u.scale.xy, 0.0, 0.0);
 #else
     return tap(uv, 0.0, 0.0) * 0.125 +
         (tap(uv, -2.0, 2.0) + tap(uv, 2.0, 2.0) + tap(uv, -2.0, -2.0) + tap(uv, 2.0, -2.0)) * 0.03125 +
