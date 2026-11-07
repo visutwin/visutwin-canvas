@@ -76,9 +76,8 @@ struct ImpostorData
     float4 frameInfo;      // x: azimuths, y: elevations, z: the elevation step in radians
 };
 VT_DECLARE_MATERIAL_UNIFORMS(ImpostorData, impostor)
-VT_DECLARE_baseColorMap_AS(Sampler2DArray, impostorMap)
-
-// The instance matrix's columns: Metal 6-9, Vulkan 5-8, as the forward program reads them.
+VT_DECLARE_BINDLESS_TABLE
+VT_DECLARE_MAP_LANES
 #if defined(VT_TARGET_METAL)
 #define IMPOSTOR_INSTANCE0 6
 #define IMPOSTOR_INSTANCE1 7
@@ -140,7 +139,7 @@ Varyings impostorVertex(VertexIn input)
 [shader("fragment")]
 float4 impostorFragment(Varyings input) : SV_Target0
 {
-    const float4 color = impostorMap.Sample(float3(input.uv0, floor(input.layer + 0.5)));
+    const float4 color = VT_MAP_ARRAY_SAMPLE(VT_MAP_LANE_baseColorMap, float3(input.uv0, floor(input.layer + 0.5)));
     if (color.a < 0.5) {
         discard;
     }

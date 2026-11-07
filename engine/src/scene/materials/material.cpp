@@ -139,7 +139,7 @@ namespace visutwin::canvas
         return _cachedUniforms;
     }
 
-    void Material::packMapLane(MaterialUniforms& uniforms, const int slot, const Texture* texture)
+    void Material::packMapLane(MaterialMapLanes& lanes, const int slot, const Texture* texture)
     {
         const int lane = materialMapLaneForSlot(slot);
         if (lane < 0) {
@@ -154,21 +154,29 @@ namespace visutwin::canvas
                 : 0u;
             value = packBindlessLane(texture->bindlessIndex(), sampler);
         }
-        uniforms.mapLanes[lane >> 2][lane & 3] = value;
+        lanes.at(static_cast<uint32_t>(lane)) = value;
+    }
+
+    const MaterialMapLanes& Material::packedMapLanes() const
+    {
+        if (_lanesDirty) {
+            // From the same slot list the slot path read: every lane starts at 0 (no map) and
+            // each slot with a lane writes its own.
+            _cachedLanes = MaterialMapLanes{};
+            static thread_local std::vector<TextureSlot> laneSlots;
+            laneSlots.clear();
+            getTextureSlots(laneSlots);
+            for (const auto& [slot, texture] : laneSlots) {
+                packMapLane(_cachedLanes, slot, texture);
+            }
+            _lanesDirty = false;
+        }
+        return _cachedLanes;
     }
 
     void Material::packAll(MaterialUniforms& uniforms) const
     {
         updateUniforms(uniforms);
-        // The map lanes, from the same slot list both binders read: every lane starts at 0
-        // (no map) and each slot with a lane writes its own.
-        std::memset(uniforms.mapLanes, 0, sizeof(uniforms.mapLanes));
-        static thread_local std::vector<TextureSlot> laneSlots;
-        laneSlots.clear();
-        getTextureSlots(laneSlots);
-        for (const auto& [slot, texture] : laneSlots) {
-            packMapLane(uniforms, slot, texture);
-        }
         if (_pickPass) {
             uniforms.baseColor[0] = _pickColor.r;
             uniforms.baseColor[1] = _pickColor.g;

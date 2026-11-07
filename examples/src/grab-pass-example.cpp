@@ -85,8 +85,8 @@ struct GlassData
     float4 screenSize;   // xy: the size of the target in pixels, zw: its inverse
 };
 VT_DECLARE_MATERIAL_UNIFORMS(GlassData, glass)
-VT_DECLARE_baseColorMap   // the bumps of the glass (a normal map)
-VT_DECLARE_normalMap      // its roughness, frosted around a clear logo
+VT_DECLARE_BINDLESS_TABLE
+VT_DECLARE_MAP_LANES
 VT_DECLARE_sceneColorGrab
 // linear, linear mips, clamp: the sampler the forward pass reads the copy through
 [[vk::binding(12, 3)]] SamplerState linearClampSampler : register(s7);
@@ -125,12 +125,12 @@ Varyings glassVertex(VertexIn input)
 [shader("fragment")]
 float4 glassFragment(Varyings input) : SV_Target0
 {
-    const float roughness = 1.0 - normalMap.Sample(input.texCoord).r;
+    const float roughness = 1.0 - VT_MAP_SAMPLE(VT_MAP_LANE_normalMap, input.texCoord).r;
 
     // the view through the glass bends at its rounded edges, and on its bumps; the screen
     // position runs down, so the vertical direction of the normal is flipped
     const float3 normal = normalize(input.viewNormal);
-    const float2 bumps = baseColorMap.Sample(input.texCoord).rg * 2.0 - 1.0;
+    const float2 bumps = VT_MAP_SAMPLE(VT_MAP_LANE_baseColorMap, input.texCoord).rg * 2.0 - 1.0;
     const float2 offset = float2(-normal.x, normal.y) * 0.08 + bumps * (0.2 + roughness) * 0.015;
 
     // the rougher the glass, the smaller and more blurred the mip level the scene is sampled from

@@ -184,9 +184,9 @@ def quad_inputs(material: list[BindingRow], extra: list[str]) -> list[str]:
     return lines
 
 
-MATERIAL_FIELD_RE = re.compile(r'X\(\s*(vec4x8|vec4|float|uint4x7|uint)\s*,\s*(\w+)\s*,')
-SLANG_TYPE_OF_FIELD = {"vec4": "float4", "vec4x8": "float4", "float": "float", "uint": "uint", "uint4x7": "uint4"}
-ARRAY_OF_FIELD = {"vec4x8": "[8]", "uint4x7": "[7]"}
+MATERIAL_FIELD_RE = re.compile(r'X\(\s*(vec4x8|vec4|float|uint)\s*,\s*(\w+)\s*,')
+SLANG_TYPE_OF_FIELD = {"vec4": "float4", "vec4x8": "float4", "float": "float", "uint": "uint"}
+ARRAY_OF_FIELD = {"vec4x8": "[8]"}
 
 
 def material_block(fields_header: Path) -> list[str]:
@@ -207,9 +207,11 @@ def material_block(fields_header: Path) -> list[str]:
 
 
 MAP_LANE_RE = re.compile(r'X\(\s*(\w+)\s*,\s*(\d+)\s*,\s*([01])\s*\)')
-CAPACITY_RE = re.compile(r'kBindlessTable(Texture|Sampler)Capacity\s*=\s*(\d+)')
+CAPACITY_RE = re.compile(r'kBindlessTable(Texture|TextureArray|Volume|Sampler)Capacity\s*=\s*(\d+)')
 TABLE_SLOT_RE = re.compile(r'kBindlessTableMetalBufferSlot\s*=\s*(\d+)')
 TABLE_SET_RE = re.compile(r'kBindlessTableVulkanSet\s*=\s*(\d+)')
+LANES_SLOT_RE = re.compile(r'kBindlessLanesMetalBufferSlot\s*=\s*(\d+)')
+LANES_BINDING_RE = re.compile(r'kBindlessLanesVulkanBinding\s*=\s*(\d+)')
 
 
 def bindless_table(table_header: Path, lanes_header: Path) -> list[str]:
@@ -222,25 +224,50 @@ def bindless_table(table_header: Path, lanes_header: Path) -> list[str]:
     capacities = dict(CAPACITY_RE.findall(text))
     slot = TABLE_SLOT_RE.search(text)
     vk_set = TABLE_SET_RE.search(text)
-    if "Texture" not in capacities or "Sampler" not in capacities or not slot or not vk_set:
-        raise RuntimeError(f"{table_header}: the table's capacities, slot and set were not found")
+    lanes_slot = LANES_SLOT_RE.search(text)
+    lanes_binding = LANES_BINDING_RE.search(text)
+    for key in ("Texture", "TextureArray", "Volume", "Sampler"):
+        if key not in capacities:
+            raise RuntimeError(f"{table_header}: kBindlessTable{key}Capacity was not found")
+    if not slot or not vk_set or not lanes_slot or not lanes_binding:
+        raise RuntimeError(f"{table_header}: the table's slot and set or the lanes' slot and binding were not found")
     lanes = MAP_LANE_RE.findall(lanes_header.read_text())
     if not lanes:
         raise RuntimeError(f"{lanes_header}: no map lanes")
     lines = ["", f"// ---- The bindless table ({table_header.name}): Metal buffer {slot.group(1)} on both stages,",
-             f"// Vulkan set {vk_set.group(1)}; samplers at binding 0, textures at binding 1. ----",
+             f"// Vulkan set {vk_set.group(1)}; the samplers at binding 0, the 2D textures at 1, the texture",
+             "// arrays at 2 and the volumes at 3, each kind an index space of its own. ----",
              "struct VtBindlessTable",
              "{",
              f"    SamplerState samplers[{capacities['Sampler']}];",
              f"    Texture2D textures[{capacities['Texture']}];",
+             f"    Texture2DArray textureArrays[{capacities['TextureArray']}];",
+             f"    Texture3D volumes[{capacities['Volume']}];",
              "};",
              f"#define VT_DECLARE_BINDLESS_TABLE [[vk::binding(0, {vk_set.group(1)})]] "
              f"ParameterBlock<VtBindlessTable> vtBindless : register(b{slot.group(1)});",
-             "// A material block lane: the texture index in the low 24 bits, the sampler index above.",
+             "// A lane: the texture index in the low 24 bits (in the array the program names), the",
+             "// sampler index above.",
              "#define VT_BINDLESS_TEXTURE(lane) vtBindless.textures[(lane) & 0xFFFFFFu]",
+             "#define VT_BINDLESS_TEXTURE_ARRAY(lane) vtBindless.textureArrays[(lane) & 0xFFFFFFu]",
+             "#define VT_BINDLESS_VOLUME(lane) vtBindless.volumes[(lane) & 0xFFFFFFu]",
              "#define VT_BINDLESS_SAMPLER(lane) vtBindless.samplers[(lane) >> 24u]",
-             "// Lane i of the material block (MaterialUniforms::mapLanes, 7 uint4).",
-             "#define VT_MATERIAL_LANE(i) material.mapLanes[(i) >> 2u][(i) & 3u]",
+             f"// ---- The draw's map lanes ({lanes_header.name}): Metal buffer {lanes_slot.group(1)} on both",
+             f"// stages, Vulkan set 0 binding {lanes_binding.group(1)}; lane i at [i / 4][i & 3], 0 for no map. ----",
+             "struct VtMapLanes",
+             "{",
+             "    uint4 lanes[7];",
+             "};",
+             f"#define VT_DECLARE_MAP_LANES [[vk::binding({lanes_binding.group(1)}, 0)]] "
+             f"ConstantBuffer<VtMapLanes> vtMapLanes : register(b{lanes_slot.group(1)});",
+             "#define VT_MATERIAL_LANE(i) vtMapLanes.lanes[(i) >> 2u][(i) & 3u]",
+             "// A map read through its lane, for a program with a block of its own: the 2D sample",
+             "// with the lane's sampler, an array's and a volume's with a float3 coordinate.",
+             "#define VT_MAP_SAMPLE(laneIndex, uv) VT_BINDLESS_TEXTURE(VT_MATERIAL_LANE(laneIndex)).Sample(VT_BINDLESS_SAMPLER(VT_MATERIAL_LANE(laneIndex)), uv)",
+             "#define VT_MAP_SAMPLE_LEVEL(laneIndex, uv, lod) VT_BINDLESS_TEXTURE(VT_MATERIAL_LANE(laneIndex)).SampleLevel(VT_BINDLESS_SAMPLER(VT_MATERIAL_LANE(laneIndex)), uv, lod)",
+             "#define VT_MAP_ARRAY_SAMPLE(laneIndex, uvw) VT_BINDLESS_TEXTURE_ARRAY(VT_MATERIAL_LANE(laneIndex)).Sample(VT_BINDLESS_SAMPLER(VT_MATERIAL_LANE(laneIndex)), uvw)",
+             "#define VT_MAP_ARRAY_SAMPLE_LEVEL(laneIndex, uvw, lod) VT_BINDLESS_TEXTURE_ARRAY(VT_MATERIAL_LANE(laneIndex)).SampleLevel(VT_BINDLESS_SAMPLER(VT_MATERIAL_LANE(laneIndex)), uvw, lod)",
+             "#define VT_MAP_VOLUME_SAMPLE_LEVEL(laneIndex, uvw, lod) VT_BINDLESS_VOLUME(VT_MATERIAL_LANE(laneIndex)).SampleLevel(VT_BINDLESS_SAMPLER(VT_MATERIAL_LANE(laneIndex)), uvw, lod)",
              f"// ---- The map lanes ({lanes_header.name}), by the map's name ----"]
     for index, (name, _slot, _own) in enumerate(lanes):
         lines.append(f"#define VT_MAP_LANE_{name} {index}u")
@@ -293,15 +320,13 @@ def main() -> None:
         "// Every binding of both backends, as one Slang declaration macro each. register()",
         "// is the Metal slot; [[vk::binding]] the Vulkan and WGSL one. See the header.",
         "",
-        "// ---- Material textures (Vulkan set 1, quad inputs 0..5 on both backends) ----",
+        "// ---- The material set (Vulkan set 1): the quad inputs and the shared sampler ----",
     ]
-    own_sampler_index = 0
+    # The material rows are the quad inputs (quad_inputs below) and the shared sampler; a
+    # material's maps come from the bindless table, so no row of a texture is declared by name.
     for row in material:
-        sampler_slot = None
-        if row.own_sampler:
-            own_sampler_index += 1
-            sampler_slot = own_sampler_index
-        out += declaration(row, MATERIAL_SET, sampler_slot)
+        if row.type == "Sampler":
+            out += declaration(row, MATERIAL_SET, None)
     out += quad_inputs(material, read_quad_extra_inputs(args.bindings))
     out += ["", "// ---- Scene textures (Vulkan set 3) ----"]
     for row in scene:

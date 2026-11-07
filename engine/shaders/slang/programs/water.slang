@@ -38,9 +38,8 @@ struct WaterData
 };
 VT_DECLARE_MATERIAL_UNIFORMS(WaterData, water)
 
-VT_DECLARE_baseColorMap
-VT_DECLARE_normalMap
-VT_DECLARE_emissiveMap
+VT_DECLARE_BINDLESS_TABLE
+VT_DECLARE_MAP_LANES
 VT_DECLARE_envAtlas
 VT_DECLARE_sceneDepthGrab
 // The forward pass's clamping samplers, at the Metal slots it binds them to (the table's rows
@@ -254,8 +253,8 @@ float4 waterFragment(Varyings input) : SV_Target0
     const float2 baseUv = input.worldPos.xz * rippleTiling;
     const float st = time * rippleSpeed;
     const float2 rotUv = float2(0.79 * baseUv.x - 0.61 * baseUv.y, 0.61 * baseUv.x + 0.79 * baseUv.y);
-    const float3 nm1 = normalMap.Sample(baseUv + float2(st, st * 0.7)).xyz * 2.0 - 1.0;
-    const float3 nm2 = normalMap.Sample(rotUv * 1.73 + float2(-st * 0.8, st * 1.1)).xyz * 2.0 - 1.0;
+    const float3 nm1 = VT_MAP_SAMPLE(VT_MAP_LANE_normalMap, baseUv + float2(st, st * 0.7)).xyz * 2.0 - 1.0;
+    const float3 nm2 = VT_MAP_SAMPLE(VT_MAP_LANE_normalMap, rotUv * 1.73 + float2(-st * 0.8, st * 1.1)).xyz * 2.0 - 1.0;
     const float2 detail = (nm1.xy + nm2.xy) * 0.5 * bumpiness;
 
     // With the waves, filtered by the pixel's footprint on the water along its longer axis,
@@ -283,12 +282,12 @@ float4 waterFragment(Varyings input) : SV_Target0
     float3 refrSample = shallowColorIn;
     float3 refrUndistorted = shallowColorIn;
     if (waterSwitch(kWaterRefraction)) {
-        refrSample = decodeGamma(emissiveMap.Sample(refractionUV).rgb);
-        refrUndistorted = decodeGamma(emissiveMap.Sample(screenUV).rgb);
+        refrSample = decodeGamma(VT_MAP_SAMPLE(VT_MAP_LANE_emissiveMap, refractionUV).rgb);
+        refrUndistorted = decodeGamma(VT_MAP_SAMPLE(VT_MAP_LANE_emissiveMap, screenUV).rgb);
     }
     float3 reflSample = deepColorIn;
     if (waterSwitch(kWaterReflectionPlanar)) {
-        reflSample = decodeGamma(baseColorMap.Sample(reflectionUV).rgb);
+        reflSample = decodeGamma(VT_MAP_SAMPLE(VT_MAP_LANE_baseColorMap, reflectionUV).rgb);
     }
     if (waterSwitch(kWaterReflectionSky)) {
         float3 R = reflect(-V, N);

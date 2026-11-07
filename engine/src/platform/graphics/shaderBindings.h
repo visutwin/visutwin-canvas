@@ -5,8 +5,8 @@
 //
 // THE texture binding table: every material and scene texture slot of both backends,
 // declared once. Everything else is derived from these two X-macro lists:
-//   - Metal: MetalTextureBinder::kMaxTextureSlots, the material slots it clears, and
-//     the six material maps that carry their own sampler (kMaterialSamplerTextureSlots);
+//   - Metal: MetalTextureBinder::kMaxTextureSlots (a material's maps are not rows but lanes
+//     of the bindless table, bindlessTable.h; the rows are the quad inputs);
 //   - Vulkan: kMaterialTextureBindings (set 1, in QUAD SLOT ORDER), the separate-image
 //     predicate, kSceneTextureBindingCount and vulkanSceneDescriptorType (set 3);
 //   - Vulkan's validateForwardLayout, which holds the forward and shadow programs'
@@ -17,7 +17,7 @@
 // A new slot is one row here. Two rules the rows encode: a material row is APPENDED,
 // never inserted, because a Vulkan quad pass's input i is the i-th material row; and a
 // Vulkan material texture is a SEPARATE image (SeparateImage, read through the shared
-// sampler at the Sampler row) unless it is one of the six maps that keep their own
+// sampler at the Sampler row) unless it is one of the six quad inputs that keep their own
 // sampler, since MoltenVK's fragment stage is at its 16-sampler limit.
 //
 // Columns: X(name, type, kind, metalSlot, vkBinding, ownSampler, metalMaterialSlot)
@@ -26,7 +26,7 @@
 //             and, with ownSampler, a sampler slot), SeparateImage (Vulkan: image through
 //             the shared sampler), Sampler (a sampler state), MetalOnly (no Vulkan binding)
 //   metalSlot: the Metal fragment texture slot; >= 100 is a VERTEX texture (slot - 100,
-//             kMetalVertexTextureSlotBase);
+//             a vertex-stage slot would be 100 + its index; none is left);
 //             for a Sampler row the Metal sampler slot; -1 for none (a constexpr sampler)
 //   vkBinding: the Vulkan binding in the list's set (1 material, 3 scene); -1 for none
 //   ownSampler: the map is read through its texture's own sampler state on both backends
@@ -44,20 +44,19 @@ namespace visutwin::canvas
 {
     // Set 1 on Vulkan. Quad slot i is row i. Metal slots 0-5 are also the quad inputs 0-5.
 #define VT_MATERIAL_TEXTURE_BINDINGS(X) \
-    X(baseColorMap,       Tex2D,   CombinedSampler, 0,   0,  1, 1) \
-    X(normalMap,          Tex2D,   CombinedSampler, 1,   1,  1, 1) \
+    X(baseColorMap,       Tex2D,   CombinedSampler, 0,   0,  1, 0) \
+    X(normalMap,          Tex2D,   CombinedSampler, 1,   1,  1, 0) \
     X(quadInput2,         Tex2D,   CombinedSampler, 2,   2,  0, 0) \
-    X(metalRoughMap,      Tex2D,   CombinedSampler, 3,   3,  1, 1) \
-    X(occlusionMap,       Tex2D,   CombinedSampler, 4,   4,  1, 1) \
-    X(emissiveMap,        Tex2D,   CombinedSampler, 5,   5,  1, 1) \
-    X(heightMap,          Tex2D,   SeparateImage,   17,  17, 0, 1) \
-    X(lightMap,           Tex2D,   CombinedSampler, 19,  19, 1, 1) \
-    X(detailNormalMap,    Tex2D,   SeparateImage,   23,  23, 0, 1) \
+    X(metalRoughMap,      Tex2D,   CombinedSampler, 3,   3,  1, 0) \
+    X(occlusionMap,       Tex2D,   CombinedSampler, 4,   4,  1, 0) \
+    X(emissiveMap,        Tex2D,   CombinedSampler, 5,   5,  1, 0) \
+    X(heightMap,          Tex2D,   SeparateImage,   17,  17, 0, 0) \
+    X(lightMap,           Tex2D,   CombinedSampler, 19,  19, 1, 0) \
+    X(detailNormalMap,    Tex2D,   SeparateImage,   23,  23, 0, 0) \
     X(materialSampler,    Sampler, Sampler,         0,   24, 0, 0) \
-    X(displacementMap,    Tex2D,   SeparateImage,   141, 25, 0, 0) \
-    X(clearCoatMap,       Tex2D,   SeparateImage,   7,   7,  0, 1) \
-    X(clearCoatGlossMap,  Tex2D,   SeparateImage,   13,  13, 0, 1) \
-    X(clearCoatNormalMap, Tex2D,   SeparateImage,   14,  14, 0, 1)
+    X(clearCoatMap,       Tex2D,   SeparateImage,   7,   7,  0, 0) \
+    X(clearCoatGlossMap,  Tex2D,   SeparateImage,   13,  13, 0, 0) \
+    X(clearCoatNormalMap, Tex2D,   SeparateImage,   14,  14, 0, 0)
 
     // Set 3 on Vulkan: the per-pass scene textures. The VSM moment maps are Metal-only
     // slots: the spot pair because Vulkan rebinds the spot slots 2 / 3 with the linear
@@ -233,7 +232,7 @@ namespace visutwin::canvas
     inline constexpr auto kMaterialTextureBindings =
         shaderBindings::vkBindingsIf<kMaterialBindingRows.size()>(kMaterialBindingRows, shaderBindings::hasVkBinding);
     static_assert(kMaterialTextureBindings ==
-        std::array<uint32_t, 14>{0, 1, 2, 3, 4, 5, 17, 19, 23, 24, 25, 7, 13, 14});
+        std::array<uint32_t, 13>{0, 1, 2, 3, 4, 5, 17, 19, 23, 24, 7, 13, 14});
 
     /// The shared sampler every separate material image reads through (set 1).
     inline constexpr uint32_t kMaterialExtraSamplerBinding =
@@ -252,7 +251,7 @@ namespace visutwin::canvas
     }
     static_assert(vulkanMaterialBindingIsSeparateImage(7) && vulkanMaterialBindingIsSeparateImage(13) &&
         vulkanMaterialBindingIsSeparateImage(14) && vulkanMaterialBindingIsSeparateImage(17) &&
-        vulkanMaterialBindingIsSeparateImage(23) && vulkanMaterialBindingIsSeparateImage(25) &&
+        vulkanMaterialBindingIsSeparateImage(23) &&
         !vulkanMaterialBindingIsSeparateImage(0) && !vulkanMaterialBindingIsSeparateImage(19) &&
         !vulkanMaterialBindingIsSeparateImage(24));
 
@@ -327,49 +326,8 @@ namespace visutwin::canvas
     static_assert(kMaterialTextureBindings[shaderBindings::quadInputDescriptorIndex(8)] == 23 &&
         kMaterialTextureBindings[shaderBindings::quadInputDescriptorIndex(11)] == 14);
 
-    /// A Metal slot of 100 or more is a VERTEX-stage texture slot (slot - 100).
-    inline constexpr int kMetalVertexTextureSlotBase = 100;
-
-    /// The displacement map, a vertex-stage texture. Its Metal slot (vertex texture 41) is
-    /// one no fragment texture uses: one Slang library declares every global on every entry
-    /// point, so a vertex texture at 0 would collide with the base-colour map there.
-    inline constexpr int kDisplacementMapMetalSlot = shaderBindings::metalSlotOf(kMaterialBindingRows, "displacementMap");
-    static_assert(kDisplacementMapMetalSlot == kMetalVertexTextureSlotBase + 41);
-
-    /// The Vulkan set-1 binding of the material texture a material names by its Metal slot
-    /// (`TextureSlot::slot`), or -1 when no material texture row has that slot. The two
-    /// numberings agree for most rows but not all: the anisotropy map is Metal 42 and Vulkan 35,
-    /// the displacement map vertex texture 41 and Vulkan 25, so a binder must not match the slot
-    /// against its binding list directly.
-    constexpr int vulkanMaterialBindingForMetalSlot(const int metalSlot)
-    {
-        for (const auto& row : kMaterialBindingRows) {
-            if (row.kind != ShaderBindingKind::Sampler && row.metalSlot == metalSlot) {
-                return row.vkBinding;
-            }
-        }
-        return -1;
-    }
-    static_assert(vulkanMaterialBindingForMetalSlot(0) == 0 && vulkanMaterialBindingForMetalSlot(23) == 23 &&
-        vulkanMaterialBindingForMetalSlot(kDisplacementMapMetalSlot) == 25 &&
-        vulkanMaterialBindingForMetalSlot(24) == -1 && vulkanMaterialBindingForMetalSlot(35) == -1 &&
-        vulkanMaterialBindingForMetalSlot(34) == -1);
-
     /// Metal fragment texture slots: 0 .. kMetalMaxTextureSlots - 1.
     inline constexpr int kMetalMaxTextureSlots = shaderBindings::maxMetalTextureSlot() + 1;
     static_assert(kMetalMaxTextureSlots == 47);
 
-    /// The Metal material slots the material binder owns (cleared when a material has no
-    /// map there), in table order.
-    inline constexpr auto kMetalMaterialTextureSlots =
-        shaderBindings::metalSlotsIf<shaderBindings::countIf(kMaterialBindingRows, shaderBindings::isMetalMaterialSlot)>(
-            kMaterialBindingRows, shaderBindings::isMetalMaterialSlot);
-    static_assert(kMetalMaterialTextureSlots == std::array<int, 11>{0, 1, 3, 4, 5, 17, 19, 23, 7, 13, 14});
-
-    /// The material maps read through their texture's own sampler, by Metal texture slot,
-    /// in table order: Metal sampler slot 1 + i carries the sampler of slot [i].
-    inline constexpr auto kMaterialSamplerTextureSlots =
-        shaderBindings::metalSlotsIf<shaderBindings::countIf(kMaterialBindingRows, shaderBindings::ownsSampler)>(
-            kMaterialBindingRows, shaderBindings::ownsSampler);
-    static_assert(kMaterialSamplerTextureSlots == std::array<int, 6>{0, 1, 3, 4, 5, 19});
 }

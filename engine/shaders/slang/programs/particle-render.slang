@@ -53,19 +53,18 @@ struct ParticleRenderParams
 [[vk::binding(2, 6)]] StructuredBuffer<float> meshVertices : register(t9);
 [[vk::binding(3, 6)]] ConstantBuffer<ParticleRenderParams> params : register(b11);
 
-// The colour and normal maps. Metal reads them through the linear clamped sampler (linear
-// mips) at slot 7, Vulkan through each texture's own sampler.
+// The colour and normal maps come from the bindless table through the emitter material's
+// lanes (its base colour and normal slots). Metal reads them through the linear clamped
+// sampler (linear mips) at slot 7, Vulkan through each texture's own, as they always did.
+VT_DECLARE_BINDLESS_TABLE
+VT_DECLARE_MAP_LANES
 #if defined(VT_TARGET_METAL)
-[[vk::binding(0, 1)]] Texture2D colorMap : register(t0);
-[[vk::binding(1, 1)]] Texture2D normalMap : register(t1);
 [[vk::binding(12, 3)]] SamplerState linearClampSampler : register(s7);
-float4 sampleColorMap(float2 uv) { return colorMap.Sample(linearClampSampler, uv); }
-float4 sampleNormalMap(float2 uv) { return normalMap.Sample(linearClampSampler, uv); }
+float4 sampleColorMap(float2 uv) { return VT_BINDLESS_TEXTURE(VT_MATERIAL_LANE(VT_MAP_LANE_baseColorMap)).Sample(linearClampSampler, uv); }
+float4 sampleNormalMap(float2 uv) { return VT_BINDLESS_TEXTURE(VT_MATERIAL_LANE(VT_MAP_LANE_normalMap)).Sample(linearClampSampler, uv); }
 #else
-[[vk::binding(0, 1)]] Sampler2D colorMap;
-[[vk::binding(1, 1)]] Sampler2D normalMap;
-float4 sampleColorMap(float2 uv) { return colorMap.Sample(uv); }
-float4 sampleNormalMap(float2 uv) { return normalMap.Sample(uv); }
+float4 sampleColorMap(float2 uv) { return VT_MAP_SAMPLE(VT_MAP_LANE_baseColorMap, uv); }
+float4 sampleNormalMap(float2 uv) { return VT_MAP_SAMPLE(VT_MAP_LANE_normalMap, uv); }
 #endif
 VT_DECLARE_sceneDepthGrab
 

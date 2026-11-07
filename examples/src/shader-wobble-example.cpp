@@ -42,8 +42,8 @@ struct WobbleData
     float4 time;   // x: seconds
 };
 VT_DECLARE_MATERIAL_UNIFORMS(WobbleData, wobble)
-VT_DECLARE_baseColorMap
-
+VT_DECLARE_BINDLESS_TABLE
+VT_DECLARE_MAP_LANES
 struct VertexIn
 {
     [[vk::location(0)]] float3 position : POSITION;
@@ -79,7 +79,7 @@ float3 srgbToLinear(float3 c)
 [shader("fragment")]
 float4 wobbleFragment(Varyings input) : SV_Target0
 {
-    const float3 linearColor = srgbToLinear(baseColorMap.Sample(input.uv0).rgb);
+    const float3 linearColor = srgbToLinear(VT_MAP_SAMPLE(VT_MAP_LANE_baseColorMap, input.uv0).rgb);
     // gammaCorrectOutput
     return float4(linearToSrgb(linearColor), 1.0);
 }

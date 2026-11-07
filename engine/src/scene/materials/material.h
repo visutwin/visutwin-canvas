@@ -5,6 +5,7 @@
 //
 #pragma once
 
+#include "scene/materials/materialMapLanes.h"
 #include "scene/materials/materialUniformFields.h"
 
 #include <array>
@@ -313,6 +314,7 @@ namespace visutwin::canvas
         void markUniformsDirty()
         {
             _uniformsDirty = true;
+            _lanesDirty = true;
             _uniformsVersion = nextUniformsVersion();
         }
         /// Changes every time the packed block may have changed, and is unique across
@@ -328,13 +330,15 @@ namespace visutwin::canvas
          */
         virtual void updateUniforms(MaterialUniforms& uniforms) const;
 
-        /// updateUniforms plus what every material owes the block after it: the map lanes
-        /// (packMapLanes) and the pick id.
+        /// updateUniforms plus what every material owes the block after it: the pick id.
         void packAll(MaterialUniforms& uniforms) const;
-        /// Writes the bindless lanes of `slots` (materialMapLanes.h) into the block: a slot
-        /// without a lane is ignored, a lane without a slot reads 0. Shared with the mesh
-        /// instance's override block, which writes its own lightmap the same way.
-        static void packMapLane(MaterialUniforms& uniforms, int slot, const Texture* texture);
+        /// The draw's map lanes (materialMapLanes.h): every slot of getTextureSlots with a lane,
+        /// as its texture's bindless index and sampler index; packed once per edit beside the
+        /// block, for every material type (a custom block's maps included).
+        const MaterialMapLanes& packedMapLanes() const;
+        /// Writes one slot's lane: a slot without a lane is ignored. The device writes an
+        /// instance's own lightmap over the material's with it (GraphicsDevice::drawMapLanes).
+        static void packMapLane(MaterialMapLanes& lanes, int slot, const Texture* texture);
 
         /// A per-map UV transform as the two rows the shaders read. A subclass packs its own transforms with it rather
         /// than writing them into the base fields from a const method.
@@ -500,6 +504,8 @@ namespace visutwin::canvas
         // const_cast, which is why the dirty flag is cleared AFTER packing.
         mutable MaterialUniforms _cachedUniforms{};
         mutable bool _uniformsDirty = true;
+        mutable bool _lanesDirty = true;
+        mutable MaterialMapLanes _cachedLanes{};
         uint64_t _uniformsVersion = nextUniformsVersion();
     };
 

@@ -327,7 +327,8 @@ namespace visutwin::canvas
         std::optional<IndexBinding> resolveIndexBinding(const std::shared_ptr<IndexBuffer>& indexBuffer);
         void applyEncoderCullMode(MTL::RenderCommandEncoder* passEncoder);
         /// Binds the material's textures when they changed and returns its uniform block.
-        UniformBlock bindMaterialTextures(MTL::RenderCommandEncoder* passEncoder, const Material* boundMaterial);
+        UniformBlock selectMaterialUniforms(const Material* boundMaterial);
+        void bindMapLanes(MTL::RenderCommandEncoder* passEncoder);
         /// A quad pass's inputs, or the scene-wide textures (shadows, env, cookies ...).
         void bindPassTextures(MTL::RenderCommandEncoder* passEncoder);
         void updateReflectionUniforms();
@@ -438,18 +439,28 @@ namespace visutwin::canvas
         // The bindless table. A table set with setBindlessTable (a test's) goes over the
         // engine's while set; otherwise every draw binds the frame's table, one argument
         // buffer per in-flight frame rewritten whole at frame start from the master id
-        // array, which follows the registry's versions (syncBindlessTable). An index with no
+        // array, which follows the registry's versions (syncBindlessTable), and again before
+        // a draw when the registry moved since (bindBindlessTable). An index with no
         // texture of this device holds the white 1x1. Samplers are created once per registry
         // index and never freed before the device. What the open encoder has bound is
-        // remembered by key and forgotten with the encoder (resetEncoderStateCache).
+        // remembered by key, with the live set it was told of (useResources) by version,
+        // and forgotten with the encoder (resetEncoderStateCache).
         BindlessTable* _bindlessTable = nullptr;
         const void* _encoderBindlessKey = nullptr;
+        uint64_t _encoderBindlessResidentVersion = 0;
+        uint64_t _bindlessResidentVersion = 1;                 // moves with _bindlessResident
         std::array<MTL::Buffer*, MetalUniformRingBuffer::kMaxInflightFrames> _bindlessFrameBuffers{};
         size_t _bindlessFrameSlot = 0;
-        std::vector<MTL::ResourceID> _bindlessIds;              // samplers, then textures
-        std::vector<uint64_t> _bindlessVersions;                // per texture index
-        std::vector<MTL::Texture*> _bindlessTextures;           // per texture index (borrowed)
-        std::vector<BindlessResidency::Entry> _bindlessSnapshot;
+        std::vector<MTL::ResourceID> _bindlessIds;              // samplers, textures, arrays, volumes
+        struct BindlessKindState
+        {
+            std::vector<uint64_t> versions;                     // per index
+            std::vector<MTL::Texture*> textures;                // per index (borrowed)
+            std::vector<BindlessResidency::Entry> snapshot;
+        };
+        std::array<BindlessKindState, static_cast<size_t>(BindlessKind::Count)> _bindlessKinds;
+        // The draw's map lanes last set on the open encoder (GraphicsDevice::drawMapLanes).
+        uint64_t _encoderLanesVersion = 0;
         std::vector<TextureSamplerState> _bindlessSamplerStates;
         uint64_t _bindlessGeneration = 0;
         uint64_t _bindlessSamplerGeneration = 0;

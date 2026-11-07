@@ -77,8 +77,8 @@ struct QuadData
     uint pad2;
 };
 VT_DECLARE_MATERIAL_UNIFORMS(QuadData, quad)
-VT_DECLARE_baseColorMap
-
+VT_DECLARE_BINDLESS_TABLE
+VT_DECLARE_MAP_LANES
 struct VertexIn
 {
     [[vk::location(0)]] float3 position : POSITION;
@@ -106,7 +106,7 @@ Varyings quadVertex(VertexIn input)
 float4 quadFragment(Varyings input) : SV_Target0
 {
     // v = 0 is the texture's top row; the node's negative y scale puts that edge at the top.
-    const float4 texel = baseColorMap.Sample(input.uv);
+    const float4 texel = VT_MAP_SAMPLE(VT_MAP_LANE_baseColorMap, input.uv);
     if (quad.mode == 0u) {
         return float4(texel.rgb, 1.0);
     }

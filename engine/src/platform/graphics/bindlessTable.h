@@ -15,7 +15,8 @@
 //     [[vk::binding(0, kBindlessTableVulkanSet)]]
 //     ParameterBlock<Table> table : register(b<kBindlessTableMetalBufferSlot>);
 //
-// with S and T the device's bindlessSamplerCapacity() / bindlessTextureCapacity(). On Metal
+// (plus Texture2DArray and Texture3D arrays for an array and a volume, each its own index
+// space) with S and T the device's bindlessSamplerCapacity() / bindlessTextureCapacity(). On Metal
 // that is one argument buffer at the buffer slot, on both stages (Slang declares every global
 // on every entry), holding the samplers' and textures' GPU resource ids; on Vulkan a
 // descriptor set with the samplers at binding 0 and the images at binding 1, both
@@ -42,12 +43,18 @@ namespace visutwin::canvas
     /// allows exactly eight).
     inline constexpr uint32_t kBindlessTableVulkanSet = 7;
     /// The table's array sizes, the same on every device and in every program (the Metal
-    /// table is sized at compile time; tools/generate_shader_bindings.py reads these two
-    /// lines into bindings.slang). Their sum is bounded by what one Vulkan descriptor SET may
-    /// hold (`maxPerSetDescriptors`, 1212 on MoltenVK 1.4.2, whatever the per-stage
-    /// after-bind limits say), and there is exactly one set: 1024 + 64 fits, 4096 did not.
+    /// table is sized at compile time; tools/generate_shader_bindings.py reads these lines
+    /// into bindings.slang). Their sum is bounded by what one Vulkan descriptor SET may hold
+    /// (`maxPerSetDescriptors`, 1212 on MoltenVK 1.4.2, whatever the per-stage after-bind
+    /// limits say), and there is exactly one set: 1024 + 64 + 16 + 64 = 1168 fits.
     inline constexpr uint32_t kBindlessTableTextureCapacity = 1024;
+    inline constexpr uint32_t kBindlessTableTextureArrayCapacity = 64;
+    inline constexpr uint32_t kBindlessTableVolumeCapacity = 16;
     inline constexpr uint32_t kBindlessTableSamplerCapacity = 64;
+    /// The per-draw map lanes (materialMapLanes.h): Metal buffer 14 on both stages, Vulkan
+    /// set 0 binding 1 (a dynamic uniform beside the material block).
+    inline constexpr int kBindlessLanesMetalBufferSlot = 14;
+    inline constexpr uint32_t kBindlessLanesVulkanBinding = 1;
 
     /// What a table holds: entry i of each array. A null texture leaves its entry unbound,
     /// which a program must not read. Both arrays must fit the device's capacities.

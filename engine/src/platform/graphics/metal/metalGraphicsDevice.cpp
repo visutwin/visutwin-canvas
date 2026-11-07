@@ -713,6 +713,8 @@ namespace visutwin::canvas
     void MetalGraphicsDevice::resetEncoderStateCache()
     {
         _encoderBindlessKey = nullptr;
+        _encoderBindlessResidentVersion = 0;
+        _encoderLanesVersion = 0;
         _pipelineState = nullptr;
         _encoderVertexBuffer0 = nullptr;
         _encoderInstancingBuffer = nullptr;
@@ -818,27 +820,40 @@ namespace visutwin::canvas
             resident = &table->residency;
             key = table;
         } else {
-            if (!_insideFrame) {
-                // A draw outside a frame (an offline bake before the first frame): the current
-                // slot's table, brought up to date here. Inside a frame onFrameStart did it.
+            // The current slot's table, brought up to date whenever the registry moved since
+            // it was written: onFrameStart writes it whole, and a texture that joins, is
+            // recreated (a render target resized in the update) or leaves BEFORE a draw of
+            // the same frame is seen by that draw, since the GPU reads the ids when the frame
+            // runs. A draw outside a frame (an offline bake before the first one) writes it
+            // here too.
+            if (_bindlessIds.empty() || BindlessResidency::generation() != _bindlessGeneration ||
+                BindlessSamplers::generation() != _bindlessSamplerGeneration) {
                 syncBindlessTable();
             }
             buffer = _bindlessFrameBuffers[_bindlessFrameSlot];
             resident = &_bindlessResident;
             key = buffer;
         }
-        if (!buffer || key == _encoderBindlessKey) {
+        if (!buffer) {
             return;
         }
-        passEncoder->setVertexBuffer(buffer, 0, kBindlessTableMetalBufferSlot);
-        passEncoder->setFragmentBuffer(buffer, 0, kBindlessTableMetalBufferSlot);
+        const bool rebind = key != _encoderBindlessKey;
+        if (!rebind && _encoderBindlessResidentVersion == _bindlessResidentVersion) {
+            return;
+        }
+        if (rebind) {
+            passEncoder->setVertexBuffer(buffer, 0, kBindlessTableMetalBufferSlot);
+            passEncoder->setFragmentBuffer(buffer, 0, kBindlessTableMetalBufferSlot);
+        }
         // An argument buffer only names its textures; the encoder must be told they are
-        // read, or they may not be resident when the draw runs.
+        // read, or they may not be resident when the draw runs. Told again whenever the
+        // live set changed under the open encoder.
         if (!resident->empty()) {
             passEncoder->useResources(resident->data(), resident->size(),
                 MTL::ResourceUsageRead, MTL::RenderStageVertex | MTL::RenderStageFragment);
         }
         _encoderBindlessKey = key;
+        _encoderBindlessResidentVersion = _bindlessResidentVersion;
     }
 
     void MetalGraphicsDevice::syncBindlessTable()
@@ -847,8 +862,15 @@ namespace visutwin::canvas
             return;
         }
         constexpr size_t kSamplers = kBindlessTableSamplerCapacity;
-        constexpr size_t kTextures = kBindlessTableTextureCapacity;
-        const size_t bytes = (kSamplers + kTextures) * sizeof(MTL::ResourceID);
+        // The ids: the samplers, then each kind's textures at its offset, in the parameter
+        // block's member order (bindings.slang).
+        constexpr std::array<size_t, static_cast<size_t>(BindlessKind::Count)> kCapacities{
+            kBindlessTableTextureCapacity, kBindlessTableTextureArrayCapacity, kBindlessTableVolumeCapacity};
+        constexpr std::array<size_t, static_cast<size_t>(BindlessKind::Count)> kOffsets{
+            kSamplers, kSamplers + kBindlessTableTextureCapacity,
+            kSamplers + kBindlessTableTextureCapacity + kBindlessTableTextureArrayCapacity};
+        constexpr size_t kEntries = kOffsets.back() + kCapacities.back();
+        const size_t bytes = kEntries * sizeof(MTL::ResourceID);
         if (_bindlessIds.empty()) {
             // First use: the buffers, the white placeholder and every id pointing at it.
             for (auto& buffer : _bindlessFrameBuffers) {
@@ -866,13 +888,16 @@ namespace visutwin::canvas
                 _bindlessWhite->replaceRegion(MTL::Region::Make2D(0, 0, 1, 1), 0, white, 4);
                 _bindlessWhite->setLabel(NS::String::string("bindless white", NS::UTF8StringEncoding));
             }
-            _bindlessIds.assign(kSamplers + kTextures, MTL::ResourceID{});
-            const MTL::ResourceID whiteId = _bindlessWhite ? _bindlessWhite->gpuResourceID() : MTL::ResourceID{};
-            for (size_t i = 0; i < kTextures; ++i) {
-                _bindlessIds[kSamplers + i] = whiteId;
+            // Every texture entry starts at the white 1x1: a 2D read of it is white, and an
+            // array or volume entry nothing wrote is never read (its lane is 0).
+            _bindlessIds.assign(kEntries, _bindlessWhite ? _bindlessWhite->gpuResourceID() : MTL::ResourceID{});
+            for (size_t i = 0; i < kSamplers; ++i) {
+                _bindlessIds[i] = MTL::ResourceID{};
             }
-            _bindlessVersions.assign(kTextures, 0);
-            _bindlessTextures.assign(kTextures, nullptr);
+            for (size_t k = 0; k < _bindlessKinds.size(); ++k) {
+                _bindlessKinds[k].versions.assign(kCapacities[k], 0);
+                _bindlessKinds[k].textures.assign(kCapacities[k], nullptr);
+            }
             if (_bindlessWhite) {
                 _bindlessResident.push_back(_bindlessWhite);
             }
@@ -904,44 +929,51 @@ namespace visutwin::canvas
             _bindlessSamplerGeneration = generation;
         }
 
-        // Textures: the entries whose version moved since this device last looked.
+        // Textures of every kind: the entries whose version moved since this device last
+        // looked.
         if (const uint64_t generation = BindlessResidency::generation(); generation != _bindlessGeneration) {
-            BindlessResidency::snapshot(_bindlessSnapshot);
             const MTL::ResourceID whiteId = _bindlessWhite ? _bindlessWhite->gpuResourceID() : MTL::ResourceID{};
             bool residentChanged = false;
-            const size_t count = std::min(_bindlessSnapshot.size(), kTextures);
-            for (size_t i = 1; i < count; ++i) {
-                const auto& entry = _bindlessSnapshot[i];
-                if (entry.version == _bindlessVersions[i]) {
-                    continue;
-                }
-                MTL::Texture* raw = nullptr;
-                if (entry.texture && entry.texture->device() == this) {
-                    if (auto* hw = dynamic_cast<gpu::MetalTexture*>(entry.texture->impl())) {
-                        raw = hw->raw();
+            for (size_t k = 0; k < _bindlessKinds.size(); ++k) {
+                BindlessKindState& state = _bindlessKinds[k];
+                BindlessResidency::snapshot(state.snapshot, static_cast<BindlessKind>(k));
+                const size_t count = std::min(state.snapshot.size(), kCapacities[k]);
+                for (size_t i = 1; i < count; ++i) {
+                    const auto& entry = state.snapshot[i];
+                    if (entry.version == state.versions[i]) {
+                        continue;
                     }
+                    MTL::Texture* raw = nullptr;
+                    if (entry.texture && entry.texture->device() == this) {
+                        if (auto* hw = dynamic_cast<gpu::MetalTexture*>(entry.texture->impl())) {
+                            raw = hw->raw();
+                        }
+                    }
+                    state.textures[i] = raw;
+                    _bindlessIds[kOffsets[k] + i] = raw ? raw->gpuResourceID() : whiteId;
+                    state.versions[i] = entry.version;
+                    residentChanged = true;
                 }
-                _bindlessTextures[i] = raw;
-                _bindlessIds[kSamplers + i] = raw ? raw->gpuResourceID() : whiteId;
-                _bindlessVersions[i] = entry.version;
-                residentChanged = true;
-            }
-            if (_bindlessSnapshot.size() > kTextures) {
-                static bool warned = false;
-                if (!warned) {
-                    warned = true;
-                    spdlog::error("MetalGraphicsDevice: {} bindless indices exceed the table's {}; the rest read white",
-                        _bindlessSnapshot.size(), kTextures);
+                if (state.snapshot.size() > kCapacities[k]) {
+                    static std::array<bool, static_cast<size_t>(BindlessKind::Count)> warned{};
+                    if (!warned[k]) {
+                        warned[k] = true;
+                        spdlog::error("MetalGraphicsDevice: {} bindless indices of kind {} exceed the table's {}; the rest read white",
+                            state.snapshot.size(), k, kCapacities[k]);
+                    }
                 }
             }
             if (residentChanged) {
+                ++_bindlessResidentVersion;
                 _bindlessResident.clear();
                 if (_bindlessWhite) {
                     _bindlessResident.push_back(_bindlessWhite);
                 }
-                for (MTL::Texture* texture : _bindlessTextures) {
-                    if (texture) {
-                        _bindlessResident.push_back(texture);
+                for (const BindlessKindState& state : _bindlessKinds) {
+                    for (MTL::Texture* texture : state.textures) {
+                        if (texture) {
+                            _bindlessResident.push_back(texture);
+                        }
                     }
                 }
             }
@@ -971,8 +1003,9 @@ namespace visutwin::canvas
             _bindlessWhite = nullptr;
         }
         _bindlessIds.clear();
-        _bindlessVersions.clear();
-        _bindlessTextures.clear();
+        for (auto& state : _bindlessKinds) {
+            state = {};
+        }
         _bindlessResident.clear();
         _bindlessGeneration = 0;
         _bindlessSamplerGeneration = 0;
@@ -1737,7 +1770,7 @@ namespace visutwin::canvas
         applyEncoderCullMode(passEncoder);
 
         const Material* boundMaterial = material();
-        UniformBlock uniforms = bindMaterialTextures(passEncoder, boundMaterial);
+        UniformBlock uniforms = selectMaterialUniforms(boundMaterial);
         // A quad pass has no material, so its own uniform block takes the material
         // slot. Set after the material branch so it cannot disturb that path.
         if (quadRenderActive() && !quadUniformData().empty()) {
@@ -1750,6 +1783,7 @@ namespace visutwin::canvas
         applyDepthStencilState(passEncoder);
         bindPendingDrawResources(passEncoder);
         bindBindlessTable(passEncoder);
+        bindMapLanes(passEncoder);
 
         encodeDraw(passEncoder, primitive, *indexBinding, numInstances, indirectSlot);
         recordDraw(primitive, numInstances);
@@ -1862,22 +1896,18 @@ namespace visutwin::canvas
         }
     }
 
-    MetalGraphicsDevice::UniformBlock MetalGraphicsDevice::bindMaterialTextures(
-        MTL::RenderCommandEncoder* passEncoder, const Material* boundMaterial)
+    MetalGraphicsDevice::UniformBlock MetalGraphicsDevice::selectMaterialUniforms(const Material* boundMaterial)
     {
         // The block a draw with no material carries: every such draw's is this one, so
         // it is built once and the binder uploads it once per pass.
         static const MaterialUniforms defaultMaterialUniforms{};
 
         // Uniform data: use customUniformData() if available (e.g., globe tiles
-        // with extended uniforms), otherwise the material's packed block.
+        // with extended uniforms), otherwise the material's packed block. A material's
+        // maps are not bound here: every draw reads them from the bindless table through
+        // its map lanes (bindMapLanes).
         UniformBlock uniforms{&defaultMaterialUniforms, sizeof(MaterialUniforms)};
-
         if (!boundMaterial) {
-            // A quad binds all eight of its slots itself (bindPassTextures).
-            if (!quadRenderActive()) {
-                _textureBinder.clearMaterialSlots(passEncoder);
-            }
             return uniforms;
         }
 
@@ -1901,23 +1931,20 @@ namespace visutwin::canvas
             // Packed once per edit and reused across binds — see packedUniforms().
             uniforms.data = &boundMaterial->packedUniforms();
         }
-
-        // A material's maps come from the bindless table through its block's lanes (the
-        // instance's own lightmap through its override block). Only a material with a block
-        // of its own, which has no lanes, still binds its maps by slot on the quad rows.
-        if (materialChanged) {
-            if (boundMaterial->hasCustomUniformData()) {
-                // Reused: this runs on every material switch, and the slot list is
-                // consumed immediately by bindMaterialTextures.
-                static thread_local std::vector<TextureSlot> textureSlots;
-                textureSlots.clear();
-                boundMaterial->getTextureSlots(textureSlots);
-                _textureBinder.bindMaterialTextures(passEncoder, textureSlots, _samplerCache);
-            } else {
-                _textureBinder.clearMaterialSamplers();
-            }
-        }
         return uniforms;
+    }
+
+    void MetalGraphicsDevice::bindMapLanes(MTL::RenderCommandEncoder* passEncoder)
+    {
+        // The draw's map lanes (materialMapLanes.h), 112 bytes at buffer 14 on both stages;
+        // issued only when the draw's lanes differ from what the encoder holds.
+        const MaterialMapLanes& lanes = drawMapLanes();
+        if (drawMapLanesVersion() == _encoderLanesVersion) {
+            return;
+        }
+        passEncoder->setVertexBytes(&lanes, sizeof(lanes), kBindlessLanesMetalBufferSlot);
+        passEncoder->setFragmentBytes(&lanes, sizeof(lanes), kBindlessLanesMetalBufferSlot);
+        _encoderLanesVersion = drawMapLanesVersion();
     }
 
     void MetalGraphicsDevice::bindPassTextures(MTL::RenderCommandEncoder* passEncoder)
@@ -2015,14 +2042,10 @@ namespace visutwin::canvas
         // So every quad pass (bloom downsample and outline included) gets it at slot 0, the
         // one slot a hand-written quad shader declares, and the Slang programs' slots below.
         //
-        // Every other draw gets the default sampler at slot 0 and, at slots 1-6, the
-        // samplers of its material's maps (MetalTextureBinder::kMaterialSamplerTextureSlots),
-        // each the one its Texture's wrap and filter describe. Recorded when the material's
-        // textures are bound; issued here, where only a slot that differs from what the
-        // encoder holds is set.
+        // Every other draw gets the default sampler at slot 0; its material's maps come with
+        // their samplers from the bindless table.
         const bool quad = quadRenderActive();
-        _textureBinder.bindDrawSamplers(passEncoder, quad ? _postSampler : _defaultSampler,
-            _defaultSampler, !quad);
+        _textureBinder.bindDrawSamplers(passEncoder, quad ? _postSampler : _defaultSampler);
         if (!quad) {
             // The forward program's scene samplers (forward-fragment-head.slang): linear clamp
             // with linear mips at 7 and for the env atlas at 10, nearest clamp at 8, the

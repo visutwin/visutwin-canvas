@@ -73,6 +73,7 @@ namespace
     // The raymarch: the part of each view ray inside the volume box and in front of the scene.
     const char* const kVolumeFogSlang = R"slang(
 #include "bindings.slang"
+import vtsrgb;
 
 struct FogData
 {
@@ -85,7 +86,8 @@ struct FogData
 };
 VT_DECLARE_MATERIAL_UNIFORMS(FogData, fog)
 // rgb: fog colour, a: fog density
-VT_DECLARE_baseColorMap_AS(Sampler3D, volume)
+VT_DECLARE_BINDLESS_TABLE
+VT_DECLARE_MAP_LANES
 VT_DECLARE_sceneDepthGrab
 // nearest, no mips, clamp: the sampler the forward pass reads the depth copy through
 [[vk::binding(13, 3)]] SamplerState nearestClampSampler : register(s8);
@@ -156,7 +158,7 @@ float4 volumeFogFragment(Varyings input) : SV_Target0
         const float t = tEnter + (float(i) + jitter) * stepLength;
         const float3 uvw = (viewPosition + rayDir * t - fog.boxMin.xyz) / boxSize;
         // the depth slices of the volume are stacked along the height
-        const float4 voxel = volume.SampleLevel(uvw.xzy, fog.viewPosition.w);
+        const float4 voxel = VT_MAP_VOLUME_SAMPLE_LEVEL(VT_MAP_LANE_baseColorMap, uvw.xzy, fog.viewPosition.w);
         const float alpha = 1.0 - exp(-voxel.a * fog.boxMin.w * stepLength);
         color += transmittance * alpha * voxel.rgb;
         transmittance *= 1.0 - alpha;

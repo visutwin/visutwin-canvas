@@ -30,6 +30,7 @@
 #include "platform/graphics/renderPass.h"
 #include "platform/graphics/shaderFeatures.h"
 #include "platform/graphics/texture.h"
+#include "scene/materials/materialMapLanes.h"
 #include "scene/materials/material.h"
 #include "spdlog/spdlog.h"
 
@@ -231,14 +232,17 @@ namespace visutwin::canvas
         if (!_uniformRing) {
             return;
         }
-        const std::array<std::pair<VkDescriptorSet, VkDeviceSize>, 2> sets{{
-            {_materialDescriptorSet, kPerDrawUniformCapacity},
-            {_lightingDescriptorSet, sizeof(VulkanLightingUBO)},
+        // Set 0 carries the material block at binding 0 and the draw's map lanes at binding
+        // 1 (materialMapLanes.h), both dynamic uniforms of the ring.
+        const std::array<std::tuple<VkDescriptorSet, uint32_t, VkDeviceSize>, 3> sets{{
+            {_materialDescriptorSet, 0u, kPerDrawUniformCapacity},
+            {_materialDescriptorSet, kBindlessLanesVulkanBinding, sizeof(MaterialMapLanes)},
+            {_lightingDescriptorSet, 0u, sizeof(VulkanLightingUBO)},
         }};
-        std::array<VkDescriptorBufferInfo, 2> infos{};
-        std::array<VkWriteDescriptorSet, 2> writes{};
+        std::array<VkDescriptorBufferInfo, 3> infos{};
+        std::array<VkWriteDescriptorSet, 3> writes{};
         uint32_t count = 0;
-        for (const auto& [set, range] : sets) {
+        for (const auto& [set, binding, range] : sets) {
             if (set == VK_NULL_HANDLE) {
                 continue;
             }
@@ -247,7 +251,7 @@ namespace visutwin::canvas
             infos[count].range = range;
             writes[count] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
             writes[count].dstSet = set;
-            writes[count].dstBinding = 0;
+            writes[count].dstBinding = binding;
             writes[count].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
             writes[count].descriptorCount = 1;
             writes[count].pBufferInfo = &infos[count];
@@ -336,7 +340,8 @@ namespace visutwin::canvas
         // Its own pool: the set lives as long as the table, not a frame.
         std::array<VkDescriptorPoolSize, 2> poolSizes{};
         poolSizes[0] = {VK_DESCRIPTOR_TYPE_SAMPLER, kBindlessTableSamplerCapacity};
-        poolSizes[1] = {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kBindlessTableTextureCapacity};
+        poolSizes[1] = {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+            kBindlessTableTextureCapacity + kBindlessTableTextureArrayCapacity + kBindlessTableVolumeCapacity};
         VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
         poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
         poolInfo.maxSets = 1;
@@ -422,6 +427,14 @@ namespace visutwin::canvas
             return;
         }
         if (const VkDescriptorSet set = _bindlessFrames[_frameIndex].set; set != VK_NULL_HANDLE) {
+            // The frame's set, written again before this draw when the registry moved since
+            // it was synced: a texture that joins or is recreated (a render target resized in
+            // the update) before a draw of the frame is seen by that draw. The set is
+            // update-after-bind, so the write is legal while the command buffer records.
+            if (BindlessResidency::generation() != _bindlessGeneration ||
+                BindlessSamplers::generation() != _bindlessFrames[_frameIndex].samplerGeneration) {
+                syncBindlessTable();
+            }
             bindSetIfChanged(cmd, kBindlessTableVulkanSet, set);
         }
     }
@@ -461,7 +474,8 @@ namespace visutwin::canvas
         }
         std::array<VkDescriptorPoolSize, 2> poolSizes{};
         poolSizes[0] = {VK_DESCRIPTOR_TYPE_SAMPLER, kBindlessTableSamplerCapacity * kMaxFramesInFlight};
-        poolSizes[1] = {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kBindlessTableTextureCapacity * kMaxFramesInFlight};
+        poolSizes[1] = {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+            (kBindlessTableTextureCapacity + kBindlessTableTextureArrayCapacity + kBindlessTableVolumeCapacity) * kMaxFramesInFlight};
         VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
         poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
         poolInfo.maxSets = kMaxFramesInFlight;
@@ -478,7 +492,10 @@ namespace visutwin::canvas
             if (vkAllocateDescriptorSets(_device, &allocInfo, &frame.set) != VK_SUCCESS) {
                 return false;
             }
-            frame.synced.assign(kBindlessTableTextureCapacity, UINT64_MAX);   // nothing written yet
+            // Nothing written yet, for each kind's array.
+            frame.synced[0].assign(kBindlessTableTextureCapacity, UINT64_MAX);
+            frame.synced[1].assign(kBindlessTableTextureArrayCapacity, UINT64_MAX);
+            frame.synced[2].assign(kBindlessTableVolumeCapacity, UINT64_MAX);
             frame.samplerGeneration = 0;
             frame.samplersWritten = 0;
         }
@@ -509,13 +526,14 @@ namespace visutwin::canvas
         if (frame.set == VK_NULL_HANDLE) {
             return;
         }
-        constexpr uint32_t kTextures = kBindlessTableTextureCapacity;
+        constexpr std::array<uint32_t, static_cast<size_t>(BindlessKind::Count)> kCapacities{
+            kBindlessTableTextureCapacity, kBindlessTableTextureArrayCapacity, kBindlessTableVolumeCapacity};
         constexpr uint32_t kSamplers = kBindlessTableSamplerCapacity;
         static std::vector<VkWriteDescriptorSet> writes;
         static std::vector<VkDescriptorImageInfo> infos;
         writes.clear();
         infos.clear();
-        infos.reserve(kTextures + kSamplers);
+        infos.reserve(kCapacities[0] + kCapacities[1] + kCapacities[2] + kSamplers);
 
         // Samplers: created once per registry index; this slot writes the ones it lacks.
         if (const uint64_t generation = BindlessSamplers::generation(); generation != frame.samplerGeneration) {
@@ -551,44 +569,57 @@ namespace visutwin::canvas
             frame.samplerGeneration = generation;
         }
 
-        // Textures: the entries this slot has not written at their current version. The
-        // snapshot is shared by the slots; it is retaken when the registry moved.
+        // Textures of every kind (binding 1 + the kind): the entries this slot has not
+        // written at their current version. The snapshots are shared by the slots; they are
+        // retaken when the registry moved. An entry with no texture of this device holds the
+        // white 2D image for 2D textures; an array or volume entry nothing wrote stays
+        // unwritten (partially bound), since no lane names it.
         if (const uint64_t generation = BindlessResidency::generation(); generation != _bindlessGeneration) {
-            BindlessResidency::snapshot(_bindlessSnapshot);
-            if (_bindlessSnapshot.size() > kTextures) {
-                static bool warned = false;
-                if (!warned) {
-                    warned = true;
-                    spdlog::error("VulkanGraphicsDevice: {} bindless indices exceed the table's {}; the rest read white",
-                        _bindlessSnapshot.size(), kTextures);
+            for (size_t k = 0; k < _bindlessSnapshots.size(); ++k) {
+                BindlessResidency::snapshot(_bindlessSnapshots[k], static_cast<BindlessKind>(k));
+                if (_bindlessSnapshots[k].size() > kCapacities[k]) {
+                    static std::array<bool, static_cast<size_t>(BindlessKind::Count)> warned{};
+                    if (!warned[k]) {
+                        warned[k] = true;
+                        spdlog::error("VulkanGraphicsDevice: {} bindless indices of kind {} exceed the table's {}; the rest read white",
+                            _bindlessSnapshots[k].size(), k, kCapacities[k]);
+                    }
                 }
             }
             _bindlessGeneration = generation;
         }
-        for (uint32_t i = 0; i < kTextures; ++i) {
-            const uint64_t version = i < _bindlessSnapshot.size() ? _bindlessSnapshot[i].version : 0;
-            if (frame.synced[i] == version) {
-                continue;
-            }
-            VkImageView view = VK_NULL_HANDLE;
-            if (i < _bindlessSnapshot.size()) {
-                const Texture* texture = _bindlessSnapshot[i].texture;
-                if (texture && texture->device() == this) {
-                    if (auto* vkTex = static_cast<gpu::VulkanTexture*>(texture->impl())) {
-                        view = vkTex->imageView();
+        for (size_t k = 0; k < kCapacities.size(); ++k) {
+            const auto& snapshot = _bindlessSnapshots[k];
+            auto& synced = frame.synced[k];
+            for (uint32_t i = 0; i < kCapacities[k]; ++i) {
+                const uint64_t version = i < snapshot.size() ? snapshot[i].version : 0;
+                if (synced[i] == version) {
+                    continue;
+                }
+                VkImageView view = VK_NULL_HANDLE;
+                if (i < snapshot.size()) {
+                    const Texture* texture = snapshot[i].texture;
+                    if (texture && texture->device() == this) {
+                        if (auto* vkTex = static_cast<gpu::VulkanTexture*>(texture->impl())) {
+                            view = vkTex->imageView();
+                        }
                     }
                 }
+                if (view == VK_NULL_HANDLE && k != 0) {
+                    synced[i] = version;
+                    continue;
+                }
+                infos.push_back({VK_NULL_HANDLE, view != VK_NULL_HANDLE ? view : _whiteImageView,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
+                VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                write.dstSet = frame.set;
+                write.dstBinding = 1u + static_cast<uint32_t>(k);
+                write.dstArrayElement = i;
+                write.descriptorCount = 1;
+                write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+                writes.push_back(write);
+                synced[i] = version;
             }
-            infos.push_back({VK_NULL_HANDLE, view != VK_NULL_HANDLE ? view : _whiteImageView,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
-            VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-            write.dstSet = frame.set;
-            write.dstBinding = 1;
-            write.dstArrayElement = i;
-            write.descriptorCount = 1;
-            write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-            writes.push_back(write);
-            frame.synced[i] = version;
         }
         // The infos vector is stable now: point each write at its info.
         size_t infoIndex = 0;

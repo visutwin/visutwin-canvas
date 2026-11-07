@@ -153,8 +153,8 @@ void scannerMain(uint3 id : SV_DispatchThreadID)
     constexpr const char* kOverlaySlang = R"slang(
 #include "bindings.slang"
 
-VT_DECLARE_baseColorMap_AS(Sampler2D, overlayTexture)
-
+VT_DECLARE_BINDLESS_TABLE
+VT_DECLARE_MAP_LANES
 struct VertexIn
 {
     [[vk::location(0)]] float3 position : POSITION;
@@ -179,7 +179,7 @@ Varyings overlayVertex(VertexIn input)
 [shader("fragment")]
 float4 overlayFragment(Varyings input) : SV_Target0
 {
-    return overlayTexture.Sample(input.uv);
+    return VT_MAP_SAMPLE(VT_MAP_LANE_baseColorMap, input.uv);
 }
 )slang";
 

@@ -68,89 +68,9 @@ namespace visutwin::canvas
         }
     }
 
-    void MetalTextureBinder::bindDrawSamplers(MTL::RenderCommandEncoder* encoder, MTL::SamplerState* general,
-        MTL::SamplerState* materialDefault, const bool materialSamplers)
+    void MetalTextureBinder::bindDrawSamplers(MTL::RenderCommandEncoder* encoder, MTL::SamplerState* general)
     {
         bindSamplerCached(encoder, 0, general);
-        if (!materialSamplers) {
-            return;
-        }
-        for (int i = 0; i < kMaterialSamplerCount; ++i) {
-            MTL::SamplerState* sampler = _materialSamplers[i] ? _materialSamplers[i] : materialDefault;
-            bindSamplerCached(encoder, kFirstMaterialSamplerSlot + i, sampler);
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Material textures
-    // -----------------------------------------------------------------------
-
-    static_assert(MetalTextureBinder::kMaterialSamplerTextureSlots[5] == kLightMapTextureSlot,
-        "the last material sampler slot follows the lightmap");
-
-    void MetalTextureBinder::bindMaterialTextures(MTL::RenderCommandEncoder* encoder,
-        const std::vector<TextureSlot>& textureSlots, MetalSamplerCache& samplers)
-    {
-        // Each material sampler slot takes the sampler of the texture at its material
-        // slot, so the map is read with its own wrap and filter. A slot with no texture
-        // records null and is bound the default sampler; a texture in the default state
-        // resolves to that same sampler object, so it samples exactly as it always did.
-        for (int i = 0; i < kMaterialSamplerCount; ++i) {
-            const Texture* texture = nullptr;
-            for (const auto& [slot, tex] : textureSlots) {
-                if (slot == kMaterialSamplerTextureSlots[i]) {
-                    texture = tex;
-                    break;
-                }
-            }
-            _materialSamplers[i] = texture ? samplers.forTexture(texture) : nullptr;
-        }
-
-        // Clear material-owned slots not used by this material (the binding table's rows
-        // with metalMaterialSlot).
-        for (const int s : kMetalMaterialTextureSlots) {
-            bool used = false;
-            for (const auto& [slot, tex] : textureSlots) {
-                if (slot == s) { used = true; break; }
-            }
-            if (!used) {
-                clearCached(encoder, s);
-            }
-        }
-
-        // Bind present material textures. Slots >= kMetalVertexTextureSlotBase are
-        // VERTEX-stage textures (the displacement map is the one).
-        bool displacementBound = false;
-        for (const auto& [slot, texture] : textureSlots) {
-            if (slot >= kMetalVertexTextureSlotBase) {
-                if (texture) {
-                    if (auto* hw = dynamic_cast<gpu::MetalTexture*>(texture->impl()); hw && hw->raw()) {
-                        encoder->setVertexTexture(hw->raw(), static_cast<NS::UInteger>(slot - kMetalVertexTextureSlotBase));
-                        displacementBound = displacementBound || slot == kDisplacementMapMetalSlot;
-                    }
-                }
-                continue;
-            }
-            bindCached(encoder, slot, texture);
-        }
-        if (!displacementBound) {
-            encoder->setVertexTexture(nullptr, static_cast<NS::UInteger>(kDisplacementMapMetalSlot - kMetalVertexTextureSlotBase));
-        }
-    }
-
-    void MetalTextureBinder::clearMaterialSlots(MTL::RenderCommandEncoder* encoder)
-    {
-        // Every material slot of the binding table, and only those: 2 and 6 are the
-        // environment atlas and the shadow map, which bindSceneTextures binds right after
-        // this for the same draw, and clearing them here cost a clear and a rebind of each
-        // on every material-less draw — every opaque shadow caster. clearCached skips a slot
-        // that is already clear, so the list costs nothing once it has run.
-        for (const int slot : kMetalMaterialTextureSlots) {
-            clearCached(encoder, slot);
-        }
-        // No material, no maps: their sampler slots go back to the default sampler, so a
-        // later draw cannot read a map through the previous material's sampler.
-        _materialSamplers.fill(nullptr);
     }
 
     // -----------------------------------------------------------------------
@@ -165,10 +85,10 @@ namespace visutwin::canvas
     {
         bindCached(encoder, 2, envAtlas);
         bindCached(encoder, 6, shadow);
-        // Slot 7 is NOT a scene slot: it is the material's clearcoat intensity map, bound
-        // by bindMaterialTextures before this runs. The scene depth that used to be bound
-        // here, which no forward shader reads (particles and SSR take the depth grab at
-        // 25), overwrote that map on every draw, and the shader skipped the unbound map.
+        // Slot 7 is NOT a scene slot: it is a quad input row (once the material's clearcoat
+        // intensity map). The scene depth that used to be bound here, which no forward
+        // shader reads (particles and SSR take the depth grab at 25), overwrote that map on
+        // every draw, and the shader skipped the unbound map.
         bindCached(encoder, 8, skyboxCubeMap);
         bindCached(encoder, 9, reflection);
         bindCached(encoder, 10, reflectionDepth);

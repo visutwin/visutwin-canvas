@@ -48,8 +48,8 @@ struct BurnData
     float4 time;   // x: the height below which the statue has burnt away
 };
 VT_DECLARE_MATERIAL_UNIFORMS(BurnData, burn)
-VT_DECLARE_baseColorMap   // the statue's diffuse map
-VT_DECLARE_normalMap      // the height map
+VT_DECLARE_BINDLESS_TABLE
+VT_DECLARE_MAP_LANES
 
 struct VertexIn
 {
@@ -84,8 +84,8 @@ float3 srgbToLinear(float3 c)
 float4 burnFragment(Varyings input) : SV_Target0
 {
     const float uTime = burn.time.x;
-    const float height = normalMap.Sample(input.uv0).r;
-    float3 linearColor = srgbToLinear(baseColorMap.Sample(input.uv0).rgb);
+    const float height = VT_MAP_SAMPLE(VT_MAP_LANE_normalMap, input.uv0).r;
+    float3 linearColor = srgbToLinear(VT_MAP_SAMPLE(VT_MAP_LANE_baseColorMap, input.uv0).rgb);
     if (height < uTime) {
         discard;
     }

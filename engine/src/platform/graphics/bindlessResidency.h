@@ -17,11 +17,20 @@
 #include <mutex>
 #include <vector>
 
-#include "textureSamplerState.h"
-
 namespace visutwin::canvas
 {
     class Texture;
+    struct TextureSamplerState;
+
+    /// The table's texture arrays, each an index space of its own (bindlessTable.h).
+    enum class BindlessKind : uint8_t
+    {
+        Texture2D = 0,
+        Texture2DArray = 1,
+        Texture3D = 2,
+        Count = 3,
+        None = 255   // a kind the table has no array for (a cube map)
+    };
 
     class BindlessResidency
     {
@@ -35,15 +44,15 @@ namespace visutwin::canvas
             uint64_t version = 0;   // 0 until the index is first used
         };
 
-        /// Gives `texture` an index (the lowest free one; never 0).
-        static uint32_t acquire(Texture* texture);
+        /// Gives `texture` an index in `kind`'s space (the lowest free one; never 0).
+        static uint32_t acquire(Texture* texture, BindlessKind kind);
         /// Frees the index; its entry keeps a moved version and no texture.
-        static void release(uint32_t index);
+        static void release(uint32_t index, BindlessKind kind);
         /// The texture at `index` has a new GPU object: moves the entry's version.
-        static void touch(uint32_t index);
+        static void touch(uint32_t index, BindlessKind kind);
 
-        /// A copy of the entries (index -> entry; entry 0 unused), taken under the lock.
-        static void snapshot(std::vector<Entry>& out);
+        /// A copy of a kind's entries (index -> entry; entry 0 unused), taken under the lock.
+        static void snapshot(std::vector<Entry>& out, BindlessKind kind);
         /// Moves with every acquire, release and touch: a sync that saw the same value can
         /// skip the snapshot.
         static uint64_t generation();

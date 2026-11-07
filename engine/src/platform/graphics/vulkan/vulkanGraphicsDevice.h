@@ -565,7 +565,6 @@ namespace visutwin::canvas
         // Set-1 descriptor contents: the white/default fallbacks, then the bound
         // material's textures, then a quad pass's inputs over them.
         void writeDefaultMaterialTextureInfos(std::span<VkDescriptorImageInfo> imageInfos) const;
-        void writeMaterialTextureInfos(std::span<VkDescriptorImageInfo> imageInfos) const;
         void writeQuadTextureInfos(std::span<VkDescriptorImageInfo> imageInfos) const;
         /// A set-3 view for a sampler2D slot, or white when the texture has none.
         [[nodiscard]] VkImageView sceneTextureView(Texture* texture) const;
@@ -957,7 +956,8 @@ namespace visutwin::canvas
             struct Set
             {
                 VkDescriptorSet set = VK_NULL_HANDLE;
-                uint32_t dynamicOffset = 0;
+                std::array<uint32_t, 2> dynamicOffsets{};
+                uint32_t dynamicOffsetCount = 0;
             };
             std::array<Set, 8> sets{};
             VkBuffer vertexBuffer = VK_NULL_HANDLE;
@@ -989,6 +989,8 @@ namespace visutwin::canvas
         /// EXPERIMENTAL: binds the set bindless table at set kBindlessTableVulkanSet, if one is set.
         void bindBindlessSet(VkCommandBuffer cmd);
         void bindSetIfChanged(VkCommandBuffer cmd, uint32_t index, VkDescriptorSet set,
+            const uint32_t* dynamicOffsets, uint32_t dynamicOffsetCount);
+        void bindSetIfChanged(VkCommandBuffer cmd, uint32_t index, VkDescriptorSet set,
             const uint32_t* dynamicOffset = nullptr);
         struct ClusterSetReuse
         {
@@ -1015,12 +1017,13 @@ namespace visutwin::canvas
         BindlessTable* _bindlessTable = nullptr;
         // The engine's own table: one update-after-bind set per frame slot, each remembering
         // the registry version it last wrote per entry (bindlessResidency.h) and writing only
-        // what moved at frame start (syncBindlessTable); an entry with no texture of this
-        // device holds the white image. The samplers are created once per registry index.
+        // what moved at frame start (syncBindlessTable) and again before a draw when the
+        // registry moved since (bindBindlessSet); an entry with no texture of this device
+        // holds the white image. The samplers are created once per registry index.
         struct BindlessFrameTable
         {
             VkDescriptorSet set = VK_NULL_HANDLE;
-            std::vector<uint64_t> synced;
+            std::array<std::vector<uint64_t>, static_cast<size_t>(BindlessKind::Count)> synced;
             uint64_t samplerGeneration = 0;
             size_t samplersWritten = 0;
         };
@@ -1028,8 +1031,11 @@ namespace visutwin::canvas
         VkDescriptorPool _bindlessFramePool = VK_NULL_HANDLE;
         std::vector<VkSampler> _bindlessSamplers;
         std::vector<TextureSamplerState> _bindlessSamplerStates;
-        std::vector<BindlessResidency::Entry> _bindlessSnapshot;
+        std::array<std::vector<BindlessResidency::Entry>, static_cast<size_t>(BindlessKind::Count)> _bindlessSnapshots;
         uint64_t _bindlessGeneration = 0;
+        // The draw's lanes block in the ring, by GraphicsDevice::drawMapLanesVersion(), for this frame.
+        struct LanesSlot { uint32_t offset = 0; uint64_t frame = 0; };
+        std::unordered_map<uint64_t, LanesSlot> _lanesUniformSlots;
         bool createBindlessFrameTables();
         void destroyBindlessFrameTables();
         void syncBindlessTable();

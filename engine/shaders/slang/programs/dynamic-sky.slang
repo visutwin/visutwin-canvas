@@ -181,26 +181,34 @@ float3 dynamicSkyAmbient(float3 dir)
 // ---- the textures, per pass: a material draw reads them through the material rows, a quad
 // pass through its inputs (with their own samplers, so the noise repeats on both backends).
 
+// One reader per map, declared per pass over what that pass has bound: the sky material's
+// draw reads the bindless table through its lanes (the weather map on the base colour slot,
+// the two cloud noise ARRAYS on the normal and metal-rough slots, the blue noise on the
+// occlusion slot and the cloud buffer on the emissive slot), while a quad pass has no
+// material and no lanes, so it reads its inputs. The material readers exist in every
+// material variant: a lane read costs nothing where no code calls it.
 #if DS_PASS == 0
-#if defined(DS_CLOUDS_FLAT) || (defined(DS_CLOUDS_VOLUMETRIC) && !defined(DS_CLOUDS_BUFFER))
-VT_DECLARE_baseColorMap_AS(Sampler2D, cloudMap)
-#endif
-#if defined(DS_CLOUDS_VOLUMETRIC) && !defined(DS_CLOUDS_BUFFER)
-VT_DECLARE_normalMap_AS(Sampler2DArray, cloudShapeMap)
-VT_DECLARE_metalRoughMap_AS(Sampler2DArray, cloudDetailMap)
-VT_DECLARE_occlusionMap_AS(Sampler2D, blueNoise)
-#endif
-#if defined(DS_CLOUDS_BUFFER)
-VT_DECLARE_emissiveMap_AS(Sampler2D, cloudBuffer)
-#endif
+VT_DECLARE_BINDLESS_TABLE
+VT_DECLARE_MAP_LANES
+float4 cloudMapSample(float2 uv) { return VT_MAP_SAMPLE(VT_MAP_LANE_baseColorMap, uv); }
+float4 cloudMapSampleLevel(float2 uv, float lod) { return VT_MAP_SAMPLE_LEVEL(VT_MAP_LANE_baseColorMap, uv, lod); }
+float4 cloudShapeMapSampleLevel(float3 uvw, float lod) { return VT_MAP_ARRAY_SAMPLE_LEVEL(VT_MAP_LANE_normalMap, uvw, lod); }
+float4 cloudDetailMapSampleLevel(float3 uvw, float lod) { return VT_MAP_ARRAY_SAMPLE_LEVEL(VT_MAP_LANE_metalRoughMap, uvw, lod); }
+float4 blueNoiseSampleLevel(float2 uv, float lod) { return VT_MAP_SAMPLE_LEVEL(VT_MAP_LANE_occlusionMap, uv, lod); }
+float4 cloudBufferSampleLevel(float2 uv, float lod) { return VT_MAP_SAMPLE_LEVEL(VT_MAP_LANE_emissiveMap, uv, lod); }
 #elif DS_PASS == 1 || DS_PASS == 2
 #if defined(DS_CLOUDS)
 VT_DECLARE_QUAD_INPUT0(cloudMap)
+float4 cloudMapSample(float2 uv) { return cloudMap.Sample(uv); }
+float4 cloudMapSampleLevel(float2 uv, float lod) { return cloudMap.SampleLevel(uv, lod); }
 #endif
 #if defined(DS_CLOUDS_VOLUMETRIC)
 VT_DECLARE_QUAD_ARRAY_INPUT1(cloudShapeMap)
 VT_DECLARE_QUAD_ARRAY_INPUT2(cloudDetailMap)
 VT_DECLARE_QUAD_INPUT3(blueNoise)
+float4 cloudShapeMapSampleLevel(float3 uvw, float lod) { return cloudShapeMap.SampleLevel(uvw, lod); }
+float4 cloudDetailMapSampleLevel(float3 uvw, float lod) { return cloudDetailMap.SampleLevel(uvw, lod); }
+float4 blueNoiseSampleLevel(float2 uv, float lod) { return blueNoise.SampleLevel(uv, lod); }
 #endif
 #else
 VT_DECLARE_QUAD_TEXEL_INPUT0(previousAtlas)
@@ -242,7 +250,7 @@ float3 dynamicSkyCompositeClouds(float3 skyColor, float3 lights, float4 clouds, 
 
 float dsFlatDensity(float2 uv)
 {
-    const float4 shape = cloudMap.Sample(uv + sky.cloudOffset.xy);
+    const float4 shape = cloudMapSample(uv + sky.cloudOffset.xy);
     const float n = shape.r * 0.62 + shape.g * 0.38;
     return clamp((n - (1.0 - sky.cloudParams.x)) / sky.cloudParams.y, 0.0, 1.0);
 }
@@ -299,8 +307,8 @@ float dsShapeNoise(float3 p)
     const float z0 = floor(z);
     const float l0 = z0 - kShapeLayers * floor(z0 / kShapeLayers);
     const float l1 = l0 + 1.0 < kShapeLayers ? l0 + 1.0 : 0.0;
-    const float a = cloudShapeMap.SampleLevel(float3(p.xz, l0), 0.0).r;
-    const float b = cloudShapeMap.SampleLevel(float3(p.xz, l1), 0.0).r;
+    const float a = cloudShapeMapSampleLevel(float3(p.xz, l0), 0.0).r;
+    const float b = cloudShapeMapSampleLevel(float3(p.xz, l1), 0.0).r;
     return lerp(a, b, z - z0);
 }
 
@@ -310,8 +318,8 @@ float dsDetailNoise(float3 p)
     const float z0 = floor(z);
     const float l0 = z0 - kDetailLayers * floor(z0 / kDetailLayers);
     const float l1 = l0 + 1.0 < kDetailLayers ? l0 + 1.0 : 0.0;
-    const float a = cloudDetailMap.SampleLevel(float3(p.xz, l0), 0.0).r;
-    const float b = cloudDetailMap.SampleLevel(float3(p.xz, l1), 0.0).r;
+    const float a = cloudDetailMapSampleLevel(float3(p.xz, l0), 0.0).r;
+    const float b = cloudDetailMapSampleLevel(float3(p.xz, l1), 0.0).r;
     return lerp(a, b, z - z0);
 }
 
@@ -359,7 +367,7 @@ float dsVolumeDensity(float3 p, float h, float coverage, float kind, bool detail
 float dsJitter(float2 pixel)
 {
     const int2 texel = int2(floor(pixel)) & 31;
-    const float noise = blueNoise.SampleLevel((float2(texel) + 0.5) / 32.0, 0.0).r;
+    const float noise = blueNoiseSampleLevel((float2(texel) + 0.5) / 32.0, 0.0).r;
     return frac(noise + sky.cloudShading.w);
 }
 
@@ -407,7 +415,7 @@ float4 dynamicSkyCloudsVolumetric(float3 dir, float3 ambient, float2 pixel)
 
         if (!inCloud) {
             // the weather sets the fields and the kind; the fine steps through a cloud reuse it
-            const float4 weather = cloudMap.SampleLevel((pos.xz * scale + sky.cloudOffset.xy) * kWeatherScale, 0.0);
+            const float4 weather = cloudMapSampleLevel((pos.xz * scale + sky.cloudOffset.xy) * kWeatherScale, 0.0);
             coverage = dsFieldCoverage(weather.a);
             kind = lerp(0.5, 1.0, weather.r);
             if (dsVolumeDensity(pos * scale, h, coverage, kind, false) > 0.0) {
@@ -466,7 +474,7 @@ float4 dynamicSkyCloudsVolumetric(float3 dir, float3 ambient, float2 pixel)
 
 float4 dsCloudsTap(float2 uv)
 {
-    float4 clouds = cloudBuffer.SampleLevel(uv, 0.0);
+    float4 clouds = cloudBufferSampleLevel(uv, 0.0);
 #if defined(DS_CLOUDS_ENCODED)
     clouds.rgb = clouds.rgb / max(1.0 - clouds.rgb, float3(1e-4, 1e-4, 1e-4)) * sky.cloudLight.w;
 #endif

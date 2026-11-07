@@ -30,17 +30,8 @@ struct Render2dUniforms
     float4 pages;
 };
 VT_DECLARE_MATERIAL_UNIFORMS(Render2dUniforms, u)
-VT_DECLARE_baseColorMap
-VT_DECLARE_normalMap
-VT_DECLARE_metalRoughMap
-VT_DECLARE_occlusionMap
-VT_DECLARE_emissiveMap
-#define regularPage0 baseColorMap
-#define boldPage0 normalMap
-#define graphTexture metalRoughMap
-#define regularPage1 occlusionMap
-#define boldPage1 emissiveMap
-
+VT_DECLARE_BINDLESS_TABLE
+VT_DECLARE_MAP_LANES
 struct VertexIn
 {
     [[vk::location(0)]] float3 position : POSITION;
@@ -88,19 +79,19 @@ float4 render2dFragment(Varyings input) : SV_Target0
     const float2 uvWidth = fwidth(input.uv);
     float alpha = 1.0;
     if (input.mode > 4.5) {
-        alpha = render2dMsdf(boldPage1.SampleLevel(input.uv, 0.0).rgb, uvWidth, u.params.y, u.pages.xy);
+        alpha = render2dMsdf(VT_MAP_SAMPLE_LEVEL(VT_MAP_LANE_emissiveMap, input.uv, 0.0).rgb, uvWidth, u.params.y, u.pages.xy);
     } else if (input.mode > 3.5) {
-        alpha = render2dMsdf(regularPage1.SampleLevel(input.uv, 0.0).rgb, uvWidth, u.params.y, u.pages.xy);
+        alpha = render2dMsdf(VT_MAP_SAMPLE_LEVEL(VT_MAP_LANE_occlusionMap, input.uv, 0.0).rgb, uvWidth, u.params.y, u.pages.xy);
     } else if (input.mode > 2.5) {
-        alpha = render2dMsdf(boldPage0.SampleLevel(input.uv, 0.0).rgb, uvWidth, u.params.y, u.params.zw);
+        alpha = render2dMsdf(VT_MAP_SAMPLE_LEVEL(VT_MAP_LANE_normalMap, input.uv, 0.0).rgb, uvWidth, u.params.y, u.params.zw);
     } else if (input.mode > 1.5) {
-        const float4 s = graphTexture.SampleLevel(float2(input.uv.x + u.params.x, input.uv.y), 0.0);
+        const float4 s = VT_MAP_SAMPLE_LEVEL(VT_MAP_LANE_metalRoughMap, float2(input.uv.x + u.params.x, input.uv.y), 0.0);
         const float fill = step(input.graph.y, s.r) * 0.18;
         const float edge = (1.0 - step(input.graph.x, abs(input.graph.y - s.r))) * 0.60;
         const float budget = (1.0 - step(input.graph.x * 0.5, abs(input.graph.y - s.a))) * 0.16;
         alpha = max(fill, max(edge, budget)) * step(0.001, s.a);
     } else if (input.mode > 0.5) {
-        alpha = render2dMsdf(regularPage0.SampleLevel(input.uv, 0.0).rgb, uvWidth, u.params.y, u.params.zw);
+        alpha = render2dMsdf(VT_MAP_SAMPLE_LEVEL(VT_MAP_LANE_baseColorMap, input.uv, 0.0).rgb, uvWidth, u.params.y, u.params.zw);
     }
     return float4(input.color.rgb, input.color.a * alpha) * u.clr;
 }

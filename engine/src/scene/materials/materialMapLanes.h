@@ -43,6 +43,24 @@ namespace visutwin::canvas
     X(planarReflectionMap,        51,  0) \
     X(displacementMap,            141, 0)
 
+    /// The material slot of the vertex-stage displacement map (StandardMaterial::setDisplacementMap),
+    /// a lane and no row: it was vertex texture 41 before the table.
+    inline constexpr int kDisplacementMapMetalSlot = 141;
+
+    /// The per-draw lanes block (bindlessTable.h): lane i at [i / 4][i % 4], the texture index in
+    /// the low 24 bits and the sampler index above, 0 for no map. Packed by
+    /// Material::packedMapLanes and uploaded per draw by the device with the instance's own
+    /// lightmap written over the lightmap lane (GraphicsDevice::drawMapLanes).
+    struct MaterialMapLanes
+    {
+        uint32_t lanes[7][4] = {};
+
+        uint32_t& at(const uint32_t lane) { return lanes[lane >> 2][lane & 3]; }
+        uint32_t at(const uint32_t lane) const { return lanes[lane >> 2][lane & 3]; }
+        bool operator==(const MaterialMapLanes&) const = default;
+    };
+    static_assert(sizeof(MaterialMapLanes) == 112);
+
     enum class MaterialMapLane : uint32_t
     {
 #define VT_MATERIAL_MAP_LANE_ENUM(name, slot, ownSampler) name,

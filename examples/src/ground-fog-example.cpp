@@ -78,9 +78,8 @@ struct FogData
     float4 cameraParams;  // x: 1 / far clip, y: far clip, z: near clip, w: 1 when orthographic
 };
 VT_DECLARE_MATERIAL_UNIFORMS(FogData, fog)
-VT_DECLARE_baseColorMap      // the fog texture, for the fragment stage
-VT_DECLARE_displacementMap   // the same texture, for the vertex stage
-VT_DECLARE_materialSampler
+VT_DECLARE_BINDLESS_TABLE
+VT_DECLARE_MAP_LANES
 VT_DECLARE_sceneDepthGrab
 // nearest, no mips, clamp: the sampler the forward pass reads the depth copy through
 [[vk::binding(13, 3)]] SamplerState nearestClampSampler : register(s8);
@@ -123,7 +122,7 @@ Varyings groundFogVertex(VertexIn input)
 
     // sample the fog texture to have elevation for this vertex
     const float2 offsetTexCoord = input.uv0 + float2(time * 0.001, time * -0.0003);
-    const float offset = displacementMap.SampleLevel(materialSampler, offsetTexCoord, 0.0).r;
+    const float offset = VT_MAP_SAMPLE_LEVEL(VT_MAP_LANE_displacementMap, offsetTexCoord, 0.0).r;
 
     // vertex in the world space
     float4 pos = mul(float4(input.position, 1.0), drawModel());
@@ -150,9 +149,9 @@ Varyings groundFogVertex(VertexIn input)
 float4 groundFogFragment(Varyings input) : SV_Target0
 {
     // sample the texture 3 times and compute average intensity of the fog
-    const float4 diffuseTexture0 = baseColorMap.Sample(input.texCoord0);
-    const float4 diffuseTexture1 = baseColorMap.Sample(input.texCoord1);
-    const float4 diffuseTexture2 = baseColorMap.Sample(input.texCoord2);
+    const float4 diffuseTexture0 = VT_MAP_SAMPLE(VT_MAP_LANE_baseColorMap, input.texCoord0);
+    const float4 diffuseTexture1 = VT_MAP_SAMPLE(VT_MAP_LANE_baseColorMap, input.texCoord1);
+    const float4 diffuseTexture2 = VT_MAP_SAMPLE(VT_MAP_LANE_baseColorMap, input.texCoord2);
     float alpha = 0.5 * (diffuseTexture0.r + diffuseTexture1.r + diffuseTexture2.r);
 
     // convert the screen position to the depth texture's uv (its row 0 is the top of the frame)

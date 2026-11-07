@@ -8,6 +8,7 @@
 
 #include "scene/lighting/worldClusters.h"
 #include "vulkanGraphicsDevice.h"
+#include "scene/materials/materialMapLanes.h"
 
 #include "platform/graphics/lightingBlock.h"
 #include "platform/graphics/lightingDerivation.h"
@@ -603,16 +604,26 @@ namespace visutwin::canvas
     void VulkanGraphicsDevice::bindSetIfChanged(VkCommandBuffer cmd, const uint32_t index,
         const VkDescriptorSet set, const uint32_t* dynamicOffset)
     {
+        bindSetIfChanged(cmd, index, set, dynamicOffset, dynamicOffset ? 1u : 0u);
+    }
+
+    void VulkanGraphicsDevice::bindSetIfChanged(VkCommandBuffer cmd, const uint32_t index,
+        const VkDescriptorSet set, const uint32_t* dynamicOffsets, const uint32_t dynamicOffsetCount)
+    {
         auto& bound = _bound.sets[index];
-        const uint32_t offset = dynamicOffset ? *dynamicOffset : 0;
-        if (bound.set == set && bound.dynamicOffset == offset) {
+        std::array<uint32_t, 2> offsets{};
+        for (uint32_t i = 0; i < dynamicOffsetCount && i < offsets.size(); ++i) {
+            offsets[i] = dynamicOffsets[i];
+        }
+        if (bound.set == set && bound.dynamicOffsetCount == dynamicOffsetCount && bound.dynamicOffsets == offsets) {
             return;
         }
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
             _renderPipeline->pipelineLayout(), index, 1, &set,
-            dynamicOffset ? 1u : 0u, dynamicOffset);
+            dynamicOffsetCount, dynamicOffsetCount ? offsets.data() : nullptr);
         bound.set = set;
-        bound.dynamicOffset = offset;
+        bound.dynamicOffsets = offsets;
+        bound.dynamicOffsetCount = dynamicOffsetCount;
     }
 
     VulkanGraphicsDevice::DrawResources VulkanGraphicsDevice::takePendingDrawResources()
@@ -857,7 +868,25 @@ namespace visutwin::canvas
         const uint64_t reuseVersion = reusableMaterial ? reusableMaterial->uniformsVersion()
             : (overrideKey ? instanceMaterialUniformsVersion() : 0);
         // The draw before this one bound the same block: nothing to look up or bind.
-        if (reuseKey && _bound.uniformKey == reuseKey && _bound.uniformVersion == reuseVersion) {
+        // The draw's map lanes (materialMapLanes.h) ride binding 1 of the same set, one ring
+        // slot per distinct lanes block this frame (GraphicsDevice::drawMapLanes names it).
+        const MaterialMapLanes& lanes = drawMapLanes();
+        const uint64_t lanesVersion = drawMapLanesVersion();
+        std::optional<uint32_t> lanesOffset;
+        if (const auto it = _lanesUniformSlots.find(lanesVersion);
+            it != _lanesUniformSlots.end() && it->second.frame == _frameSerial) {
+            lanesOffset = it->second.offset;
+        } else {
+            lanesOffset = allocateUniform(&lanes, sizeof(lanes));
+            if (lanesOffset) {
+                _lanesUniformSlots[lanesVersion] = {*lanesOffset, _frameSerial};
+            }
+        }
+        if (!lanesOffset) {
+            return false;
+        }
+        if (reuseKey && _bound.uniformKey == reuseKey && _bound.uniformVersion == reuseVersion &&
+            _bound.sets[0].dynamicOffsetCount == 2 && _bound.sets[0].dynamicOffsets[1] == *lanesOffset) {
             return true;
         }
         std::optional<uint32_t> matOffset;
@@ -881,7 +910,8 @@ namespace visutwin::canvas
         if (!matOffset) {
             return false;
         }
-        bindSetIfChanged(cmd, 0, _materialDescriptorSet, &*matOffset);
+        const std::array<uint32_t, 2> set0Offsets{*matOffset, *lanesOffset};
+        bindSetIfChanged(cmd, 0, _materialDescriptorSet, set0Offsets.data(), 2);
         // A block with no key (a quad's or a custom one) is never taken for a repeat.
         _bound.uniformKey = reuseKey;
         _bound.uniformVersion = reuseVersion;
@@ -890,8 +920,9 @@ namespace visutwin::canvas
 
     bool VulkanGraphicsDevice::bindMaterialTextureSet(VkCommandBuffer cmd)
     {
-        // Set 1: material textures. Cache identical image/sampler tuples for
-        // the lifetime of this frame slot instead of allocating per draw.
+        // Set 1: the quad inputs (a material's maps come from the bindless table). Cache
+        // identical image/sampler tuples for the lifetime of this frame slot instead of
+        // allocating per draw.
 
         // A quad pass's inputs go over the material's, so a draw with any of them
         // bound is always rebuilt; so is the first draw of a pass.
@@ -908,7 +939,6 @@ namespace visutwin::canvas
 
         std::array<VkDescriptorImageInfo, kMaterialTextureBindings.size()> imageInfos{};
         writeDefaultMaterialTextureInfos(imageInfos);
-        writeMaterialTextureInfos(imageInfos);
         writeQuadTextureInfos(imageInfos);
 
         const VkDescriptorSet texSet = getOrCreateImageDescriptorSet(
@@ -938,47 +968,6 @@ namespace visutwin::canvas
             imageInfos[i].imageView =
                 (slot == kExtraSampler) ? VK_NULL_HANDLE : _whiteImageView;
             imageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        }
-    }
-
-    void VulkanGraphicsDevice::writeMaterialTextureInfos(std::span<VkDescriptorImageInfo> imageInfos) const
-    {
-        // A material's maps come from the bindless table through its block's lanes; only a
-        // material with a block of its own, which has no lanes, binds its maps by slot here.
-        if (!_material || !_material->hasCustomUniformData()) {
-            return;
-        }
-        constexpr auto& materialSlots = kMaterialTextureBindings;
-        // Reused, not reallocated per draw: getTextureSlots appends.
-        thread_local std::vector<TextureSlot> texSlots;
-        texSlots.clear();
-        _material->getTextureSlots(texSlots);
-        for (const auto& ts : texSlots) {
-            // A material names a texture by its Metal slot; the binding table maps it to the
-            // set-1 binding (the two differ for the anisotropy and displacement maps).
-            const int binding = vulkanMaterialBindingForMetalSlot(ts.slot);
-            if (binding < 0) {
-                continue;
-            }
-            const auto slot = static_cast<uint32_t>(binding);
-            const auto slotIt = std::find(
-                materialSlots.begin(), materialSlots.end(), slot);
-            if (slotIt == materialSlots.end() || ts.texture == nullptr) {
-                continue;
-            }
-            auto* vkTex =
-                static_cast<gpu::VulkanTexture*>(ts.texture->impl());
-            if (vkTex && vkTex->imageView() != VK_NULL_HANDLE) {
-                const size_t descriptorIndex =
-                    static_cast<size_t>(slotIt - materialSlots.begin());
-                imageInfos[descriptorIndex].imageView = vkTex->imageView();
-                // Separate images must leave the sampler half null; they
-                // read through the shared sampler at binding 24.
-                if (!vulkanMaterialBindingIsSeparateImage(slot) &&
-                    vkTex->sampler() != VK_NULL_HANDLE) {
-                    imageInfos[descriptorIndex].sampler = vkTex->sampler();
-                }
-            }
         }
     }
 

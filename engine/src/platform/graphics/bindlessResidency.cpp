@@ -4,18 +4,25 @@
 // Created by Arnis Lektauers on 06.11.2026
 //
 #include "bindlessResidency.h"
+#include "textureSamplerState.h"
 
+#include <array>
 #include <atomic>
 
 namespace visutwin::canvas
 {
     namespace
     {
+        struct Space
+        {
+            std::vector<BindlessResidency::Entry> entries{1};   // entry 0: "no map"
+            std::vector<uint32_t> freeList;
+        };
+
         struct Registry
         {
             std::mutex mutex;
-            std::vector<BindlessResidency::Entry> entries{1};   // entry 0: "no map"
-            std::vector<uint32_t> freeList;
+            std::array<Space, static_cast<size_t>(BindlessKind::Count)> spaces;
             uint64_t nextVersion = 1;
             std::atomic<uint64_t> generation{1};
         };
@@ -24,6 +31,12 @@ namespace visutwin::canvas
         {
             static Registry instance;
             return instance;
+        }
+
+        Space* spaceOf(Registry& r, const BindlessKind kind)
+        {
+            const auto i = static_cast<size_t>(kind);
+            return i < r.spaces.size() ? &r.spaces[i] : nullptr;
         }
 
         struct SamplerRegistry
@@ -43,56 +56,67 @@ namespace visutwin::canvas
         }
     }
 
-    uint32_t BindlessResidency::acquire(Texture* texture)
+    uint32_t BindlessResidency::acquire(Texture* texture, const BindlessKind kind)
     {
         Registry& r = registry();
         std::lock_guard lock(r.mutex);
-        uint32_t index;
-        if (!r.freeList.empty()) {
-            index = r.freeList.back();
-            r.freeList.pop_back();
-        } else {
-            index = static_cast<uint32_t>(r.entries.size());
-            r.entries.emplace_back();
+        Space* space = spaceOf(r, kind);
+        if (!space) {
+            return kNone;
         }
-        r.entries[index] = {texture, r.nextVersion++};
+        uint32_t index;
+        if (!space->freeList.empty()) {
+            index = space->freeList.back();
+            space->freeList.pop_back();
+        } else {
+            index = static_cast<uint32_t>(space->entries.size());
+            space->entries.emplace_back();
+        }
+        space->entries[index] = {texture, r.nextVersion++};
         r.generation.fetch_add(1, std::memory_order_relaxed);
         return index;
     }
 
-    void BindlessResidency::release(const uint32_t index)
+    void BindlessResidency::release(const uint32_t index, const BindlessKind kind)
     {
         if (index == kNone) {
             return;
         }
         Registry& r = registry();
         std::lock_guard lock(r.mutex);
-        if (index >= r.entries.size() || r.entries[index].texture == nullptr) {
+        Space* space = spaceOf(r, kind);
+        if (!space || index >= space->entries.size() || space->entries[index].texture == nullptr) {
             return;
         }
-        r.entries[index] = {nullptr, r.nextVersion++};
-        r.freeList.push_back(index);
+        space->entries[index] = {nullptr, r.nextVersion++};
+        space->freeList.push_back(index);
         r.generation.fetch_add(1, std::memory_order_relaxed);
     }
 
-    void BindlessResidency::touch(const uint32_t index)
+    void BindlessResidency::touch(const uint32_t index, const BindlessKind kind)
     {
         if (index == kNone) {
             return;
         }
         Registry& r = registry();
         std::lock_guard lock(r.mutex);
-        if (index < r.entries.size()) {
-            r.entries[index].version = r.nextVersion++;
+        Space* space = spaceOf(r, kind);
+        if (space && index < space->entries.size()) {
+            space->entries[index].version = r.nextVersion++;
             r.generation.fetch_add(1, std::memory_order_relaxed);
         }
     }
 
-    void BindlessResidency::snapshot(std::vector<Entry>& out)
+    void BindlessResidency::snapshot(std::vector<Entry>& out, const BindlessKind kind)
     {
         Registry& r = registry();
         std::lock_guard lock(r.mutex);
-        out = r.entries;
+        const Space* space = spaceOf(r, kind);
+        if (space) {
+            out = space->entries;
+        } else {
+            out.clear();
+        }
     }
 
     uint64_t BindlessResidency::generation()

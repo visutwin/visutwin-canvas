@@ -20,8 +20,6 @@
 #include "scene/materials/material.h"
 #include "scene/materials/materialMapLanes.h"
 #include "scene/materials/standardMaterial.h"
-#include "scene/mesh.h"
-#include "scene/meshInstance.h"
 #include "support/check.h"
 #include "support/stubDevice.h"
 
@@ -66,24 +64,24 @@ namespace
         return texture;
     }
 
-    uint64_t versionOf(const uint32_t index)
+    uint64_t versionOf(const uint32_t index, const BindlessKind kind = BindlessKind::Texture2D)
     {
         std::vector<BindlessResidency::Entry> entries;
-        BindlessResidency::snapshot(entries);
+        BindlessResidency::snapshot(entries, kind);
         return index < entries.size() ? entries[index].version : 0;
     }
 
-    const Texture* textureOf(const uint32_t index)
+    const Texture* textureOf(const uint32_t index, const BindlessKind kind = BindlessKind::Texture2D)
     {
         std::vector<BindlessResidency::Entry> entries;
-        BindlessResidency::snapshot(entries);
+        BindlessResidency::snapshot(entries, kind);
         return index < entries.size() ? entries[index].texture : nullptr;
     }
 
-    uint32_t lane(const MaterialUniforms& block, const int slot)
+    uint32_t lane(const MaterialMapLanes& lanes, const int slot)
     {
         const int index = materialMapLaneForSlot(slot);
-        return index < 0 ? 0u : block.mapLanes[index >> 2][index & 3];
+        return index < 0 ? 0u : lanes.at(static_cast<uint32_t>(index));
     }
 }
 
@@ -120,6 +118,30 @@ int main()
         check(textureOf(ia) == c.get(), "the reused index names the new texture");
     }
 
+    // Kinds: an array and a volume take indices in spaces of their own, a cube map none.
+    {
+        TextureOptions arrayOptions = options();
+        arrayOptions.arrayLength = 2;
+        auto array = std::make_unique<Texture>(device.get(), arrayOptions);
+        TextureOptions volumeOptions = options();
+        volumeOptions.volume = true;
+        volumeOptions.depth = 2;
+        auto volume = std::make_unique<Texture>(device.get(), volumeOptions);
+        TextureOptions cubeOptions = options();
+        cubeOptions.cubemap = true;
+        auto cube = std::make_unique<Texture>(device.get(), cubeOptions);
+        auto plain = makeTexture(device.get());
+        check(array->bindlessKind() == BindlessKind::Texture2DArray && volume->bindlessKind() == BindlessKind::Texture3D &&
+            plain->bindlessKind() == BindlessKind::Texture2D && cube->bindlessKind() == BindlessKind::None,
+            "a texture's kind follows its shape");
+        const uint32_t ia = array->bindlessIndex();
+        const uint32_t iv = volume->bindlessIndex();
+        check(ia != 0 && iv != 0 && textureOf(ia, BindlessKind::Texture2DArray) == array.get() &&
+            textureOf(iv, BindlessKind::Texture3D) == volume.get(), "an array and a volume are registered in their own spaces");
+        check(textureOf(ia, BindlessKind::Texture2D) != array.get(), "an array's index means nothing in the 2D space");
+        check(cube->bindlessIndex() == 0, "a cube map packs lane 0");
+    }
+
     // Sampler registry: the default state is index 0, another state a new index, the same
     // state the same index.
     {
@@ -142,28 +164,52 @@ int main()
         material.setDiffuseMap(repeatMap.get());
         material.setNormalMap(clampMap.get());
         material.setGlossMap(glossMap.get());
-        const MaterialUniforms& block = material.packedUniforms();
-        check(bindlessLaneTexture(lane(block, 0)) == repeatMap->bindlessIndex(), "the diffuse map's lane carries its index");
-        check(bindlessLaneSampler(lane(block, 0)) == 0, "a repeating map on a combined row reads through sampler 0");
-        check(bindlessLaneTexture(lane(block, 1)) == clampMap->bindlessIndex(), "the normal map's lane carries its index");
-        check(bindlessLaneSampler(lane(block, 1)) != 0, "a clamping map on a combined row keeps its own sampler state");
-        check(bindlessLaneTexture(lane(block, 31)) == glossMap->bindlessIndex(), "the gloss map's lane carries its index");
-        check(bindlessLaneSampler(lane(block, 31)) == 0, "a map on a separate-image row reads through sampler 0 whatever its state");
-        check(lane(block, 5) == 0, "a map the material does not set packs 0");
+        const MaterialMapLanes& lanes = material.packedMapLanes();
+        check(bindlessLaneTexture(lane(lanes, 0)) == repeatMap->bindlessIndex(), "the diffuse map's lane carries its index");
+        check(bindlessLaneSampler(lane(lanes, 0)) == 0, "a repeating map on a combined row reads through sampler 0");
+        check(bindlessLaneTexture(lane(lanes, 1)) == clampMap->bindlessIndex(), "the normal map's lane carries its index");
+        check(bindlessLaneSampler(lane(lanes, 1)) != 0, "a clamping map on a combined row keeps its own sampler state");
+        check(bindlessLaneTexture(lane(lanes, 31)) == glossMap->bindlessIndex(), "the gloss map's lane carries its index");
+        check(bindlessLaneSampler(lane(lanes, 31)) == 0, "a map on a separate-image row reads through sampler 0 whatever its state");
+        check(lane(lanes, 5) == 0, "a map the material does not set packs 0");
         material.setDiffuseMap(nullptr);
-        check(lane(material.packedUniforms(), 0) == 0, "clearing a map clears its lane");
+        check(lane(material.packedMapLanes(), 0) == 0, "clearing a map clears its lane");
 
-        // The mesh instance's own lightmap goes into its override block's lightmap lane.
+        // A material with a block of its own packs lanes the same way, from its slots.
+        class SlotMaterial final : public Material
+        {
+        public:
+            const void* customUniformData(size_t& outSize) const override
+            {
+                outSize = sizeof(_block);
+                return _block.data();
+            }
+        private:
+            std::array<float, 4> _block{};
+        };
+        SlotMaterial custom;
+        custom.setBaseColorTexture(clampMap.get());
+        check(bindlessLaneTexture(lane(custom.packedMapLanes(), 0)) == clampMap->bindlessIndex(),
+            "a custom-block material's slots pack lanes too");
+
+        // The draw's lanes: the bound material's, with the instance lightmap written over the
+        // lightmap lane, and nothing for no material.
         auto lightMap = std::make_shared<Texture>(device.get(), options());
-        auto mesh = std::make_shared<Mesh>();
         auto shared = std::make_shared<StandardMaterial>();
-        MeshInstance instance(mesh, shared);
-        check(instance.overriddenUniforms(shared.get()) == nullptr, "without overrides, clip planes or a lightmap there is no override block");
-        instance.setLightMap(lightMap);
-        const MaterialUniforms* overridden = instance.overriddenUniforms(shared.get());
-        check(overridden != nullptr && bindlessLaneTexture(lane(*overridden, kLightMapTextureSlot)) == lightMap->bindlessIndex(),
-            "an instance lightmap is written into the lightmap lane of the override block");
-        check(lane(shared->packedUniforms(), kLightMapTextureSlot) == 0, "the shared material's own lane stays 0");
+        device->setMaterial(nullptr);
+        check(device->drawMapLanes() == MaterialMapLanes{}, "a draw without a material carries zero lanes");
+        device->setMaterial(shared.get());
+        device->setInstanceLightMap(lightMap.get());
+        check(bindlessLaneTexture(lane(device->drawMapLanes(), kLightMapTextureSlot)) == lightMap->bindlessIndex(),
+            "an instance lightmap is written into the draw's lightmap lane");
+        const uint64_t withLightMap = device->drawMapLanesVersion();
+        device->drawMapLanes();
+        check(device->drawMapLanesVersion() == withLightMap, "unchanged inputs keep the lanes' version");
+        device->setInstanceLightMap(nullptr);
+        check(lane(device->drawMapLanes(), kLightMapTextureSlot) == 0 && device->drawMapLanesVersion() != withLightMap,
+            "clearing the instance lightmap clears the lane and moves the version");
+        check(lane(shared->packedMapLanes(), kLightMapTextureSlot) == 0, "the shared material's own lane stays 0");
+        device->setMaterial(nullptr);
     }
 
     return finish("bindless residency");

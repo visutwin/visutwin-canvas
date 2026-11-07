@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <vector>
 
+#include "bindlessResidency.h"
 #include "constants.h"
 #include "gpu.h"
 
@@ -90,10 +91,14 @@ namespace visutwin::canvas
         /// 0 after the first upload), so a consumer that copies the content elsewhere (the
         /// clustered cookie atlas) can tell it has changed since its copy.
         uint64_t uploadVersion() const { return _uploadVersion; }
-        /// The texture's index in the bindless table (bindlessResidency.h), taken from the
-        /// process-wide registry the first time it is asked for; never 0. A material packs it
-        /// into its block's map lanes.
+        /// The texture's index in the bindless table (bindlessResidency.h), in the index space
+        /// of its kind (bindlessKind: a 2D texture, an array or a volume), taken from the
+        /// process-wide registry the first time it is asked for; never 0, except for a kind the
+        /// table has no array for (a cube map), which is 0 with one error. A material packs it
+        /// into the draw's map lanes.
         uint32_t bindlessIndex() const;
+        /// Which of the table's arrays this texture belongs in.
+        BindlessKind bindlessKind() const;
         /// The GPU object behind this texture was recreated (a resize, a render-target use on
         /// a texture made empty, a backend's in-place replacement): every device's table
         /// rewrites the entry at its next sync. The backends call it from their recreations.
@@ -306,6 +311,7 @@ namespace visutwin::canvas
 
         GraphicsDevice* _device;
         mutable uint32_t _bindlessIndex = 0;
+        mutable bool _bindlessKindWarned = false;
 
         uint32_t _width;
         uint32_t _height;

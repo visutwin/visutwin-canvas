@@ -39,8 +39,8 @@ struct ShaderData
     float4 amount;   // x: the tint added to the position colour
 };
 VT_DECLARE_MATERIAL_UNIFORMS(ShaderData, data)
-VT_DECLARE_baseColorMap
-
+VT_DECLARE_BINDLESS_TABLE
+VT_DECLARE_MAP_LANES
 struct VertexIn
 {
     [[vk::location(0)]] float3 position : POSITION;
@@ -72,7 +72,7 @@ float4 shaderFragment(Varyings input) : SV_Target0
 {
     const float3 color = input.fragPosition.rgb;
     const float3 tint = float3(data.amount.x, data.amount.x, data.amount.x) + color;
-    const float4 diffuseColor = baseColorMap.Sample(input.uv0);
+    const float4 diffuseColor = VT_MAP_SAMPLE(VT_MAP_LANE_baseColorMap, input.uv0);
     return float4(diffuseColor.xyz * tint, 1.0);
 }
 )slang";

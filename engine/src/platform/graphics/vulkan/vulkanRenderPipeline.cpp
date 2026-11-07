@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include "scene/materials/materialMapLanes.h"
 #include <iterator>
 #include "vulkanGraphicsDevice.h"
 #include "vulkanShader.h"
@@ -64,8 +65,10 @@ namespace visutwin::canvas
                         const bool separateImage = reflected.kind == SlangDescriptorKind::SampledImage;
                         const bool separateSampler = reflected.kind == SlangDescriptorKind::Sampler;
                         const bool storage = reflected.kind == SlangDescriptorKind::StorageBuffer;
-                        const bool validMaterial = reflected.set == 0 && reflected.binding == 0 && uniform &&
-                            reflected.blockBytes == sizeof(MaterialUniforms);
+                        const bool validMaterial = reflected.set == 0 && uniform &&
+                            ((reflected.binding == 0 && reflected.blockBytes == sizeof(MaterialUniforms)) ||
+                             (reflected.binding == kBindlessLanesVulkanBinding &&
+                              reflected.blockBytes == sizeof(MaterialMapLanes)));
                         const bool validLighting = reflected.set == 2 && reflected.binding == 0 && uniform &&
                             reflected.blockBytes == sizeof(VulkanLightingUBO);
                         // Set 1 is exactly kMaterialTextureBindings: a binding outside the list
@@ -89,7 +92,8 @@ namespace visutwin::canvas
                         // The bindless table (bindlessTable.h): the samplers at binding 0, the
                         // images at binding 1.
                         const bool validBindless = reflected.set == kBindlessTableVulkanSet &&
-                            ((reflected.binding == 0 && separateSampler) || (reflected.binding == 1 && separateImage));
+                            ((reflected.binding == 0 && separateSampler) ||
+                             (reflected.binding >= 1 && reflected.binding <= 3 && separateImage));
                         if (!validMaterial && !validLighting && !validMaterialTexture && !validSceneTexture &&
                             !validGeometry && !validCluster && !validBindless) {
                             throw std::runtime_error("VulkanRenderPipeline: " + std::string(programName) + ":" +
@@ -333,9 +337,18 @@ namespace visutwin::canvas
         materialBinding.stageFlags =
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
+        // Binding 1: the draw's map lanes (materialMapLanes.h), a second dynamic uniform of
+        // the ring, offset per draw beside the material block's.
+        VkDescriptorSetLayoutBinding lanesBinding{};
+        lanesBinding.binding = kBindlessLanesVulkanBinding;
+        lanesBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+        lanesBinding.descriptorCount = 1;
+        lanesBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        const std::array<VkDescriptorSetLayoutBinding, 2> set0Bindings{materialBinding, lanesBinding};
+
         VkDescriptorSetLayoutCreateInfo materialLayoutInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-        materialLayoutInfo.bindingCount = 1;
-        materialLayoutInfo.pBindings = &materialBinding;
+        materialLayoutInfo.bindingCount = static_cast<uint32_t>(set0Bindings.size());
+        materialLayoutInfo.pBindings = set0Bindings.data();
         createSetLayout(
             materialLayoutInfo, _materialSetLayout, "material");
 
@@ -465,14 +478,15 @@ namespace visutwin::canvas
         // Only with descriptor indexing; every pipeline then carries the eighth set, read
         // or not.
         if (_device->supportsBindlessTextures()) {
-            std::array<VkDescriptorSetLayoutBinding, 2> bindlessBindings{};
-            bindlessBindings[0] = {0, VK_DESCRIPTOR_TYPE_SAMPLER, _device->bindlessSamplerCapacity(),
-                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
-            bindlessBindings[1] = {1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, _device->bindlessTextureCapacity(),
-                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+            constexpr VkShaderStageFlags kBothStages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+            std::array<VkDescriptorSetLayoutBinding, 4> bindlessBindings{};
+            bindlessBindings[0] = {0, VK_DESCRIPTOR_TYPE_SAMPLER, _device->bindlessSamplerCapacity(), kBothStages, nullptr};
+            bindlessBindings[1] = {1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, _device->bindlessTextureCapacity(), kBothStages, nullptr};
+            bindlessBindings[2] = {2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kBindlessTableTextureArrayCapacity, kBothStages, nullptr};
+            bindlessBindings[3] = {3, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kBindlessTableVolumeCapacity, kBothStages, nullptr};
             const VkDescriptorBindingFlags bindlessFlag =
                 VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
-            const std::array<VkDescriptorBindingFlags, 2> bindlessFlags{bindlessFlag, bindlessFlag};
+            const std::array<VkDescriptorBindingFlags, 4> bindlessFlags{bindlessFlag, bindlessFlag, bindlessFlag, bindlessFlag};
             VkDescriptorSetLayoutBindingFlagsCreateInfo bindlessFlagsInfo{
                 VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO};
             bindlessFlagsInfo.bindingCount = static_cast<uint32_t>(bindlessFlags.size());

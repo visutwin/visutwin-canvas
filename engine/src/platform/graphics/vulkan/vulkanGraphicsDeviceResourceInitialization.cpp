@@ -379,7 +379,7 @@ namespace visutwin::canvas
         // reset — the sets reference the stable ring buffer and only their
         // dynamic offsets change per draw.
         std::array<VkDescriptorPoolSize, 1> sizes{};
-        sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 2};
+        sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 3};   // the material block, its lanes, the lighting
         VkDescriptorPoolCreateInfo dpInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
         dpInfo.maxSets = 2;
         dpInfo.poolSizeCount = static_cast<uint32_t>(sizes.size());
@@ -972,7 +972,8 @@ namespace visutwin::canvas
             props.limits.maxBoundDescriptorSets > kBindlessTableVulkanSet &&
             props12.maxPerStageDescriptorUpdateAfterBindSamplers >= kBindlessTableSamplerCapacity + kOtherSetsMargin &&
             props12.maxPerStageDescriptorUpdateAfterBindSampledImages >= kBindlessTableTextureCapacity + kOtherSetsMargin &&
-            props3.maxPerSetDescriptors >= kBindlessTableTextureCapacity + kBindlessTableSamplerCapacity;
+            props3.maxPerSetDescriptors >= kBindlessTableTextureCapacity + kBindlessTableTextureArrayCapacity +
+                kBindlessTableVolumeCapacity + kBindlessTableSamplerCapacity;
         if (!_descriptorIndexing) {
             spdlog::error("Vulkan: this device has no descriptor indexing with update-after-bind sets, which the "
                 "forward program's material maps need (bindlessTable.h): nothing lit renders");

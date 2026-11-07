@@ -34,6 +34,7 @@
 #include "core/math/color.h"
 #include "core/math/matrix4.h"
 #include "core/math/vector3.h"
+#include "scene/materials/materialMapLanes.h"
 #include "core/eventHandler.h"
 #include "scene/constants.h"
 #include "scene/mesh.h"
@@ -52,7 +53,7 @@ namespace visutwin::canvas
      * shader can never read past its own allocation. MaterialUniforms itself is
      * 1056 bytes.
      */
-    inline constexpr size_t kPerDrawUniformCapacity = 1168;
+    inline constexpr size_t kPerDrawUniformCapacity = 1056;
 
     class Compute;
     class Texture;
@@ -857,6 +858,12 @@ namespace visutwin::canvas
         // per draw by the forward renderer and cleared after its draw loop, so no
         // other pass inherits it. Non-owning: the mesh instance owns the texture.
         void setInstanceLightMap(Texture* texture) { _instanceLightMap = texture; }
+        /// The map lanes the draw uploads (materialMapLanes.h): the bound material's packed
+        /// lanes with the instance lightmap written over the lightmap lane, all zero without a
+        /// material. Rebuilt only when the material, its version or the lightmap changed;
+        /// `drawMapLanesVersion()` names the result for a backend's reuse check.
+        const MaterialMapLanes& drawMapLanes();
+        uint64_t drawMapLanesVersion() const { return _drawLanesVersion; }
         Texture* instanceLightMap() const { return _instanceLightMap; }
 
         // The drawing mesh instance's material block with its parameter overrides applied
@@ -1392,6 +1399,12 @@ namespace visutwin::canvas
         std::shared_ptr<StencilParameters> _stencilBack;
         const Material* _material = nullptr;
         Texture* _instanceLightMap = nullptr;
+        MaterialMapLanes _drawLanes{};
+        const Material* _drawLanesMaterial = nullptr;
+        uint64_t _drawLanesMaterialVersion = 0;
+        const Texture* _drawLanesLightMap = nullptr;
+        uint64_t _drawLanesVersion = 0;
+        bool _drawLanesValid = false;
         const MaterialUniforms* _instanceMaterialUniforms = nullptr;
         uint64_t _instanceMaterialUniformsVersion = 0;
 

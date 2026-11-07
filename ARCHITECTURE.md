@@ -1975,7 +1975,9 @@ indexing is on, `VulkanRenderPipeline::bindlessSetLayout`). What the spike found
   fallback; verify before counting on it.
 
 **Phase 1 design (2026-11-06): the forward and shadow programs' material maps through the
-table.** The decisions, each with its reason, before the code:
+table.** The decisions, each with its reason, before the code (phase 2, below, then moved the
+lanes out of the material block into a per-draw block, which the `materialMapLanes.h` and
+`AGENTS.md` text follows):
 
 - **Scope.** Every map the forward and shadow programs sample (the 25 of
   `forward-fragment-head.slang`, the displacement map in the vertex stage included) is read from
@@ -2063,6 +2065,72 @@ how many distinct states the examples register; the device logs an error past th
 Metal re-issues `useResources` for every live texture per encoder; neither registered in a
 profile yet, and a heap with `useHeap` is the Metal answer if one does. (4) The capacity is
 one Vulkan set (1024); a larger Metal-only table needs a per-backend define.
+
+**Phase 2 design (2026-11-07): every material's maps through the table, the slot path
+retired.** What the survey of the slot path's remaining users decided:
+
+- **The lanes are a per-DRAW block of their own, not fields of the material block.** Five
+  engine programs (the water, the HUD's `render2d`, the gizmos, the particles, the dynamic
+  sky) and ten examples read material rows from a block of their own, which has no room for
+  lanes and no reason to grow one; and an instance's lightmap is per draw, not per material.
+  So the lanes move out of `MaterialUniforms` (back to 1056 bytes) into `MaterialMapLanes`
+  (`materialMapLanes.h`, 112 bytes), which `Material::packedMapLanes()` caches beside its
+  packed block from `getTextureSlots` (so every material type packs the same way, custom
+  blocks included), and the device uploads per draw at Metal buffer 14 (both stages,
+  `setBytes`) / Vulkan set 0 binding 1 (a second dynamic uniform of the ring, a second
+  dynamic offset of the one set bind), with the instance lightmap written over lane 9 in the
+  device's copy (`GraphicsDevice::drawMapLanes`). A program declares `VT_DECLARE_MAP_LANES`
+  and reads `VT_MATERIAL_LANE(VT_MAP_LANE_<name>)`; the override block carries clipping planes
+  and parameter overrides again, nothing else.
+- **The table holds three texture kinds.** The dynamic sky's cloud noise and the impostor
+  example read texture ARRAYS, the volume-texture example a VOLUME, so the parameter block
+  gains `Texture2DArray textureArrays[64]` and `Texture3D volumes[16]` (1024 + 64 + 16 + 64
+  = 1168 descriptors, under MoltenVK's 1212 per set), each kind its own index space in the
+  registry (`Texture::bindlessIndex()` picks the kind from the texture: a cube map has no
+  entry and packs lane 0). The lane's 24-bit index is read in the array the program names.
+- **Per-backend sampling kept.** The particle program read its maps through the linear
+  clamped sampler on Metal and through each texture's own on Vulkan; it keeps doing so by a
+  target switch, so phase 2 moves no pixel on either backend.
+- **What goes.** The thirteen row macros of the material maps and the `_AS` twins (a custom
+  program reads lanes), the displacement row (vertex texture 41 / binding 25: a lane), Metal's
+  per-material texture binding and sampler slots 1-6 (`MetalTextureBinder::bindMaterialTextures`,
+  `clearMaterialSlots`, `kMetalMaterialTextureSlots`, `kMaterialSamplerTextureSlots`),
+  Vulkan's `writeMaterialTextureInfos` and `vulkanMaterialBindingForMetalSlot`. Set 1 and
+  Metal slots 0-5, 17, 19, 23 and 7 / 13 / 14 are the QUAD inputs and nothing else; the rows'
+  `ownSampler` column only says which quad inputs Vulkan binds as combined samplers.
+
+**Phase 2 result (2026-11-07).** Landed as designed: the lanes block (`materialMapLanes.h`,
+`GraphicsDevice::drawMapLanes`), the three texture kinds (`BindlessKind`, the registry's
+per-kind index spaces, Metal's three id ranges, Vulkan's bindings 1-3), the five engine
+programs and ten examples converted, the slot path gone (`shaderBindings.h` keeps thirteen
+quad rows and nothing a material binds; `MetalTextureBinder` binds no material texture;
+Vulkan's set 1 is the quad inputs). Two things the design did not foresee, both found by the
+A/B captures and both now rules in AGENTS.md: (1) a program that serves a material draw AND
+quad passes reads its maps per pass, since a quad draw has no material and so no lanes (the
+dynamic sky's cloud pass read every noise map as the white 1x1 through the shared lane readers,
+and the dome drew a cloudless sky on both backends); (2) the table is synced before a draw
+when the registry moved since the frame started, not at frame start alone (`bindBindlessTable`
+/ `bindBindlessSet`): the cloud buffer, resized by the first update, left Metal's frame-1
+argument buffer naming a freed texture, and a texture acquired by the first draw that packs its
+lane was not in the table until the next frame. Verification, on this build against a worktree
+at db309b5 (the spike commit, the slot path throughout) built the same way, frame 60 under
+`VISUTWIN_FIXED_DT`, 24 examples that read maps through a block of their own, both backends:
+15 bit-identical on each backend (the gizmos, grab-pass, ground-fog, lightmap-sources,
+particles, shader-burn / -material / -wobble, taa-alpha, texture-array-impostors, water);
+dynamic-sky bit-identical on Vulkan and, with its auto exposure off (`VISUTWIN_SKY_AUTO_EXPOSURE=0`),
+on Metal (with it on, Metal's first histogram lands a frame apart and the frame trails by 0.7
+counts; HEAD's own two runs differ by 40k pixels at one count); seven that db309b5 rendered
+WRONGLY on both backends, differently per backend (the five particles examples and
+ui-particle-system with blank or untextured sprites, scene-maps without its compute overlay,
+render-target-orientation with its uv-space tile black or white) now agree between Metal and
+Vulkan to 5 counts and show what their headers say; and volume-texture, which did not run in
+either tree (its fog shader called `linearToSrgb` without `import vtsrgb;`, fixed here), agrees
+across backends at 37 pixels of 1 count. The suites: 120 unit tests on each backend, the 8 `gpu`
+tests on each, the Vulkan smoke test; the goldens exact but for the three 1x references
+already stale before phase 1 (Metal dynamic-batching 162 px and clustered-lighting 30 px, Vulkan
+clustered-lighting 26 px, which db309b5 reproduces to the pixel). Phase 3 (not started): a
+sampler per lane chosen by the material rather than the former combined rows, and the quad
+inputs through the table, which would free Vulkan's set 1 and Metal's slots 0-11.
 
 ### 3. An extract and render split with a task pool
 

@@ -100,7 +100,7 @@ namespace visutwin::canvas
     {
         // The bindless index goes back whatever the device's state: a material still naming
         // it would read white, never a freed object.
-        BindlessResidency::release(_bindlessIndex);
+        BindlessResidency::release(_bindlessIndex, bindlessKind());
         _bindlessIndex = 0;
         // A texture the device already detached has nothing left to give back: it holds no
         // GPU texture, no VRAM share and no device (which may be gone).
@@ -215,17 +215,36 @@ namespace visutwin::canvas
         }
     }
 
+    BindlessKind Texture::bindlessKind() const
+    {
+        if (isCubemap()) {
+            return BindlessKind::None;
+        }
+        if (isVolume()) {
+            return BindlessKind::Texture3D;
+        }
+        return isArray() ? BindlessKind::Texture2DArray : BindlessKind::Texture2D;
+    }
+
     uint32_t Texture::bindlessIndex() const
     {
         if (_bindlessIndex == 0) {
-            _bindlessIndex = BindlessResidency::acquire(const_cast<Texture*>(this));
+            const BindlessKind kind = bindlessKind();
+            if (kind == BindlessKind::None) {
+                if (!_bindlessKindWarned) {
+                    _bindlessKindWarned = true;
+                    spdlog::error("Texture '{}': a cube map has no place in the bindless table; the lane reads 0", _name);
+                }
+                return 0;
+            }
+            _bindlessIndex = BindlessResidency::acquire(const_cast<Texture*>(this), kind);
         }
         return _bindlessIndex;
     }
 
     void Texture::noteGpuObjectChanged()
     {
-        BindlessResidency::touch(_bindlessIndex);
+        BindlessResidency::touch(_bindlessIndex, bindlessKind());
     }
 
     void Texture::upload()

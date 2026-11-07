@@ -20,8 +20,8 @@ struct GizmoData
 };
 VT_DECLARE_MATERIAL_UNIFORMS(GizmoData, gizmo)
 
-VT_DECLARE_baseColorMap
-
+VT_DECLARE_BINDLESS_TABLE
+VT_DECLARE_MAP_LANES
 static const uint kGizmoTexture = 1u << 0u;
 
 struct VertexIn
@@ -59,7 +59,7 @@ FragmentOut gizmoFragment(Varyings input)
 {
     float4 color = gizmo.color;
     if ((vtFeatureMask0 & kGizmoTexture) != 0u) {
-        const float coverage = baseColorMap.Sample(input.uv).a;
+        const float coverage = VT_MAP_SAMPLE(VT_MAP_LANE_baseColorMap, input.uv).a;
         color.a *= saturate((coverage - 0.5) / max(fwidth(coverage), 1e-4) + 0.5);
     }
     if (color.a < 1.0 / 255.0) {

@@ -11,6 +11,7 @@
 #include <cstring>
 
 #include "graphicsDevice.h"
+#include "scene/materials/material.h"
 
 #include "computeInstanceCuller.h"
 #include "vertexFormat.h"
@@ -130,6 +131,25 @@ namespace visutwin::canvas
     {
         static uint64_t version = 0;
         return ++version;
+    }
+
+    const MaterialMapLanes& GraphicsDevice::drawMapLanes()
+    {
+        const uint64_t version = _material ? _material->uniformsVersion() : 0;
+        if (_drawLanesValid && _drawLanesMaterial == _material && _drawLanesMaterialVersion == version &&
+            _drawLanesLightMap == _instanceLightMap) {
+            return _drawLanes;
+        }
+        _drawLanes = _material ? _material->packedMapLanes() : MaterialMapLanes{};
+        if (_instanceLightMap) {
+            Material::packMapLane(_drawLanes, kLightMapTextureSlot, _instanceLightMap);
+        }
+        _drawLanesMaterial = _material;
+        _drawLanesMaterialVersion = version;
+        _drawLanesLightMap = _instanceLightMap;
+        _drawLanesVersion = Material::nextUniformsVersion();
+        _drawLanesValid = true;
+        return _drawLanes;
     }
 
     void GraphicsDevice::frameStart()

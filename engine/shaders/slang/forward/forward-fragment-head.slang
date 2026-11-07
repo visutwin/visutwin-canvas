@@ -111,12 +111,13 @@ struct LightingData
 
 [[vk::binding(0, 2)]] ConstantBuffer<LightingData> lighting : register(b4);
 
-// ---- Material maps: the bindless table (bindlessTable.h), one lane per map in the
-// material block (materialMapLanes.h). Every map is read through its lane: the texture at
+// ---- Material maps: the bindless table (bindlessTable.h), one lane per map in the draw's
+// lanes block (materialMapLanes.h, uploaded per draw beside the material block). Every map is read through its lane: the texture at
 // the lane's index with the lane's sampler, which is the texture's own state for a map that
 // bound a combined sampler before the table and the default state for every other. The
 // shared material sampler stays for a user chunk's scene map. ----
 VT_DECLARE_BINDLESS_TABLE
+VT_DECLARE_MAP_LANES
 VT_DECLARE_materialSampler
 
 // sample<Map>(uv), sample<Map>Level(uv, lod) and size<Map>(lod): the map's read through

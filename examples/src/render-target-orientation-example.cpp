@@ -103,8 +103,8 @@ float4 cubeFaceFragment(QuadVarying input) : SV_Target0
     // A mesh drawn in its UV space: the clip position is its uv, v = 0 at the top row.
     constexpr const char* kUvWriteSlang = R"slang(
 #include "bindings.slang"
-VT_DECLARE_baseColorMap
-
+VT_DECLARE_BINDLESS_TABLE
+VT_DECLARE_MAP_LANES
 struct VertexIn
 {
     [[vk::location(2)]] float2 uv0 : TEXCOORD0;
@@ -128,7 +128,7 @@ Varyings uvWriteVertex(VertexIn input)
 [shader("fragment")]
 float4 uvWriteFragment(Varyings input) : SV_Target0
 {
-    return baseColorMap.Sample(input.uv0);
+    return VT_MAP_SAMPLE(VT_MAP_LANE_baseColorMap, input.uv0);
 }
 )slang";
 

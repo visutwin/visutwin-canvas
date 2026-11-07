@@ -30,21 +30,17 @@ namespace visutwin::canvas
     {
     public:
         // Fragment sampler slots. Slot 0 is the draw's general sampler: the post sampler in
-        // a quad pass, the default material sampler otherwise. Slots 1-6 carry the samplers
-        // of the material maps whose Texture state is honoured, one map each, in the order
-        // of kMaterialSamplerTextureSlots; the forward and shadow chunks declare them as
-        // sampler(1) .. sampler(6) under the same names (forward-fragment-head.metal).
+        // a quad pass, the default material sampler otherwise. A material's maps are read
+        // from the bindless table with the samplers it holds (bindlessTable.h), so no
+        // material sampler slot exists; slots 1-2 and 3-15 are the quad draws' (below), 7-10
+        // the forward program's scene samplers (MetalGraphicsDevice::bindDrawSampler).
         //
         // Sampler budget of the forward fragment function, against Metal's 16 per stage:
-        // 7 argument-table samplers (0-6), and at most 14 constexpr sampler DECLARATIONS
+        // 5 argument-table samplers (0, 7-10), and at most 14 constexpr sampler DECLARATIONS
         // in the chunks if every one were reachable in one variant (shadow compare x4 —
         // PCF3, PCF1, PCF5 and the omni cube — VSM, environment atlas, reflection probe,
         // grab pass, cookie, clustered cookie, SSR depth, SSR colour, LTC LUT, PCSS raw),
-        // which reduce to 4 distinct sampler states. The shadow fragment
-        // function declares 2 argument samplers (0 for the opacity map, 1 for the base
-        // colour) and no constexpr one.
-        static constexpr int kMaterialSamplerCount = 6;
-        static constexpr int kFirstMaterialSamplerSlot = 1;
+        // which reduce to 4 distinct sampler states.
         // A quad draw's Slang program gives each input a sampler slot of its own, since Metal
         // rejects two combined samplers at one index (bindings.slang, written by
         // tools/generate_shader_bindings.py, whose QUAD_* constants these mirror): input n
@@ -55,21 +51,8 @@ namespace visutwin::canvas
         static constexpr int kQuadPointSamplerBase = 11;
         static constexpr int kQuadPointInputs = 5;
         static constexpr int kSamplerSlotCount = 16;
-        static_assert(kFirstMaterialSamplerSlot + kMaterialSamplerCount <= kSamplerSlotCount);
         static_assert(kQuadLinearSamplerBase + kQuadInputCount <= kQuadPointSamplerBase);
         static_assert(kQuadPointSamplerBase + kQuadPointInputs == kSamplerSlotCount);
-        // The material TEXTURE slot each material sampler slot follows: base colour,
-        // normal, metal-rough / spec-gloss, occlusion, emissive and lightmap — the maps
-        // Vulkan reads through a combined image sampler, i.e. through the texture's own
-        // sampler. The rest (clearcoat, height, detail normal, gloss, thickness,
-        // refraction, opacity) are separate images on Vulkan, read through one shared
-        // sampler in the default state, so on Metal they keep the default sampler.
-        // Both from the binding table (platform/graphics/shaderBindings.h), which also
-        // names every slot: the rows with ownSampler, and the highest fragment slot + 1.
-        static constexpr std::array<int, kMaterialSamplerCount> kMaterialSamplerTextureSlots =
-            visutwin::canvas::kMaterialSamplerTextureSlots;
-        static_assert(visutwin::canvas::kMaterialSamplerTextureSlots.size() == kMaterialSamplerCount);
-
         static constexpr int kMaxTextureSlots = kMetalMaxTextureSlots;
 
         /// Bind a texture at the given fragment slot, skipping if already bound.
@@ -81,29 +64,14 @@ namespace visutwin::canvas
         /// Bind a sampler at a fragment sampler slot, skipping if already bound.
         void bindSamplerCached(MTL::RenderCommandEncoder* encoder, int slot, MTL::SamplerState* sampler);
 
-        /// Bind material textures from a pre-queried list of texture slots.
-        /// Clears material-owned slots (0,1,3,4,5) that are not present in the list.
-        /// Also records, for each material sampler slot, the sampler its texture's own
-        /// state asks for (from `samplers`); bindDrawSamplers issues them.
-        void bindMaterialTextures(MTL::RenderCommandEncoder* encoder,
-            const std::vector<TextureSlot>& textureSlots, MetalSamplerCache& samplers);
 
-        /// Clear the material's slots among 0-7 (used when no material is bound). The
-        /// scene slots in that range (2, 6) are bindSceneTextures' to set; 7 is the
-        /// clearcoat intensity map, a material slot. The material sampler slots go back
-        /// to the default sampler.
-        void clearMaterialSlots(MTL::RenderCommandEncoder* encoder);
-        /// Forgets the bound material's sampler states: the next draw's slots 1-6 take the
-        /// default sampler (a material whose maps come from the bindless table binds none).
-        void clearMaterialSamplers() { _materialSamplers.fill(nullptr); }
 
         /// Issue the draw's samplers: `general` at slot 0 and, unless `materialSamplers`
         /// is false (a quad pass, whose shaders declare slot 0 only), each material
         /// sampler slot's recorded sampler, or `materialDefault` where none is recorded.
         /// Every slot a forward or shadow function declares is bound by the first draw
         /// of a pass, so none is ever left unset.
-        void bindDrawSamplers(MTL::RenderCommandEncoder* encoder, MTL::SamplerState* general,
-            MTL::SamplerState* materialDefault, bool materialSamplers);
+        void bindDrawSamplers(MTL::RenderCommandEncoder* encoder, MTL::SamplerState* general);
 
         /// Bind scene-global textures (envAtlas, shadow, sceneDepth, skybox cubemap, reflection, reflectionDepth, ssao).
         void bindSceneTextures(MTL::RenderCommandEncoder* encoder,
@@ -141,9 +109,5 @@ namespace visutwin::canvas
         bool _dirty = true;
         // What the encoder holds at each fragment sampler slot (reset with the pass).
         std::array<MTL::SamplerState*, kSamplerSlotCount> _boundSamplers{};
-        // What the bound material's maps ask for at each material sampler slot; null is
-        // the default sampler. Material state, not encoder state, so it survives a pass
-        // boundary and is re-issued by the next pass's first draw.
-        std::array<MTL::SamplerState*, kMaterialSamplerCount> _materialSamplers{};
     };
 }
