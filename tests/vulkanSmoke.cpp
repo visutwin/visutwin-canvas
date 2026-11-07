@@ -644,7 +644,21 @@ void main() { imageStore(outputTexture, ivec2(0), texelFetch(inputTexture, ivec2
                 texture->upload();
                 descriptorStressTextures.push_back(std::move(texture));
             }
-            Material descriptorStressMaterial;
+            // A material with a block of its own binds its maps by SLOT on the quad rows
+            // (a plain material's maps come from the bindless table, and its set 1 never
+            // changes), so the stress drives set 1 through such a material.
+            class SlotMaterial final : public Material
+            {
+            public:
+                const void* customUniformData(size_t& outSize) const override
+                {
+                    outSize = sizeof(_block);
+                    return _block.data();
+                }
+            private:
+                std::array<float, 4> _block{};
+            };
+            SlotMaterial descriptorStressMaterial;
 
             const std::array compressedFormats = {
                 PixelFormat::PIXELFORMAT_DXT1,

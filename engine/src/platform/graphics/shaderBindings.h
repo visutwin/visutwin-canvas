@@ -57,20 +57,7 @@ namespace visutwin::canvas
     X(displacementMap,    Tex2D,   SeparateImage,   141, 25, 0, 0) \
     X(clearCoatMap,       Tex2D,   SeparateImage,   7,   7,  0, 1) \
     X(clearCoatGlossMap,  Tex2D,   SeparateImage,   13,  13, 0, 1) \
-    X(clearCoatNormalMap, Tex2D,   SeparateImage,   14,  14, 0, 1) \
-    X(glossMap,           Tex2D,   SeparateImage,   31,  31, 0, 1) \
-    X(thicknessMap,       Tex2D,   SeparateImage,   32,  32, 0, 1) \
-    X(refractionMap,      Tex2D,   SeparateImage,   33,  33, 0, 1) \
-    X(opacityMap,         Tex2D,   SeparateImage,   34,  34, 0, 1) \
-    X(anisotropyMap,      Tex2D,   SeparateImage,   42,  35, 0, 1) \
-    X(specularColorMap,   Tex2D,   SeparateImage,   43,  36, 0, 1) \
-    X(specularityFactorMap, Tex2D, SeparateImage,   44,  37, 0, 1) \
-    X(materialEnvAtlas,   Tex2D,   SeparateImage,   45,  38, 0, 1) \
-    X(iridescenceMap,     Tex2D,   SeparateImage,   47,  39, 0, 1) \
-    X(iridescenceThicknessMap, Tex2D, SeparateImage, 48, 40, 0, 1) \
-    X(diffuseTransmissionMap, Tex2D, SeparateImage, 49, 41, 0, 1) \
-    X(diffuseTransmissionColorMap, Tex2D, SeparateImage, 50, 42, 0, 1) \
-    X(planarReflectionMap, Tex2D,  SeparateImage,   51,  43, 0, 1)
+    X(clearCoatNormalMap, Tex2D,   SeparateImage,   14,  14, 0, 1)
 
     // Set 3 on Vulkan: the per-pass scene textures. The VSM moment maps are Metal-only
     // slots: the spot pair because Vulkan rebinds the spot slots 2 / 3 with the linear
@@ -246,8 +233,7 @@ namespace visutwin::canvas
     inline constexpr auto kMaterialTextureBindings =
         shaderBindings::vkBindingsIf<kMaterialBindingRows.size()>(kMaterialBindingRows, shaderBindings::hasVkBinding);
     static_assert(kMaterialTextureBindings ==
-        std::array<uint32_t, 27>{0, 1, 2, 3, 4, 5, 17, 19, 23, 24, 25, 7, 13, 14, 31, 32, 33, 34, 35, 36, 37, 38,
-            39, 40, 41, 42, 43});
+        std::array<uint32_t, 14>{0, 1, 2, 3, 4, 5, 17, 19, 23, 24, 25, 7, 13, 14});
 
     /// The shared sampler every separate material image reads through (set 1).
     inline constexpr uint32_t kMaterialExtraSamplerBinding =
@@ -267,9 +253,6 @@ namespace visutwin::canvas
     static_assert(vulkanMaterialBindingIsSeparateImage(7) && vulkanMaterialBindingIsSeparateImage(13) &&
         vulkanMaterialBindingIsSeparateImage(14) && vulkanMaterialBindingIsSeparateImage(17) &&
         vulkanMaterialBindingIsSeparateImage(23) && vulkanMaterialBindingIsSeparateImage(25) &&
-        vulkanMaterialBindingIsSeparateImage(31) && vulkanMaterialBindingIsSeparateImage(34) &&
-        vulkanMaterialBindingIsSeparateImage(35) && vulkanMaterialBindingIsSeparateImage(36) &&
-        vulkanMaterialBindingIsSeparateImage(37) &&
         !vulkanMaterialBindingIsSeparateImage(0) && !vulkanMaterialBindingIsSeparateImage(19) &&
         !vulkanMaterialBindingIsSeparateImage(24));
 
@@ -367,26 +350,21 @@ namespace visutwin::canvas
         }
         return -1;
     }
-    static_assert(vulkanMaterialBindingForMetalSlot(0) == 0 && vulkanMaterialBindingForMetalSlot(34) == 34 &&
-        vulkanMaterialBindingForMetalSlot(42) == 35 && vulkanMaterialBindingForMetalSlot(43) == 36 &&
-        vulkanMaterialBindingForMetalSlot(44) == 37 && vulkanMaterialBindingForMetalSlot(45) == 38 &&
-        vulkanMaterialBindingForMetalSlot(47) == 39 && vulkanMaterialBindingForMetalSlot(48) == 40 &&
-        vulkanMaterialBindingForMetalSlot(49) == 41 && vulkanMaterialBindingForMetalSlot(50) == 42 &&
+    static_assert(vulkanMaterialBindingForMetalSlot(0) == 0 && vulkanMaterialBindingForMetalSlot(23) == 23 &&
         vulkanMaterialBindingForMetalSlot(kDisplacementMapMetalSlot) == 25 &&
-        vulkanMaterialBindingForMetalSlot(24) == -1 && vulkanMaterialBindingForMetalSlot(35) == -1);
+        vulkanMaterialBindingForMetalSlot(24) == -1 && vulkanMaterialBindingForMetalSlot(35) == -1 &&
+        vulkanMaterialBindingForMetalSlot(34) == -1);
 
     /// Metal fragment texture slots: 0 .. kMetalMaxTextureSlots - 1.
     inline constexpr int kMetalMaxTextureSlots = shaderBindings::maxMetalTextureSlot() + 1;
-    static_assert(kMetalMaxTextureSlots == 52);
+    static_assert(kMetalMaxTextureSlots == 47);
 
     /// The Metal material slots the material binder owns (cleared when a material has no
     /// map there), in table order.
     inline constexpr auto kMetalMaterialTextureSlots =
         shaderBindings::metalSlotsIf<shaderBindings::countIf(kMaterialBindingRows, shaderBindings::isMetalMaterialSlot)>(
             kMaterialBindingRows, shaderBindings::isMetalMaterialSlot);
-    static_assert(kMetalMaterialTextureSlots ==
-        std::array<int, 24>{0, 1, 3, 4, 5, 17, 19, 23, 7, 13, 14, 31, 32, 33, 34, 42, 43, 44, 45, 47, 48, 49,
-            50, 51});
+    static_assert(kMetalMaterialTextureSlots == std::array<int, 11>{0, 1, 3, 4, 5, 17, 19, 23, 7, 13, 14});
 
     /// The material maps read through their texture's own sampler, by Metal texture slot,
     /// in table order: Metal sampler slot 1 + i carries the sampler of slot [i].

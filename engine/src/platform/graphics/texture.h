@@ -90,6 +90,14 @@ namespace visutwin::canvas
         /// 0 after the first upload), so a consumer that copies the content elsewhere (the
         /// clustered cookie atlas) can tell it has changed since its copy.
         uint64_t uploadVersion() const { return _uploadVersion; }
+        /// The texture's index in the bindless table (bindlessResidency.h), taken from the
+        /// process-wide registry the first time it is asked for; never 0. A material packs it
+        /// into its block's map lanes.
+        uint32_t bindlessIndex() const;
+        /// The GPU object behind this texture was recreated (a resize, a render-target use on
+        /// a texture made empty, a backend's in-place replacement): every device's table
+        /// rewrites the entry at its next sync. The backends call it from their recreations.
+        void noteGpuObjectChanged();
         bool needsMipmapsUpload() const { return _needsMipmapsUpload; }
 
         void setNeedsUpload(const bool needsUpload) { _needsUpload = needsUpload; }
@@ -297,6 +305,7 @@ namespace visutwin::canvas
         TextureEncoding _encoding = TextureEncoding::Default;
 
         GraphicsDevice* _device;
+        mutable uint32_t _bindlessIndex = 0;
 
         uint32_t _width;
         uint32_t _height;

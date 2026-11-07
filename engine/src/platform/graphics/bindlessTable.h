@@ -41,6 +41,13 @@ namespace visutwin::canvas
     /// The Vulkan descriptor set: the eighth, after the seven of the draw layout (MoltenVK
     /// allows exactly eight).
     inline constexpr uint32_t kBindlessTableVulkanSet = 7;
+    /// The table's array sizes, the same on every device and in every program (the Metal
+    /// table is sized at compile time; tools/generate_shader_bindings.py reads these two
+    /// lines into bindings.slang). Their sum is bounded by what one Vulkan descriptor SET may
+    /// hold (`maxPerSetDescriptors`, 1212 on MoltenVK 1.4.2, whatever the per-stage
+    /// after-bind limits say), and there is exactly one set: 1024 + 64 fits, 4096 did not.
+    inline constexpr uint32_t kBindlessTableTextureCapacity = 1024;
+    inline constexpr uint32_t kBindlessTableSamplerCapacity = 64;
 
     /// What a table holds: entry i of each array. A null texture leaves its entry unbound,
     /// which a program must not read. Both arrays must fit the device's capacities.

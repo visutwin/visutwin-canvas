@@ -325,9 +325,9 @@ namespace visutwin::canvas
             spdlog::error("VulkanGraphicsDevice: bindless tables need descriptor indexing");
             return nullptr;
         }
-        if (desc.textures.size() > _bindlessTextureCapacity || desc.samplers.size() > kBindlessSamplers) {
+        if (desc.textures.size() > kBindlessTableTextureCapacity || desc.samplers.size() > kBindlessTableSamplerCapacity) {
             spdlog::error("VulkanGraphicsDevice: bindless table of {} textures / {} samplers exceeds {} / {}",
-                desc.textures.size(), desc.samplers.size(), _bindlessTextureCapacity, kBindlessSamplers);
+                desc.textures.size(), desc.samplers.size(), kBindlessTableTextureCapacity, kBindlessTableSamplerCapacity);
             return nullptr;
         }
         auto table = std::make_shared<VulkanBindlessTable>();
@@ -335,8 +335,8 @@ namespace visutwin::canvas
 
         // Its own pool: the set lives as long as the table, not a frame.
         std::array<VkDescriptorPoolSize, 2> poolSizes{};
-        poolSizes[0] = {VK_DESCRIPTOR_TYPE_SAMPLER, kBindlessSamplers};
-        poolSizes[1] = {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, _bindlessTextureCapacity};
+        poolSizes[0] = {VK_DESCRIPTOR_TYPE_SAMPLER, kBindlessTableSamplerCapacity};
+        poolSizes[1] = {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kBindlessTableTextureCapacity};
         VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
         poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
         poolInfo.maxSets = 1;
@@ -356,25 +356,10 @@ namespace visutwin::canvas
             return nullptr;
         }
 
-        // The samplers: the state's filters and wrap modes, as VulkanTexture::createSampler
-        // builds a texture's own, without anisotropy.
-        const auto toVkFilter = [](const TextureSamplerState::Filter filter) {
-            return filter == TextureSamplerState::Filter::Nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
-        };
         std::vector<VkDescriptorImageInfo> samplerInfos;
         for (const TextureSamplerState& state : desc.samplers) {
-            VkSamplerCreateInfo samplerInfo{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-            samplerInfo.magFilter = toVkFilter(state.magFilter);
-            samplerInfo.minFilter = toVkFilter(state.minFilter);
-            samplerInfo.mipmapMode = state.mipFilter == TextureSamplerState::Filter::Nearest
-                ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR;
-            samplerInfo.addressModeU = vulkanMapAddressMode(state.addressU);
-            samplerInfo.addressModeV = vulkanMapAddressMode(state.addressV);
-            samplerInfo.addressModeW = vulkanMapAddressMode(state.addressW);
-            samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
-            VkSampler sampler = VK_NULL_HANDLE;
-            if (vkCreateSampler(_device, &samplerInfo, nullptr, &sampler) != VK_SUCCESS) {
-                spdlog::error("VulkanGraphicsDevice: bindless sampler creation failed");
+            const VkSampler sampler = createBindlessSampler(state);
+            if (sampler == VK_NULL_HANDLE) {
                 return nullptr;
             }
             table->samplers.push_back(sampler);
@@ -421,7 +406,7 @@ namespace visutwin::canvas
             vkUpdateDescriptorSets(_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
         }
         spdlog::info("Vulkan bindless table: {} textures and {} samplers in an update-after-bind set "
-            "(capacity {} / {})", imageInfos.size(), samplerInfos.size(), _bindlessTextureCapacity, kBindlessSamplers);
+            "(capacity {} / {})", imageInfos.size(), samplerInfos.size(), kBindlessTableTextureCapacity, kBindlessTableSamplerCapacity);
         return table;
     }
 
@@ -434,6 +419,184 @@ namespace visutwin::canvas
     {
         if (auto* table = static_cast<VulkanBindlessTable*>(_bindlessTable)) {
             bindSetIfChanged(cmd, kBindlessTableVulkanSet, table->set);
+            return;
+        }
+        if (const VkDescriptorSet set = _bindlessFrames[_frameIndex].set; set != VK_NULL_HANDLE) {
+            bindSetIfChanged(cmd, kBindlessTableVulkanSet, set);
+        }
+    }
+
+    VkSampler VulkanGraphicsDevice::createBindlessSampler(const TextureSamplerState& state)
+    {
+        // The state's filters and wrap modes, as VulkanTexture::createSampler builds a
+        // texture's own; the anisotropy clamped to this device's.
+        const auto toVkFilter = [](const TextureSamplerState::Filter filter) {
+            return filter == TextureSamplerState::Filter::Nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+        };
+        VkSamplerCreateInfo samplerInfo{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+        samplerInfo.magFilter = toVkFilter(state.magFilter);
+        samplerInfo.minFilter = toVkFilter(state.minFilter);
+        samplerInfo.mipmapMode = state.mipFilter == TextureSamplerState::Filter::Nearest
+            ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        samplerInfo.addressModeU = vulkanMapAddressMode(state.addressU);
+        samplerInfo.addressModeV = vulkanMapAddressMode(state.addressV);
+        samplerInfo.addressModeW = vulkanMapAddressMode(state.addressW);
+        samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
+        const float anisotropy = std::min(state.maxAnisotropy, maxAnisotropy());
+        samplerInfo.anisotropyEnable = anisotropy > 1.0f ? VK_TRUE : VK_FALSE;
+        samplerInfo.maxAnisotropy = std::max(anisotropy, 1.0f);
+        VkSampler sampler = VK_NULL_HANDLE;
+        if (vkCreateSampler(_device, &samplerInfo, nullptr, &sampler) != VK_SUCCESS) {
+            spdlog::error("VulkanGraphicsDevice: bindless sampler creation failed");
+            return VK_NULL_HANDLE;
+        }
+        return sampler;
+    }
+
+    bool VulkanGraphicsDevice::createBindlessFrameTables()
+    {
+        const VkDescriptorSetLayout layout = _renderPipeline ? _renderPipeline->bindlessSetLayout() : VK_NULL_HANDLE;
+        if (layout == VK_NULL_HANDLE) {
+            return false;
+        }
+        std::array<VkDescriptorPoolSize, 2> poolSizes{};
+        poolSizes[0] = {VK_DESCRIPTOR_TYPE_SAMPLER, kBindlessTableSamplerCapacity * kMaxFramesInFlight};
+        poolSizes[1] = {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kBindlessTableTextureCapacity * kMaxFramesInFlight};
+        VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+        poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
+        poolInfo.maxSets = kMaxFramesInFlight;
+        poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+        poolInfo.pPoolSizes = poolSizes.data();
+        if (vkCreateDescriptorPool(_device, &poolInfo, nullptr, &_bindlessFramePool) != VK_SUCCESS) {
+            return false;
+        }
+        for (auto& frame : _bindlessFrames) {
+            VkDescriptorSetAllocateInfo allocInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+            allocInfo.descriptorPool = _bindlessFramePool;
+            allocInfo.descriptorSetCount = 1;
+            allocInfo.pSetLayouts = &layout;
+            if (vkAllocateDescriptorSets(_device, &allocInfo, &frame.set) != VK_SUCCESS) {
+                return false;
+            }
+            frame.synced.assign(kBindlessTableTextureCapacity, UINT64_MAX);   // nothing written yet
+            frame.samplerGeneration = 0;
+            frame.samplersWritten = 0;
+        }
+        return true;
+    }
+
+    void VulkanGraphicsDevice::destroyBindlessFrameTables()
+    {
+        if (_device == VK_NULL_HANDLE) {
+            return;
+        }
+        for (const VkSampler sampler : _bindlessSamplers) {
+            vkDestroySampler(_device, sampler, nullptr);
+        }
+        _bindlessSamplers.clear();
+        if (_bindlessFramePool != VK_NULL_HANDLE) {
+            vkDestroyDescriptorPool(_device, _bindlessFramePool, nullptr);
+            _bindlessFramePool = VK_NULL_HANDLE;
+        }
+        for (auto& frame : _bindlessFrames) {
+            frame = {};
+        }
+    }
+
+    void VulkanGraphicsDevice::syncBindlessTable()
+    {
+        BindlessFrameTable& frame = _bindlessFrames[_frameIndex];
+        if (frame.set == VK_NULL_HANDLE) {
+            return;
+        }
+        constexpr uint32_t kTextures = kBindlessTableTextureCapacity;
+        constexpr uint32_t kSamplers = kBindlessTableSamplerCapacity;
+        static std::vector<VkWriteDescriptorSet> writes;
+        static std::vector<VkDescriptorImageInfo> infos;
+        writes.clear();
+        infos.clear();
+        infos.reserve(kTextures + kSamplers);
+
+        // Samplers: created once per registry index; this slot writes the ones it lacks.
+        if (const uint64_t generation = BindlessSamplers::generation(); generation != frame.samplerGeneration) {
+            if (_bindlessSamplerStates.size() < kSamplers || _bindlessSamplers.size() < _bindlessSamplerStates.size()) {
+                BindlessSamplers::snapshot(_bindlessSamplerStates);
+            }
+            for (size_t i = _bindlessSamplers.size(); i < _bindlessSamplerStates.size() && i < kSamplers; ++i) {
+                const VkSampler sampler = createBindlessSampler(_bindlessSamplerStates[i]);
+                if (sampler == VK_NULL_HANDLE) {
+                    break;
+                }
+                _bindlessSamplers.push_back(sampler);
+            }
+            if (_bindlessSamplerStates.size() > kSamplers) {
+                static bool warned = false;
+                if (!warned) {
+                    warned = true;
+                    spdlog::error("VulkanGraphicsDevice: {} sampler states exceed the bindless table's {}",
+                        _bindlessSamplerStates.size(), kSamplers);
+                }
+            }
+            for (size_t i = frame.samplersWritten; i < _bindlessSamplers.size(); ++i) {
+                infos.push_back({_bindlessSamplers[i], VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED});
+                VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                write.dstSet = frame.set;
+                write.dstBinding = 0;
+                write.dstArrayElement = static_cast<uint32_t>(i);
+                write.descriptorCount = 1;
+                write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+                writes.push_back(write);
+            }
+            frame.samplersWritten = _bindlessSamplers.size();
+            frame.samplerGeneration = generation;
+        }
+
+        // Textures: the entries this slot has not written at their current version. The
+        // snapshot is shared by the slots; it is retaken when the registry moved.
+        if (const uint64_t generation = BindlessResidency::generation(); generation != _bindlessGeneration) {
+            BindlessResidency::snapshot(_bindlessSnapshot);
+            if (_bindlessSnapshot.size() > kTextures) {
+                static bool warned = false;
+                if (!warned) {
+                    warned = true;
+                    spdlog::error("VulkanGraphicsDevice: {} bindless indices exceed the table's {}; the rest read white",
+                        _bindlessSnapshot.size(), kTextures);
+                }
+            }
+            _bindlessGeneration = generation;
+        }
+        for (uint32_t i = 0; i < kTextures; ++i) {
+            const uint64_t version = i < _bindlessSnapshot.size() ? _bindlessSnapshot[i].version : 0;
+            if (frame.synced[i] == version) {
+                continue;
+            }
+            VkImageView view = VK_NULL_HANDLE;
+            if (i < _bindlessSnapshot.size()) {
+                const Texture* texture = _bindlessSnapshot[i].texture;
+                if (texture && texture->device() == this) {
+                    if (auto* vkTex = static_cast<gpu::VulkanTexture*>(texture->impl())) {
+                        view = vkTex->imageView();
+                    }
+                }
+            }
+            infos.push_back({VK_NULL_HANDLE, view != VK_NULL_HANDLE ? view : _whiteImageView,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
+            VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            write.dstSet = frame.set;
+            write.dstBinding = 1;
+            write.dstArrayElement = i;
+            write.descriptorCount = 1;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            writes.push_back(write);
+            frame.synced[i] = version;
+        }
+        // The infos vector is stable now: point each write at its info.
+        size_t infoIndex = 0;
+        for (auto& write : writes) {
+            write.pImageInfo = &infos[infoIndex++];
+        }
+        if (!writes.empty()) {
+            vkUpdateDescriptorSets(_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
         }
     }
 }

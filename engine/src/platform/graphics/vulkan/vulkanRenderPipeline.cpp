@@ -86,8 +86,12 @@ namespace visutwin::canvas
                             ((reflected.binding < 2 && storage) ||
                              (reflected.binding == 2 && uniform && reflected.blockBytes == 80));
                         const bool validCluster = reflected.set == 5 && reflected.binding < 2 && storage;
+                        // The bindless table (bindlessTable.h): the samplers at binding 0, the
+                        // images at binding 1.
+                        const bool validBindless = reflected.set == kBindlessTableVulkanSet &&
+                            ((reflected.binding == 0 && separateSampler) || (reflected.binding == 1 && separateImage));
                         if (!validMaterial && !validLighting && !validMaterialTexture && !validSceneTexture &&
-                            !validGeometry && !validCluster) {
+                            !validGeometry && !validCluster && !validBindless) {
                             throw std::runtime_error("VulkanRenderPipeline: " + std::string(programName) + ":" +
                                 std::string(entry.name) + " declares '" + std::string(reflected.name) +
                                 "' at set " + std::to_string(reflected.set) + " binding " +

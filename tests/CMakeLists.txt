@@ -218,6 +218,10 @@ visutwin_add_unit_test(visutwin-event-handler-off-tests event-handler-off eventH
 visutwin_add_unit_test(visutwin-event-handler-dispatch-tests event-handler-dispatch eventHandlerDispatchTests.cpp)
 visutwin_add_unit_test(visutwin-engine-update-tests engine-update engineUpdateTests.cpp)
 visutwin_add_unit_test(visutwin-texture-outlives-device-tests texture-outlives-device textureOutlivesDeviceTests.cpp)
+# The bindless table's process-wide residency and the material map lanes
+# (tests/bindlessResidencyTests.cpp): indices, versions on recreation and release, the
+# sampler registry, lanes packed from a material's slots and an instance's lightmap.
+visutwin_add_unit_test(visutwin-bindless-residency-tests bindless-residency bindlessResidencyTests.cpp)
 visutwin_add_unit_test(visutwin-resources-outlive-device-tests resources-outlive-device resourcesOutliveDeviceTests.cpp)
 visutwin_add_unit_test(visutwin-sky-material-tests sky-material skyMaterialTests.cpp)
 visutwin_add_unit_test(visutwin-clip-planes-tests clip-planes clipPlanesTests.cpp)

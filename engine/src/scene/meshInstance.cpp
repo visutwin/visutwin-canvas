@@ -56,7 +56,7 @@ namespace visutwin::canvas
         if (cameraClip && cameraClip->empty()) {
             cameraClip = nullptr;
         }
-        if ((_parameters.empty() && _clip.empty() && !cameraClip) || !material) {
+        if ((_parameters.empty() && _clip.empty() && !cameraClip && !_lightMap) || !material) {
             return nullptr;
         }
         const uint64_t clipVersion = _clip.version();
@@ -65,7 +65,7 @@ namespace visutwin::canvas
         const MaterialUniforms& base = material->packedUniforms();
         if (!_overrideBlock || _parametersChanged || material != _overrideMaterial ||
             material->uniformsVersion() != _overrideMaterialVersion || clipVersion != _overrideClipVersion ||
-            cameraClipVersion != _overrideCameraClipVersion) {
+            cameraClipVersion != _overrideCameraClipVersion || _lightMap.get() != _overrideLightMap) {
             if (!_overrideBlock) {
                 _overrideBlock = std::make_unique<MaterialUniforms>();
             }
@@ -79,6 +79,11 @@ namespace visutwin::canvas
                 _overrideBlock->clipParams[2] = static_cast<float>(cameraClip->planes().size());
                 _overrideBlock->clipParams[3] = cameraClip->intersection() ? 1.0f : 0.0f;
             }
+            // The instance's own lightmap (a bake) goes over the material's, in its lane.
+            if (_lightMap) {
+                Material::packMapLane(*_overrideBlock, kLightMapTextureSlot, _lightMap.get());
+            }
+            _overrideLightMap = _lightMap.get();
             _overrideMaterial = material;
             _overrideMaterialVersion = material->uniformsVersion();
             _overrideClipVersion = clipVersion;

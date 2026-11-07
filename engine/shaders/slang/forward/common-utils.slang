@@ -71,9 +71,8 @@ float4 planarCubicWeights(float v)
 // shows its texels.
 float3 samplePlanarBicubic(float2 uv, float level)
 {
-    uint width, height, levels;
-    planarReflectionMap.GetDimensions(uint(level), width, height, levels);
-    const float2 size = float2(max(width, 1u), max(height, 1u));
+    const int2 mapSize = sizePlanarReflectionMap(int(level));
+    const float2 size = float2(max(mapSize.x, 1), max(mapSize.y, 1));
     float2 texel = uv * size - 0.5;
     const float2 f = frac(texel);
     texel -= f;
@@ -84,10 +83,10 @@ float3 samplePlanarBicubic(float2 uv, float level)
     const float4 s = float4(wx.xz + wx.yw, wy.xz + wy.yw);
     const float4 offset = (c + float4(wx.yw, wy.yw) / s) / size.xxyy;
 
-    const float3 s0 = decodePlanarReflection(planarReflectionMap.SampleLevel(materialSampler, offset.xz, level));
-    const float3 s1 = decodePlanarReflection(planarReflectionMap.SampleLevel(materialSampler, offset.yz, level));
-    const float3 s2 = decodePlanarReflection(planarReflectionMap.SampleLevel(materialSampler, offset.xw, level));
-    const float3 s3 = decodePlanarReflection(planarReflectionMap.SampleLevel(materialSampler, offset.yw, level));
+    const float3 s0 = decodePlanarReflection(samplePlanarReflectionMapLevel(offset.xz, level));
+    const float3 s1 = decodePlanarReflection(samplePlanarReflectionMapLevel(offset.yz, level));
+    const float3 s2 = decodePlanarReflection(samplePlanarReflectionMapLevel(offset.xw, level));
+    const float3 s3 = decodePlanarReflection(samplePlanarReflectionMapLevel(offset.yw, level));
 
     const float sx = s.x / (s.x + s.y);
     const float sy = s.z / (s.z + s.w);
@@ -113,7 +112,7 @@ float3 samplePlanarReflectionMap(float3 worldPos, float3 reflDir, float gloss)
 
     float3 reflection;
     if (level < 1.0) {
-        reflection = decodePlanarReflection(planarReflectionMap.SampleLevel(materialSampler, uv, 0.0));
+        reflection = decodePlanarReflection(samplePlanarReflectionMapLevel(uv, 0.0));
     } else {
         reflection = samplePlanarBicubic(uv, level);
     }
@@ -153,7 +152,7 @@ bool envAvailable() {
 
 float3 envFetch(float2 uv) {
     if (envFromMaterial()) {
-        return decodeEnvAs(materialEnvAtlas.SampleLevel(linearClampSampler, uv, 0.0),
+        return decodeEnvAs(VT_BINDLESS_TEXTURE(VT_MATERIAL_LANE(VT_MAP_LANE_materialEnvAtlas)).SampleLevel(linearClampSampler, uv, 0.0),
             uint(material.envBoxMin.w + 0.5));
     }
     return decodeEnv(envAtlas.Sample(uv));

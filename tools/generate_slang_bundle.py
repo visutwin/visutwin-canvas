@@ -110,6 +110,16 @@ def reflected_parameters(json_path: Path) -> dict[str, tuple[str, int]]:
         if binding.get("kind") == "pushConstantBuffer":
             out["@push"] = ("PushConstant", size)
             continue
+        if type_info.get("kind") == "parameterBlock":
+            # A parameter block (the bindless table, bindlessTable.h) is a descriptor set of
+            # its own; each field is one descriptor of it, named `<block>.<field>` in the
+            # SPIR-V, an array's kind that of its element.
+            for field in type_info.get("elementType", {}).get("fields", []):
+                field_type = field["type"]
+                while field_type.get("kind") == "array":
+                    field_type = field_type["elementType"]
+                out[f"{param['name']}.{field['name']}"] = (descriptor_kind(field_type), 0)
+            continue
         out[param["name"]] = (descriptor_kind(type_info), size)
     return out
 

@@ -37,12 +37,12 @@ void applyShadowOpacity(ForwardVertexOut input)
     if ((material.flags & FLAG_HAS_BASECOLOR) != 0u) {
         const float2 uvBase = applyUvTransform(uv1 ? input.uv1 : input.uv0, material.baseColorTransform0,
             material.baseColorTransform1);
-        alpha *= baseColorMap.Sample(uvBase).a;
+        alpha *= sampleBaseColorMap(uvBase).a;
     }
     if ((material.flags & (1u << 19)) != 0u) {
         const float2 uvOpacity = applyUvTransform(uv1 ? input.uv1 : input.uv0, material.opacityTransform0,
             material.opacityTransform1);
-        alpha *= opacityMap.Sample(materialSampler, uvOpacity)[int(material.opacityTransform0.w)];
+        alpha *= sampleOpacityMap(uvOpacity)[int(material.opacityTransform0.w)];
     }
     if (alphaTest && (material.flags & FLAG_ALPHA_TEST) != 0u && alpha < material.alphaCutoff) {
         discard;

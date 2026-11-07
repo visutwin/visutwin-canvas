@@ -184,9 +184,9 @@ def quad_inputs(material: list[BindingRow], extra: list[str]) -> list[str]:
     return lines
 
 
-MATERIAL_FIELD_RE = re.compile(r'X\(\s*(vec4x8|vec4|float|uint)\s*,\s*(\w+)\s*,')
-SLANG_TYPE_OF_FIELD = {"vec4": "float4", "vec4x8": "float4", "float": "float", "uint": "uint"}
-ARRAY_OF_FIELD = {"vec4x8": "[8]"}
+MATERIAL_FIELD_RE = re.compile(r'X\(\s*(vec4x8|vec4|float|uint4x7|uint)\s*,\s*(\w+)\s*,')
+SLANG_TYPE_OF_FIELD = {"vec4": "float4", "vec4x8": "float4", "float": "float", "uint": "uint", "uint4x7": "uint4"}
+ARRAY_OF_FIELD = {"vec4x8": "[8]", "uint4x7": "[7]"}
 
 
 def material_block(fields_header: Path) -> list[str]:
@@ -203,6 +203,47 @@ def material_block(fields_header: Path) -> list[str]:
         lines.append(f"    {SLANG_TYPE_OF_FIELD[shader_type]} {name}{ARRAY_OF_FIELD.get(shader_type, '')};")
     lines += ["};",
               "#define VT_DECLARE_MATERIAL_DATA [[vk::binding(0, 0)]] ConstantBuffer<MaterialData> material : register(b3);"]
+    return lines
+
+
+MAP_LANE_RE = re.compile(r'X\(\s*(\w+)\s*,\s*(\d+)\s*,\s*([01])\s*\)')
+CAPACITY_RE = re.compile(r'kBindlessTable(Texture|Sampler)Capacity\s*=\s*(\d+)')
+TABLE_SLOT_RE = re.compile(r'kBindlessTableMetalBufferSlot\s*=\s*(\d+)')
+TABLE_SET_RE = re.compile(r'kBindlessTableVulkanSet\s*=\s*(\d+)')
+
+
+def bindless_table(table_header: Path, lanes_header: Path) -> list[str]:
+    """The bindless table (bindlessTable.h) every material program declares in place of the
+    material map rows, sized by the two capacities there, and the map LANES
+    (materialMapLanes.h) a program indexes the material block's mapLanes with. Metal needs
+    the arrays sized (an unbounded one is a flexible array member Apple's compiler rejects),
+    so the table is one parameter block, samplers first."""
+    text = table_header.read_text()
+    capacities = dict(CAPACITY_RE.findall(text))
+    slot = TABLE_SLOT_RE.search(text)
+    vk_set = TABLE_SET_RE.search(text)
+    if "Texture" not in capacities or "Sampler" not in capacities or not slot or not vk_set:
+        raise RuntimeError(f"{table_header}: the table's capacities, slot and set were not found")
+    lanes = MAP_LANE_RE.findall(lanes_header.read_text())
+    if not lanes:
+        raise RuntimeError(f"{lanes_header}: no map lanes")
+    lines = ["", f"// ---- The bindless table ({table_header.name}): Metal buffer {slot.group(1)} on both stages,",
+             f"// Vulkan set {vk_set.group(1)}; samplers at binding 0, textures at binding 1. ----",
+             "struct VtBindlessTable",
+             "{",
+             f"    SamplerState samplers[{capacities['Sampler']}];",
+             f"    Texture2D textures[{capacities['Texture']}];",
+             "};",
+             f"#define VT_DECLARE_BINDLESS_TABLE [[vk::binding(0, {vk_set.group(1)})]] "
+             f"ParameterBlock<VtBindlessTable> vtBindless : register(b{slot.group(1)});",
+             "// A material block lane: the texture index in the low 24 bits, the sampler index above.",
+             "#define VT_BINDLESS_TEXTURE(lane) vtBindless.textures[(lane) & 0xFFFFFFu]",
+             "#define VT_BINDLESS_SAMPLER(lane) vtBindless.samplers[(lane) >> 24u]",
+             "// Lane i of the material block (MaterialUniforms::mapLanes, 7 uint4).",
+             "#define VT_MATERIAL_LANE(i) material.mapLanes[(i) >> 2u][(i) & 3u]",
+             f"// ---- The map lanes ({lanes_header.name}), by the map's name ----"]
+    for index, (name, _slot, _own) in enumerate(lanes):
+        lines.append(f"#define VT_MAP_LANE_{name} {index}u")
     return lines
 
 
@@ -239,6 +280,9 @@ def main() -> None:
                         help="materialUniformFields.h; emits struct MaterialData when given")
     parser.add_argument("--features", type=Path,
                         help="shaderFeatures.h; emits the feature words when given")
+    parser.add_argument("--bindless", type=Path,
+                        help="bindlessTable.h; with --map-lanes emits the bindless table and the map lanes")
+    parser.add_argument("--map-lanes", type=Path, help="materialMapLanes.h")
     args = parser.parse_args()
 
     material, scene = read_bindings(args.bindings)
@@ -264,6 +308,8 @@ def main() -> None:
         out += declaration(row, SCENE_SET, None)
     if args.material_fields:
         out += material_block(args.material_fields)
+    if args.bindless and args.map_lanes:
+        out += bindless_table(args.bindless, args.map_lanes)
     if args.features:
         out += feature_words(args.features)
     out.append("")

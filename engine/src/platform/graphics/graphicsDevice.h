@@ -52,7 +52,7 @@ namespace visutwin::canvas
      * shader can never read past its own allocation. MaterialUniforms itself is
      * 1056 bytes.
      */
-    inline constexpr size_t kPerDrawUniformCapacity = 1056;
+    inline constexpr size_t kPerDrawUniformCapacity = 1168;
 
     class Compute;
     class Texture;

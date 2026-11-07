@@ -378,6 +378,7 @@ namespace visutwin::canvas::gpu
                 releaseImageResources();
                 return;
             }
+            _owner->noteGpuObjectChanged();
             _imageShape = currentShape();
         }
 

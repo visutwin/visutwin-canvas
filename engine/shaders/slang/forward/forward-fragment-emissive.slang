@@ -12,7 +12,7 @@
         // Missing this made every emissive surface here about 2.3x too bright in
         // linear terms.
         // A map in a float format stores linear colours already (a render target a pass drew).
-        const float3 emissiveSample = emissiveMap.Sample(uvEmissive).rgb;
+        const float3 emissiveSample = sampleEmissiveMap(uvEmissive).rgb;
         emissive *= vtFeatureEnabled(VT_FEATURE_EMISSIVE_MAP_LINEAR_BIT) ? emissiveSample : srgbToLinear(emissiveSample);
     }
     // `emissiveVertexColor` (bit 23): the vertex color tints emissive.

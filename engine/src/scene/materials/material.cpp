@@ -8,6 +8,10 @@
 #include <spdlog/spdlog.h>
 
 #include "material.h"
+#include <cstring>
+#include "materialMapLanes.h"
+#include "platform/graphics/bindlessResidency.h"
+#include "platform/graphics/textureSamplerState.h"
 #include "materialParameterRead.h"
 
 #include <atomic>
@@ -135,9 +139,36 @@ namespace visutwin::canvas
         return _cachedUniforms;
     }
 
+    void Material::packMapLane(MaterialUniforms& uniforms, const int slot, const Texture* texture)
+    {
+        const int lane = materialMapLaneForSlot(slot);
+        if (lane < 0) {
+            return;
+        }
+        uint32_t value = 0;
+        if (texture) {
+            // A combined row's map keeps its texture's own wrap and filter; every other map
+            // reads through the default state, as the binders bound them before the table.
+            const uint32_t sampler = materialMapLaneOwnSampler(static_cast<uint32_t>(lane))
+                ? BindlessSamplers::indexOf(textureSamplerState(*texture, BindlessSamplers::kAnisotropy))
+                : 0u;
+            value = packBindlessLane(texture->bindlessIndex(), sampler);
+        }
+        uniforms.mapLanes[lane >> 2][lane & 3] = value;
+    }
+
     void Material::packAll(MaterialUniforms& uniforms) const
     {
         updateUniforms(uniforms);
+        // The map lanes, from the same slot list both binders read: every lane starts at 0
+        // (no map) and each slot with a lane writes its own.
+        std::memset(uniforms.mapLanes, 0, sizeof(uniforms.mapLanes));
+        static thread_local std::vector<TextureSlot> laneSlots;
+        laneSlots.clear();
+        getTextureSlots(laneSlots);
+        for (const auto& [slot, texture] : laneSlots) {
+            packMapLane(uniforms, slot, texture);
+        }
         if (_pickPass) {
             uniforms.baseColor[0] = _pickColor.r;
             uniforms.baseColor[1] = _pickColor.g;

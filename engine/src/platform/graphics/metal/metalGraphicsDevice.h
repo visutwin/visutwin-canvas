@@ -23,6 +23,8 @@
 #include "metalFrameGate.h"
 #include "metalPaletteRingBuffer.h"
 #include "metalSamplerCache.h"
+#include "platform/graphics/bindlessResidency.h"
+#include "platform/graphics/bindlessTable.h"
 #include "metalTextureBinder.h"
 #include "metalUniformBinder.h"
 #include "metalUniformRingBuffer.h"
@@ -194,11 +196,12 @@ namespace visutwin::canvas
         std::shared_ptr<RenderTarget> createRenderTarget(const RenderTargetOptions& options) override;
         bool supportsCompute() const override { return true; }
 
-        // EXPERIMENTAL bindless table (bindlessTable.h): one argument buffer of GPU
-        // resource ids at buffer slot kBindlessTableMetalBufferSlot, both stages.
+        // The bindless table (bindlessTable.h): one argument buffer of GPU resource ids at
+        // buffer slot kBindlessTableMetalBufferSlot, both stages; the engine's own per
+        // in-flight frame, synced from the registry (bindlessResidency.h) at frame start.
         bool supportsBindlessTextures() const override;
-        uint32_t bindlessTextureCapacity() const override { return kBindlessTextures; }
-        uint32_t bindlessSamplerCapacity() const override { return kBindlessSamplers; }
+        uint32_t bindlessTextureCapacity() const override { return kBindlessTableTextureCapacity; }
+        uint32_t bindlessSamplerCapacity() const override { return kBindlessTableSamplerCapacity; }
         std::shared_ptr<BindlessTable> createBindlessTable(const BindlessTableDesc& desc) override;
         void setBindlessTable(BindlessTable* table) override;
         void computeDispatch(const std::vector<Compute*>& computes, const std::string& label = "") override;
@@ -432,12 +435,29 @@ namespace visutwin::canvas
         // class _gpuProfiler for the public accessor.
         std::shared_ptr<gpu::MetalGpuProfiler> _metalGpuProfiler;
 
-        // EXPERIMENTAL bindless table: the one set, and the one the open encoder has
-        // bound (forgotten with the encoder by resetEncoderStateCache). Not one-shot.
-        static constexpr uint32_t kBindlessTextures = 1024;
-        static constexpr uint32_t kBindlessSamplers = 16;
+        // The bindless table. A table set with setBindlessTable (a test's) goes over the
+        // engine's while set; otherwise every draw binds the frame's table, one argument
+        // buffer per in-flight frame rewritten whole at frame start from the master id
+        // array, which follows the registry's versions (syncBindlessTable). An index with no
+        // texture of this device holds the white 1x1. Samplers are created once per registry
+        // index and never freed before the device. What the open encoder has bound is
+        // remembered by key and forgotten with the encoder (resetEncoderStateCache).
         BindlessTable* _bindlessTable = nullptr;
-        BindlessTable* _encoderBindlessTable = nullptr;
+        const void* _encoderBindlessKey = nullptr;
+        std::array<MTL::Buffer*, MetalUniformRingBuffer::kMaxInflightFrames> _bindlessFrameBuffers{};
+        size_t _bindlessFrameSlot = 0;
+        std::vector<MTL::ResourceID> _bindlessIds;              // samplers, then textures
+        std::vector<uint64_t> _bindlessVersions;                // per texture index
+        std::vector<MTL::Texture*> _bindlessTextures;           // per texture index (borrowed)
+        std::vector<BindlessResidency::Entry> _bindlessSnapshot;
+        std::vector<TextureSamplerState> _bindlessSamplerStates;
+        uint64_t _bindlessGeneration = 0;
+        uint64_t _bindlessSamplerGeneration = 0;
+        std::vector<MTL::SamplerState*> _bindlessSamplers;      // owned
+        std::vector<MTL::Resource*> _bindlessResident;          // the live textures
+        MTL::Texture* _bindlessWhite = nullptr;                 // owned
+        void syncBindlessTable();
+        void releaseBindlessTable();
         void bindBindlessTable(MTL::RenderCommandEncoder* passEncoder);
 
         // Gaussian splat state: set by setGSplatState(), consumed by draw().
@@ -519,7 +539,6 @@ namespace visutwin::canvas
         MetalTextureBinder _textureBinder;
         // The instance lightmap the material slots were last bound with, so a draw
         // that keeps the material but changes it still rebinds (see draw()).
-        Texture* _boundInstanceLightMap = nullptr;
 
         // LTC area-light lookup textures (slots 20/21), owned by the renderer.
         Texture* _areaLightLut1 = nullptr;

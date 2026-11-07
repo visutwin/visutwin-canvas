@@ -1957,9 +1957,10 @@ indexing is on, `VulkanRenderPipeline::bindlessSetLayout`). What the spike found
   after the build spent 21 s between the shader's creation and the table's (the second run
   took 2 s in all); not reproduced.
 - **What makes the full replacement harder than the note above assumed.** (1) With set 7
-  the last one on MoltenVK, the material rows cannot sit BESIDE a table: set 1 itself has to
-  become the bindless set, with the quad inputs and the per-texture samplers moving into it,
-  and the scene rows (set 3) staying. (2) A Metal table is sized at COMPILE time, so the
+  the last one on MoltenVK there is exactly ONE table, the one the spike adds, so everything
+  that leaves the rows has to share it: the material maps first (set 1 then keeps only the quad
+  inputs and the shared samplers), the quad inputs in a later phase, and the scene rows (set 3)
+  stay. (2) A Metal table is sized at COMPILE time, so the
   capacity is a define the bundle builds every program with (one constant per build), and a
   table bigger than it needs a rebuild. (3) A table names the textures' GPU objects at creation:
   a texture recreated afterwards (a render target made over it, a resize, a Vulkan re-upload at
@@ -1972,6 +1973,96 @@ indexing is on, `VulkanRenderPipeline::bindlessSetLayout`). What the spike found
   `markUniformsDirty` is a trap. (5) The WebGPU backend: wgpu's binding arrays are a native
   feature, not in the browser standard, so that backend would need the slot path kept as its
   fallback; verify before counting on it.
+
+**Phase 1 design (2026-11-06): the forward and shadow programs' material maps through the
+table.** The decisions, each with its reason, before the code:
+
+- **Scope.** Every map the forward and shadow programs sample (the 25 of
+  `forward-fragment-head.slang`, the displacement map in the vertex stage included) is read from
+  the bindless table by an index in the material block. The binding table keeps the rows a
+  QUAD pass or a CUSTOM-BLOCK material uses — the eight quad input rows, the shared sampler
+  row and the four quad extra rows (`VT_QUAD_EXTRA_INPUTS`) — and retires the thirteen rows
+  only the forward program read (the scalar maps, the opacity, anisotropy, specular,
+  iridescence, diffuse-transmission and planar-reflection maps and the material's env atlas,
+  not the vertex-stage displacement row, which a custom program's chunk still declares). A
+  material with a block of its own
+  (`customUniformData`: the water, the HUD's `render2d`, the gizmos, the particles, the
+  dynamic sky, the grid) keeps binding its maps by SLOT on the quad rows, because its block
+  has no lanes for indices; giving those programs lanes is phase 2, and until then the Metal
+  binder keeps sampler slots 1-6 for such a draw alone.
+- **Residency is process-wide, the tables per device.** A `Texture` is given a bindless
+  index the first time a material packs it (`Texture::bindlessIndex()`, from a global free
+  list in `platform/graphics/bindlessResidency.h`; index 0 means no map) and gives it back
+  in its destructor; the registry lists the texture of each index with a VERSION that moves
+  on assignment, release and every recreation of the GPU object
+  (`Texture::noteGpuObjectChanged()`, called by `Texture::recreateImpl` and by the two
+  backends' in-place recreations: Metal's resize in `uploadImmediate`, Vulkan's non-reuse
+  path). A sampler index comes from a global registry of sampler STATES
+  (`BindlessSamplers`, index 0 the default state: repeat, trilinear, anisotropic), keyed
+  without a device: the material packs the state its texture describes with the registry's
+  anisotropy, and each device creates the sampler clamped to its own maximum. So a material's
+  packed block is still device-independent, and two devices read the same lanes.
+- **One table per frame in flight, synced at frame start.** Each backend keeps the capacity
+  (`kBindlessTableTextureCapacity` 1024, `kBindlessTableSamplerCapacity` 64, both backends
+  and the shaders: the Metal table is sized at compile time) as a ring: Metal one argument
+  buffer per in-flight frame, rewritten whole from a device-side id array that follows the
+  registry's versions, and the live textures made resident per encoder; Vulkan one
+  update-after-bind set per frame slot, each remembering the version it last wrote per entry
+  and writing only what moved. An entry with no texture of this device holds a white 1x1, so
+  a stale or foreign index reads white rather than garbage. A draw outside a frame (an
+  offline bake before the first frame) syncs the current slot's table at its pass start.
+- **The block.** `materialUniformFields.h` gains one `uint` lane per map (texture index in
+  the low 24 bits, sampler index in the top 8) plus padding to a 16-byte multiple;
+  `kPerDrawUniformCapacity` grows with it. `Material::packAll` fills the lanes from
+  `getTextureSlots` through one slot-to-lane table, so every material type (the base
+  material's parameter overrides included) packs the same way: a map on a combined row keeps
+  its texture's own sampler state, every other map keeps sampler 0, exactly the samplers the
+  two binders bound before, which is what keeps the golden images bit-identical. The feature
+  words still decide whether a map is READ, so the variant set is unchanged. A mesh
+  instance's own lightmap is written into its override block
+  (`MeshInstance::overriddenUniforms`), where the clipping planes already go, instead of being
+  bound over the material's slot.
+- **The shaders.** `bindings.slang` declares the table once (`VT_DECLARE_BINDLESS_TABLE`,
+  the parameter block of the spike with the capacities above) with two helpers indexing it
+  by a lane; the forward head declares the table instead of the 25 maps and gives each map a
+  sampling function (`sampleBaseColorMap(uv)` ...), so the chunks change only at their sample
+  sites. The index is uniform per draw, so no `NonUniformResourceIndex` is needed.
+- **The binders.** Metal binds the material's maps by slot only for a custom-block material
+  and clears the material sampler slots for every other draw; Vulkan builds set 1 from the
+  quad inputs and, for a custom-block material, its slots. The bundle validator and
+  `validateForwardLayout` expect set 7 of a forward entry and no material map in set 1.
+- **The capacity is bounded by ONE Vulkan set.** The per-stage after-bind limits are not
+  the binding ones: `maxPerSetDescriptors` (a maintenance3 property) bounds what a single
+  set may hold, 1212 on MoltenVK 1.4.2 against a million per stage, and a 4096-image set
+  failed `vkGetDescriptorSetLayoutSupport` under validation (the spike's 1024 + 16 fit).
+  With exactly one set available there is no second table to spill into, so the capacity
+  is 1024 textures and 64 samplers on every device, and the device checks that limit at
+  creation. A larger table waits for a driver with a larger set, or a Metal-only capacity
+  (the argument buffer has no such bound) behind a per-backend define.
+- **Devices.** The forward program now REQUIRES the table: argument buffers tier 2 (every
+  Apple-silicon GPU) and descriptor indexing with update-after-bind sets (MoltenVK 1.4.2 and
+  KosmicKrisp both advertise it). A Vulkan device without it has no forward rendering, and
+  says so at creation.
+
+**Phase 1 result (2026-11-07): landed, bit-identical to HEAD.** The forward and shadow
+programs read all 25 maps through the table; the thirteen rows only they read are gone from
+`shaderBindings.h` (set 1 is 14 bindings, Metal's highest fragment texture slot 46); the
+material block grew by the 7 `uint4` lanes (1168 bytes, `kPerDrawUniformCapacity` with it);
+the instance lightmap rides the override block. Verification: the unit (120), `gpu` (8) and
+smoke suites pass on both backends, the tree is warning-free, and the golden suites pass on
+both. Exactly: 7 Metal and 8 Vulkan cases are pixel-identical to their 1x references; the
+rest (`dynamic-batching` on Metal, 162 downscaled pixels; `clustered-lighting` on both, 30
+and 26) differ from the reference by ONE count and are pixel-identical to a HEAD worktree
+build captured the same way (twice each: run to run is exact), so those three references
+are stale, not moved by this change. Open after phase 1: (1) the custom-block programs
+(water, HUD, gizmos, particles, dynamic sky, grid) still bind by slot on the quad rows, and
+the Metal binder keeps sampler slots 1-6 for them; giving their blocks lanes retires both
+(phase 2, with the quad inputs). (2) The sampler table is sized 64 without a measurement of
+how many distinct states the examples register; the device logs an error past the capacity.
+(3) The table syncs every entry's version each frame on both backends (a 1024-entry walk) and
+Metal re-issues `useResources` for every live texture per encoder; neither registered in a
+profile yet, and a heap with `useHeap` is the Metal answer if one does. (4) The capacity is
+one Vulkan set (1024); a larger Metal-only table needs a per-backend define.
 
 ### 3. An extract and render split with a task pool
 

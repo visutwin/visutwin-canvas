@@ -283,6 +283,7 @@ namespace visutwin::canvas::gpu
                 if (_descriptor) { _descriptor->release(); _descriptor = nullptr; }
                 _metalTexture->release(); _metalTexture = nullptr;
                 create(metalDevice);
+                _texture->noteGpuObjectChanged();
             }
             _texture->setNeedsUpload(false);
             _texture->setNeedsMipmapsUpload(false);

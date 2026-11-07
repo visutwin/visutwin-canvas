@@ -178,6 +178,9 @@ namespace visutwin::canvas
 
         createUploadCommandPool();
         _renderPipeline = std::make_unique<VulkanRenderPipeline>(this);
+        if (_descriptorIndexing && !createBindlessFrameTables()) {
+            spdlog::error("VulkanGraphicsDevice: the bindless frame tables could not be created");
+        }
         createSamplers();
         createFallbackImages();
         createUniformRing();
@@ -554,6 +557,7 @@ namespace visutwin::canvas
         destroyComputeResources();
 
 
+        destroyBindlessFrameTables();
         _renderPipeline.reset();
         // After the last pipeline is gone; written back first if this run added to it.
         destroyShaderCaches();
@@ -619,6 +623,7 @@ namespace visutwin::canvas
         }
 
         // Objects with destructors that call VkDevice/VMA must die first.
+        destroyBindlessFrameTables();
         _renderPipeline.reset();
         // The pipeline cache and the shader disk cache are made early in initialization,
         // so an initialization that fails later owns them too; the destructor's path is
@@ -944,13 +949,18 @@ namespace visutwin::canvas
         }
         VkPhysicalDeviceVulkan12Properties props12{
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES};
+        // The one limit that bounds the table's size: what ONE set may hold, whatever the
+        // per-stage after-bind limits say (MoltenVK 1.4.2: 1212 against a million).
+        VkPhysicalDeviceMaintenance3Properties props3{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES};
         {
             VkPhysicalDeviceProperties2 query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
             query.pNext = &props12;
+            props12.pNext = &props3;
             vkGetPhysicalDeviceProperties2(_physicalDevice, &query);
             props12.pNext = nullptr;
+            props3.pNext = nullptr;
         }
-        constexpr uint32_t kBindlessTexturesWanted = 1024;
         // Every other set's images and samplers also count against the after-bind limits
         // once the layout holds such a set; leave them a generous margin.
         constexpr uint32_t kOtherSetsMargin = 256;
@@ -960,11 +970,13 @@ namespace visutwin::canvas
             features12Supported.descriptorBindingPartiallyBound == VK_TRUE &&
             features12Supported.descriptorBindingSampledImageUpdateAfterBind == VK_TRUE &&
             props.limits.maxBoundDescriptorSets > kBindlessTableVulkanSet &&
-            props12.maxPerStageDescriptorUpdateAfterBindSamplers >= kBindlessSamplers + kOtherSetsMargin &&
-            props12.maxPerStageDescriptorUpdateAfterBindSampledImages > kOtherSetsMargin;
-        _bindlessTextureCapacity = _descriptorIndexing
-            ? std::min(kBindlessTexturesWanted, props12.maxPerStageDescriptorUpdateAfterBindSampledImages - kOtherSetsMargin)
-            : 0;
+            props12.maxPerStageDescriptorUpdateAfterBindSamplers >= kBindlessTableSamplerCapacity + kOtherSetsMargin &&
+            props12.maxPerStageDescriptorUpdateAfterBindSampledImages >= kBindlessTableTextureCapacity + kOtherSetsMargin &&
+            props3.maxPerSetDescriptors >= kBindlessTableTextureCapacity + kBindlessTableSamplerCapacity;
+        if (!_descriptorIndexing) {
+            spdlog::error("Vulkan: this device has no descriptor indexing with update-after-bind sets, which the "
+                "forward program's material maps need (bindlessTable.h): nothing lit renders");
+        }
         VkPhysicalDeviceVulkan12Features features12Enable{
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
         features12Enable.descriptorIndexing = VK_TRUE;
@@ -974,16 +986,17 @@ namespace visutwin::canvas
         // Unbounded arrays are allowed where the driver has them, though the table's
         // arrays are sized (Metal needs them so).
         features12Enable.runtimeDescriptorArray = features12Supported.runtimeDescriptorArray;
-        spdlog::info("Vulkan descriptor indexing: {} (bound sets {}, samplers/stage {} after bind {}, "
+        spdlog::info("Vulkan descriptor indexing: {} (bound sets {}, per set {}, samplers/stage {} after bind {}, "
             "sampled images/stage {} after bind {}, nonuniform {}, partially bound {}, runtime arrays {}); "
             "bindless table {} textures, {} samplers",
             _descriptorIndexing ? "enabled" : "not enabled", props.limits.maxBoundDescriptorSets,
+            props3.maxPerSetDescriptors,
             props.limits.maxPerStageDescriptorSamplers, props12.maxPerStageDescriptorUpdateAfterBindSamplers,
             props.limits.maxPerStageDescriptorSampledImages, props12.maxPerStageDescriptorUpdateAfterBindSampledImages,
             features12Supported.shaderSampledImageArrayNonUniformIndexing == VK_TRUE,
             features12Supported.descriptorBindingPartiallyBound == VK_TRUE,
             features12Supported.runtimeDescriptorArray == VK_TRUE,
-            _bindlessTextureCapacity, bindlessSamplerCapacity());
+            bindlessTextureCapacity(), bindlessSamplerCapacity());
 
         vkb::DeviceBuilder deviceBuilder{vkbPhysical};
         if (_descriptorIndexing) {

@@ -901,8 +901,7 @@ namespace visutwin::canvas
         }
         const uint64_t materialVersion = _material ? _material->uniformsVersion() : 0;
         if (!quadInputs && _bound.textureSetKnown && _bound.textureMaterial == _material &&
-            _bound.textureMaterialVersion == materialVersion &&
-            _bound.textureLightMap == instanceLightMap()) {
+            _bound.textureMaterialVersion == materialVersion) {
             bindSetIfChanged(cmd, 1, _bound.textureSet);
             return true;
         }
@@ -921,7 +920,6 @@ namespace visutwin::canvas
         _bound.textureSetKnown = !quadInputs;
         _bound.textureMaterial = _material;
         _bound.textureMaterialVersion = materialVersion;
-        _bound.textureLightMap = instanceLightMap();
         _bound.textureSet = texSet;
         return true;
     }
@@ -945,7 +943,9 @@ namespace visutwin::canvas
 
     void VulkanGraphicsDevice::writeMaterialTextureInfos(std::span<VkDescriptorImageInfo> imageInfos) const
     {
-        if (!_material) {
+        // A material's maps come from the bindless table through its block's lanes; only a
+        // material with a block of its own, which has no lanes, binds its maps by slot here.
+        if (!_material || !_material->hasCustomUniformData()) {
             return;
         }
         constexpr auto& materialSlots = kMaterialTextureBindings;
@@ -953,8 +953,6 @@ namespace visutwin::canvas
         thread_local std::vector<TextureSlot> texSlots;
         texSlots.clear();
         _material->getTextureSlots(texSlots);
-        // The mesh instance's own lightmap goes over the material's.
-        applyInstanceLightMap(texSlots, instanceLightMap());
         for (const auto& ts : texSlots) {
             // A material names a texture by its Metal slot; the binding table maps it to the
             // set-1 binding (the two differ for the anisotropy and displacement maps).

@@ -12,7 +12,7 @@
 
 // Explicit-LOD form, for the self-shadow march inside the light loop.
 float parallaxSampleDepth(float2 uv, float heightBase) {
-    return heightBase - heightMap.SampleLevel(materialSampler, uv, 0.0).r;
+    return heightBase - sampleHeightMapLevel(uv, 0.0).r;
 }
 
 // How far the occlusion march may travel across the texture, as a multiple of the depth of
@@ -39,7 +39,7 @@ float2 parallaxUvOffset(float2 uv, float3 viewDirT, float heightFactor, float he
     const float2 viewDirUv = float2(viewDirT.x, -viewDirT.y);
 
     if (!occlusion) {
-        const float height = (heightMap.Sample(materialSampler, uv).r - heightBase) * parallaxScale;
+        const float height = (sampleHeightMap(uv).r - heightBase) * parallaxScale;
         return height * viewDirUv;
     }
 
@@ -57,7 +57,7 @@ float2 parallaxUvOffset(float2 uv, float3 viewDirT, float heightFactor, float he
 
     // An explicit mip for every tap (the loop is non-uniform control flow); it also says how
     // much detail the map resolves here, which sets the step count and the fade.
-    const float2 heightMapSize = float2(vtTextureSize(heightMap, 0));
+    const float2 heightMapSize = float2(sizeHeightMap(0));
     const float2 uvTexels = uv * heightMapSize;
     const float2 texelsDx = ddx(uvTexels);
     const float2 texelsDy = ddy(uvTexels);
@@ -75,7 +75,7 @@ float2 parallaxUvOffset(float2 uv, float3 viewDirT, float heightFactor, float he
 
     // Linear search from the entry point for the first step below the height field.
     float rayDepth = 0.0;
-    float surfaceDepth = 1.0 - heightMap.SampleLevel(materialSampler, entryUv, lod).r;
+    float surfaceDepth = 1.0 - sampleHeightMapLevel(entryUv, lod).r;
     float prevRayDepth = rayDepth;
     for (float i = 0.0; i < steps; i += 1.0) {
         if (rayDepth >= surfaceDepth) {
@@ -83,7 +83,7 @@ float2 parallaxUvOffset(float2 uv, float3 viewDirT, float heightFactor, float he
         }
         prevRayDepth = rayDepth;
         rayDepth += stepSize;
-        surfaceDepth = 1.0 - heightMap.SampleLevel(materialSampler, entryUv + uvSpan * rayDepth, lod).r;
+        surfaceDepth = 1.0 - sampleHeightMapLevel(entryUv + uvSpan * rayDepth, lod).r;
     }
 
     // Refine inside the last step by halving with fresh taps (an interpolation assumes the
@@ -94,7 +94,7 @@ float2 parallaxUvOffset(float2 uv, float3 viewDirT, float heightFactor, float he
         hitDepth = rayDepth - interval;
         for (int r = 0; r < kParallaxRefineSteps; ++r) {
             interval *= 0.5;
-            const float refineDepth = 1.0 - heightMap.SampleLevel(materialSampler, entryUv + uvSpan * hitDepth, lod).r;
+            const float refineDepth = 1.0 - sampleHeightMapLevel(entryUv + uvSpan * hitDepth, lod).r;
             hitDepth += hitDepth >= refineDepth ? -interval : interval;
         }
     }

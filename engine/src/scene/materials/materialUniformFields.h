@@ -27,10 +27,12 @@
 #define VT_MATERIAL_CPP_vec4x8 float
 #define VT_MATERIAL_CPP_float float
 #define VT_MATERIAL_CPP_uint  uint32_t
+#define VT_MATERIAL_CPP_uint4x7 uint32_t
 #define VT_MATERIAL_DIM_vec4  [4]
 #define VT_MATERIAL_DIM_vec4x8 [8][4]
 #define VT_MATERIAL_DIM_float
 #define VT_MATERIAL_DIM_uint
+#define VT_MATERIAL_DIM_uint4x7 [7][4]
 
 // X(shaderType, name, default...) — variadic so a braced initialiser's commas
 // stay inside one argument.
@@ -182,4 +184,9 @@
     X(vec4, planarReflectionMatrix1, {0, 1, 0, 0}) \
     X(vec4, planarReflectionMatrix2, {0, 0, 1, 0}) \
     X(vec4, planarReflectionMatrix3, {0, 0, 0, 1}) \
-    X(vec4, planarReflectionParams, {0, 0, 0, 0})
+    X(vec4, planarReflectionParams, {0, 0, 0, 0}) \
+    /* --- The bindless table lanes of the material's maps (bindlessResidency.h), one per */ \
+    /* map in materialMapLanes.h's order: the texture index in the low 24 bits, the sampler */ \
+    /* index above; 0 = no map. Written by Material::packAll from getTextureSlots, and the */ \
+    /* lightmap lane by a mesh instance's override block. 25 lanes in 7 uint4. */ \
+    X(uint4x7, mapLanes, {})

@@ -588,6 +588,7 @@ namespace visutwin::canvas
         bool _parametersChanged = false;
         mutable std::unique_ptr<MaterialUniforms> _overrideBlock;
         mutable const Material* _overrideMaterial = nullptr;
+        mutable const Texture* _overrideLightMap = nullptr;
         mutable uint64_t _overrideMaterialVersion = 0;
         mutable uint64_t _overrideVersion = 0;
         mutable uint64_t _overrideClipVersion = 0;

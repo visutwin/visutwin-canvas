@@ -258,8 +258,12 @@ add_custom_command(
         --output "${_SLANG_BINDINGS}"
         --material-fields "${VISUTWIN_ROOT_DIR}/engine/src/scene/materials/materialUniformFields.h"
         --features "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/shaderFeatures.h"
+        --bindless "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/bindlessTable.h"
+        --map-lanes "${VISUTWIN_ROOT_DIR}/engine/src/scene/materials/materialMapLanes.h"
     DEPENDS
         "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/shaderFeatures.h"
+        "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/bindlessTable.h"
+        "${VISUTWIN_ROOT_DIR}/engine/src/scene/materials/materialMapLanes.h"
         "${VISUTWIN_ROOT_DIR}/engine/src/platform/graphics/shaderBindings.h"
         "${VISUTWIN_ROOT_DIR}/engine/src/scene/materials/materialUniformFields.h"
         "${VISUTWIN_ROOT_DIR}/tools/generate_shader_bindings.py"

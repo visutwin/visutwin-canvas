@@ -4,6 +4,7 @@
 // Created by Arnis Lektauers on 19.09.2025
 //
 #include "texture.h"
+#include "bindlessResidency.h"
 
 #include <assert.h>
 #include <algorithm>
@@ -97,6 +98,10 @@ namespace visutwin::canvas
 
     Texture::~Texture()
     {
+        // The bindless index goes back whatever the device's state: a material still naming
+        // it would read white, never a freed object.
+        BindlessResidency::release(_bindlessIndex);
+        _bindlessIndex = 0;
         // A texture the device already detached has nothing left to give back: it holds no
         // GPU texture, no VRAM share and no device (which may be gone).
         if (!_device) {
@@ -203,10 +208,24 @@ namespace visutwin::canvas
         // create new
         _impl = _device->createGPUTexture(this);
         dirtyAll();
+        noteGpuObjectChanged();
 
         if (enableUpload) {
            upload();
         }
+    }
+
+    uint32_t Texture::bindlessIndex() const
+    {
+        if (_bindlessIndex == 0) {
+            _bindlessIndex = BindlessResidency::acquire(const_cast<Texture*>(this));
+        }
+        return _bindlessIndex;
+    }
+
+    void Texture::noteGpuObjectChanged()
+    {
+        BindlessResidency::touch(_bindlessIndex);
     }
 
     void Texture::upload()

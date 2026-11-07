@@ -17,7 +17,6 @@
 // texture 41), the matrix palette of a skinned or dynamically batched draw (Metal vertex buffer
 // 6, Vulkan set 4 binding 0) and a morphed draw's target deltas and weights (Metal buffers 9 /
 // 10, Vulkan set 4 bindings 1 / 2).
-VT_DECLARE_displacementMap
 [[vk::binding(0, 4)]] StructuredBuffer<float4x4> palette : register(t6, space1);
 [[vk::binding(1, 4)]] StructuredBuffer<float4> morphDeltas : register(t9, space1);
 struct MorphParams
@@ -213,7 +212,7 @@ ForwardVertexOut forwardVertex(ForwardVertexIn input)
     // Vertex displacement along the local normal from a height map; explicit LOD (no
     // derivatives in the vertex stage). detailDisplacementParams: y scale, z bias.
     if (vtFeatureEnabled(VT_FEATURE_DISPLACEMENT_BIT)) {
-        const float height = displacementMap.SampleLevel(materialSampler, input.uv0, 0.0).r;
+        const float height = sampleDisplacementMapLevel(input.uv0, 0.0).r;
         localPos += input.normal * ((height - material.detailDisplacementParams.z) *
             material.detailDisplacementParams.y);
     }

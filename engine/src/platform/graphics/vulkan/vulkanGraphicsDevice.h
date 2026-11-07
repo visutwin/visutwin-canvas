@@ -28,6 +28,7 @@
 #include "platform/graphics/shaderDiskCache.h"
 #include "platform/graphics/gpu.h"
 #include "platform/graphics/bindlessTable.h"
+#include "platform/graphics/bindlessResidency.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
 #include "platform/graphics/shaderBindings.h"
@@ -350,8 +351,8 @@ namespace visutwin::canvas
         // kBindlessTableVulkanSet, update-after-bind and partially bound, which is the
         // set kind MoltenVK gives a Metal argument buffer and its larger limits.
         bool supportsBindlessTextures() const override { return _descriptorIndexing; }
-        uint32_t bindlessTextureCapacity() const override { return _bindlessTextureCapacity; }
-        uint32_t bindlessSamplerCapacity() const override { return _descriptorIndexing ? kBindlessSamplers : 0; }
+        uint32_t bindlessTextureCapacity() const override { return _descriptorIndexing ? kBindlessTableTextureCapacity : 0; }
+        uint32_t bindlessSamplerCapacity() const override { return _descriptorIndexing ? kBindlessTableSamplerCapacity : 0; }
         std::shared_ptr<BindlessTable> createBindlessTable(const BindlessTableDesc& desc) override;
         void setBindlessTable(BindlessTable* table) override;
         void computeDispatch(const std::vector<Compute*>& computes,
@@ -980,7 +981,6 @@ namespace visutwin::canvas
             bool textureSetKnown = false;
             const Material* textureMaterial = nullptr;
             uint64_t textureMaterialVersion = 0;
-            const Texture* textureLightMap = nullptr;
             VkDescriptorSet textureSet = VK_NULL_HANDLE;
         } _bound;
         void resetBoundDrawState();
@@ -1011,10 +1011,29 @@ namespace visutwin::canvas
         // EXPERIMENTAL bindless table: the device enabled descriptor indexing with
         // update-after-bind sampled images and partially bound bindings, and has an eighth
         // descriptor set to spare; the capacities the draw layout's set 7 is sized with.
-        static constexpr uint32_t kBindlessSamplers = 16;
         bool _descriptorIndexing = false;
-        uint32_t _bindlessTextureCapacity = 0;
         BindlessTable* _bindlessTable = nullptr;
+        // The engine's own table: one update-after-bind set per frame slot, each remembering
+        // the registry version it last wrote per entry (bindlessResidency.h) and writing only
+        // what moved at frame start (syncBindlessTable); an entry with no texture of this
+        // device holds the white image. The samplers are created once per registry index.
+        struct BindlessFrameTable
+        {
+            VkDescriptorSet set = VK_NULL_HANDLE;
+            std::vector<uint64_t> synced;
+            uint64_t samplerGeneration = 0;
+            size_t samplersWritten = 0;
+        };
+        std::array<BindlessFrameTable, kMaxFramesInFlight> _bindlessFrames{};
+        VkDescriptorPool _bindlessFramePool = VK_NULL_HANDLE;
+        std::vector<VkSampler> _bindlessSamplers;
+        std::vector<TextureSamplerState> _bindlessSamplerStates;
+        std::vector<BindlessResidency::Entry> _bindlessSnapshot;
+        uint64_t _bindlessGeneration = 0;
+        bool createBindlessFrameTables();
+        void destroyBindlessFrameTables();
+        void syncBindlessTable();
+        VkSampler createBindlessSampler(const TextureSamplerState& state);
         bool _independentBlendEnabled = false;
         bool _textureCompressionAstcLdr = false;
         bool _textureCompressionBc = false;

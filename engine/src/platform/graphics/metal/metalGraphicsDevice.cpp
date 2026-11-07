@@ -330,6 +330,7 @@ namespace visutwin::canvas
         // owns pipeline states and releases them in its destructor.
         _pipelineState = nullptr;
 
+        releaseBindlessTable();
         // Borrowed from the sampler cache, which releases it with the rest.
         _defaultSampler = nullptr;
         _samplerCache.release();
@@ -489,6 +490,8 @@ namespace visutwin::canvas
         _uniformRing->beginFrame();
         _paletteRing->beginFrame();
         _pendingPaletteOffset = SIZE_MAX;
+        _bindlessFrameSlot = (_bindlessFrameSlot + 1) % _bindlessFrameBuffers.size();
+        syncBindlessTable();
         // The cluster buffer sets advance with the rings: the slot this frame writes was
         // last used kMaxInflightFrames frames ago, which the frame gate has just
         // waited out.
@@ -709,7 +712,7 @@ namespace visutwin::canvas
 
     void MetalGraphicsDevice::resetEncoderStateCache()
     {
-        _encoderBindlessTable = nullptr;
+        _encoderBindlessKey = nullptr;
         _pipelineState = nullptr;
         _encoderVertexBuffer0 = nullptr;
         _encoderInstancingBuffer = nullptr;
@@ -758,13 +761,13 @@ namespace visutwin::canvas
             spdlog::error("MetalGraphicsDevice: bindless tables need argument buffers tier 2");
             return nullptr;
         }
-        if (desc.textures.size() > kBindlessTextures || desc.samplers.size() > kBindlessSamplers) {
+        if (desc.textures.size() > kBindlessTableTextureCapacity || desc.samplers.size() > kBindlessTableSamplerCapacity) {
             spdlog::error("MetalGraphicsDevice: bindless table of {} textures / {} samplers exceeds {} / {}",
-                desc.textures.size(), desc.samplers.size(), kBindlessTextures, kBindlessSamplers);
+                desc.textures.size(), desc.samplers.size(), kBindlessTableTextureCapacity, kBindlessTableSamplerCapacity);
             return nullptr;
         }
         auto table = std::make_shared<MetalBindlessTable>();
-        const size_t bytes = (kBindlessSamplers + kBindlessTextures) * sizeof(MTL::ResourceID);
+        const size_t bytes = (kBindlessTableSamplerCapacity + kBindlessTableTextureCapacity) * sizeof(MTL::ResourceID);
         table->buffer = _device->newBuffer(bytes, MTL::ResourceStorageModeShared);
         if (!table->buffer) {
             spdlog::error("MetalGraphicsDevice: bindless table buffer allocation failed");
@@ -792,7 +795,7 @@ namespace visutwin::canvas
             raw->retain();
             table->textures.push_back(raw);
             table->residency.push_back(raw);
-            ids[kBindlessSamplers + i] = raw->gpuResourceID();
+            ids[kBindlessTableSamplerCapacity + i] = raw->gpuResourceID();
         }
         spdlog::info("Metal bindless table: {} textures and {} samplers in a {}-byte argument buffer "
             "(tier 2; device maxArgumentBufferSamplerCount={})",
@@ -807,20 +810,172 @@ namespace visutwin::canvas
 
     void MetalGraphicsDevice::bindBindlessTable(MTL::RenderCommandEncoder* passEncoder)
     {
-        if (_bindlessTable == _encoderBindlessTable) {
+        MTL::Buffer* buffer = nullptr;
+        const std::vector<MTL::Resource*>* resident = nullptr;
+        const void* key = nullptr;
+        if (auto* table = static_cast<MetalBindlessTable*>(_bindlessTable)) {
+            buffer = table->buffer;
+            resident = &table->residency;
+            key = table;
+        } else {
+            if (!_insideFrame) {
+                // A draw outside a frame (an offline bake before the first frame): the current
+                // slot's table, brought up to date here. Inside a frame onFrameStart did it.
+                syncBindlessTable();
+            }
+            buffer = _bindlessFrameBuffers[_bindlessFrameSlot];
+            resident = &_bindlessResident;
+            key = buffer;
+        }
+        if (!buffer || key == _encoderBindlessKey) {
             return;
         }
-        if (auto* table = static_cast<MetalBindlessTable*>(_bindlessTable)) {
-            passEncoder->setVertexBuffer(table->buffer, 0, kBindlessTableMetalBufferSlot);
-            passEncoder->setFragmentBuffer(table->buffer, 0, kBindlessTableMetalBufferSlot);
-            // An argument buffer only names its textures; the encoder must be told they
-            // are read, or they may not be resident when the draw runs.
-            if (!table->residency.empty()) {
-                passEncoder->useResources(table->residency.data(), table->residency.size(),
-                    MTL::ResourceUsageRead, MTL::RenderStageVertex | MTL::RenderStageFragment);
+        passEncoder->setVertexBuffer(buffer, 0, kBindlessTableMetalBufferSlot);
+        passEncoder->setFragmentBuffer(buffer, 0, kBindlessTableMetalBufferSlot);
+        // An argument buffer only names its textures; the encoder must be told they are
+        // read, or they may not be resident when the draw runs.
+        if (!resident->empty()) {
+            passEncoder->useResources(resident->data(), resident->size(),
+                MTL::ResourceUsageRead, MTL::RenderStageVertex | MTL::RenderStageFragment);
+        }
+        _encoderBindlessKey = key;
+    }
+
+    void MetalGraphicsDevice::syncBindlessTable()
+    {
+        if (!_device) {
+            return;
+        }
+        constexpr size_t kSamplers = kBindlessTableSamplerCapacity;
+        constexpr size_t kTextures = kBindlessTableTextureCapacity;
+        const size_t bytes = (kSamplers + kTextures) * sizeof(MTL::ResourceID);
+        if (_bindlessIds.empty()) {
+            // First use: the buffers, the white placeholder and every id pointing at it.
+            for (auto& buffer : _bindlessFrameBuffers) {
+                buffer = _device->newBuffer(bytes, MTL::ResourceStorageModeShared);
+                if (buffer) {
+                    buffer->setLabel(NS::String::string("bindless table", NS::UTF8StringEncoding));
+                }
+            }
+            auto* descriptor = MTL::TextureDescriptor::texture2DDescriptor(MTL::PixelFormatRGBA8Unorm, 1, 1, false);
+            descriptor->setUsage(MTL::TextureUsageShaderRead);
+            descriptor->setStorageMode(MTL::StorageModeShared);
+            _bindlessWhite = _device->newTexture(descriptor);
+            if (_bindlessWhite) {
+                const uint8_t white[4] = {255, 255, 255, 255};
+                _bindlessWhite->replaceRegion(MTL::Region::Make2D(0, 0, 1, 1), 0, white, 4);
+                _bindlessWhite->setLabel(NS::String::string("bindless white", NS::UTF8StringEncoding));
+            }
+            _bindlessIds.assign(kSamplers + kTextures, MTL::ResourceID{});
+            const MTL::ResourceID whiteId = _bindlessWhite ? _bindlessWhite->gpuResourceID() : MTL::ResourceID{};
+            for (size_t i = 0; i < kTextures; ++i) {
+                _bindlessIds[kSamplers + i] = whiteId;
+            }
+            _bindlessVersions.assign(kTextures, 0);
+            _bindlessTextures.assign(kTextures, nullptr);
+            if (_bindlessWhite) {
+                _bindlessResident.push_back(_bindlessWhite);
             }
         }
-        _encoderBindlessTable = _bindlessTable;
+
+        // Samplers: a state joins the registry once and keeps its index, so only new ones
+        // are created; argument-buffer samplers, clamped to this device's anisotropy.
+        if (const uint64_t generation = BindlessSamplers::generation(); generation != _bindlessSamplerGeneration) {
+            BindlessSamplers::snapshot(_bindlessSamplerStates);
+            for (size_t i = _bindlessSamplers.size(); i < _bindlessSamplerStates.size() && i < kSamplers; ++i) {
+                TextureSamplerState state = _bindlessSamplerStates[i];
+                state.maxAnisotropy = std::min(state.maxAnisotropy, maxAnisotropy());
+                MTL::SamplerState* sampler = MetalSamplerCache::newSamplerState(_device, state, true);
+                if (!sampler) {
+                    spdlog::error("MetalGraphicsDevice: bindless sampler {} failed", i);
+                    break;
+                }
+                _bindlessSamplers.push_back(sampler);
+                _bindlessIds[i] = sampler->gpuResourceID();
+            }
+            if (_bindlessSamplerStates.size() > kSamplers) {
+                static bool warned = false;
+                if (!warned) {
+                    warned = true;
+                    spdlog::error("MetalGraphicsDevice: {} sampler states exceed the bindless table's {}",
+                        _bindlessSamplerStates.size(), kSamplers);
+                }
+            }
+            _bindlessSamplerGeneration = generation;
+        }
+
+        // Textures: the entries whose version moved since this device last looked.
+        if (const uint64_t generation = BindlessResidency::generation(); generation != _bindlessGeneration) {
+            BindlessResidency::snapshot(_bindlessSnapshot);
+            const MTL::ResourceID whiteId = _bindlessWhite ? _bindlessWhite->gpuResourceID() : MTL::ResourceID{};
+            bool residentChanged = false;
+            const size_t count = std::min(_bindlessSnapshot.size(), kTextures);
+            for (size_t i = 1; i < count; ++i) {
+                const auto& entry = _bindlessSnapshot[i];
+                if (entry.version == _bindlessVersions[i]) {
+                    continue;
+                }
+                MTL::Texture* raw = nullptr;
+                if (entry.texture && entry.texture->device() == this) {
+                    if (auto* hw = dynamic_cast<gpu::MetalTexture*>(entry.texture->impl())) {
+                        raw = hw->raw();
+                    }
+                }
+                _bindlessTextures[i] = raw;
+                _bindlessIds[kSamplers + i] = raw ? raw->gpuResourceID() : whiteId;
+                _bindlessVersions[i] = entry.version;
+                residentChanged = true;
+            }
+            if (_bindlessSnapshot.size() > kTextures) {
+                static bool warned = false;
+                if (!warned) {
+                    warned = true;
+                    spdlog::error("MetalGraphicsDevice: {} bindless indices exceed the table's {}; the rest read white",
+                        _bindlessSnapshot.size(), kTextures);
+                }
+            }
+            if (residentChanged) {
+                _bindlessResident.clear();
+                if (_bindlessWhite) {
+                    _bindlessResident.push_back(_bindlessWhite);
+                }
+                for (MTL::Texture* texture : _bindlessTextures) {
+                    if (texture) {
+                        _bindlessResident.push_back(texture);
+                    }
+                }
+            }
+            _bindlessGeneration = generation;
+        }
+
+        // The frame's copy: whole, since this slot was last written frames ago.
+        if (MTL::Buffer* buffer = _bindlessFrameBuffers[_bindlessFrameSlot]) {
+            std::memcpy(buffer->contents(), _bindlessIds.data(), bytes);
+        }
+    }
+
+    void MetalGraphicsDevice::releaseBindlessTable()
+    {
+        for (auto& buffer : _bindlessFrameBuffers) {
+            if (buffer) {
+                buffer->release();
+                buffer = nullptr;
+            }
+        }
+        for (auto* sampler : _bindlessSamplers) {
+            sampler->release();
+        }
+        _bindlessSamplers.clear();
+        if (_bindlessWhite) {
+            _bindlessWhite->release();
+            _bindlessWhite = nullptr;
+        }
+        _bindlessIds.clear();
+        _bindlessVersions.clear();
+        _bindlessTextures.clear();
+        _bindlessResident.clear();
+        _bindlessGeneration = 0;
+        _bindlessSamplerGeneration = 0;
     }
 
     MTL::DepthStencilState* MetalGraphicsDevice::resolveDepthStencilState(const DepthState* depthState,
@@ -1723,7 +1878,6 @@ namespace visutwin::canvas
             if (!quadRenderActive()) {
                 _textureBinder.clearMaterialSlots(passEncoder);
             }
-            _boundInstanceLightMap = nullptr;
             return uniforms;
         }
 
@@ -1748,18 +1902,20 @@ namespace visutwin::canvas
             uniforms.data = &boundMaterial->packedUniforms();
         }
 
-        // Skip texture rebinding when same material is still bound — unless the
-        // mesh instance's own lightmap changed, which rides in the material's
-        // lightmap slot: two meshes sharing a material each bring their own.
-        if (materialChanged || instanceLightMap() != _boundInstanceLightMap) {
-            // Reused: this runs on every material switch, and the slot list is
-            // consumed immediately by bindMaterialTextures.
-            static thread_local std::vector<TextureSlot> textureSlots;
-            textureSlots.clear();
-            boundMaterial->getTextureSlots(textureSlots);
-            applyInstanceLightMap(textureSlots, instanceLightMap());
-            _textureBinder.bindMaterialTextures(passEncoder, textureSlots, _samplerCache);
-            _boundInstanceLightMap = instanceLightMap();
+        // A material's maps come from the bindless table through its block's lanes (the
+        // instance's own lightmap through its override block). Only a material with a block
+        // of its own, which has no lanes, still binds its maps by slot on the quad rows.
+        if (materialChanged) {
+            if (boundMaterial->hasCustomUniformData()) {
+                // Reused: this runs on every material switch, and the slot list is
+                // consumed immediately by bindMaterialTextures.
+                static thread_local std::vector<TextureSlot> textureSlots;
+                textureSlots.clear();
+                boundMaterial->getTextureSlots(textureSlots);
+                _textureBinder.bindMaterialTextures(passEncoder, textureSlots, _samplerCache);
+            } else {
+                _textureBinder.clearMaterialSamplers();
+            }
         }
         return uniforms;
     }

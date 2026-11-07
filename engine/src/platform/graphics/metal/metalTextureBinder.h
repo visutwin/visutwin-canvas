@@ -93,6 +93,9 @@ namespace visutwin::canvas
         /// clearcoat intensity map, a material slot. The material sampler slots go back
         /// to the default sampler.
         void clearMaterialSlots(MTL::RenderCommandEncoder* encoder);
+        /// Forgets the bound material's sampler states: the next draw's slots 1-6 take the
+        /// default sampler (a material whose maps come from the bindless table binds none).
+        void clearMaterialSamplers() { _materialSamplers.fill(nullptr); }
 
         /// Issue the draw's samplers: `general` at slot 0 and, unless `materialSamplers`
         /// is false (a quad pass, whose shaders declare slot 0 only), each material

@@ -190,6 +190,9 @@ namespace visutwin::canvas
         // submission order does the rest: the flush lands first, so by the time
         // this buffer executes every tracker matches reality.
         flushUploads();
+        // An offline draw reads the current slot's table; the scope waits for its work, so
+        // the slot is free to be written.
+        syncBindlessTable();
 
         VkCommandBufferAllocateInfo allocInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
         allocInfo.commandPool = _uploadCommandPool;

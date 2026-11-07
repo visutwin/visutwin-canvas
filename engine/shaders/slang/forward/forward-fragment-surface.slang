@@ -145,7 +145,7 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
 
     // Under MSDF the base slot holds a distance field, read by the unlit path below.
     float4 baseSample = (vtFeatureEnabled(VT_FEATURE_BASE_COLOR_MAP_BIT) && !vtFeatureEnabled(VT_FEATURE_MSDF_BIT))
-        ? baseColorMap.Sample(uvBase) : float4(1.0);
+        ? sampleBaseColorMap(uvBase) : float4(1.0);
     // fragColor is float4(1) except for the vertex-color / point-cloud vertex
     // variants, which feed the mesh's per-vertex color through.
     // Two lanes, diffuse and emissive vertex colour:
@@ -173,7 +173,7 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
     if (vtFeatureEnabled(VT_FEATURE_OPACITY_MAP_BIT) && (material.flags & (1u << 19)) != 0u) {
         float2 uvOpacity = ((material.flags & (1u << 4)) != 0u) ? fragUV1 : fragUV0;
         uvOpacity = applyUvTransform(uvOpacity, material.opacityTransform0, material.opacityTransform1);
-        albedo.a *= opacityMap.Sample(materialSampler, uvOpacity)[int(material.opacityTransform0.w)];
+        albedo.a *= sampleOpacityMap(uvOpacity)[int(material.opacityTransform0.w)];
     }
 
     // DEBUGPASS_LIGHTING: neutralize albedo
@@ -239,7 +239,7 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
         if (vtFeatureEnabled(VT_FEATURE_EMISSIVE_MAP_BIT)) {
             // Decoded as the lit path decodes it; read as raw sRGB an unlit emissive
             // map would come out too bright.
-            const float3 emissiveSample = emissiveMap.Sample(uvEmissive).rgb;
+            const float3 emissiveSample = sampleEmissiveMap(uvEmissive).rgb;
             unlitEmissive *= vtFeatureEnabled(VT_FEATURE_EMISSIVE_MAP_LINEAR_BIT) ? emissiveSample
                                                                                  : srgbToLinear(emissiveSample);
         }
@@ -258,8 +258,8 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
             float3 fill = linearHdrTarget ? unlitColor : applyToneMap(unlitColor);
             float4 color = float4(fill * albedo.a, albedo.a);
             float2 uvShadow = uvBase - material.msdfOutlineShadow.yz;
-            float3 tsample = baseColorMap.Sample(uvBase).rgb;
-            float3 ssample = baseColorMap.Sample(uvShadow).rgb;
+            float3 tsample = sampleBaseColorMap(uvBase).rgb;
+            float3 ssample = sampleBaseColorMap(uvShadow).rgb;
             float sigDist = max(min(tsample.r, tsample.g), min(max(tsample.r, tsample.g), tsample.b));
             float sigDistShdw = max(min(ssample.r, ssample.g), min(max(ssample.r, ssample.g), ssample.b));
             float edge = 0.5 - 0.5 * material.msdfParams.y;
@@ -294,7 +294,7 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
     float metallic = material.metallicFactor;
     float roughness = material.roughnessFactor;
     if (vtFeatureEnabled(VT_FEATURE_METAL_ROUGHNESS_MAP_BIT)) {
-        float4 mr = metalRoughMap.Sample(uvMetalRough);
+        float4 mr = sampleMetalRoughMap(uvMetalRough);
         roughness *= mr.g;
         metallic *= mr.b;
     }
@@ -306,7 +306,7 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
         specGlossColor = clamp(material.specGlossParams.rgb, 0.0, 1.0);
         float glossiness = clamp(material.specGlossParams.w, 0.0, 1.0);
         if ((material.flags & (1u << 21)) != 0u) {
-            float4 sg = metalRoughMap.Sample(uvMetalRough);
+            float4 sg = sampleMetalRoughMap(uvMetalRough);
             specGlossColor *= srgbToLinear(sg.rgb);
             glossiness *= sg.a;
         }
@@ -317,7 +317,7 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
     // Gloss map: one channel scales the authored gloss FACTOR, the product is
     // inverted under glossInvert, and the result replaces the roughness above.
     if (vtFeatureEnabled(VT_FEATURE_GLOSS_MAP_BIT) && material.mapChannelParams.y >= 0.0) {
-        float4 glossSample = glossMap.Sample(materialSampler, uvGloss);
+        float4 glossSample = sampleGlossMap(uvGloss);
         float glossValue = material.mapChannelParams.x * glossSample[int(material.mapChannelParams.y)];
         if (material.glossMapParams.x > 0.5) {
             glossValue = 1.0 - glossValue;
@@ -340,7 +340,7 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
         anisoIntensity = material.anisotropy;
         if (vtFeatureEnabled(VT_FEATURE_ANISOTROPY_MAP_BIT)) {
             const float2 uvAniso = material.anisotropyParams.z > 0.5 ? fragUV1 : fragUV0;
-            const float3 anisoSample = anisotropyMap.Sample(materialSampler, uvAniso).rgb;
+            const float3 anisoSample = sampleAnisotropyMap(uvAniso).rgb;
             anisoIntensity *= anisoSample.b;
             const float2 fromMap = anisoSample.rg * 2.0 - 1.0;
             if (dot(fromMap, fromMap) > 1e-8) {
@@ -396,7 +396,7 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
     // Ambient occlusion.
     float ao = 1.0;
     if (vtFeatureEnabled(VT_FEATURE_OCCLUSION_MAP_BIT)) {
-        float occ = occlusionMap.Sample(uvOcclusion).r;
+        float occ = sampleOcclusionMap(uvOcclusion).r;
         ao = lerp(1.0, occ, material.occlusionStrength);
     }
     if (vtFeatureEnabled(VT_FEATURE_SSAO_BIT)) {
@@ -430,7 +430,7 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
     if (haveNormalMap || haveDetailNormal) {
         float3 tn = float3(0.0, 0.0, 1.0);
         if (haveNormalMap) {
-            const float4 nmap = normalMap.Sample(uvNormal);
+            const float4 nmap = sampleNormalMap(uvNormal);
             if (vtFeatureEnabled(VT_FEATURE_NORMAL_MAP_PACKED_BIT)) {
                 // Packed: x in alpha, y in green, z rebuilt for a unit normal.
                 tn.xy = nmap.ag * 2.0 - 1.0;
@@ -455,7 +455,7 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
             // normal's own frame, which is the whole point of it.
             float2 uvDetail = applyUvTransform(fragUV0,
                 material.detailNormalTransform0, material.detailNormalTransform1);
-            float3 detailSample = detailNormalMap.Sample(materialSampler, uvDetail).xyz * 2.0 - 1.0;
+            float3 detailSample = sampleDetailNormalMap(uvDetail).xyz * 2.0 - 1.0;
             detailSample = lerp(float3(0.0, 0.0, 1.0), detailSample,
                 material.detailDisplacementParams.x);
             float3 n1 = tn + float3(0.0, 0.0, 1.0);
@@ -507,12 +507,12 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
     if (vtFeatureEnabled(VT_FEATURE_SPECULAR_COLOR_MAP_BIT)) {
         const uint uvBits = uint(material.metalnessSpecular.w + 0.5);
         const float2 uvSpec = (uvBits & 1u) != 0u ? fragUV1 : fragUV0;
-        dielectricF0 *= srgbToLinear(specularColorMap.Sample(materialSampler, uvSpec).rgb);
+        dielectricF0 *= srgbToLinear(sampleSpecularColorMap(uvSpec).rgb);
     }
     if (vtFeatureEnabled(VT_FEATURE_SPECULARITY_FACTOR_MAP_BIT)) {
         const uint uvBits = uint(material.metalnessSpecular.w + 0.5);
         const float2 uvFactor = (uvBits & 2u) != 0u ? fragUV1 : fragUV0;
-        dielectricF0 *= specularityFactorMap.Sample(materialSampler, uvFactor).a;
+        dielectricF0 *= sampleSpecularityFactorMap(uvFactor).a;
     }
     float3 F0 = lerp(dielectricF0, albedo.rgb, metallic);
     // VT_FEATURE_NO_SPECULAR: the material renders no
@@ -533,12 +533,12 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
     // on the binding: an unbound slot holds a white fallback on one backend and
     // samples zero on another, so the flag is the one rule both follow.
     if ((material.flags & (1u << 14)) != 0u) {
-        ccSpecularity *= clearCoatMap.Sample(materialSampler, uvBase)[int(material.clearCoatMapChannels.x)];
+        ccSpecularity *= sampleClearCoatMap(uvBase)[int(material.clearCoatMapChannels.x)];
     }
     // The gloss map multiplies the AUTHORED factor, and an inverted coat gloss is
     // flipped after the multiply, so roughness = factor x texel under the flag.
     if ((material.flags & (1u << 15)) != 0u) {
-        ccGlossiness = material.glossMapParams.z * clearCoatGlossMap.Sample(materialSampler, uvBase)[int(material.clearCoatMapChannels.y)];
+        ccGlossiness = material.glossMapParams.z * sampleClearCoatGlossMap(uvBase)[int(material.clearCoatMapChannels.y)];
         if (material.glossMapParams.y > 0.5) {
             ccGlossiness = 1.0 - ccGlossiness;
         }
@@ -551,7 +551,7 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
     // tangent stream, for the same reason as above).
     float3 ccNormalW = faceNormal;
     if ((material.flags & (1u << 16)) != 0u) {
-        float3 ccSample = clearCoatNormalMap.Sample(materialSampler, uvNormal).xyz * 2.0 - 1.0;
+        float3 ccSample = sampleClearCoatNormalMap(uvNormal).xyz * 2.0 - 1.0;
         ccSample = normalize(lerp(float3(0.0, 0.0, 1.0), ccSample, material.clearCoatBumpiness));
         float3 ccT = fragWorldTangent.xyz;
         if (dot(ccT, ccT) >= 1e-6) {
@@ -575,7 +575,7 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
         float iridIntensityFactor = material.iridescenceParams.x;
         if (vtFeatureEnabled(VT_FEATURE_IRIDESCENCE_MAP_BIT)) {
             const float2 uvIrid = material.iridescenceMapParams.x > 0.5 ? fragUV1 : fragUV0;
-            iridIntensityFactor *= iridescenceMap.Sample(materialSampler, uvIrid).r;
+            iridIntensityFactor *= sampleIridescenceMap(uvIrid).r;
         }
         iridIntensity = clamp(iridIntensityFactor, 0.0, 1.0);
         // The film's thickness: the maximum, or with a thickness map its g channel's blend
@@ -584,7 +584,7 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
         if (vtFeatureEnabled(VT_FEATURE_IRIDESCENCE_THICKNESS_MAP_BIT)) {
             const float2 uvThickness = material.iridescenceMapParams.y > 0.5 ? fragUV1 : fragUV0;
             iridThickness = lerp(material.iridescenceParams.z, material.iridescenceParams.w,
-                iridescenceThicknessMap.Sample(materialSampler, uvThickness).g);
+                sampleIridescenceThicknessMap(uvThickness).g);
         }
         iridFresnel = getIridescence(max(dot(N, V), 0.001), F0, iridThickness,
             max(material.iridescenceParams.y, 1.001));
@@ -609,13 +609,13 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
         dtIntensity = material.diffuseTransmission.w;
         if (vtFeatureEnabled(VT_FEATURE_DIFFUSE_TRANSMISSION_MAP_BIT)) {
             const float2 uvDt = material.diffuseTransmissionMapParams.x > 0.5 ? fragUV1 : fragUV0;
-            dtIntensity *= diffuseTransmissionMap.Sample(materialSampler, uvDt)[
+            dtIntensity *= sampleDiffuseTransmissionMap(uvDt)[
                 int(material.diffuseTransmissionMapParams.y + 0.5)];
         }
         dtColor = material.diffuseTransmission.rgb;
         if (vtFeatureEnabled(VT_FEATURE_DIFFUSE_TRANSMISSION_COLOR_MAP_BIT)) {
             const float2 uvDtColor = material.diffuseTransmissionMapParams.z > 0.5 ? fragUV1 : fragUV0;
-            dtColor *= srgbToLinear(diffuseTransmissionColorMap.Sample(materialSampler, uvDtColor).rgb);
+            dtColor *= srgbToLinear(sampleDiffuseTransmissionColorMap(uvDtColor).rgb);
         }
         if (vtFeatureEnabled(VT_FEATURE_DEBUG_PASS_BIT) &&
             lighting.flagsAndPad[1] == VT_DEBUGPASS_LIGHTING) {

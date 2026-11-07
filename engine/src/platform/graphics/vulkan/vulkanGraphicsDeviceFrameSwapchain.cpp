@@ -480,6 +480,7 @@ namespace visutwin::canvas
         }
         collectUploads(false);
         flushUploads();
+        syncBindlessTable();
 
         // The fence wait proves frame (_frameNumber - kMaxFramesInFlight) has
         // completed on the GPU — release resources queued up to that frame.

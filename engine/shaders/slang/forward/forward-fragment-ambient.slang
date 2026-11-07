@@ -200,7 +200,7 @@
         // The bake REPLACES the ambient diffuse rather than adding to it, so that a lightmapped surface is not lit twice by what the bake already
         // contains.
         // Lightmaps store LINEAR light (see the bake output and Lightmapper's encoder).
-        indirectDiffuse = max(lightMap.Sample(fragUV1).rgb, float3(0.0)) * diffuseAlbedo;
+        indirectDiffuse = max(sampleLightMap(fragUV1).rgb, float3(0.0)) * diffuseAlbedo;
     }
     color += indirectDiffuse + indirectSpecular;
     if (vtFeatureEnabled(VT_FEATURE_REFLECTION_PROBE_BIT)) {
@@ -402,10 +402,10 @@
         float refractionFactor = material.transmissionFactor;
         float refractionThickness = material.thickness;
         if (material.mapChannelParams.w >= 0.0) {
-            refractionFactor *= refractionMap.Sample(materialSampler, fragUV0)[int(material.mapChannelParams.w)];
+            refractionFactor *= sampleRefractionMap(fragUV0)[int(material.mapChannelParams.w)];
         }
         if (material.mapChannelParams.z >= 0.0) {
-            refractionThickness *= thicknessMap.Sample(materialSampler, fragUV0)[int(material.mapChannelParams.z)];
+            refractionThickness *= sampleThicknessMap(fragUV0)[int(material.mapChannelParams.z)];
         }
         if (vtFeatureEnabled(VT_FEATURE_DYNAMIC_REFRACTION_BIT) &&
             lighting.cameraNearFar.z > 0.5 && refractionFactor > 0.0) {

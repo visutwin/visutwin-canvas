@@ -111,33 +111,58 @@ struct LightingData
 
 [[vk::binding(0, 2)]] ConstantBuffer<LightingData> lighting : register(b4);
 
-// ---- Material maps (Vulkan set 1). The six combined ones carry their own sampler (Metal
-// samplers 1-6); the rest are images read through the shared material sampler. ----
-VT_DECLARE_baseColorMap
-VT_DECLARE_normalMap
-VT_DECLARE_metalRoughMap
-VT_DECLARE_occlusionMap
-VT_DECLARE_emissiveMap
-VT_DECLARE_lightMap
-VT_DECLARE_heightMap
-VT_DECLARE_detailNormalMap
+// ---- Material maps: the bindless table (bindlessTable.h), one lane per map in the
+// material block (materialMapLanes.h). Every map is read through its lane: the texture at
+// the lane's index with the lane's sampler, which is the texture's own state for a map that
+// bound a combined sampler before the table and the default state for every other. The
+// shared material sampler stays for a user chunk's scene map. ----
+VT_DECLARE_BINDLESS_TABLE
 VT_DECLARE_materialSampler
-VT_DECLARE_clearCoatMap
-VT_DECLARE_clearCoatGlossMap
-VT_DECLARE_clearCoatNormalMap
-VT_DECLARE_glossMap
-VT_DECLARE_thicknessMap
-VT_DECLARE_refractionMap
-VT_DECLARE_opacityMap
-VT_DECLARE_anisotropyMap
-VT_DECLARE_specularColorMap
-VT_DECLARE_specularityFactorMap
-VT_DECLARE_materialEnvAtlas
-VT_DECLARE_iridescenceMap
-VT_DECLARE_iridescenceThicknessMap
-VT_DECLARE_diffuseTransmissionMap
-VT_DECLARE_diffuseTransmissionColorMap
-VT_DECLARE_planarReflectionMap
+
+// sample<Map>(uv), sample<Map>Level(uv, lod) and size<Map>(lod): the map's read through
+// its lane. The lane is uniform per draw, so no non-uniform qualifier is needed.
+#define VT_MAP_FUNCTIONS(Name, laneIndex) \
+    float4 sample##Name(float2 uv) \
+    { \
+        const uint lane = VT_MATERIAL_LANE(laneIndex); \
+        return VT_BINDLESS_TEXTURE(lane).Sample(VT_BINDLESS_SAMPLER(lane), uv); \
+    } \
+    float4 sample##Name##Level(float2 uv, float lod) \
+    { \
+        const uint lane = VT_MATERIAL_LANE(laneIndex); \
+        return VT_BINDLESS_TEXTURE(lane).SampleLevel(VT_BINDLESS_SAMPLER(lane), uv, lod); \
+    } \
+    int2 size##Name(int lod) \
+    { \
+        uint w, h, levels; \
+        VT_BINDLESS_TEXTURE(VT_MATERIAL_LANE(laneIndex)).GetDimensions(uint(lod), w, h, levels); \
+        return int2(int(w), int(h)); \
+    }
+VT_MAP_FUNCTIONS(BaseColorMap, VT_MAP_LANE_baseColorMap)
+VT_MAP_FUNCTIONS(NormalMap, VT_MAP_LANE_normalMap)
+VT_MAP_FUNCTIONS(MetalRoughMap, VT_MAP_LANE_metalRoughMap)
+VT_MAP_FUNCTIONS(OcclusionMap, VT_MAP_LANE_occlusionMap)
+VT_MAP_FUNCTIONS(EmissiveMap, VT_MAP_LANE_emissiveMap)
+VT_MAP_FUNCTIONS(ClearCoatMap, VT_MAP_LANE_clearCoatMap)
+VT_MAP_FUNCTIONS(ClearCoatGlossMap, VT_MAP_LANE_clearCoatGlossMap)
+VT_MAP_FUNCTIONS(ClearCoatNormalMap, VT_MAP_LANE_clearCoatNormalMap)
+VT_MAP_FUNCTIONS(HeightMap, VT_MAP_LANE_heightMap)
+VT_MAP_FUNCTIONS(LightMap, VT_MAP_LANE_lightMap)
+VT_MAP_FUNCTIONS(DetailNormalMap, VT_MAP_LANE_detailNormalMap)
+VT_MAP_FUNCTIONS(GlossMap, VT_MAP_LANE_glossMap)
+VT_MAP_FUNCTIONS(ThicknessMap, VT_MAP_LANE_thicknessMap)
+VT_MAP_FUNCTIONS(RefractionMap, VT_MAP_LANE_refractionMap)
+VT_MAP_FUNCTIONS(OpacityMap, VT_MAP_LANE_opacityMap)
+VT_MAP_FUNCTIONS(AnisotropyMap, VT_MAP_LANE_anisotropyMap)
+VT_MAP_FUNCTIONS(SpecularColorMap, VT_MAP_LANE_specularColorMap)
+VT_MAP_FUNCTIONS(SpecularityFactorMap, VT_MAP_LANE_specularityFactorMap)
+VT_MAP_FUNCTIONS(MaterialEnvAtlas, VT_MAP_LANE_materialEnvAtlas)
+VT_MAP_FUNCTIONS(IridescenceMap, VT_MAP_LANE_iridescenceMap)
+VT_MAP_FUNCTIONS(IridescenceThicknessMap, VT_MAP_LANE_iridescenceThicknessMap)
+VT_MAP_FUNCTIONS(DiffuseTransmissionMap, VT_MAP_LANE_diffuseTransmissionMap)
+VT_MAP_FUNCTIONS(DiffuseTransmissionColorMap, VT_MAP_LANE_diffuseTransmissionColorMap)
+VT_MAP_FUNCTIONS(PlanarReflectionMap, VT_MAP_LANE_planarReflectionMap)
+VT_MAP_FUNCTIONS(DisplacementMap, VT_MAP_LANE_displacementMap)
 
 // ---- Scene samplers. Vulkan set 3 bindings 12 / 13; on Metal the forward draw binds the
 // same states at fragment samplers 7 / 8 (MetalGraphicsDevice::bindDrawSampler), and the

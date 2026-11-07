@@ -514,7 +514,8 @@ against `sizeof(MaterialUniforms)` (`tests/slangBundleTests.cpp`, and Vulkan's
 a plain aggregate so `alignof` is 4, not 16 — the layout works because every `vec4` in the
 list lands 16-aligned by construction. An array of eight `vec4` is the type `vec4x8`
 (`float[8][4]` in C++, `float4 name[8]` in Slang, stride 16 in std140 and Metal alike); the
-clipping planes are the two today.
+clipping planes are the two today; `uint4x7` (`uint32_t[7][4]`, `uint4 name[7]`) is the map
+lanes.
 
 **The LIGHTING block is ONE layout on both backends** (`platform/graphics/lightingBlock.h`,
 `LightingBlock` / `GpuLightBlock`, 3104 bytes, asserted there and in `vulkanRenderPipeline.cpp`,
@@ -573,9 +574,30 @@ builds resolve in full on every memo hit and assert the two agree;
 
 ### Adding a texture slot
 
+**A material map is a LANE of the material block, not a row of the binding table**
+(`scene/materials/materialMapLanes.h`, ARCHITECTURE.md "Phase 1 design"): the forward and
+shadow programs read every map through the bindless table (`platform/graphics/bindlessTable.h`,
+Metal buffer 13 / Vulkan set 7, one argument buffer or update-after-bind set per in-flight
+frame, synced at frame start from the process-wide registry in `bindlessResidency.h`), by the
+texture index and sampler index `Material::packAll` writes into `MaterialUniforms::mapLanes`
+from `getTextureSlots`. Adding a map is one line in `materialMapLanes.h` (its slot number,
+which stays the material-facing name, and whether it keeps its texture's own sampler state)
+plus a `VT_MAP_FUNCTIONS` line in the forward head and the read; no row, no binder case. A
+mesh instance's own lightmap goes into the lightmap lane of its override block
+(`MeshInstance::overriddenUniforms`). Only a material with a block of its own
+(`customUniformData`: water, the HUD, gizmos, particles, the dynamic sky, the grid) still
+binds its maps by SLOT on the quad rows below, because its block has no lanes (phase 2).
+The capacity is `kBindlessTableTextureCapacity` 1024 and `kBindlessTableSamplerCapacity` 64,
+bounded by what ONE Vulkan set may hold (`maxPerSetDescriptors`, 1212 on MoltenVK 1.4.2,
+whatever the per-stage after-bind limits say), and set 7 is the last set MoltenVK allows. A
+Vulkan device without descriptor indexing and update-after-bind sets has no forward
+rendering and says so at creation. `tests/bindlessResidencyTests.cpp` holds the registry and
+the lanes, `tests/bindlessGpuTests.cpp` (`gpu`) the table on the real device.
+
 **The binding table is `platform/graphics/shaderBindings.h`, and a slot is ONE ROW there**
-(`VT_MATERIAL_TEXTURE_BINDINGS` for Vulkan set 1, the material maps and the quad inputs;
-`VT_SCENE_TEXTURE_BINDINGS` for set 3, the per-pass scene textures). Each row names the
+(`VT_MATERIAL_TEXTURE_BINDINGS` for Vulkan set 1: the quad inputs, the shared sampler, the
+vertex-stage displacement row and the quad extra rows, which a custom-block material's maps
+ride; `VT_SCENE_TEXTURE_BINDINGS` for set 3, the per-pass scene textures). Each row names the
 Metal fragment texture slot, the Vulkan binding, the descriptor kind and whether the map
 keeps its own sampler, and everything else is derived from it with its previous literal
 pinned by a `static_assert` beside it: `MetalTextureBinder::kMaxTextureSlots`, the material
@@ -588,42 +610,41 @@ their bindings with. Adding a row needs the macro in the program that reads it a
 code that fills it; Vulkan's `validateForwardLayout` refuses a forward or shadow entry whose
 reflected bindings fall outside the table. The rules the rows encode:
 
-- Metal fragment SAMPLER slots 1-6 carry the texture's own sampler for base colour, normal,
-  metal-rough, occlusion, emissive and lightmap (the rows with `ownSampler`, built from
-  `textureSamplerState`, the same mapping Vulkan's per-texture samplers use) — exactly the
-  maps Vulkan binds as combined samplers. A new map Vulkan binds as a combined sampler needs
-  `ownSampler` and a Metal sampler slot within the budget comment in `metalTextureBinder.h`;
-  a separate-image map keeps `defaultSampler` on both. Slots 0-40 and 42-51 are taken today
-  (31-33 the gloss, thickness and refraction maps, 34 the opacity map, 42 the anisotropy map,
-  which skips 41 for the displacement map's vertex slot below, 43-44 the specular colour and
-  specularity factor maps (Vulkan 36-37), 45 the material's own environment atlas (Vulkan 38), 46 the scene's user map (Vulkan set 3
-  binding 24, `Scene::setUserShaderData`), 47-48 the iridescence intensity and thickness maps
-  (Vulkan 39-40), 49-50 the diffuse transmission and its colour maps (Vulkan 41-42), 51 the
-  planar reflection map (Vulkan 43, `StandardMaterial::setPlanarReflectionMap`);
-  35 is the second
-  directional shadow map, 36 the clustered cookie atlas, 37-38 the VSM spot moments and 39-40
-  the two directional maps AGAIN as VSM moments, scene slots, not material ones: the Slang
-  forward program reads a directional slot as a `depth2d` at 6 / 35 or as moments at 39 / 40,
-  one of the pair per variant by the VSM feature, since a colour map in a depth argument is a
-  type mismatch). A VERTEX-stage texture is a row whose Metal slot is 100 + its vertex index
-  (`kMetalVertexTextureSlotBase`): the displacement map is vertex texture 41, clear of every
-  fragment slot, because Slang declares every global on every Metal entry point and two
-  resources at one index fail Apple's compiler even across stages. Slot 7 is the clearcoat intensity map, a MATERIAL slot (a scene
-  depth bound there overwrote it on every draw and Metal rendered every clearcoat map as
-  absent), so a scene row must not reuse a material row's Metal slot: the table is where
-  that collision is now visible in one place.
-- On Vulkan, MoltenVK inherits a 16-SAMPLER-per-stage limit across all sets and the fragment
-  stage is at it, so a new material texture is a SEPARATE image (`SeparateImage`: `texture2D`
+- Metal fragment SAMPLER slots 1-6 carry the texture's own sampler for a CUSTOM-BLOCK
+  material's base colour, normal, metal-rough, occlusion, emissive and lightmap slots (the
+  rows with `ownSampler`, built from `textureSamplerState`, the same mapping Vulkan's
+  per-texture samplers use) — exactly the rows Vulkan binds as combined samplers; a draw of
+  any other material leaves them on the default sampler (`clearMaterialSamplers`). In the
+  bindless table the same split holds by lane: a map on one of those slots packs its
+  texture's own sampler index, every other map packs sampler 0, the default state, which is
+  what keeps the golden images bit-identical to the slot binding before it. The material
+  rows' Metal slots are 0-5, 17, 19, 23 and 7 / 13 / 14 (the quad extra inputs); the scene
+  slots 2, 6, 8-12, 15-16, 18, 20-22 and 24-30, 35-40 and 46 (35 the second directional shadow
+  map, 36 the clustered cookie atlas, 37-38 the VSM spot moments and 39-40 the two
+  directional maps AGAIN as VSM moments: the Slang forward program reads a directional slot
+  as a `depth2d` at 6 / 35 or as moments at 39 / 40, one of the pair per variant by the VSM
+  feature, since a colour map in a depth argument is a type mismatch; 46 the scene's user
+  map, Vulkan set 3 binding 24, `Scene::setUserShaderData`). A VERTEX-stage texture is a row
+  whose Metal slot is 100 + its vertex index (`kMetalVertexTextureSlotBase`): the
+  displacement row is vertex texture 41, clear of every fragment slot, because Slang
+  declares every global on every Metal entry point and two resources at one index fail
+  Apple's compiler even across stages. Slot 7 is a MATERIAL slot (a scene depth bound there
+  overwrote it on every draw and Metal rendered every clearcoat map as absent), so a scene
+  row must not reuse a material row's Metal slot: the table is where that collision is now
+  visible in one place.
+- On Vulkan, MoltenVK inherits a 16-SAMPLER-per-stage limit across the ordinary sets and the
+  fragment stage is at it, so a new ROW is a SEPARATE image (`SeparateImage`: `texture2D`
   read through the shared sampler at set-1 binding 24), the treatment the parallax height
-  map, the detail normal, the displacement map, the three clearcoat maps (7/13/14) and the
-  gloss/thickness/refraction/opacity maps (31-34) already get; the light cookies do the same
-  on set 3.
+  row, the detail normal, the displacement row and the three clearcoat rows (7/13/14) get;
+  the light cookies do the same on set 3. The bindless set is an update-after-bind set,
+  which MoltenVK backs with a Metal argument buffer and bounds at 1024 samplers instead.
 - **A material names a texture by its METAL slot** (`TextureSlot::slot`, what
-  `getTextureSlots` returns), and the Vulkan binder maps it to its set-1 binding through
-  `vulkanMaterialBindingForMetalSlot`, derived from the rows. The two numbers agree for most
-  rows, which is how a binder that matched the slot against its binding list directly worked
-  until the anisotropy map (Metal 42, Vulkan 35) arrived and drew on Vulkan as no map at all,
-  with nothing logged; the displacement map (vertex 41, Vulkan 25) had a hard-coded case.
+  `getTextureSlots` returns), the number every lane and every row is keyed on: the lane
+  table maps it to a lane, and for a custom-block material the Vulkan binder maps it to its
+  set-1 binding through `vulkanMaterialBindingForMetalSlot`, derived from the rows (the two
+  numbers agree for every row left; a binder that matched the slot against its binding list
+  directly once drew the anisotropy map, Metal 42 against Vulkan 35, as no map at all, with
+  nothing logged). A slot without a row and without a lane binds nothing, silently.
 - APPEND a material row, never insert it in numeric order: a quad pass's texture slot i is
   the i-th material row, so an insertion moves every quad input after it. The layout, the
   descriptor writes and the draw binding all read `kMaterialTextureBindings`; do not copy
@@ -640,10 +661,10 @@ reflected bindings fall outside the table. The rules the rows encode:
 7-8=clustered (fragment) / gsplat data and order, particle pool and sort order (vertex),
 9=morph deltas / a mesh emitter's vertices (vertex only; the atmosphere the fragment stage
 once took there is inside the lighting block), 10=morph params, 11=gsplat / particle params
-(particle params reach the fragment stage too), 12=gsplat SH (vertex), 13=the EXPERIMENTAL
-bindless table's argument buffer (both stages; `platform/graphics/bindlessTable.h`, whose
-Vulkan twin is descriptor set 7, the eighth and last MoltenVK allows: the draw layout has eight
-sets when descriptor indexing is on).
+(particle params reach the fragment stage too), 12=gsplat SH (vertex), 13=the bindless
+table's argument buffer (both stages; `platform/graphics/bindlessTable.h`, whose Vulkan twin
+is descriptor set 7, the eighth and last MoltenVK allows: the draw layout has eight sets when
+descriptor indexing is on).
 
 Vulkan does NOT mirror these numerically — it binds through descriptor sets
 (`vulkanUniformLayouts.h`). Keep the two mappings in sync conceptually, not by
@@ -1015,7 +1036,7 @@ sampler. A quad pass may draw a vertex buffer of its own instead of the fullscre
 (`RenderPassShaderQuad::setGeometry`, a triangle list in the standard 56-byte layout, written
 per frame into a ring of `maxFramesInFlight` buffers). The block rides the per-draw MATERIAL slot (Metal buffer 3 / Vulkan
 set 0 binding 0) via `GraphicsDevice::setQuadUniformData`; `kPerDrawUniformCapacity`
-(1056; `MaterialUniforms` itself is 1056 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
+(1168; `MaterialUniforms` itself is 1168 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
 allocation behind it. A smaller block is copied into the front of a full-size
 allocation, so never shorten the allocation. Quad passes draw an oversized
 fullscreen TRIANGLE and, on Metal, bind `_postSampler` (linear, clamp, no anisotropy),
@@ -1581,7 +1602,7 @@ present, but the rule below never depends on reading it.
   is the only free bit. Bit 18 is stored inverted
   so a zero flags word keeps the scene environment, and it drops only the env atlas
   (SH probes and the flat ambient remain), as upstream's `useSceneEnv` does. The
-  opacity map (slot / set-1 binding 34, multiplied into the forward and shadow alpha
+  opacity map (material slot 34, a lane of the block, multiplied into the forward and shadow alpha
   on the base colour's UV SET under its OWN transform, `setOpacityMapTiling` / `Offset` /
   `Rotation`, reading the channel `setOpacityMapChannel` picks, alpha by default) is on both
   backends. The channel rides in `opacityTransform0.w`, which the transform never reads. It multiplies ON TOP of the
@@ -1961,15 +1982,13 @@ present, but the rule below never depends on reading it.
 - **A baked lightmap belongs to the MESH INSTANCE, not the material.**
   `MeshInstance::setLightMap` owns it (a `shared_ptr`); the renderer hands it to the
   device per draw (`GraphicsDevice::setInstanceLightMap`, cleared after the draw loop),
-  both backends bind it OVER the material's slot (`applyInstanceLightMap`, slot
-  `kLightMapTextureSlot`), and it switches the lightmap variant on by itself. Upstream
-  0cd268478. Written into a SHARED material, meshes sharing it show whichever bake was
-  applied last, and an unbaked mesh sharing it carries the bake — `lightmap-sources`
-  shows all of it. Two more rules: a bake variant never samples a lightmap (otherwise
-  a previous bake still attached is written back into the new one as its indirect
-  light), and Metal
-  rebinds the material textures when only the instance lightmap changed, since its
-  "same material, skip binding" shortcut would otherwise keep the last mesh's bake.
+  which switches the lightmap variant on, and the instance's override block carries it in
+  the lightmap lane OVER the material's (`MeshInstance::overriddenUniforms`, the block the
+  clipping planes ride too), so a lightmapped instance draws with a block of its own.
+  Upstream 0cd268478. Written into a SHARED material, meshes sharing it show whichever bake
+  was applied last, and an unbaked mesh sharing it carries the bake — `lightmap-sources`
+  shows all of it. One more rule: a bake variant never samples a lightmap (otherwise a
+  previous bake still attached is written back into the new one as its indirect light).
   A lightmap is sampled through UV1, and the built-in box, cylinder, cone and capsule
   carry upstream's UV1 unwrap: every face or part in its own cell, padded by 8/64 of
   it (`PrimitiveGeometry::uvs1`; the plane and sphere use UV0, as upstream). Copying
@@ -4035,7 +4054,7 @@ What stays HERE is only what bites during UNRELATED work.
   `tests/textureCopyTests.cpp` (`gpu`), except its sRGB mip filtering (no sRGB formats here) and its
   float32 mip exactness at odd sizes.
 - **Queued — none a correctness bug:** the
-  binding footprint exceeds WebGPU's defaults (Metal 43 texture slots, Vulkan 7 sets). The
+  binding footprint exceeds WebGPU's defaults (Metal 47 texture slots, Vulkan 8 sets). The
   parsers derive tangents through one `generateTangents` / `tangentFromNormal`
   (`packedVertex.h`), whose sign rule is opposite to `calculateTangents`; glTF animation
   tracks keep file order (`AnimTrackList`). Measured

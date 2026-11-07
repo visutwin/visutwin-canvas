@@ -328,8 +328,13 @@ namespace visutwin::canvas
          */
         virtual void updateUniforms(MaterialUniforms& uniforms) const;
 
-        /// updateUniforms plus what every material owes the block after it: the pick id.
+        /// updateUniforms plus what every material owes the block after it: the map lanes
+        /// (packMapLanes) and the pick id.
         void packAll(MaterialUniforms& uniforms) const;
+        /// Writes the bindless lanes of `slots` (materialMapLanes.h) into the block: a slot
+        /// without a lane is ignored, a lane without a slot reads 0. Shared with the mesh
+        /// instance's override block, which writes its own lightmap the same way.
+        static void packMapLane(MaterialUniforms& uniforms, int slot, const Texture* texture);
 
         /// A per-map UV transform as the two rows the shaders read. A subclass packs its own transforms with it rather
         /// than writing them into the base fields from a const method.
@@ -372,6 +377,14 @@ namespace visutwin::canvas
          * @return Pointer to uniform data, or nullptr to use updateUniforms() path.
          */
         virtual const void* customUniformData(size_t& /*outSize*/) const { return nullptr; }
+        /// Whether the material supplies a block of its own: such a material's maps are bound
+        /// by SLOT on the quad rows, since its block has no map lanes (ARCHITECTURE.md, phase
+        /// 1 of the bindless table).
+        bool hasCustomUniformData() const
+        {
+            size_t size = 0;
+            return customUniformData(size) != nullptr;
+        }
 
         /**
          * Populates the list of textures this material wants bound to fragment shader slots.
