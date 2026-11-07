@@ -25,6 +25,8 @@
 #include <utility>
 
 #include <algorithm>
+#include <cmath>
+#include <cstring>
 #include <array>
 #include <chrono>
 #include <cstdio>
@@ -46,6 +48,11 @@
 #include "core/log.h"
 #include "framework/components/componentRegistry.h"
 #include "framework/components/render/renderComponent.h"
+#include "scene/mesh.h"
+#include "platform/graphics/instanceCuller.h"
+#include "platform/graphics/vertexBuffer.h"
+#include "platform/graphics/vertexFormat.h"
+#include "scene/meshInstance.h"
 
 namespace visutwin::canvas
 {
@@ -262,6 +269,71 @@ namespace visutwin::canvas
                 }
             }
             spdlog::info("Hi-Z pyramid requested on {} camera(s) from VISUTWIN_HIZ", cameras);
+        }
+
+        // VISUTWIN_GPU_CULL=1 turns GPU instance culling on for every instanced mesh instance
+        // (the bounding sphere from the mesh bounds and the largest instance scale), 2 adds the
+        // occlusion test against the Hi-Z pyramid, which it requests on every camera. The frames
+        // must match the ones without it; GPU_PASSES times the passes it saves.
+        if (const char* gpuCull = std::getenv("VISUTWIN_GPU_CULL"); gpuCull && (*gpuCull == '1' || *gpuCull == '2')) {
+            const bool occlusion = *gpuCull == '2';
+            int culled = 0;
+            for (auto* render : _engine->components().instances<RenderComponent>()) {
+                for (MeshInstance* meshInstance : render ? render->meshInstances() : std::vector<MeshInstance*>{}) {
+                    const auto& instancing = meshInstance ? meshInstance->instancingData() : MeshInstance::InstancingData{};
+                    if (!meshInstance || !meshInstance->mesh() || !instancing.vertexBuffer || instancing.count <= 0) {
+                        continue;
+                    }
+                    // The cull compacts 80-byte records (matrix and colour): a 64-byte buffer is
+                    // carried over with a white colour, which leaves the frame as it was.
+                    if (instancing.vertexBuffer->format() && instancing.vertexBuffer->format()->size() == 64 &&
+                        !instancing.vertexBuffer->storage().empty()) {
+                        const auto& source = instancing.vertexBuffer->storage();
+                        const size_t count = std::min(static_cast<size_t>(instancing.count), source.size() / 64);
+                        VertexBufferOptions coloured;
+                        coloured.data.resize(count * 80);
+                        constexpr float white[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+                        for (size_t i = 0; i < count; ++i) {
+                            std::memcpy(coloured.data.data() + i * 80, source.data() + i * 64, 64);
+                            std::memcpy(coloured.data.data() + i * 80 + 64, white, sizeof(white));
+                        }
+                        meshInstance->setInstancing(_engine->graphicsDevice()->createVertexBuffer(
+                            VertexFormat::colorInstancingFormat(), static_cast<int>(count), coloured),
+                            static_cast<int>(count));
+                    }
+                    // the largest axis of any instance matrix (64-byte records or wider)
+                    const auto& storage = instancing.vertexBuffer->storage();
+                    const size_t stride = instancing.vertexBuffer->format() ?
+                        static_cast<size_t>(instancing.vertexBuffer->format()->size()) : 0u;
+                    float scale = 1.0f;
+                    for (size_t i = 0; stride >= 64 && (i + 1) * stride <= storage.size() &&
+                         i < static_cast<size_t>(instancing.count); ++i) {
+                        float m[16];
+                        std::memcpy(m, storage.data() + i * stride, sizeof(m));
+                        for (int c = 0; c < 3; ++c) {
+                            scale = std::max(scale, std::sqrt(m[4 * c] * m[4 * c] + m[4 * c + 1] * m[4 * c + 1] +
+                                m[4 * c + 2] * m[4 * c + 2]));
+                        }
+                    }
+                    const BoundingBox& bounds = meshInstance->mesh()->aabb();
+                    const float radius = (bounds.center().length() + bounds.halfExtents().length()) * scale;
+                    meshInstance->enableGpuInstanceCulling(_engine->graphicsDevice().get(), radius);
+                    meshInstance->setGpuOcclusionCulling(occlusion);
+                    _gpuCulledInstances.push_back(meshInstance);
+                    ++culled;
+                }
+            }
+            int cameras = 0;
+            if (occlusion) {
+                for (auto* camera : _engine->components().instances<CameraComponent>()) {
+                    if (camera) {
+                        camera->requestHiZ(true);
+                        ++cameras;
+                    }
+                }
+            }
+            spdlog::info("GPU instance culling on {} mesh instance(s){} from VISUTWIN_GPU_CULL", culled,
+                occlusion ? std::format(", occlusion against the Hi-Z pyramid of {} camera(s)", cameras) : "");
         }
 
         // VISUTWIN_CLIP_PLANE=nx,ny,nz,d[,camera] clips the scene by one world-space plane
@@ -553,6 +625,15 @@ namespace visutwin::canvas
                     static_cast<double>(stats->drawCalls().total), static_cast<double>(f.shaders), gpuMs,
                     static_cast<double>(f.cullSetsReused)});
                 if (frameIndex == cpuStatsLast) {
+                    // The visible counts of the instances VISUTWIN_GPU_CULL culls, per camera output.
+                    for (const MeshInstance* meshInstance : _gpuCulledInstances) {
+                        for (const auto& output : meshInstance->gpuCullOutputs()) {
+                            if (output.culler) {
+                                spdlog::warn("GPU_CULL instances {} visible {}", meshInstance->instancingData().count,
+                                    output.culler->visibleCountReadback());
+                            }
+                        }
+                    }
                     std::array<double, 12> median{};
                     for (size_t k = 0; k < median.size(); ++k) {
                         std::vector<double> column;

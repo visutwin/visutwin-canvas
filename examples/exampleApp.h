@@ -126,6 +126,8 @@ namespace visutwin::canvas
      * configure() → create() → [update() → preRender() → postRender()]* →
      * destroy(). Only create() is mandatory.
      */
+    class MeshInstance;
+
     class ExampleApp
     {
     public:
@@ -252,6 +254,10 @@ namespace visutwin::canvas
                                        bool castShadows = false);
 
     private:
+        // The mesh instances VISUTWIN_GPU_CULL turned GPU culling on for, whose visible counts
+        // the CPU_STATS report adds.
+        std::vector<MeshInstance*> _gpuCulledInstances;
+
         bool initWindow();
         bool initEngine();
         void handleEvent(const SDL_Event& event);

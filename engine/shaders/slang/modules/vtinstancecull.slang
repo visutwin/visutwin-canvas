@@ -4,7 +4,7 @@
 // Created by Arnis Lektauers on 07.10.2026
 //
 // What the two GPU instance-cull kernels share: the bindings, in Compute's name-order
-// contract (buffers "args", "input", "output" at 0, 1, 2 and the 128-byte uniform block
+// contract (buffers "args", "input", "output" at 0, 1, 2 and the 208-byte uniform block
 // after them, buffer(3) on Metal and binding 3 on Vulkan), the 80-byte instance record
 // (model matrix + colour) and the 20-byte indexed-indirect arguments both APIs share
 // (index count, instance count, first index, vertex offset, first instance).
@@ -21,6 +21,11 @@ public struct CullParams
     public uint baseInstance;
     public uint dispatchRowThreads;   // the cull's Compute::dispatchRowThreads
     public float pad1;
+    // the `occlusion` variant: the instances' space to the clip space of the Hi-Z pyramid's
+    // depth (a point p projects as mul(float4(p, 1), m))
+    public float4x4 occlusionMatrix;
+    // x: 1 to test occlusion, y: the bounding sphere radius in the instances' space
+    public float4 occlusion;
 };
 
 /// The model matrix as its four COLUMNS, so the translation is columns[3] with no

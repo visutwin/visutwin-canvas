@@ -19,6 +19,7 @@
 namespace visutwin::canvas
 {
     class VertexBuffer;
+    struct HiZMapHandle;
 
     /// Parameters for GPU instance culling.
     /// Layout must match the CullParams struct used inside backend compute kernels
@@ -37,9 +38,16 @@ namespace visutwin::canvas
         /// and instanceCount.
         uint32_t dispatchRowThreads;
         float    _pad;
+        /// The occlusion test (the kernel's `occlusion` variant, against a Hi-Z pyramid): the
+        /// matrix taking the instances' space to the clip space the pyramid's depth was rendered
+        /// in (the pyramid's view-projection times the node's world matrix), column-major.
+        float occlusionMatrix[16];
+        /// x: 1 to test occlusion, y: the bounding sphere radius in the instances' own space
+        /// (boundingSphereRadius above is in world units, for the planes), zw: unused.
+        float occlusion[4];
     };
-    static_assert(sizeof(InstanceCullParams) == 128,
-        "InstanceCullParams must be 128 bytes to match backend kernel layout");
+    static_assert(sizeof(InstanceCullParams) == 208,
+        "InstanceCullParams must be 208 bytes to match backend kernel layout");
 
     /**
      * @brief Backend-agnostic handle for per-frame GPU instance culling.
@@ -67,8 +75,11 @@ namespace visutwin::canvas
 
         /// Run a frustum cull pass over `input` (packed `InstanceData`, 80 bytes each).
         /// After this call, `compactedNativeBuffer()` contains only the visible
-        /// instances and `indirectArgsNativeBuffer()` contains the draw arguments.
-        virtual void cull(const std::shared_ptr<VertexBuffer>& input, const InstanceCullParams& params) = 0;
+        /// instances and `indirectArgsNativeBuffer()` contains the draw arguments. With a Hi-Z
+        /// pyramid and `params.occlusion[0]` set, an instance the frustum keeps is also tested
+        /// against the pyramid and dropped when something nearer covers all of it.
+        virtual void cull(const std::shared_ptr<VertexBuffer>& input, const InstanceCullParams& params,
+            const std::shared_ptr<HiZMapHandle>& hiZ = nullptr) = 0;
 
         /// Opaque pointer to the compacted instance buffer
         /// (backend-specific: `MTL::Buffer*`, `VkBuffer`, …). Stable across frames

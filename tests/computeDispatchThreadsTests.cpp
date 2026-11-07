@@ -17,6 +17,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "platform/graphics/compute.h"
@@ -182,11 +183,12 @@ int main()
 
     std::cout << "\nthe bundle carries each compute entry's [numthreads]\n";
     {
-        for (const auto& [program, size] : std::vector<std::pair<std::string, std::array<uint32_t, 3>>>{
-                 {"instance-cull", {64, 1, 1}}, {"instance-cull-reset", {1, 1, 1}}, {"particle-sim", {256, 1, 1}},
-                 {"particle-sort", {256, 1, 1}}}) {
+        for (const auto& [program, variant, size] : std::vector<std::tuple<std::string, std::string, std::array<uint32_t, 3>>>{
+                 {"instance-cull", "frustum", {64, 1, 1}}, {"instance-cull", "occlusion", {64, 1, 1}},
+                 {"instance-cull-reset", "", {1, 1, 1}}, {"particle-sim", "", {256, 1, 1}},
+                 {"particle-sort", "", {256, 1, 1}}}) {
             SlangBundledProgram bundled;
-            if (!findBundledSlangProgram(program, bundled)) {
+            if (!findBundledSlangProgram(program, bundled, variant)) {
                 fail(program + " is in the bundle");
                 continue;
             }

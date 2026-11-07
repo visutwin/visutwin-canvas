@@ -896,6 +896,12 @@ namespace visutwin::canvas
                 if (!srcData.vertexBuffer || srcData.count <= 0) {
                     continue;
                 }
+                // The kernel reads and compacts 80-byte records. A buffer of another format, set
+                // after culling was enabled (an application re-setting its instances every
+                // frame), would be read as garbage: it is drawn whole instead, uncut.
+                if (!srcData.vertexBuffer->format() || !srcData.vertexBuffer->format()->hasInstanceColor()) {
+                    continue;
+                }
                 auto* srcMesh = mi->mesh();
                 if (!srcMesh) {
                     continue;
@@ -930,6 +936,23 @@ namespace visutwin::canvas
                     if (!output) {
                         continue;
                     }
+                    // Occlusion against the camera's pyramid of the frame before, its
+                    // view-projection carried into the instances' space as the planes are;
+                    // any other age (none built, the camera stopped asking) culls by the
+                    // frustum alone.
+                    std::shared_ptr<HiZMapHandle> hiZ;
+                    params.occlusion[0] = 0.0f;
+                    if (mi->gpuOcclusionCulling()) {
+                        const auto& handle = view.camera->hiZMapHandle();
+                        if (handle && handle->renderVersion == version - 1 && !handle->texture.expired()) {
+                            hiZ = handle;
+                            const Matrix4 toClip = handle->viewProjection *
+                                (mi->node() ? mi->node()->worldTransform() : Matrix4::identity());
+                            toClip.store(params.occlusionMatrix);
+                            params.occlusion[0] = 1.0f;
+                            params.occlusion[1] = mi->instanceCullRadius();
+                        }
+                    }
                     if (identity) {
                         std::memcpy(params.frustumPlanes, view.planes, sizeof(view.planes));
                     } else {
@@ -941,7 +964,7 @@ namespace visutwin::canvas
                             }
                         }
                     }
-                    output->culler->cull(srcData.vertexBuffer, params);
+                    output->culler->cull(srcData.vertexBuffer, params, hiZ);
                     output->culledVersion = version;
                 }
                 mi->pruneGpuCullOutputs(version - kStaleFrames);

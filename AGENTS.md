@@ -268,7 +268,11 @@ bindings like a program of the tree, so it needs the source tree at run time. Wh
   with `#if defined(X)`; `#if X` on an undefined name is a Slang warning (E15205). Entry
   points are found in the source TEXT, before the preprocessor: give the variants ONE entry per
   stage that dispatches on the define (`smaa.slang`), never same-named entries in `#if`
-  branches, which all get emitted and collide on Vulkan while Metal still builds.
+  branches, which all get emitted and collide on Vulkan while Metal still builds. A program
+  that declares ANY variant has no unnamed one: `getOrCreateSlangShader(device, "<name>")`
+  then fails ("declares no variant ''"), so adding the first variant to a program means naming
+  the old build too (`instance-cull` became `frustum` and `occlusion`) and updating every
+  caller, the tests' lists of programs included. An `import` may sit inside `#if`.
 - **The build compiles every program** (`tools/generate_slang_bundle.py`, the vcpkg port's
   `slangc`) into `<build>/engine/generated/slang/slang_shader_bundle.h`: MSL source AND a
   precompiled metallib for Metal, SPIR-V per entry point for Vulkan, plus the
@@ -3016,7 +3020,26 @@ present, but the rule below never depends on reading it.
   (the Slang programs `instance-cull-reset` and `instance-cull`); a backend gets it by supporting compute and
   indirect draws. `tests/gpuInstanceCullTests.cpp` (label `gpu`) culls on the real device
   and compares the read-back arguments and instances with a CPU cull; no example
-  renders with GPU culling on.
+  renders with GPU culling on (`VISUTWIN_GPU_CULL=1` turns it on for every instanced mesh in
+  the examples, `=2` adds occlusion; it converts a 64-byte instance buffer to the 80-byte
+  coloured format the cull compacts, which on Metal changes the frame by itself, so compare
+  `=1` with `=2`, not with neither).
+- **GPU occlusion culling tests against the camera's Hi-Z pyramid of the PREVIOUS frame, and
+  only that one.** `MeshInstance::setGpuOcclusionCulling` (off by default) plus a camera that
+  builds a pyramid (`CameraComponent::requestHiZ`): the renderer uses the `occlusion` variant
+  of `instance-cull` only while `HiZMapHandle::renderVersion` is this frame's minus one (the
+  cull dispatches at graph build, before this frame's pyramid exists), and carries the
+  pyramid's view-projection into the instances' space as it does the planes
+  (`InstanceCullParams::occlusionMatrix`, the radius in the instances' own units in
+  `occlusion[1]`). Any other age culls by the frustum alone: a pyramid older than that was
+  rendered from another view. The test keeps everything uncertain (a box crossing the near
+  plane or leaving the depth's viewport, no pyramid) and drops an instance only when its
+  nearest depth lies beyond the FARTHEST depth of every texel its rectangle covers, so it
+  never hides what last frame's depth showed; what this frame uncovers (the camera or an
+  occluder moved) is drawn one frame late, the single-phase scheme's cost, until the second
+  phase exists. The frustum-only kernel is a variant of its own and unchanged. The GPU test's
+  occluder has ODD-texel edges: on even ones every pyramid texel holds one depth and a kernel
+  reading the nearest channel for the farthest passes.
 - **GPU instance culling has one output PER CAMERA and runs once a frame, before
   anything draws.** `dispatchGpuInstanceCulling` culls every GPU-culled mesh instance once
   for each camera in the frame's render actions, into that camera's own output

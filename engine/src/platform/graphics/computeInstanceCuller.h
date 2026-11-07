@@ -27,7 +27,8 @@ namespace visutwin::canvas
         ~ComputeInstanceCuller() override;
 
         void reserve(uint32_t maxInstances) override;
-        void cull(const std::shared_ptr<VertexBuffer>& input, const InstanceCullParams& params) override;
+        void cull(const std::shared_ptr<VertexBuffer>& input, const InstanceCullParams& params,
+            const std::shared_ptr<HiZMapHandle>& hiZ = nullptr) override;
         [[nodiscard]] void* compactedNativeBuffer() const override;
         [[nodiscard]] void* indirectArgsNativeBuffer() const override;
         [[nodiscard]] uint32_t maxInstances() const override { return _maxInstances; }
@@ -39,8 +40,13 @@ namespace visutwin::canvas
         GraphicsDevice* _device;
         std::shared_ptr<Shader> _resetShader;
         std::shared_ptr<Shader> _cullShader;
+        // The `occlusion` variant, which also reads a Hi-Z pyramid: a Compute of its own, since
+        // one with scene maps binds a descriptor set more on Vulkan, and the frustum-only cull
+        // stays exactly what it was.
+        std::shared_ptr<Shader> _occlusionShader;
         std::unique_ptr<Compute> _reset;
         std::unique_ptr<Compute> _cull;
+        std::unique_ptr<Compute> _occlusionCull;
         std::shared_ptr<VertexBuffer> _args;     // 20-byte indexed-indirect arguments
         std::shared_ptr<VertexBuffer> _output;   // the visible instances, compacted
         uint32_t _maxInstances = 0;

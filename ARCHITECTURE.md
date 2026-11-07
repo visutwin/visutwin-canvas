@@ -1964,6 +1964,55 @@ request as well (car-showcase gains its prepass: the frame's GPU time rises 1.4 
 1.3 on Metal, almost all of it not the pyramid). Step (c) tests instances against this pyramid
 in the cull kernel, as last frame's occluders, and step (d) issues the survivors.
 
+**Step (c) result (2026-11-07).** The occlusion test is in, single-phase. The cull kernel
+`instance-cull` has two variants: `frustum` (the planes alone, unchanged) and `occlusion`, which
+also tests what the planes keep against the camera's Hi-Z pyramid through `vtscenemaps`. The box
+around each bounding sphere is projected with the pyramid's view-projection carried into the
+instances' space (`InstanceCullParams`, now 208 bytes: `occlusionMatrix`, and the radius in the
+instances' own units); the level is the one where its rectangle spans at most 2x2 texels (an
+integer loop, no `log2`); and the instance is dropped when its nearest depth lies beyond the
+farthest depth of every texel the rectangle touches. A box crossing the near plane or leaving
+the depth's viewport, or a pyramid not built, keeps the instance. It is opt-in per mesh instance
+(`MeshInstance::setGpuOcclusionCulling`) and needs the camera's pyramid
+(`CameraComponent::requestHiZ`); the renderer uses it only while that pyramid is exactly one
+frame old (the cull dispatches at graph build, before this frame's pyramid), so it tests last
+frame's depth with last frame's matrix, and what this frame uncovers is drawn one frame late.
+The second phase (re-testing the culled set against this frame's pyramid and drawing what
+passes) is NOT built; it needs the cull split around the scene pass. `ComputeInstanceCuller`
+keeps a Compute per variant, so a frustum-only cull binds no scene maps. Found on the way: the
+renderer culled whatever buffer the mesh instance held now, checking the 80-byte format only
+when culling was enabled; an application re-setting its instances in the 64-byte format each
+frame (`instancing-custom`) had them read as garbage. A buffer not in the coloured format is now
+drawn whole. `tests/gpuInstanceCullTests.cpp` (26 checks, both backends, Vulkan under
+validation) puts an occluder at 5 units over the centre of a 64x64 depth, with ODD-texel edges,
+and checks that the 9 instances behind it are dropped while the rest are kept: those beside it,
+two across its edges, one centred on an edge whose rectangle lies in a single mixed texel, one
+in front of it, one across the near plane. It also checks that the flag off or no pyramid
+keeps everything, and the same cull through the renderer for a camera whose pyramid is one
+frame old, in a moved node's space (a pyramid five frames old culls by the frustum only).
+Reading the nearest channel for the farthest fails it on the mixed-texel instance; an
+unmodified copy of the shader tree on the same path passes. `VISUTWIN_GPU_CULL=1|2` drives it in
+the examples. With a frozen camera, occlusion draws the same frame as frustum culling with the
+pyramid requested (instancing-basic, -gooch, -glb, -custom; -custom repeats only to about 500
+pixels run to run with the depth request on). Goldens unchanged on both backends. NO shipped
+example has an instance that is wholly hidden: occlusion keeps the same counts as the frustum
+in all four, so the saving is unmeasured and the cost is all there is to read. Medians of three
+alternated runs:
+
+| Frame GPU (ms) | frustum | + pyramid requested | + occlusion |
+|---|---|---|---|
+| instancing-basic, Metal | 0.584 | 0.998 | 1.002 |
+| instancing-gooch, Metal | 0.908 | 1.332 | 1.343 |
+| instancing-basic, Vulkan | 0.910 | 1.987 | 2.156 |
+| instancing-gooch, Vulkan | 0.937 | 1.938 | 2.073 |
+
+The kernel itself is 0.004-0.011 ms on Metal and within the noise on Vulkan, where identical runs
+spread 0.4 ms. The cost is the pyramid (0.23-0.26 ms) plus the depth request, which on Vulkan
+costs another 0.75 ms beyond the pyramid (the standalone depth grab), so the test pays only
+where the draws it removes are worth about 0.4 ms (Metal) or 1 ms (Vulkan). Next: the
+second phase, a scene where the payoff can be measured (none ships), and step (d), issuing the
+survivors as multi-draw.
+
 ### 2. Bindless material binding
 
 Bevy binds materials through binding arrays (one slab of textures indexed by a per-draw

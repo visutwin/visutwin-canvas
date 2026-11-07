@@ -368,6 +368,15 @@ namespace visutwin::canvas
         void enableGpuInstanceCulling(GraphicsDevice* device, float boundingSphereRadius);
 
         bool gpuCullingEnabled() const { return _gpuCullingEnabled; }
+
+        /// Also tests the GPU-culled instances against the camera's Hi-Z pyramid (default off):
+        /// an instance something nearer covered completely in the camera's previous frame is not
+        /// drawn. Only for a camera that builds a pyramid (CameraComponent::requestHiZ), and only
+        /// while it was built in the frame before; otherwise the frustum alone culls. The test is
+        /// against LAST frame's depth, so an instance uncovered this frame (the camera or an
+        /// occluder moved) is drawn from the next one: one frame late.
+        void setGpuOcclusionCulling(const bool value) { _gpuOcclusionCulling = value; }
+        bool gpuOcclusionCulling() const { return _gpuOcclusionCulling; }
         /// How many live mesh instances have GPU culling on. The renderer's per-frame
         /// dispatch sweeps the whole scene for them, and skips the sweep at zero.
         static int gpuCulledInstanceCount() { return GpuCullingCount::live; }
@@ -396,6 +405,8 @@ namespace visutwin::canvas
         /// longer drawing). A camera address reused by a new camera only ever gets an
         /// output culled again for it before it is drawn.
         void pruneGpuCullOutputs(int oldestVersion);
+        /// Every camera's output, for diagnostics.
+        const std::vector<GpuCullOutput>& gpuCullOutputs() const { return _gpuCullOutputs; }
 
         // --- GPU skinning ---
 
@@ -590,6 +601,7 @@ namespace visutwin::canvas
         std::vector<GpuCullOutput> _gpuCullOutputs;
         float _instanceCullRadius = 0.0f;
         bool _gpuCullingEnabled = false;
+        bool _gpuOcclusionCulling = false;
         // Counts this instance in gpuCulledInstanceCount() for as long as it lives with
         // culling on. A member rather than a destructor, so the class keeps its implicit
         // ones; never copied or moved, like the instance that owns it.

@@ -39,6 +39,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include <SDL3/SDL.h>
@@ -192,10 +193,11 @@ int main()
         std::cout << "    at most " << maxGroups << " workgroups per dimension\n";
 
         std::cout << "\nthe bundle's kernels know their workgroup size\n";
-        for (const auto& [program, size] : std::vector<std::pair<std::string, std::array<uint32_t, 3>>>{
-                 {"instance-cull", {64, 1, 1}}, {"instance-cull-reset", {1, 1, 1}}, {"particle-sim", {256, 1, 1}},
-                 {"particle-sort", {256, 1, 1}}}) {
-            const auto shader = getOrCreateSlangShader(device.get(), program);
+        for (const auto& [program, variant, size] : std::vector<std::tuple<std::string, std::string, std::array<uint32_t, 3>>>{
+                 {"instance-cull", "frustum", {64, 1, 1}}, {"instance-cull", "occlusion", {64, 1, 1}},
+                 {"instance-cull-reset", "", {1, 1, 1}}, {"particle-sim", "", {256, 1, 1}},
+                 {"particle-sort", "", {256, 1, 1}}}) {
+            const auto shader = getOrCreateSlangShader(device.get(), program, variant);
             check(shader && shader->computeThreadGroupSize() == size,
                 program + ": " + (shader ? text(shader->computeThreadGroupSize()) : std::string("no shader")) +
                     ", as its [numthreads] says");

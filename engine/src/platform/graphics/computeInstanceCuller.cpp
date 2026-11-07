@@ -37,7 +37,7 @@ namespace visutwin::canvas
 
     bool ComputeInstanceCuller::ensureKernels()
     {
-        if (_reset && _cull) {
+        if (_reset && _cull && _occlusionCull) {
             return true;
         }
         if (_unavailable || !_device || !_device->supportsCompute()) {
@@ -46,9 +46,10 @@ namespace visutwin::canvas
         }
         // One shader per kernel per device, shared by every culler.
         _resetShader = getOrCreateSlangShader(_device, "instance-cull-reset");
-        _cullShader = getOrCreateSlangShader(_device, "instance-cull");
+        _cullShader = getOrCreateSlangShader(_device, "instance-cull", "frustum");
+        _occlusionShader = getOrCreateSlangShader(_device, "instance-cull", "occlusion");
         _args = zeroedBuffer(_device, kDrawArgsSize, 1);
-        if (!_resetShader || !_cullShader || !_args) {
+        if (!_resetShader || !_cullShader || !_occlusionShader || !_args) {
             spdlog::error("[InstanceCuller] GPU culling unavailable: kernels or buffers could not be created");
             _unavailable = true;
             return false;
@@ -58,6 +59,8 @@ namespace visutwin::canvas
         _reset->setupDispatch(1u, 1u, 1u);
         _cull = std::make_unique<Compute>(_device, _cullShader, "InstanceCull");
         _cull->setParameter("args", _args);
+        _occlusionCull = std::make_unique<Compute>(_device, _occlusionShader, "InstanceCullOcclusion");
+        _occlusionCull->setParameter("args", _args);
         return true;
     }
 
@@ -71,9 +74,11 @@ namespace visutwin::canvas
         // The kernels bind the buffer by name, and a new allocation is a new buffer.
         _reset->setParameter("output", _output);
         _cull->setParameter("output", _output);
+        _occlusionCull->setParameter("output", _output);
     }
 
-    void ComputeInstanceCuller::cull(const std::shared_ptr<VertexBuffer>& input, const InstanceCullParams& params)
+    void ComputeInstanceCuller::cull(const std::shared_ptr<VertexBuffer>& input, const InstanceCullParams& params,
+        const std::shared_ptr<HiZMapHandle>& hiZ)
     {
         if (!input || params.instanceCount == 0) {
             return;
@@ -82,15 +87,25 @@ namespace visutwin::canvas
         if (!_output) {
             return;
         }
+        // The occlusion variant only with a pyramid to test against; the handle is read when
+        // the dispatch is recorded (Compute::prepareDispatch).
+        const bool occlusion = hiZ && params.occlusion[0] != 0.0f;
+        Compute* cull = occlusion ? _occlusionCull.get() : _cull.get();
+        if (occlusion) {
+            _occlusionCull->setHiZMap(hiZ);
+        }
         // A thread per instance, sized from the kernel's own workgroup size.
-        _cull->setupDispatchThreads(params.instanceCount);
+        cull->setupDispatchThreads(params.instanceCount);
         InstanceCullParams block = params;
-        block.dispatchRowThreads = _cull->dispatchRowThreads();
-        for (Compute* compute : {_reset.get(), _cull.get()}) {
+        block.dispatchRowThreads = cull->dispatchRowThreads();
+        if (!occlusion) {
+            block.occlusion[0] = 0.0f;
+        }
+        for (Compute* compute : {_reset.get(), cull}) {
             compute->setParameter("input", input);
             compute->setUniformBlock(&block, sizeof(block));
         }
-        _device->computeDispatch({_reset.get(), _cull.get()}, "instance-cull");
+        _device->computeDispatch({_reset.get(), cull}, "instance-cull");
     }
 
     void* ComputeInstanceCuller::compactedNativeBuffer() const
