@@ -155,8 +155,19 @@ int main()
     moved("an instance hidden", 2);
     mesh1->setVisible(true);
     moved("and shown", 3);
-    mesh1->mesh()->setAabb(BoundingBox(Vector3(0.0f, 0.0f, 0.0f), Vector3(0.5f, 0.5f, 0.5f)));
+    mesh1->mesh()->setAabb(BoundingBox(Vector3(0.0f, 0.0f, 0.0f), Vector3(0.75f, 0.75f, 0.75f)));
     moved("a mesh's bounds", 3);
+
+    // A write of the value already held is not a change: the HUD and the immediate
+    // lines write theirs every frame, and a scene with a HUD must still reuse.
+    mesh1->mesh()->setAabb(BoundingBox(Vector3(0.0f, 0.0f, 0.0f), Vector3(0.75f, 0.75f, 0.75f)));
+    mesh1->setVisible(true);
+    mesh1->setMask(MASK_AFFECT_DYNAMIC);
+    box1->setMaterial(materialB.get());
+    box1->setLayers({LAYERID_WORLD});
+    materialA->setTransparent(false);
+    check(runFrame(*engine).reused == steadyReuse, "unchanged writes of the bounds, visibility, mask, material, layers "
+        "and transparency keep the sets reused");
 
     box1->setLayers({LAYERID_UI});
     moved("a component moved to another layer", 2);

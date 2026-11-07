@@ -1,0 +1,93 @@
+name: Bug report
+description: Something renders wrong, crashes, or does not build.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Security issues go through the
+        [security policy](https://github.com/visutwin/visutwin-canvas/security/policy), not here.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: |
+        The example and steps, or a minimal program or asset. If an example shows it,
+        name it (e.g. `visutwin-clustered-lighting`) and any environment variables used.
+      placeholder: |
+        1. cmake --preset examples && cmake --build build-examples
+        2. VISUTWIN_BACKEND=vulkan open build-examples/examples/visutwin-....app
+        3. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Backend
+      multiple: true
+      options:
+        - Metal
+        - Vulkan (MoltenVK)
+        - Vulkan (KosmicKrisp)
+        - Vulkan (native, Linux)
+        - Not backend-specific / build issue
+    validations:
+      required: true
+
+  - type: dropdown
+    id: both-backends
+    attributes:
+      label: Does the other backend show it too?
+      description: Run the same example with `VISUTWIN_BACKEND=metal` and `VISUTWIN_BACKEND=vulkan`.
+      options:
+        - "Yes, both backends"
+        - "No, only the one selected above"
+        - "Not checked / not applicable"
+
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: OS version, GPU and compiler.
+      placeholder: macOS 26.1, Apple M2 Max, Apple clang 21
+    validations:
+      required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit
+      description: Output of `git rev-parse --short HEAD`.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build-type
+    attributes:
+      label: Build preset
+      options:
+        - default (Debug, Metal)
+        - release
+        - examples
+        - vulkan
+        - sanitize
+        - other
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, screenshots, validation output
+      description: |
+        Console output, a `VISUTWIN_SCREENSHOT` capture, Vulkan validation messages or a
+        sanitizer trace. Text logs are rendered as code.
+      render: text

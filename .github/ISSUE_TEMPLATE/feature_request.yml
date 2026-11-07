@@ -1,0 +1,52 @@
+name: Feature request
+description: Propose a feature, a port of an upstream feature or example, or an API change.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What you are trying to do, and what is missing or awkward today.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: The behaviour or API you would like. Sketch code if it helps.
+    validations:
+      required: true
+
+  - type: input
+    id: upstream
+    attributes:
+      label: Upstream counterpart
+      description: |
+        Many features are ports of the original JavaScript engine. If this one has a
+        counterpart there (a class, option or example), name or link it.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Rendering / materials / shaders
+        - Lighting / shadows
+        - Post-processing
+        - Metal backend
+        - Vulkan backend
+        - Assets and loaders
+        - Scene graph / components
+        - Animation
+        - Physics
+        - UI / input
+        - Build / tooling
+        - Documentation
+        - Other
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

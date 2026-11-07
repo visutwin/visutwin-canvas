@@ -3,6 +3,19 @@
 Notes for working on the engine itself. For building and using it, see the
 [main README](README.md).
 
+## Reporting and submitting
+
+- Bugs and feature requests: open an issue from one of the
+  [templates](https://github.com/visutwin/visutwin-canvas/issues/new/choose).
+  For a rendering bug, say whether both backends show it.
+- Security issues: report privately, as described in [SECURITY.md](SECURITY.md).
+- Pull requests: the template lists the checks a change is expected to pass.
+  The rules and contracts the code relies on are in [AGENTS.md](AGENTS.md), and
+  per-subsystem detail in [ARCHITECTURE.md](ARCHITECTURE.md); read the relevant
+  part before changing a subsystem.
+- Everyone taking part is expected to follow the
+  [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## Layout
 
 ```

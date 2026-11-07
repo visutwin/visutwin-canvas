@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/visutwin/visutwin-canvas/security/advisories/new
+    about: Please report security issues privately, not as a public issue.
+  - name: Documentation and project home
+    url: https://canvas.visutwin.com/
+    about: Feature list, examples and build instructions.
