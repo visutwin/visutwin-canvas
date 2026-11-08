@@ -8,9 +8,9 @@
 // base vertex, an instance count and the first instance. The application fills slots with add()
 // and says how many are live with update(); the list persists until it is changed.
 //
-// DEVIATION: every sub-draw is issued as a draw call of its own, where upstream hands the list to
-// one multi-draw call (WebGL's extension, or WebGPU indirect draws). The draws share every bind,
-// so what is left per sub-draw is the draw command itself.
+// The list is issued by GraphicsDevice::multiDraw: one indirect draw call over the list where
+// the device supports it (supportsMultiDrawIndirect: Vulkan), otherwise a draw call per sub-draw
+// with the state bound once (Metal, which has no multi-draw call).
 //
 #pragma once
 
@@ -18,20 +18,15 @@
 #include <vector>
 
 #include "mesh.h"
+#include "platform/graphics/multiDrawCommand.h"
 
 namespace visutwin::canvas
 {
     class DrawCommands
     {
     public:
-        struct Command
-        {
-            int count = 0;          // indices (or vertices) to draw
-            int instanceCount = 1;
-            int first = 0;          // first index (or vertex)
-            int baseVertex = 0;     // added to every index
-            int firstInstance = 0;
-        };
+        // The 20-byte indexed-indirect record (multiDrawCommand.h).
+        using Command = MultiDrawCommand;
 
         explicit DrawCommands(const int maxCount) : _commands(static_cast<size_t>(std::max(maxCount, 0))) {}
 
@@ -58,13 +53,7 @@ namespace visutwin::canvas
         // The primitive of sub-draw `index`: `primitive` narrowed to its range.
         Primitive primitive(const Primitive& primitive, const int index) const
         {
-            const Command& command = this->command(index);
-            Primitive result = primitive;
-            result.base = command.first;
-            result.count = command.count;
-            result.baseVertex = command.baseVertex;
-            result.firstInstance = command.firstInstance;
-            return result;
+            return narrowedPrimitive(primitive, command(index));
         }
 
     private:

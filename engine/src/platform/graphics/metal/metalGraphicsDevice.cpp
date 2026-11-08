@@ -1747,26 +1747,26 @@ namespace visutwin::canvas
         return _psoFormatKey;
     }
 
-    void MetalGraphicsDevice::draw(const Primitive& primitive, const std::shared_ptr<IndexBuffer>& indexBuffer,
-                int numInstances, const int indirectSlot, const bool first, const bool last)
+    std::optional<MetalGraphicsDevice::IndexBinding> MetalGraphicsDevice::prepareDraw(const Primitive& primitive,
+        const std::shared_ptr<IndexBuffer>& indexBuffer, const bool first)
     {
         if (!_shader || !_renderPassEncoder) {
             spdlog::warn("Draw skipped: shader or render encoder is not set");
-            return;
+            return std::nullopt;
         }
 
         MTL::RenderCommandEncoder* passEncoder = _renderPassEncoder;
         assert(passEncoder != nullptr);
 
         if (first && !bindDrawPipeline(passEncoder, primitive, indexBuffer)) {
-            return;
+            return std::nullopt;
         }
-        const auto indexBinding = resolveIndexBinding(indexBuffer);
+        auto indexBinding = resolveIndexBinding(indexBuffer);
         if (!indexBinding) {
-            return;
+            return std::nullopt;
         }
         if (_cullMode == CullMode::CULLFACE_FRONTANDBACK) {
-            return;
+            return std::nullopt;
         }
         applyEncoderCullMode(passEncoder);
 
@@ -1785,19 +1785,53 @@ namespace visutwin::canvas
         bindPendingDrawResources(passEncoder);
         bindBindlessTable(passEncoder);
         bindMapLanes(passEncoder);
+        return indexBinding;
+    }
 
-        encodeDraw(passEncoder, primitive, *indexBinding, numInstances, indirectSlot);
+    void MetalGraphicsDevice::finishDraw(const Primitive& primitive, const int numInstances)
+    {
         recordDraw(primitive, numInstances);
         // What the open command buffer holds, for endRenderPass's early commit.
         ++_openBufferDraws;
         _openBufferVertices += static_cast<uint64_t>(primitive.count) *
             static_cast<uint64_t>(std::max(numInstances, 1));
+    }
+
+    void MetalGraphicsDevice::draw(const Primitive& primitive, const std::shared_ptr<IndexBuffer>& indexBuffer,
+                int numInstances, const int indirectSlot, const bool first, const bool last)
+    {
+        const auto indexBinding = prepareDraw(primitive, indexBuffer, first);
+        if (!indexBinding) {
+            return;
+        }
+        encodeDraw(_renderPassEncoder, primitive, *indexBinding, numInstances, indirectSlot);
+        finishDraw(primitive, numInstances);
 
         if (last) {
             // Clear the vertex buffer array. What the ENCODER holds stays as it is: the
             // next draw compares against it (_pipelineState, _encoderVertexBuffer0 ...).
             clearVertexBuffer();
         }
+    }
+
+    void MetalGraphicsDevice::multiDraw(const Primitive& primitive, const std::shared_ptr<IndexBuffer>& indexBuffer,
+        const std::span<const MultiDrawCommand> commands)
+    {
+        if (commands.empty()) {
+            return;
+        }
+        // Metal has no multi-draw call: the state is bound and checked ONCE for the list (every
+        // sub-draw shares it), then each sub-draw is encoded.
+        const auto indexBinding = prepareDraw(primitive, indexBuffer, true);
+        if (!indexBinding) {
+            return;
+        }
+        for (const MultiDrawCommand& command : commands) {
+            const Primitive narrowed = narrowedPrimitive(primitive, command);
+            encodeDraw(_renderPassEncoder, narrowed, *indexBinding, command.instanceCount, -1);
+            finishDraw(narrowed, command.instanceCount);
+        }
+        clearVertexBuffer();
     }
 
     bool MetalGraphicsDevice::bindDrawPipeline(MTL::RenderCommandEncoder* passEncoder, const Primitive& primitive,

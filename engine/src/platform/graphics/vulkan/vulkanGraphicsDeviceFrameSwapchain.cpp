@@ -604,6 +604,10 @@ namespace visutwin::canvas
         // Every per-draw reuse is keyed on this, so none survives into the new frame's
         // ring region and descriptor pools.
         ++_frameSerial;
+        // The slot's multi-draw arguments: its last frame has finished with them.
+        if (_frameIndex < _multiDrawArgs.size()) {
+            _multiDrawArgs[_frameIndex].used = 0;
+        }
         // The material slots are stamped with the serial rather than cleared, which
         // would free and reallocate a node per material every frame; they are dropped
         // only when most of them belong to materials no frame draws any more.

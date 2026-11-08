@@ -553,21 +553,19 @@ namespace visutwin::canvas
         vkCmdSetDepthBias(cmd, _depthBiasConstant, _depthBiasClamp, _depthBiasSlope);
     }
 
-    void VulkanGraphicsDevice::draw(const Primitive& primitive,
-        const std::shared_ptr<IndexBuffer>& indexBuffer,
-        int numInstances, int indirectSlot, bool first, bool last)
+    VkCommandBuffer VulkanGraphicsDevice::prepareDraw(const Primitive& primitive, const bool first)
     {
-        if (!_shader || !_dynamicRenderingActive) return;
+        if (!_shader || !_dynamicRenderingActive) return VK_NULL_HANDLE;
 
         VkCommandBuffer cmd = currentCommandBuffer();
 
         auto vulkanShader = std::dynamic_pointer_cast<VulkanShader>(_shader);
-        if (!vulkanShader || vulkanShader->vertexModule() == VK_NULL_HANDLE) return;
+        if (!vulkanShader || vulkanShader->vertexModule() == VK_NULL_HANDLE) return VK_NULL_HANDLE;
 
         const DrawResources resources = takePendingDrawResources();
 
         if (first && !bindDrawPipeline(cmd, primitive, vulkanShader)) {
-            return;
+            return VK_NULL_HANDLE;
         }
         applyStencilReference(cmd);
         flushPushConstants(cmd);
@@ -581,10 +579,73 @@ namespace visutwin::canvas
             !bindGeometrySet(cmd, *vulkanShader, resources) ||
             !bindClusterSet(cmd) ||
             !bindGpuDrivenSet(cmd, resources)) {
-            return;
+            return VK_NULL_HANDLE;
         }
         bindBindlessSet(cmd);
+        return cmd;
+    }
 
+    void VulkanGraphicsDevice::multiDraw(const Primitive& primitive, const std::shared_ptr<IndexBuffer>& indexBuffer,
+        const std::span<const MultiDrawCommand> commands)
+    {
+        if (commands.empty()) {
+            return;
+        }
+        // The state, bound and checked ONCE for the list: every sub-draw shares it.
+        VkCommandBuffer cmd = prepareDraw(primitive, true);
+        if (cmd == VK_NULL_HANDLE) {
+            return;
+        }
+        bool issued = false;
+        if (_multiDrawIndirectEnabled && commands.size() > 1) {
+            // ONE draw call over the list: the records are the indexed-indirect command as they
+            // stand; a non-indexed draw takes the 16-byte record without the base vertex.
+            const bool indexed = indexBuffer != nullptr;
+            const VkDeviceSize stride = indexed ? sizeof(VkDrawIndexedIndirectCommand) : sizeof(VkDrawIndirectCommand);
+            VkBuffer buffer = VK_NULL_HANDLE;
+            VkDeviceSize offset = 0;
+            uint8_t* mapped = nullptr;
+            if ((!indexed || bindDrawIndexBuffer(cmd, indexBuffer)) &&
+                allocateMultiDrawArgs(stride * commands.size(), buffer, offset, mapped)) {
+                if (indexed) {
+                    static_assert(sizeof(VkDrawIndexedIndirectCommand) == sizeof(MultiDrawCommand));
+                    std::memcpy(mapped, commands.data(), commands.size_bytes());
+                } else {
+                    auto* records = reinterpret_cast<VkDrawIndirectCommand*>(mapped);
+                    for (size_t i = 0; i < commands.size(); ++i) {
+                        records[i] = {static_cast<uint32_t>(commands[i].count),
+                            static_cast<uint32_t>(commands[i].instanceCount), static_cast<uint32_t>(commands[i].first),
+                            static_cast<uint32_t>(commands[i].firstInstance)};
+                    }
+                }
+                const auto drawCount = static_cast<uint32_t>(commands.size());
+                if (indexed) {
+                    vkCmdDrawIndexedIndirect(cmd, buffer, offset, drawCount, static_cast<uint32_t>(stride));
+                } else {
+                    vkCmdDrawIndirect(cmd, buffer, offset, drawCount, static_cast<uint32_t>(stride));
+                }
+                issued = true;
+                ++frameCounters().multiDrawIndirectCalls;
+            }
+        }
+        for (const MultiDrawCommand& command : commands) {
+            const Primitive narrowed = narrowedPrimitive(primitive, command);
+            if (!issued) {
+                issueDraw(cmd, narrowed, indexBuffer, command.instanceCount, -1);
+            }
+            recordDraw(narrowed, command.instanceCount);
+        }
+        clearVertexBuffer();
+    }
+
+    void VulkanGraphicsDevice::draw(const Primitive& primitive,
+        const std::shared_ptr<IndexBuffer>& indexBuffer,
+        int numInstances, int indirectSlot, bool first, bool last)
+    {
+        VkCommandBuffer cmd = prepareDraw(primitive, first);
+        if (cmd == VK_NULL_HANDLE) {
+            return;
+        }
         issueDraw(cmd, primitive, indexBuffer, numInstances, indirectSlot);
         recordDraw(primitive, numInstances);
 
@@ -1356,20 +1417,86 @@ namespace visutwin::canvas
         return true;
     }
 
+    bool VulkanGraphicsDevice::bindDrawIndexBuffer(VkCommandBuffer cmd, const std::shared_ptr<IndexBuffer>& indexBuffer)
+    {
+        auto* ib = static_cast<VulkanIndexBuffer*>(indexBuffer.get());
+        if (!ib || ib->buffer() == VK_NULL_HANDLE) {
+            return false;
+        }
+        if (ib->buffer() != _bound.indexBuffer || ib->indexType() != _bound.indexType) {
+            vkCmdBindIndexBuffer(cmd, ib->buffer(), 0, ib->indexType());
+            _bound.indexBuffer = ib->buffer();
+            _bound.indexType = ib->indexType();
+        }
+        return true;
+    }
+
+    bool VulkanGraphicsDevice::allocateMultiDrawArgs(const VkDeviceSize bytes, VkBuffer& buffer, VkDeviceSize& offset,
+        uint8_t*& mapped)
+    {
+        // A host-visible buffer per frame slot, written by the CPU and read by this frame's
+        // draws; rewound when the slot's fence has been waited on (onFrameStart). A frame that
+        // asks for more retires the buffer (its draws still read it) and continues in a larger one.
+        if (_frames.empty()) {
+            return false;
+        }
+        if (_multiDrawArgs.size() != _frames.size()) {
+            destroyMultiDrawArgs();
+            _multiDrawArgs.resize(_frames.size());
+        }
+        MultiDrawArgs& args = _multiDrawArgs[_frameIndex];
+        const VkDeviceSize aligned = (args.used + 15) & ~VkDeviceSize{15};
+        if (args.buffer == VK_NULL_HANDLE || aligned + bytes > args.capacity) {
+            const VkDeviceSize capacity = std::max<VkDeviceSize>({VkDeviceSize{16384}, args.capacity * 2, bytes});
+            if (args.buffer != VK_NULL_HANDLE) {
+                deferDestroy([allocator = _vmaAllocator, oldBuffer = args.buffer, oldAllocation = args.allocation] {
+                    vmaDestroyBuffer(allocator, oldBuffer, oldAllocation);
+                });
+                args = {};
+            }
+            VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+            bufferInfo.size = capacity;
+            bufferInfo.usage = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+            VmaAllocationCreateInfo allocationInfo{};
+            allocationInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+            allocationInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+            VmaAllocationInfo mappedInfo{};
+            if (vmaCreateBuffer(_vmaAllocator, &bufferInfo, &allocationInfo, &args.buffer, &args.allocation,
+                    &mappedInfo) != VK_SUCCESS || !mappedInfo.pMappedData) {
+                args = {};
+                return false;
+            }
+            args.mapped = static_cast<uint8_t*>(mappedInfo.pMappedData);
+            args.capacity = capacity;
+            args.used = 0;
+        }
+        offset = (args.used + 15) & ~VkDeviceSize{15};
+        buffer = args.buffer;
+        mapped = args.mapped + offset;
+        args.used = offset + bytes;
+        vmaFlushAllocation(_vmaAllocator, args.allocation, offset, bytes);
+        return true;
+    }
+
+    void VulkanGraphicsDevice::destroyMultiDrawArgs()
+    {
+        for (MultiDrawArgs& args : _multiDrawArgs) {
+            if (args.buffer != VK_NULL_HANDLE) {
+                vmaDestroyBuffer(_vmaAllocator, args.buffer, args.allocation);
+            }
+            args = {};
+        }
+        _multiDrawArgs.clear();
+    }
+
     void VulkanGraphicsDevice::issueDraw(VkCommandBuffer cmd, const Primitive& primitive,
         const std::shared_ptr<IndexBuffer>& indexBuffer, const int numInstances, const int indirectSlot)
     {
         // An indirect draw consumes the indirect buffer: it applies to one draw only.
         const bool indirect = indirectSlot >= 0 && _indirectDrawBuffer != VK_NULL_HANDLE;
         if (indexBuffer) {
-            auto* ib = static_cast<VulkanIndexBuffer*>(indexBuffer.get());
-            if (ib->buffer() == VK_NULL_HANDLE) {
+            if (!bindDrawIndexBuffer(cmd, indexBuffer)) {
                 return;
-            }
-            if (ib->buffer() != _bound.indexBuffer || ib->indexType() != _bound.indexType) {
-                vkCmdBindIndexBuffer(cmd, ib->buffer(), 0, ib->indexType());
-                _bound.indexBuffer = ib->buffer();
-                _bound.indexType = ib->indexType();
             }
             if (indirect) {
                 vkCmdDrawIndexedIndirect(cmd, _indirectDrawBuffer,

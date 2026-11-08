@@ -2060,6 +2060,37 @@ anyway (gooch draws its 500 instances twice); the cull itself is under a tenth o
 on Metal and within the spread on Vulkan. Still unmeasured: the saving, since no shipped scene
 hides a whole instance.
 
+
+**Step (d) result (2026-11-08).** A mesh instance's sub-draw list (`setMultiDraw`, a
+`DrawCommands`) now goes to the device as ONE call, `GraphicsDevice::multiDraw(primitive,
+indexBuffer, span<const MultiDrawCommand>)`, whose 20-byte record
+(`platform/graphics/multiDrawCommand.h`) is the indexed-indirect command both APIs share. Vulkan
+binds the draw state once and issues the list as a single `vkCmdDrawIndexedIndirect` (or
+`vkCmdDrawIndirect`) over a host-visible argument buffer per frame slot, when the device has
+`multiDrawIndirect` and `drawIndirectFirstInstance` (`supportsMultiDrawIndirect`, enabled
+together at device creation; MoltenVK 1.4.2 has both). Metal has no multi-draw call, so it binds
+the state once (`prepareDraw`) and encodes each sub-draw. The Count variant was not needed:
+the list is CPU-filled, so its length is known when the call is recorded. A list of one, or a
+device without the features, takes a draw per sub-draw with the state bound once. The frame
+statistics still count each sub-draw as a draw; `FrameCounters::multiDrawIndirectCalls` counts
+the indirect calls. `tests/multiDrawGpuTests.cpp` (`gpu`) draws lists into eight cells and reads
+them back, so every record field (count, instances, first index, base vertex, first instance)
+picks the cells it should, a list starting with an empty sub-draw included, with one indirect call
+on Vulkan and none on Metal. The `multi-draw` and `multi-draw-instanced` frames are the same
+before and after: identical on Metal, 3 pixels of at most 3 counts on Vulkan's `multi-draw`. The
+goldens are unchanged. Forward-pass CPU time, old binary against new, alternated, medians:
+
+| Forward pass CPU (ms) | old | new |
+|---|---|---|
+| multi-draw (1,513 sub-draws), Vulkan Release | 0.638 | 0.086 |
+| multi-draw, Metal (Debug tree) | 2.003 | 0.760 |
+| multi-draw-instanced (5 draws), both | 0.033 / 0.327 | 0.033 / 0.334 |
+
+On Vulkan the render CPU time fell from 1.54 to 1.00 ms. This does not yet feed the GPU cull's
+survivors into a multi-draw: a GPU-culled mesh still draws from its own indirect slot, one draw
+per mesh. Binning several meshes' culled instances into one call needs a shared vertex and
+index pool, which is the remaining piece of the direction.
+
 ### 2. Bindless material binding
 
 Bevy binds materials through binding arrays (one slab of textures indexed by a per-draw

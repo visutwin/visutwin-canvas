@@ -55,6 +55,8 @@ namespace visutwin::canvas
         ~VulkanGraphicsDevice() override;
 
         // ── Core rendering ───────────────────────────────────────────────
+        void multiDraw(const Primitive& primitive, const std::shared_ptr<IndexBuffer>& indexBuffer,
+            std::span<const MultiDrawCommand> commands) override;
         void draw(const Primitive& primitive, const std::shared_ptr<IndexBuffer>& indexBuffer = nullptr,
             int numInstances = 1, int indirectSlot = -1, bool first = true, bool last = true) override;
 
@@ -309,6 +311,7 @@ namespace visutwin::canvas
             return _dualSrcBlendEnabled;
         }
 
+        [[nodiscard]] bool supportsMultiDrawIndirect() const override { return _multiDrawIndirectEnabled; }
         [[nodiscard]] bool supportsIndependentBlending() const override
         {
             return _independentBlendEnabled;
@@ -561,6 +564,26 @@ namespace visutwin::canvas
             const DrawResources& resources);                               // set 6
         void issueDraw(VkCommandBuffer cmd, const Primitive& primitive,
             const std::shared_ptr<IndexBuffer>& indexBuffer, int numInstances, int indirectSlot);
+        /// Everything a draw does before it is issued: the pipeline when `first`, stencil, push
+        /// constants and descriptor sets 0-7. The command buffer, or null to skip the draw.
+        VkCommandBuffer prepareDraw(const Primitive& primitive, bool first);
+        /// Binds `indexBuffer` unless it is already bound; false when it has no buffer.
+        bool bindDrawIndexBuffer(VkCommandBuffer cmd, const std::shared_ptr<IndexBuffer>& indexBuffer);
+
+        // multiDraw's argument records, in a host-visible buffer per frame slot, rewound when the
+        // slot's fence has been waited on (onFrameStart) and grown within a frame by retiring the
+        // full buffer (deferDestroy) for a larger one.
+        struct MultiDrawArgs
+        {
+            VkBuffer buffer = VK_NULL_HANDLE;
+            VmaAllocation allocation = nullptr;
+            uint8_t* mapped = nullptr;
+            VkDeviceSize capacity = 0;
+            VkDeviceSize used = 0;
+        };
+        std::vector<MultiDrawArgs> _multiDrawArgs;
+        bool allocateMultiDrawArgs(VkDeviceSize bytes, VkBuffer& buffer, VkDeviceSize& offset, uint8_t*& mapped);
+        void destroyMultiDrawArgs();
 
         // Set-1 descriptor contents: the white/default fallbacks, then the bound
         // material's textures, then a quad pass's inputs over them.
@@ -1009,6 +1032,8 @@ namespace visutwin::canvas
         // sampler may ask for it; the ratio itself is published by the base class
         // as maxAnisotropy(), which both backends' samplers read.
         bool _samplerAnisotropyEnabled = false;
+        // multiDrawIndirect and drawIndirectFirstInstance, enabled together: multiDraw's one call.
+        bool _multiDrawIndirectEnabled = false;
         bool _dualSrcBlendEnabled = false;
         // EXPERIMENTAL bindless table: the device enabled descriptor indexing with
         // update-after-bind sampled images and partially bound bindings, and has an eighth

@@ -555,7 +555,7 @@ namespace visutwin::canvas
         collectRetiredSwapchains(true);
 
         destroyComputeResources();
-
+        destroyMultiDrawArgs();
 
         destroyBindlessFrameTables();
         _renderPipeline.reset();
@@ -902,6 +902,10 @@ namespace visutwin::canvas
         _dualSrcBlendEnabled = supported.dualSrcBlend == VK_TRUE;
         // A blend state and write mask per colour attachment (BlendState::setAttachment).
         _independentBlendEnabled = supported.independentBlend == VK_TRUE;
+        // A sub-draw list as one indirect draw call (multiDraw): more than one draw per call, and
+        // a first instance other than 0 in the records.
+        _multiDrawIndirectEnabled = supported.multiDrawIndirect == VK_TRUE &&
+            supported.drawIndirectFirstInstance == VK_TRUE;
         _textureCompressionAstcLdr = supported.textureCompressionASTC_LDR == VK_TRUE;
         _textureCompressionBc = supported.textureCompressionBC == VK_TRUE;
         _maxDualSrcDrawBuffers = _dualSrcBlendEnabled
@@ -918,6 +922,8 @@ namespace visutwin::canvas
         features2.features.samplerAnisotropy = _samplerAnisotropyEnabled ? VK_TRUE : VK_FALSE;
         features2.features.dualSrcBlend = _dualSrcBlendEnabled ? VK_TRUE : VK_FALSE;
         features2.features.independentBlend = _independentBlendEnabled ? VK_TRUE : VK_FALSE;
+        features2.features.multiDrawIndirect = _multiDrawIndirectEnabled ? VK_TRUE : VK_FALSE;
+        features2.features.drawIndirectFirstInstance = _multiDrawIndirectEnabled ? VK_TRUE : VK_FALSE;
 
         // A portability-subset driver (vk-bootstrap enables the extension where it is offered)
         // allows only the features enabled through its own struct: a 2D view of one depth

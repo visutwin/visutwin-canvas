@@ -24,6 +24,7 @@ namespace visutwin::canvas
         int shadowMapUpdates = 0;   ///< shadow map faces rendered
         int lightClusters = 0;      ///< distinct cluster grids built
         int gsplats = 0;            ///< splats drawn (visible after culling)
+        int multiDrawIndirectCalls = 0; ///< sub-draw lists issued as ONE indirect draw call (multiDraw)
 
         /// Compute work, counted by the backends' computeDispatch. Unlike everything above,
         /// these are zeroed when the engine UPDATE begins, not the render: the particle

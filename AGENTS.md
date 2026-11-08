@@ -1936,12 +1936,24 @@ present, but the rule below never depends on reading it.
 - **A mesh instance may draw as a list of SUB-DRAWS** (`MeshInstance::setMultiDraw(camera,
   maxCount)`, a `DrawCommands` the caller fills with `add` and makes live with `update`; a list for
   a camera wins over one for every camera, and it persists). `drawWithCommands`
-  (`scene/renderer/multiDraw.h`) issues each live sub-draw as a draw call of its own (DEVIATION:
-  upstream's one multi-draw call), each its own index range, base vertex, instance count and FIRST
-  INSTANCE (`Primitive::firstInstance`, Metal's base instance and Vulkan's firstInstance: per-instance
-  vertex data is fetched from there on), keeping the vertex buffers bound until the last; the
-  forward and depth-only draws take it, a skinned or morphed draw does not (its palette goes to the
-  first draw only). `tests/multiDrawTests.cpp`; `multi-draw`, `multi-draw-instanced`.
+  (`scene/renderer/multiDraw.h`) hands the live sub-draws that draw something to
+  `GraphicsDevice::multiDraw`, whose records (`MultiDrawCommand`, `platform/graphics/
+  multiDrawCommand.h`: count, instances, first, base vertex, first instance) ARE the 20-byte
+  indexed-indirect command both APIs share. Vulkan binds the state once and issues the list as
+  ONE `vkCmdDrawIndexedIndirect` / `vkCmdDrawIndirect` over a per-frame-slot host-visible
+  argument buffer (`supportsMultiDrawIndirect`: the `multiDrawIndirect` and
+  `drawIndirectFirstInstance` features, enabled together; `FrameCounters::multiDrawIndirectCalls`
+  counts the calls); a list of one, or a device without the features, takes a draw call per
+  sub-draw with the state bound once, which is also what Metal does, having no multi-draw call.
+  The default (`GraphicsDevice::multiDraw`, the stub device) is a `draw()` per sub-draw. Each
+  sub-draw keeps its own range, base vertex, instance count and FIRST INSTANCE
+  (`Primitive::firstInstance`, Metal's base instance and Vulkan's firstInstance: per-instance
+  vertex data is fetched from there on), each still counts as a draw in the frame statistics, and
+  the vertex buffers stay bound until the list ends; the forward and depth-only draws take it, a
+  skinned or morphed draw does not (its palette goes to the first draw only).
+  `tests/multiDrawTests.cpp` holds the list; `tests/multiDrawGpuTests.cpp` (`gpu`) draws one on the
+  real device and reads back the cells every record field selects, and the one indirect call on
+  Vulkan; `multi-draw`, `multi-draw-instanced`.
 - **A dispatch is sized from the workgroup size the SHADER declares, never a C++ copy of
   it.** `Compute::threadgroupSize()` is the shader's `[numthreads]`
   (`Shader::computeThreadGroupSize`: Slang's reflection on Metal, the SPIR-V LocalSize on
@@ -2367,8 +2379,8 @@ present, but the rule below never depends on reading it.
   `textureHalfFloatRenderable` / `textureFloatRenderable`, `maxSamples`,
   `maxFramesInFlight`, `supportsCompressedFormat`, `supportsDualSourceBlending`,
   `supportsIndependentBlending`,
-  `supportsCompute`, `maxComputeWorkgroupsPerDimension`, `supportsGpuInstanceCulling` and
-  `supportsTimestampQuery` are the whole list; a new one goes there rather than into a backend header, or only
+  `supportsCompute`, `maxComputeWorkgroupsPerDimension`, `supportsGpuInstanceCulling`,
+  `supportsMultiDrawIndirect` and `supportsTimestampQuery` are the whole list; a new one goes there rather than into a backend header, or only
   one backend can be asked. Two failure shapes this prevents, both silent: a LITERAL
   standing in for a limit (a clamp to 4096 is a quarter of what either backend
   actually allows) and the SAME limit spelled differently per backend (a hard-coded

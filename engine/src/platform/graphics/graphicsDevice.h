@@ -14,6 +14,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -38,6 +39,7 @@
 #include "core/eventHandler.h"
 #include "scene/constants.h"
 #include "scene/mesh.h"
+#include "multiDrawCommand.h"
 #include "core/scopedTimer.h"
 
 namespace visutwin::canvas
@@ -452,6 +454,22 @@ namespace visutwin::canvas
         // Submits a graphical primitive to the hardware for immediate rendering
         virtual void draw(const Primitive& primitive, const std::shared_ptr<IndexBuffer>& indexBuffer = nullptr,
             int numInstances = 1, int indirectSlot = -1, bool first = true, bool last = true) = 0;
+
+        /// Draws `commands`, each `primitive` narrowed to its range (narrowedPrimitive), with
+        /// the state bound for one draw: the vertex buffers stay bound until the last, which
+        /// clears the device's list as a draw does. Every command draws something (count and
+        /// instances above zero; drawWithCommands drops the others). The default issues one
+        /// draw() per command, every one of them checking the whole state again; a backend binds
+        /// it once and issues the list as one multi-draw where it can
+        /// (supportsMultiDrawIndirect), or a draw per command otherwise.
+        virtual void multiDraw(const Primitive& primitive, const std::shared_ptr<IndexBuffer>& indexBuffer,
+            std::span<const MultiDrawCommand> commands)
+        {
+            for (size_t i = 0; i < commands.size(); ++i) {
+                draw(narrowedPrimitive(primitive, commands[i]), indexBuffer, commands[i].instanceCount, -1, true,
+                    i + 1 == commands.size());
+            }
+        }
         virtual void setTransformUniforms(const Matrix4& viewProjection, const Matrix4& model)
         {
             (void)viewProjection; (void)model;
@@ -1189,6 +1207,11 @@ namespace visutwin::canvas
         /// True when each colour attachment can take its own blend state and write mask
         /// (BlendState::setAttachment); without it every attachment uses attachment 0's.
         virtual bool supportsIndependentBlending() const { return false; }
+
+        /// True when multiDraw issues a list as ONE draw call over an argument buffer (Vulkan's
+        /// multiDrawIndirect with drawIndirectFirstInstance); otherwise it issues a draw call
+        /// per sub-draw, with the state bound once.
+        virtual bool supportsMultiDrawIndirect() const { return false; }
 
         /// True when textures of this block-compressed format can be created and sampled
         /// on this device. ASTC is native to Apple GPUs, BC to desktop GPUs, and neither is

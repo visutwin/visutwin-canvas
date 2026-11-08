@@ -52,6 +52,8 @@ namespace visutwin::canvas
         MetalGraphicsDevice(const GraphicsDeviceOptions& options);
         ~MetalGraphicsDevice();
 
+        void multiDraw(const Primitive& primitive, const std::shared_ptr<IndexBuffer>& indexBuffer,
+            std::span<const MultiDrawCommand> commands) override;
         void draw(const Primitive& primitive, const std::shared_ptr<IndexBuffer>& indexBuffer = nullptr,
             int numInstances = 1, int indirectSlot = -1, bool first = true, bool last = true) override;
         void setTransformUniforms(const Matrix4& viewProjection, const Matrix4& model) override;
@@ -340,6 +342,13 @@ namespace visutwin::canvas
         void bindPendingDrawResources(MTL::RenderCommandEncoder* passEncoder);
         void encodeDraw(MTL::RenderCommandEncoder* passEncoder, const Primitive& primitive,
             const IndexBinding& index, int numInstances, int indirectSlot);
+        /// Everything a draw does before it is encoded (the pipeline when `first`, the index
+        /// binding, cull mode, textures, uniforms, samplers, depth state, pending resources,
+        /// bindless table and map lanes); nullopt when the draw must be skipped.
+        std::optional<IndexBinding> prepareDraw(const Primitive& primitive,
+            const std::shared_ptr<IndexBuffer>& indexBuffer, bool first);
+        /// The counts a draw adds: frame statistics and the open buffer's early-commit totals.
+        void finishDraw(const Primitive& primitive, int numInstances);
 
         // Sentinel null shared_ptr used as a const-ref return for empty VB slots,
         // avoiding shared_ptr copy when checking _vertexBuffers boundaries.
