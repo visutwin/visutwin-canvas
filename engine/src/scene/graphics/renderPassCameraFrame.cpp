@@ -5,6 +5,8 @@
 //
 //
 #include "renderPassCameraFrame.h"
+
+#include "scene/renderer/renderPassOit.h"
 #include "renderPassOcclusionCull.h"
 
 #include <unordered_map>
@@ -122,6 +124,9 @@ namespace visutwin::canvas
         _colorGrabPass.reset();
         _depthGrabPass.reset();
         _scenePassTransparent.reset();
+        _oitPass.reset();
+        _oitActive = false;
+        _scenePassAfterOit.reset();
         _ssaoPass.reset();
         _scenePassHalf.reset();
         _bloomPass.reset();
@@ -311,6 +316,8 @@ namespace visutwin::canvas
         }
         _scenePass.reset();
         _scenePassTransparent.reset();
+        _oitActive = false;
+        _scenePassAfterOit.reset();
         _afterPass.reset();
         _composePass.reset();
         _sceneTextureResolved = nullptr;
@@ -672,7 +679,8 @@ namespace visutwin::canvas
         passes.insert(passes.end(), stages.preScene.begin(), stages.preScene.end());
         passes.insert(passes.end(), {_scenePass, _colorGrabPass, _depthGrabPass});
         passes.insert(passes.end(), stages.postOpaque.begin(), stages.postOpaque.end());
-        passes.insert(passes.end(), {_scenePassTransparent, ssaoBeforeScene ? nullptr : _ssaoPass,
+        passes.insert(passes.end(), {_scenePassTransparent, _oitActive ? _oitPass : nullptr, _scenePassAfterOit,
+            ssaoBeforeScene ? nullptr : _ssaoPass,
             _volumetricFogPass, _volumetricFogCombinePass});
         passes.insert(passes.end(), stages.postScene.begin(), stages.postScene.end());
         passes.insert(passes.end(), stages.resolve.begin(), stages.resolve.end());
@@ -780,7 +788,8 @@ namespace visutwin::canvas
         // fire up to three times. The clones are this frame's own.
         std::unordered_map<const CameraComponent*, RenderAction*> first;
         std::unordered_map<const CameraComponent*, RenderAction*> last;
-        for (const auto* pass : {_scenePass.get(), _scenePassTransparent.get(), _afterPass.get()}) {
+        for (const auto* pass : {_scenePass.get(), _scenePassTransparent.get(), _scenePassAfterOit.get(),
+                 _afterPass.get()}) {
             if (!pass) {
                 continue;
             }
@@ -916,25 +925,68 @@ namespace visutwin::canvas
                 transparentEndIndex = lastActionIndex;
             }
 
+            // An order-independent transparency layer among these splits them once more: the
+            // layers before it, its accumulation and composite, the layers after it.
+            int oitIndex = -1;
+            for (int i = std::max(transparentFromIndex, 0);
+                 i <= std::min(transparentEndIndex, lastActionIndex); ++i) {
+                if (_sourceActions[i] && isOrderIndependentAction(*_sourceActions[i])) {
+                    oitIndex = i;
+                    break;
+                }
+            }
+            const int firstSegmentEnd = oitIndex >= 0 ? oitIndex - 1 : transparentEndIndex;
+
             _scenePassTransparent = std::make_shared<RenderPassForward>(device(), _layerComposition, _scene, _renderer, _cameraComponent);
             _scenePassTransparent->setHdrPass(true);
             _scenePassTransparent->init(_sceneRenderTarget);
-            const int appended = appendActionsToPass(_scenePassTransparent, transparentFromIndex, transparentEndIndex,
+            const int appended = appendActionsToPass(_scenePassTransparent, transparentFromIndex, firstSegmentEnd,
                 _sceneRenderTarget, false /* firstLayerClears */);
+            // The pass that writes the target last keeps its depth (below).
+            RenderPass* lastDepthWriter = nullptr;
             if (appended < transparentFromIndex) {
                 // Nothing left to draw after the grab - drop the pass rather than open a
                 // render pass that only reloads and stores the target.
                 _scenePassTransparent.reset();
             } else {
                 info.lastAddedIndex = appended;
-                // A prepass discards depth by default; the grab split means this pass,
-                // not the scene pass, is the last writer, so it has to keep it for the
-                // effects that sample scene depth. Single-sampled only: under MSAA the
-                // pass's depth is the internal multisampled buffer nothing samples.
-                if (options.prepassEnabled && options.samples == 1 &&
-                    _scenePassTransparent->depthStencilOps()) {
-                    _scenePassTransparent->depthStencilOps()->storeDepth = true;
+                lastDepthWriter = _scenePassTransparent.get();
+            }
+
+            _oitActive = false;
+            if (oitIndex >= 0) {
+                if (!_oitPass) {
+                    _oitPass = std::make_shared<RenderPassOit>(device(), _layerComposition, _scene, _renderer,
+                        _cameraComponent);
                 }
+                _oitPass->setup({_sourceActions[oitIndex]}, _sceneRenderTarget, _sceneRenderTarget->width(),
+                    _sceneRenderTarget->height(), true, false);
+                _oitActive = !_oitPass->beforePasses().empty();
+                if (_oitActive) {
+                    info.lastAddedIndex = std::max(info.lastAddedIndex, oitIndex);
+                    lastDepthWriter = _oitPass->compositePass();
+                }
+                _scenePassAfterOit = std::make_shared<RenderPassForward>(device(), _layerComposition, _scene,
+                    _renderer, _cameraComponent);
+                _scenePassAfterOit->setHdrPass(true);
+                _scenePassAfterOit->init(_sceneRenderTarget);
+                const int appendedAfter = appendActionsToPass(_scenePassAfterOit, oitIndex + 1, transparentEndIndex,
+                    _sceneRenderTarget, false /* firstLayerClears */);
+                if (appendedAfter < oitIndex + 1) {
+                    _scenePassAfterOit.reset();
+                } else {
+                    info.lastAddedIndex = appendedAfter;
+                    lastDepthWriter = _scenePassAfterOit.get();
+                }
+            }
+
+            // A prepass discards depth by default; the grab split means the last of these
+            // passes, not the scene pass, is the last writer, so it has to keep it for the
+            // effects that sample scene depth. Single-sampled only: under MSAA the pass's
+            // depth is the internal multisampled buffer nothing samples.
+            if (lastDepthWriter && options.prepassEnabled && options.samples == 1 &&
+                lastDepthWriter->depthStencilOps()) {
+                lastDepthWriter->depthStencilOps()->storeDepth = true;
             }
         } else {
             _colorGrabPass.reset();

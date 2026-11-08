@@ -7,6 +7,8 @@
 #include "shader.h"
 
 #include <assert.h>
+#include <typeinfo>
+#include <utility>
 
 #include "graphicsDevice.h"
 
@@ -19,6 +21,17 @@ namespace visutwin::canvas
         _live(graphicsDevice ? graphicsDevice->_liveShaders : nullptr)
     {
 
+    }
+
+    bool Shader::adoptCode(Shader& fresh)
+    {
+        if (&fresh == this || typeid(fresh) != typeid(*this) || fresh._device != _device) {
+            return false;
+        }
+        swapBackendCode(fresh);
+        std::swap(_id, fresh._id);
+        std::swap(_computeThreadGroupSize, fresh._computeThreadGroupSize);
+        return true;
     }
 
     void Shader::processDefinition()

@@ -52,6 +52,11 @@ namespace visutwin::canvas
         void setSpecializeFeatures(const bool value) { _specializeFeatures = value; }
         [[nodiscard]] bool specializesFeatures() const { return _specializeFeatures; }
 
+        bool waitUntilCompiled() override;
+
+    protected:
+        void swapBackendCode(Shader& other) override;
+
     private:
         // The compile started at construction. Shared with its completion handler, which
         // Metal calls on a queue of its own and possibly after the shader is gone.

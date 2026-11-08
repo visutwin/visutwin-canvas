@@ -83,6 +83,7 @@ namespace visutwin::canvas
         const std::string& computeEntry() const { return _definition.cshader; }
         const std::string& name() const { return _definition.name; }
         const ShaderFeatureSet& features() const { return _definition.features; }
+        const ShaderDefinition& definition() const { return _definition; }
         GraphicsDevice* graphicsDevice() const { return _device; }
 
         /// The workgroup size the compute entry declares, all zero when the shader does not
@@ -93,6 +94,23 @@ namespace visutwin::canvas
             return _computeThreadGroupSize[0] > 0 && _computeThreadGroupSize[1] > 0 && _computeThreadGroupSize[2] > 0;
         }
         void setComputeThreadGroupSize(const std::array<uint32_t, 3>& size) { _computeThreadGroupSize = size; }
+
+        /// Takes `fresh`'s compiled code, and its id, in place: a shader recompiled from changed
+        /// sources (the shader watcher) stays the object every holder already has, and the new id
+        /// makes every pipeline cache keyed on the id build again. `fresh` is left with this
+        /// shader's old code and id, to be destroyed. False, with nothing changed, when the two
+        /// are not of the same backend type.
+        bool adoptCode(Shader& fresh);
+
+        /// Waits until the shader's code is compiled for its device; false when it failed. A
+        /// backend that compiles at creation (Vulkan) or with nothing to compile has nothing to
+        /// wait for. Metal compiles MSL asynchronously from the constructor.
+        virtual bool waitUntilCompiled() { return true; }
+
+    protected:
+        /// The backend's half of adoptCode: swap every member that holds compiled code with
+        /// `other`'s, which is of this shader's own type. The base holds none.
+        virtual void swapBackendCode(Shader& /*other*/) {}
 
     private:
         // Process shader definition and create implementation

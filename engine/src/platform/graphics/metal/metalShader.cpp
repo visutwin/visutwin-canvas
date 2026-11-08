@@ -7,6 +7,7 @@
 
 #include <cstdlib>
 #include <fstream>
+#include <utility>
 
 #include <dispatch/dispatch.h>
 
@@ -100,6 +101,26 @@ namespace visutwin::canvas
                 library->release();
             }
         }
+    }
+
+    bool MetalShader::waitUntilCompiled()
+    {
+        auto* metalDevice = dynamic_cast<MetalGraphicsDevice*>(graphicsDevice());
+        if (!metalDevice || !metalDevice->raw()) {
+            return true;
+        }
+        NS::Error* error = nullptr;
+        return getLibrary(metalDevice->raw(), nullptr, &error) != nullptr;
+    }
+
+    void MetalShader::swapBackendCode(Shader& other)
+    {
+        auto& fresh = static_cast<MetalShader&>(other);
+        std::swap(_sourceCode, fresh._sourceCode);
+        std::swap(_libraries, fresh._libraries);
+        std::swap(_compile, fresh._compile);
+        std::swap(_compileDevice, fresh._compileDevice);
+        std::swap(_specializeFeatures, fresh._specializeFeatures);
     }
 
     MTL::Function* MetalShader::newFunction(MTL::Library* library, const std::string& name, NS::Error** error) const

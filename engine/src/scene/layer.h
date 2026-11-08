@@ -92,6 +92,15 @@ namespace visutwin::canvas
         bool clearStencilBuffer() const { return _clearStencilBuffer; }
         void setClearStencilBuffer(const bool value) { _clearStencilBuffer = value; _dirtyComposition = true; }
 
+        /// Order-independent transparency (weighted blended): the layer's transparent sublayer is
+        /// drawn into an accumulation target and composited over the camera's target in one step,
+        /// so overlapping transparent surfaces need no back-to-front order. Each transparent
+        /// material is treated as normally (not premultiplied) alpha-blended, and a camera that
+        /// renders the layer requests its scene depth map, which hides what lies behind the
+        /// opaque scene. Off by default. Changing it rebuilds the frame's passes, not the culling.
+        bool orderIndependentTransparency() const { return _orderIndependentTransparency; }
+        void setOrderIndependentTransparency(const bool value) { _orderIndependentTransparency = value; }
+
         bool dirtyComposition() const { return _dirtyComposition; }
         void setDirtyComposition(const bool value) { _dirtyComposition = value; }
 
@@ -108,6 +117,7 @@ namespace visutwin::canvas
         bool _clearColorBuffer = false;
         bool _clearDepthBuffer = false;
         bool _clearStencilBuffer = false;
+        bool _orderIndependentTransparency = false;
         bool _dirtyComposition = false;
     };
 }

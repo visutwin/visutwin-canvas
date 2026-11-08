@@ -1,11 +1,12 @@
 # VisuTwin Canvas Examples
 
-194 example applications, each a small self-contained program built on the
-engine. All but one are ports of [PlayCanvas](https://playcanvas.com/) engine
+195 example applications, each a small self-contained program built on the
+engine. All but two are ports of [PlayCanvas](https://playcanvas.com/) engine
 examples, so they can be compared side by side with upstream: the file header names
 the upstream example and lists every place the port could not follow it. The
-exception, `ambient-occlusion-davinci`, is an original scene and says so in its
-header; a new scene belongs here only where upstream has no counterpart.
+exceptions, `ambient-occlusion-davinci` and `order-independent-transparency`, are
+original scenes and say so in their headers; a new scene belongs here only where
+upstream has no counterpart.
 
 ## Building
 
@@ -179,6 +180,7 @@ The second column is the upstream example each one ports, as
 | hdr | camera-frame/hdr | HDR bloom over a neon sign, a colour LUT, and the bloom debug view |
 | volumetric-fog | camera-frame/volumetric-fog | Amber height fog with long shafts from a low sun through the terrain and clouds |
 | ambient-occlusion-davinci | — (original scene) | SSAO over the da Vinci workshop with the colour finishing chain |
+| order-independent-transparency | — (original scene) | Weighted blended order-independent transparency: interpenetrating transparent panes and spheres around an opaque box, against per-object sorting |
 | edge-detect | compute/edge-detect | Compute-shader Sobel filter over an offscreen render |
 | histogram | compute/histogram | Luminance histogram of the grabbed scene colour, built by a compute pass in the camera's after-passes |
 | scene-maps | compute/scene-maps | A compute scanner pulse reading the camera's scene depth and colour maps after it renders |

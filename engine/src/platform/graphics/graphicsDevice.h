@@ -584,6 +584,11 @@ namespace visutwin::canvas
         /// Create a shader from code already compiled for this backend (ShaderCode): the
         /// output of the SlangCompiler, or a bundle built at build time. A backend without
         /// an implementation answers a shader that cannot draw.
+        /// Recompiled code for an existing shader, swapped into it in place (Shader::adoptCode):
+        /// a shader of `code` is created under the target's own definition and the target takes
+        /// its code and id. False, with the target unchanged, when the device refuses the code.
+        bool replaceShaderCode(Shader& target, const ShaderCode& code);
+
         virtual std::shared_ptr<Shader> createShaderFromCode(const ShaderDefinition& definition,
             const ShaderCode& code);
 

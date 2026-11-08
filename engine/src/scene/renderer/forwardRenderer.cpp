@@ -151,8 +151,45 @@ namespace visutwin::canvas
         consumeOneShotShadows();
     }
 
+    void ForwardRenderer::syncOitDepthRequests(LayerComposition& layerComposition)
+    {
+        std::vector<std::pair<CameraComponent*, bool>> cameras;
+        for (const auto* action : layerComposition.renderActions()) {
+            if (!action || !action->camera) {
+                continue;
+            }
+            const bool oit = isOrderIndependentAction(*action);
+            const auto found = std::find_if(cameras.begin(), cameras.end(),
+                [action](const auto& entry) { return entry.first == action->camera; });
+            if (found == cameras.end()) {
+                cameras.emplace_back(action->camera, oit);
+            } else {
+                found->second = found->second || oit;
+            }
+        }
+        for (const auto& [camera, oit] : cameras) {
+            camera->setOitDepthRequest(oit);
+        }
+    }
+
+    std::shared_ptr<RenderPassOit> ForwardRenderer::oitPassFor(CameraComponent* camera, const Layer* layer)
+    {
+        const uint64_t frame = _device->renderVersion();
+        std::erase_if(_oitPasses, [frame](const auto& entry) { return entry.second.frame + 1 < frame; });
+        auto& entry = _oitPasses[{camera, layer}];
+        if (!entry.pass) {
+            entry.pass = std::make_shared<RenderPassOit>(_device, nullptr, _scene.get(), this, camera);
+        }
+        entry.frame = frame;
+        return entry.pass;
+    }
+
     void ForwardRenderer::createMissingCameraFrames(LayerComposition& layerComposition)
     {
+        // A camera drawing an order-independent transparency layer needs its scene depth map,
+        // and a camera frame reads that request when it is built.
+        syncOitDepthRequests(layerComposition);
+
         // Built only when its block is added to the graph, after the cull, a camera frame's
         // first frame would render without what its effects add to the scene and the update
         // reads (the dynamic sky's mesh and environment atlas, which the Water script and the
@@ -685,25 +722,42 @@ namespace visutwin::canvas
         }
 
         // A block holds the actions of one camera (endsRenderActionBlock splits on a change).
-        auto mainPass = std::make_shared<RenderPassForward>(
-            _device, layerComposition, _scene.get(), this, firstRenderAction->camera
-        );
-        mainPass->init(passTarget);
-
         // The actions keep the COMPOSITION's firstCameraUse / lastCameraUse: whether
         // this is the camera's first / last action of the whole frame, which is what
         // prerender / postrender and the directional-shadow split mean (a render step copies
         // them and the action is never mutated). Do not rewrite them
         // here per block: a camera split into blocks would fire its events once per
         // block, and the next frame's split would read the rewritten flag.
+        // An order-independent transparency layer splits the block: the actions before it, its
+        // accumulation and composite (RenderPassOit), the actions after it.
+        std::shared_ptr<RenderPassForward> mainPass;
         for (int i = startIndex; i <= endIndex; ++i) {
             auto* ra = renderActions[i];
             if (!ra) {
                 continue;
             }
+            if (isOrderIndependentAction(*ra)) {
+                if (mainPass) {
+                    frameGraph->addRenderPass(mainPass);
+                    mainPass.reset();
+                }
+                const auto size = passTarget ? std::pair{passTarget->width(), passTarget->height()} : _device->size();
+                auto oitPass = oitPassFor(ra->camera, ra->layer);
+                oitPass->setLayerComposition(layerComposition);
+                oitPass->setup({ra}, passTarget, size.first, size.second, false, true);
+                frameGraph->addRenderPass(oitPass);
+                continue;
+            }
+            if (!mainPass) {
+                mainPass = std::make_shared<RenderPassForward>(
+                    _device, layerComposition, _scene.get(), this, firstRenderAction->camera
+                );
+                mainPass->init(passTarget);
+            }
             mainPass->addRenderAction(ra);
         }
-
-        frameGraph->addRenderPass(mainPass);
+        if (mainPass) {
+            frameGraph->addRenderPass(mainPass);
+        }
     }
 }

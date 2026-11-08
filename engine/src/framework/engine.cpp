@@ -16,6 +16,7 @@
 #include "components/componentSystemRegistry.h"
 #include "scene/materials/standardMaterial.h"
 #include "scene/shader-lib/programLibrary.h"
+#include "scene/shader-lib/slangShaders.h"
 #include "framework/components/componentSystem.h"
 #include "framework/entity.h"
 #include "framework/components/script/scriptComponentSystem.h"
@@ -385,6 +386,33 @@ namespace visutwin::canvas
         }
     }
 
+    void Engine::pollShaderSources()
+    {
+        if (_shaderWatcherUnavailable || !slangShaderWatchEnabled()) {
+            return;
+        }
+        if (!_shaderWatcher) {
+            const auto directory = slangShaderSourceDir();
+            if (directory.empty()) {
+                spdlog::warn("Shader watcher: no engine/shaders/slang source tree found (VISUTWIN_CANVAS_SHADERS?)");
+                _shaderWatcherUnavailable = true;
+                return;
+            }
+            _shaderWatcher = std::make_unique<ShaderSourceWatcher>(directory);
+            (void)_shaderWatcher->poll();
+            spdlog::info("Shader watcher: watching {}", directory.string());
+            return;
+        }
+        if (!_shaderWatcher->poll()) {
+            return;
+        }
+        int reloaded = reloadChangedSlangShaders(_graphicsDevice.get());
+        if (const auto library = getProgramLibrary(_graphicsDevice)) {
+            reloaded += library->reloadChangedPrograms();
+        }
+        spdlog::info("Shader watcher: a source changed; {} shader(s) reloaded", reloaded);
+    }
+
     void Engine::render()
     {
         assert(_graphicsDevice && "Engine::render requires a valid graphics device");
@@ -403,6 +431,10 @@ namespace visutwin::canvas
         _frameStartCalled = false;
         _renderCompositionCalled = false;
         _frameEndCalled = false;
+
+        // A shader source changed under the watcher: recompile what it touched before anything
+        // of this frame resolves a shader.
+        pollShaderSources();
 
         // `prerender` fires first: the last chance to move what
         // this frame draws, after every update (the camera's included).

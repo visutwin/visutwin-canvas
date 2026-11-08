@@ -11,6 +11,7 @@
 #include "platform/graphics/graphicsDevice.h"
 #include "scene/scene.h"
 #include "scene/renderer/forwardRenderer.h"
+#include "scene/shader-lib/shaderSourceWatcher.h"
 #include "applicationStats.h"
 #include "constants.h"
 #include "sceneRegistry.h"
@@ -209,6 +210,10 @@ namespace visutwin::canvas
 
         void initProgramLibrary();
 
+        // VISUTWIN_SHADER_WATCH: polls the shader source tree and reloads what a change
+        // touched, before the frame is built.
+        void pollShaderSources();
+
 
         void fillFrameStatsBasic(double now, float dt, float ms);
 
@@ -309,6 +314,9 @@ namespace visutwin::canvas
         bool _frameEndCalled = false;
 
         SDL_Window* _window;
+
+        std::unique_ptr<ShaderSourceWatcher> _shaderWatcher;
+        bool _shaderWatcherUnavailable = false;
     };
 
     MakeTickCallback makeTick(const std::shared_ptr<Engine>& engine);

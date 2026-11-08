@@ -25,6 +25,7 @@ namespace visutwin::canvas
     class Renderer;
     class Scene;
     class RenderPassForward;
+    class RenderPassOit;
     class RenderPassPrepass;
     class RenderPassOcclusionCull;
     class RenderPassColorGrab;
@@ -218,6 +219,12 @@ namespace visutwin::canvas
         std::shared_ptr<RenderPassColorGrab> _colorGrabPass;
         std::shared_ptr<RenderPassDepthGrab> _depthGrabPass;
         std::shared_ptr<RenderPassForward> _scenePassTransparent;
+        // An order-independent transparency layer among the layers after the grab: its
+        // accumulation and composite (persisted for its targets), and the forward pass of the
+        // layers after it. Only the first such layer takes it; a later one draws as usual.
+        std::shared_ptr<RenderPassOit> _oitPass;
+        bool _oitActive = false;
+        std::shared_ptr<RenderPassForward> _scenePassAfterOit;
         std::shared_ptr<RenderPassSsao> _ssaoPass;
         std::shared_ptr<RenderPassVolumetricFog> _volumetricFogPass;
         std::shared_ptr<RenderPassVolumetricFogCombine> _volumetricFogCombinePass;

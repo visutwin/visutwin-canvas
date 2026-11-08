@@ -6,6 +6,11 @@
 #pragma once
 
 #include "renderer.h"
+
+#include <map>
+#include <utility>
+
+#include "renderPassOit.h"
 #include "../graphics/gaussianMipmaps.h"
 #include "../graphics/renderPassDepthResolve.h"
 #include "../frameGraph.h"
@@ -42,6 +47,21 @@ namespace visutwin::canvas
             int startIndex, int endIndex);
 
     private:
+        /// Takes or gives back each camera's depth-map request for order-independent
+        /// transparency (CameraComponent::setOitDepthRequest), by whether one of its render
+        /// actions this frame draws such a layer.
+        void syncOitDepthRequests(LayerComposition& layerComposition);
+        /// The order-independent transparency pass of `camera` drawing `layer`, kept across
+        /// frames for its targets; one not used for a frame is dropped.
+        std::shared_ptr<RenderPassOit> oitPassFor(CameraComponent* camera, const Layer* layer);
+
+        struct OitPassEntry
+        {
+            std::shared_ptr<RenderPassOit> pass;
+            uint64_t frame = 0;
+        };
+        std::map<std::pair<const CameraComponent*, const Layer*>, OitPassEntry> _oitPasses;
+
         std::vector<std::shared_ptr<RenderPassDepthResolve>> _depthResolvePasses;
         // One per target whose colour buffer takes the Gaussian mipmap filter, run after each
         // block rendering it.

@@ -10,6 +10,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <regex>
 #include <sstream>
 #include <vector>
@@ -124,10 +125,16 @@ namespace visutwin::canvas
             return !any && variant.empty();
         }
 
+        bool envFlag(const char* name)
+        {
+            const char* value = std::getenv(name);
+            return value && *value && std::strcmp(value, "0") != 0;
+        }
+
+        // The watcher recompiles from the tree, so watching implies compiling from it.
         bool wantsRuntimeCompile()
         {
-            const char* value = std::getenv("VISUTWIN_SLANG_RUNTIME");
-            return value && *value && std::strcmp(value, "0") != 0;
+            return envFlag("VISUTWIN_SLANG_RUNTIME") || envFlag("VISUTWIN_SHADER_WATCH");
         }
 
         std::string hex(const uint64_t value)
@@ -182,6 +189,32 @@ namespace visutwin::canvas
 
     namespace
     {
+#ifdef VISUTWIN_HAS_SLANG
+        /// Every source a compile of `program` / `variant` reads: the program and every file
+        /// it includes (`scan`), every module (an import closure is not reported, and the tree
+        /// is small) and the bindings. The persistent cache keys on it; the watcher compares it.
+        std::string sourceKeyMaterial(const std::filesystem::path& dir, const std::string_view program,
+            const std::string_view variant, const SourceScan& scan)
+        {
+            std::string key = "program " + std::string(program) + " variant " + std::string(variant) + "\n" +
+                scan.keyMaterial;
+            std::vector<std::filesystem::path> modules;
+            std::error_code error;
+            for (const auto& entry : std::filesystem::directory_iterator(dir / "modules", error)) {
+                if (entry.is_regular_file() && entry.path().extension() == ".slang") {
+                    modules.push_back(entry.path());
+                }
+            }
+            // Sorted, so the key does not depend on the directory's order.
+            std::sort(modules.begin(), modules.end());
+            for (const auto& path : modules) {
+                key += "module " + path.filename().string() + "\n" + readTextFile(path) + "\n";
+            }
+            key += slang_generated::kBindingsSlang;
+            return key;
+        }
+#endif
+
         bool compileProgramEntries(GraphicsDevice* device, const std::string_view program, const std::string_view variant,
             const SlangFileOverrides& overrides, SlangProgramBuild& out)
         {
@@ -237,16 +270,9 @@ namespace visutwin::canvas
             }
 
             // Everything the output is a function of, for the device's persistent cache: the
-            // Slang version, the target, the program and every file it includes, every module
-            // (an import closure is not reported, and the tree is small), and the bindings.
-            std::string cacheKey = std::string("slang ") + SlangCompiler::version() + (metal ? " metal\n" : " spirv\n");
-            cacheKey += "program " + std::string(program) + " variant " + std::string(variant) + "\n" + scan.keyMaterial;
-            for (const auto& entry : std::filesystem::directory_iterator(dir / "modules")) {
-                if (entry.is_regular_file() && entry.path().extension() == ".slang") {
-                    cacheKey += "module " + entry.path().filename().string() + "\n" + readTextFile(entry.path()) + "\n";
-                }
-            }
-            cacheKey += slang_generated::kBindingsSlang;
+            // Slang version, the target and the sources (sourceKeyMaterial).
+            const std::string cacheKey = std::string("slang ") + SlangCompiler::version() +
+                (metal ? " metal\n" : " spirv\n") + sourceKeyMaterial(dir, program, variant, scan);
             const std::string cacheName = std::string(program) + (variant.empty() ? "" : "@" + std::string(variant)) +
                 "-" + hex(fnv1a64(cacheKey));
 
@@ -302,6 +328,29 @@ namespace visutwin::canvas
             }
             return true;
 #endif
+        }
+
+        /// The code of `build`'s first entry per stage, and its entry names in `definition`
+        /// (where not set already).
+        void makeCodeFromBuild(const SlangProgramBuild& build, ShaderDefinition& definition, ShaderCode& code)
+        {
+            code.specializeFeatures = true;
+            code.metalSource = build.metalSource;
+            for (const auto& entry : build.entries) {
+                std::string& target = entry.stage == "vertex" ? definition.vshader
+                    : entry.stage == "fragment" ? definition.fshader : definition.cshader;
+                if (!target.empty()) {
+                    continue;
+                }
+                target = entry.name;
+                auto& spirv = entry.stage == "vertex" ? code.vertexSpirv
+                    : entry.stage == "fragment" ? code.fragmentSpirv : code.computeSpirv;
+                spirv = entry.spirv;
+                if (entry.stage == "compute") {
+                    code.computeThreadGroupSize = entry.threadGroupSize;
+                }
+            }
+            code.depthOnlyFragment = spirvFragmentWritesNoOutput(code.fragmentSpirv);
         }
 
         /// The first entry of `stage`, or nothing.
@@ -401,6 +450,21 @@ namespace visutwin::canvas
         return true;
     }
 
+    namespace
+    {
+        void recordLiveSlangShader(GraphicsDevice* device, const std::shared_ptr<Shader>& shader, std::string program,
+            std::string variant, SlangFileOverrides files, uint64_t fingerprint);
+
+        /// The fingerprint to record for a shader about to be compiled, taken BEFORE the
+        /// compile: a change landing while it compiles then differs from it and is reloaded on
+        /// the next poll. 0 while the watcher is off.
+        uint64_t watchFingerprint(const std::string_view program, const std::string_view variant,
+            const SlangFileOverrides& files)
+        {
+            return slangShaderWatchEnabled() ? slangSourceFingerprint(program, variant, files) : 0;
+        }
+    }
+
     std::shared_ptr<Shader> getOrCreateSlangShader(GraphicsDevice* device, const std::string& program,
         const std::string& variant, const ShaderFeatureSet& features)
     {
@@ -419,6 +483,7 @@ namespace visutwin::canvas
             return cached;
         }
 
+        const uint64_t fingerprint = watchFingerprint(program, variant, {});
         ShaderDefinition definition;
         definition.name = cacheKey;
         definition.features = features;
@@ -486,6 +551,7 @@ namespace visutwin::canvas
         auto shader = device->createShaderFromCode(definition, code);
         if (shader) {
             device->setCachedShader(cacheKey, shader);
+            recordLiveSlangShader(device, shader, program, variant, {}, fingerprint);
         } else {
             spdlog::error("Slang program '{}': the device refused the compiled code", program);
         }
@@ -497,6 +563,42 @@ namespace visutwin::canvas
         /// A shader of `build`'s first entry per stage, cached on the device under `cacheKey`.
         std::shared_ptr<Shader> createShaderFromBuild(GraphicsDevice* device, const std::string& cacheKey,
             const SlangProgramBuild& build, const std::string& name, const ShaderFeatureSet& features = {});
+
+        /// A Slang shader the watcher may recompile: what it was compiled from, and the
+        /// fingerprint of those sources when it was (slangSourceFingerprint). Recorded only
+        /// while the watcher is on.
+        struct LiveSlangShader
+        {
+            GraphicsDevice* device = nullptr;
+            std::weak_ptr<Shader> shader;
+            std::string program;   // the program compiled: "app-<name>" for a shader from source
+            std::string variant;
+            SlangFileOverrides files;
+            uint64_t fingerprint = 0;
+        };
+
+        std::mutex& liveSlangShadersMutex()
+        {
+            static std::mutex mutex;
+            return mutex;
+        }
+
+        std::vector<LiveSlangShader>& liveSlangShaders()
+        {
+            static std::vector<LiveSlangShader> shaders;
+            return shaders;
+        }
+
+        void recordLiveSlangShader(GraphicsDevice* device, const std::shared_ptr<Shader>& shader, std::string program,
+            std::string variant, SlangFileOverrides files, const uint64_t fingerprint)
+        {
+            if (!device || !shader || !slangShaderWatchEnabled()) {
+                return;
+            }
+            const std::lock_guard lock(liveSlangShadersMutex());
+            liveSlangShaders().push_back(
+                {device, shader, std::move(program), std::move(variant), std::move(files), fingerprint});
+        }
     }
 
     std::shared_ptr<Shader> getOrCreateSlangShaderFromSource(GraphicsDevice* device, const std::string& name,
@@ -516,10 +618,14 @@ namespace visutwin::canvas
         // The prefix keeps the name clear of every file of the tree.
         const std::string program = "app-" + name;
         SlangProgramBuild build;
-        if (!compileProgramEntries(device, program, variant, {{program + ".slang", source}}, build)) {
+        SlangFileOverrides files{{program + ".slang", source}};
+        const uint64_t fingerprint = watchFingerprint(program, variant, files);
+        if (!compileProgramEntries(device, program, variant, files, build)) {
             return nullptr;
         }
-        return createShaderFromBuild(device, cacheKey, build, name);
+        auto shader = createShaderFromBuild(device, cacheKey, build, name);
+        recordLiveSlangShader(device, shader, program, variant, std::move(files), fingerprint);
+        return shader;
     }
 
     std::shared_ptr<Shader> getOrCreateSlangShaderWithFiles(GraphicsDevice* device, const std::string& program,
@@ -543,11 +649,14 @@ namespace visutwin::canvas
         if (auto cached = device->getCachedShader(cacheKey)) {
             return cached;
         }
+        const uint64_t fingerprint = watchFingerprint(program, variant, files);
         SlangProgramBuild build;
         if (!compileProgramEntries(device, program, variant, files, build)) {
             return nullptr;
         }
-        return createShaderFromBuild(device, cacheKey, build, program, features);
+        auto shader = createShaderFromBuild(device, cacheKey, build, program, features);
+        recordLiveSlangShader(device, shader, program, variant, files, fingerprint);
+        return shader;
     }
 
     namespace
@@ -559,23 +668,7 @@ namespace visutwin::canvas
             definition.name = cacheKey;
             definition.features = features;
             ShaderCode code;
-            code.specializeFeatures = true;
-            code.metalSource = build.metalSource;
-            for (const auto& entry : build.entries) {
-                std::string& target = entry.stage == "vertex" ? definition.vshader
-                    : entry.stage == "fragment" ? definition.fshader : definition.cshader;
-                if (!target.empty()) {
-                    continue;
-                }
-                target = entry.name;
-                auto& spirv = entry.stage == "vertex" ? code.vertexSpirv
-                    : entry.stage == "fragment" ? code.fragmentSpirv : code.computeSpirv;
-                spirv = entry.spirv;
-                if (entry.stage == "compute") {
-                    code.computeThreadGroupSize = entry.threadGroupSize;
-                }
-            }
-            code.depthOnlyFragment = spirvFragmentWritesNoOutput(code.fragmentSpirv);
+            makeCodeFromBuild(build, definition, code);
 
             auto shader = device->createShaderFromCode(definition, code);
             if (shader) {
@@ -585,5 +678,84 @@ namespace visutwin::canvas
             }
             return shader;
         }
+    }
+
+    bool slangShaderWatchEnabled()
+    {
+        return envFlag("VISUTWIN_SHADER_WATCH");
+    }
+
+    std::filesystem::path slangShaderSourceDir()
+    {
+        return slangSourceDir();
+    }
+
+    uint64_t slangSourceFingerprint(const std::string_view program, const std::string_view variant,
+        const SlangFileOverrides& files)
+    {
+#ifdef VISUTWIN_HAS_SLANG
+        const auto dir = slangSourceDir();
+        if (dir.empty()) {
+            return 0;
+        }
+        SourceScan scan;
+        std::vector<std::filesystem::path> seen;
+        scanSource(dir / "programs" / (std::string(program) + ".slang"), dir, files, seen, scan, true);
+        if (scan.programText.empty()) {
+            return 0;
+        }
+        return fnv1a64(sourceKeyMaterial(dir, program, variant, scan));
+#else
+        (void)program;
+        (void)variant;
+        (void)files;
+        return 0;
+#endif
+    }
+
+    int reloadChangedSlangShaders(GraphicsDevice* device)
+    {
+        if (!device) {
+            return 0;
+        }
+        int reloaded = 0;
+        const std::lock_guard lock(liveSlangShadersMutex());
+        auto& live = liveSlangShaders();
+        std::erase_if(live, [](const LiveSlangShader& entry) { return entry.shader.expired(); });
+        for (auto& entry : live) {
+            const auto shader = entry.shader.lock();
+            if (entry.device != device || !shader) {
+                continue;
+            }
+            const uint64_t fingerprint = slangSourceFingerprint(entry.program, entry.variant, entry.files);
+            if (fingerprint == 0 || fingerprint == entry.fingerprint) {
+                continue;
+            }
+            // A failed compile keeps the code the shader has, and its old fingerprint: the next
+            // change to the sources tries again.
+            SlangProgramBuild build;
+            if (!compileProgramEntries(device, entry.program, entry.variant, entry.files, build)) {
+                spdlog::warn("Shader watcher: '{}' did not compile; it keeps its previous code", shader->name());
+                continue;
+            }
+            ShaderDefinition definition;
+            ShaderCode code;
+            makeCodeFromBuild(build, definition, code);
+            if (definition.vshader != shader->vertexEntry() || definition.fshader != shader->fragmentEntry() ||
+                definition.cshader != shader->computeEntry()) {
+                spdlog::warn("Shader watcher: '{}' changed its entry points; it keeps its previous code until "
+                    "the application restarts", shader->name());
+                continue;
+            }
+            if (!device->replaceShaderCode(*shader, code)) {
+                spdlog::warn("Shader watcher: the device refused the recompiled '{}'; it keeps its previous code",
+                    shader->name());
+                continue;
+            }
+            entry.fingerprint = fingerprint;
+            ++reloaded;
+            spdlog::info("Shader watcher: reloaded '{}'", shader->name());
+        }
+        return reloaded;
     }
 }

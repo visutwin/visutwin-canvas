@@ -9,7 +9,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
 [![Backends](https://img.shields.io/badge/backends-Metal%20%7C%20Vulkan-orange.svg)](FEATURES.md)
-[![Examples](https://img.shields.io/badge/examples-194-purple.svg)](examples/README.md)
+[![Examples](https://img.shields.io/badge/examples-195-purple.svg)](examples/README.md)
 [![Home](https://img.shields.io/badge/home-canvas.visutwin.com-green.svg)](https://canvas.visutwin.com/?utm_source=github&utm_medium=readme)
 
 **A native C++23 port of the [PlayCanvas](https://github.com/playcanvas/engine)
@@ -30,7 +30,7 @@ PlayCanvas equivalent.
 
 > **Status: alpha** — first tagged release
 > [v0.1.0](https://github.com/visutwin/visutwin-canvas/releases/tag/v0.1.0).
-> The engine renders everything shown on this page and ships 194 working
+> The engine renders everything shown on this page and ships 195 working
 > examples, all but one ported from PlayCanvas's own examples so the two can be
 > compared side by side. The API is not stable and changes without notice.
 > [FEATURES.md](FEATURES.md) lists what is implemented and the known gaps.
@@ -61,7 +61,7 @@ macOS, `libvulkan-dev` on Ubuntu.
 
 ## Examples
 
-A few of the 194 examples, each a small self-contained program
+A few of the 195 examples, each a small self-contained program
 ([the full list](examples/README.md)):
 
 | | | | |

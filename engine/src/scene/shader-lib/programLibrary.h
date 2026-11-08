@@ -86,6 +86,13 @@ namespace visutwin::canvas
         /// which runs every frame: after the first time this is one compare.
         void prepareDepthOnlyShaders(bool vsm);
 
+        /// The shader watcher's half for the forward and shadow programs: every program build
+        /// whose sources moved (slangSourceFingerprint) is recompiled, and every cached variant
+        /// built from it takes the new code in place (GraphicsDevice::replaceShaderCode), so
+        /// materials and their memos keep the shader they hold. Variants are remembered only
+        /// while VISUTWIN_SHADER_WATCH is set. The number of variants reloaded.
+        int reloadChangedPrograms();
+
         // True when this caster's material needs that frontend, and therefore needs
         // its uniforms and textures bound for the shadow draw. Shadow passes bind a
         // material only for these, leaving every other caster's draw as it was.
@@ -186,6 +193,12 @@ namespace visutwin::canvas
         /// The camera's fog is a dynamic sky's haze (FOG_DYNAMIC_SKY_HAZE): a variant, so the
         /// sky model the haze is coloured by is in no other camera's forward tail.
         void setSkyHazeEnabled(const bool value) { _skyHazeEnabled = value; }
+        /// The forward pass draws an order-independent transparency layer into its accumulation
+        /// target (RenderPassOit): a variant whose fragment writes the weighted colour and the
+        /// coverage (forwardFragmentOit), and the draws blend additively instead of by their
+        /// materials. Set around that pass only.
+        void setOitAccumulate(const bool value) { _oitAccumulate = value; }
+        bool oitAccumulate() const { return _oitAccumulate; }
         // The colour attachments of the target the forward pass draws into (1-4): a variant
         // writes one fragment output per attachment (forwardFragmentMrt2/3/4).
         void setColorOutputCount(const int count) { _colorOutputCount = std::clamp(count, 1, 4); }
@@ -236,6 +249,7 @@ namespace visutwin::canvas
             bool planarReflectionMap = false;   // reflections from the material's planar reflection map
             int colorOutputs = 1;        // fragment outputs, one per colour attachment (setColorOutputCount)
             bool dualSourceOutput = false;   // the material's blend state reads a second source colour
+            bool oitAccumulate = false;      // an order-independent transparency accumulation (setOitAccumulate)
 
             // Feature toggles for future shader chunk ports.
             bool shadowMapping = false;
@@ -368,7 +382,15 @@ namespace visutwin::canvas
         /// from the options, the fragment from the program and the pass, the feature words
         /// specialised at pipeline creation. A chunk override (registry or material) is a
         /// file override of the program, compiled at run time.
-        std::shared_ptr<Shader> buildForwardShaderVariant(const std::string& programName, const ShaderVariantOptions& options, uint64_t variantId, const Material* material = nullptr);
+        std::shared_ptr<Shader> buildForwardShaderVariant(const std::string& programName,
+            const ShaderVariantOptions& options, uint64_t variantId, const SlangFileOverrides& overrides);
+        /// buildForwardShaderVariant's definition and code, without creating the shader.
+        bool forwardVariantCode(const std::string& programName, const ShaderVariantOptions& options,
+            uint64_t variantId, const SlangFileOverrides& overrides, ShaderDefinition& definition, ShaderCode& code);
+        /// Remembers how a cached variant was built, for reloadChangedPrograms (watcher only).
+        void rememberVariantRecipe(const VariantKey& key, const std::shared_ptr<Shader>& shader,
+            const std::string& programName, const ShaderVariantOptions& options, uint64_t variantId,
+            SlangFileOverrides overrides);
         /// The forward vertex entry for a variant: the vertex layout and deformation the draw
         /// has, in the priority Vulkan's pipeline applies to its family of modules.
         static const char* forwardVertexEntry(const ShaderVariantOptions& options);
@@ -406,6 +428,23 @@ namespace visutwin::canvas
         std::unordered_map<VariantKey, std::shared_ptr<Shader>, VariantKeyHash> _forwardShaderCache;
         /// Slang program builds by program name and override fingerprint.
         std::unordered_map<std::string, std::shared_ptr<SlangProgramBuild>> _slangPrograms;
+        /// What each build was compiled from, and its sources' fingerprint (watcher only).
+        struct SlangProgramSources
+        {
+            std::string program;
+            SlangFileOverrides overrides;
+            uint64_t fingerprint = 0;
+        };
+        std::unordered_map<std::string, SlangProgramSources> _slangProgramSources;
+        /// How each cached variant was built (watcher only), so it can be rebuilt in place.
+        struct VariantRecipe
+        {
+            std::string programName;
+            ShaderVariantOptions options;
+            uint64_t variantId = 0;
+            SlangFileOverrides overrides;
+        };
+        std::unordered_map<VariantKey, VariantRecipe, VariantKeyHash> _variantRecipes;
         bool _skyCubemapAvailable = false;
         bool _planarReflectionDepthPass = false;
         bool _lightmapBakePass = false;
@@ -431,6 +470,7 @@ namespace visutwin::canvas
         bool _skyboxReflectionEnabled = false;
         bool _toneMapAgxEnabled = false;
         bool _skyHazeEnabled = false;
+        bool _oitAccumulate = false;
         int _colorOutputCount = 1;
         EnvAtlasEncoding _envAtlasEncoding = EnvAtlasEncoding::Srgb;
         bool _reflectionProbeEnabled = false;

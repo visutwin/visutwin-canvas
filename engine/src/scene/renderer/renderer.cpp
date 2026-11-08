@@ -5,6 +5,8 @@
 //
 #include "renderer.h"
 
+#include "scene/renderer/renderPassOit.h"
+
 #include "framework/components/componentRegistry.h"
 #include "cullModeResolve.h"
 #include "multiDraw.h"
@@ -2313,6 +2315,13 @@ namespace visutwin::canvas
                     lastCullMaterial = boundMaterial;
                 }
                 auto cullMode = applyNodeScaleFlip(cachedCullMode, meshInstance ? meshInstance->node() : nullptr);
+                if (ctx.programLibrary.oitAccumulate()) {
+                    // An order-independent transparency accumulation: every draw adds into the
+                    // pass's two attachments, whatever its material blends with, and tests
+                    // itself against the scene depth in its shader (the target has no depth).
+                    device.setBlendState(RenderPassOit::accumulationBlendState());
+                    device.setDepthState(DepthState::noDepth());
+                }
                 if (camera.lightmapBakeAccumulate()) {
                     // Ambient-occlusion virtual lights: each pass adds its own contribution
                     // to the lightmap already in the target, so the draw blends additively

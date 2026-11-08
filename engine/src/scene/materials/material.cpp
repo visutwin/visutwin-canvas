@@ -148,11 +148,10 @@ namespace visutwin::canvas
         }
         uint32_t value = 0;
         if (texture) {
-            // A combined row's map keeps its texture's own wrap and filter; every other map
-            // reads through the default state, as the binders bound them before the table.
-            const uint32_t sampler = materialMapLaneOwnSampler(static_cast<uint32_t>(lane))
-                ? BindlessSamplers::indexOf(textureSamplerState(*texture, BindlessSamplers::kAnisotropy))
-                : 0u;
+            // Every map reads through its texture's own wrap and filter (a texture in the
+            // default state is sampler 0).
+            const uint32_t sampler =
+                BindlessSamplers::indexOf(textureSamplerState(*texture, BindlessSamplers::kAnisotropy));
             value = packBindlessLane(texture->bindlessIndex(), sampler);
         }
         lanes.at(static_cast<uint32_t>(lane)) = value;

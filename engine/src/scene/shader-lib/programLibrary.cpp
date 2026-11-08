@@ -296,6 +296,7 @@ namespace visutwin::canvas
         options.skyboxReflection = _skyboxReflectionEnabled;
         options.toneMapAgx = _toneMapAgxEnabled;
         options.colorOutputs = _colorOutputCount;
+        options.oitAccumulate = _oitAccumulate;
         options.reflectionProbe = _reflectionProbeEnabled;
         options.lightClustering = _clusteredLightingEnabled || variantBit(variantBits, 18);
         options.ssao = _ssaoEnabled || variantBit(variantBits, 19);
@@ -392,6 +393,7 @@ namespace visutwin::canvas
         set(ShaderFeature::ColorOutputs2, options.colorOutputs == 2);
         set(ShaderFeature::ColorOutputs3, options.colorOutputs == 3);
         set(ShaderFeature::ColorOutputs4, options.colorOutputs == 4);
+        set(ShaderFeature::OitAccumulate, options.oitAccumulate);
         set(ShaderFeature::Parallax, options.parallax);
         set(ShaderFeature::Clearcoat, options.clearcoat);
         set(ShaderFeature::Anisotropy, options.anisotropy);
@@ -509,6 +511,11 @@ namespace visutwin::canvas
         if (const auto found = _slangPrograms.find(key); found != _slangPrograms.end()) {
             return found->second.get();
         }
+        // The watcher's fingerprint is taken BEFORE the compile, so a change landing while it
+        // compiles differs from it and is reloaded on the next poll.
+        if (slangShaderWatchEnabled()) {
+            _slangProgramSources[key] = {program, overrides, slangSourceFingerprint(program, {}, overrides)};
+        }
         auto build = std::make_shared<SlangProgramBuild>();
         if (!loadSlangProgram(_device.get(), program, {}, overrides, *build)) {
             build.reset();
@@ -566,16 +573,26 @@ namespace visutwin::canvas
     }
 
     std::shared_ptr<Shader> ProgramLibrary::buildForwardShaderVariant(const std::string& programName,
-        const ShaderVariantOptions& options, const uint64_t variantId, const Material* material)
+        const ShaderVariantOptions& options, const uint64_t variantId, const SlangFileOverrides& overrides)
+    {
+        ShaderDefinition definition;
+        ShaderCode code;
+        if (!forwardVariantCode(programName, options, variantId, overrides, definition, code)) {
+            return nullptr;
+        }
+        return _device->createShaderFromCode(definition, code);
+    }
+
+    bool ProgramLibrary::forwardVariantCode(const std::string& programName, const ShaderVariantOptions& options,
+        const uint64_t variantId, const SlangFileOverrides& overrides, ShaderDefinition& definition, ShaderCode& code)
     {
         // "skybox" is the forward program under another name (VT_FEATURE_SKYBOX).
         const bool shadow = programName == "shadow";
-        const SlangProgramBuild* build = slangProgram(shadow ? "shadow" : "forward", chunkOverrides(material));
+        const SlangProgramBuild* build = slangProgram(shadow ? "shadow" : "forward", overrides);
         if (!build) {
-            return nullptr;
+            return false;
         }
 
-        ShaderDefinition definition;
         definition.name = "program-" + programName;
         definition.name += options.transparentPass ? "-transparent" : "-opaque";
         definition.name += "-" + std::to_string(variantId);
@@ -594,11 +611,11 @@ namespace visutwin::canvas
             // One output per colour attachment, or the first colour and the blend's second source.
             static constexpr const char* kMultipleTargetEntries[] = {"forwardFragmentMrt2",
                 "forwardFragmentMrt3", "forwardFragmentMrt4"};
-            definition.fshader = options.dualSourceOutput ? "forwardFragmentDualSource"
+            definition.fshader = options.oitAccumulate ? "forwardFragmentOit"
+                : options.dualSourceOutput ? "forwardFragmentDualSource"
                 : options.colorOutputs > 1 ? kMultipleTargetEntries[options.colorOutputs - 2] : "forwardFragment";
         }
 
-        ShaderCode code;
         // Both programs are specialized by the variant's features, the shadow one included:
         // its vertex stage is the forward one (displacement, skinning, instancing), and Metal
         // refuses a function that reads function constants unspecialized. The shadow
@@ -612,7 +629,7 @@ namespace visutwin::canvas
             const auto* vertex = entrySpirv(*build, "forwardVertex");
             if (!vertex) {
                 spdlog::error("ProgramLibrary: the Slang program '{}' has no forwardVertex entry", programName);
-                return nullptr;
+                return false;
             }
             code.vertexSpirv = *vertex;
             if (!definition.fshader.empty()) {
@@ -620,7 +637,7 @@ namespace visutwin::canvas
                 if (!fragment) {
                     spdlog::error("ProgramLibrary: the Slang program '{}' has no {} entry", programName,
                         definition.fshader);
-                    return nullptr;
+                    return false;
                 }
                 code.fragmentSpirv = *fragment;
             }
@@ -630,7 +647,7 @@ namespace visutwin::canvas
                 }
             }
         }
-        return _device->createShaderFromCode(definition, code);
+        return true;
     }
 
     namespace
@@ -673,6 +690,7 @@ namespace visutwin::canvas
         add(_skyboxReflectionEnabled);
         add(_toneMapAgxEnabled);
         add(_skyHazeEnabled);
+        add(_oitAccumulate);
         // The pass's colour attachment count, 1-4, in two bits.
         add(((_colorOutputCount - 1) & 1) != 0);
         add(((_colorOutputCount - 1) & 2) != 0);
@@ -784,6 +802,7 @@ namespace visutwin::canvas
         // do not pile up next to stale ones (AGX compiled-variants footprint).
         if (_chunks.hash() != _cachedChunksHash) {
             _forwardShaderCache.clear();
+            _variantRecipes.clear();
             _cachedChunksHash = _chunks.hash();
         }
 
@@ -796,13 +815,90 @@ namespace visutwin::canvas
 
         const uint64_t variantId = key.hash();
         ++_forwardVariantsCreated;
-        auto shader = buildForwardShaderVariant(programName, options, variantId, material);
+        auto overrides = chunkOverrides(material);
+        auto shader = buildForwardShaderVariant(programName, options, variantId, overrides);
         if (!shader) {
             spdlog::error("Failed to build shader variant '{}' (id={:#x}, localShadows={}, shadows={}, envAtlas={})",
                 programName, variantId, options.localShadows, options.shadowMapping, options.envAtlas);
         }
         _forwardShaderCache[key] = shader;
+        rememberVariantRecipe(key, shader, programName, options, variantId, std::move(overrides));
         return shader;
+    }
+
+    void ProgramLibrary::rememberVariantRecipe(const VariantKey& key, const std::shared_ptr<Shader>& shader,
+        const std::string& programName, const ShaderVariantOptions& options, const uint64_t variantId,
+        SlangFileOverrides overrides)
+    {
+        if (shader && slangShaderWatchEnabled()) {
+            _variantRecipes[key] = {programName, options, variantId, std::move(overrides)};
+        }
+    }
+
+    int ProgramLibrary::reloadChangedPrograms()
+    {
+        if (!_device) {
+            return 0;
+        }
+        // The program builds whose sources moved, rebuilt in place: a failed compile keeps the
+        // previous build (and fingerprint), so its variants keep their code.
+        std::vector<std::pair<std::string, SlangFileOverrides>> changed;
+        for (auto& [key, sources] : _slangProgramSources) {
+            const uint64_t fingerprint = slangSourceFingerprint(sources.program, {}, sources.overrides);
+            if (fingerprint == 0 || fingerprint == sources.fingerprint) {
+                continue;
+            }
+            SlangProgramBuild build;
+            if (!loadSlangProgram(_device.get(), sources.program, {}, sources.overrides, build)) {
+                spdlog::warn("Shader watcher: the program '{}' did not compile; its variants keep their code",
+                    sources.program);
+                continue;
+            }
+            auto& slot = _slangPrograms[key];
+            if (slot) {
+                *slot = std::move(build);
+            } else {
+                slot = std::make_shared<SlangProgramBuild>(std::move(build));
+            }
+            sources.fingerprint = fingerprint;
+            changed.emplace_back(sources.program, sources.overrides);
+        }
+        if (changed.empty()) {
+            return 0;
+        }
+
+        // Every cached variant of a rebuilt program, with the overrides it was built under,
+        // takes the new code in place: materials, memos and passes keep the shader they hold.
+        int reloaded = 0;
+        for (const auto& [key, recipe] : _variantRecipes) {
+            const std::string program = recipe.programName == "shadow" ? "shadow" : "forward";
+            const bool rebuilt = std::any_of(changed.begin(), changed.end(), [&](const auto& entry) {
+                return entry.first == program && entry.second == recipe.overrides;
+            });
+            const auto cached = _forwardShaderCache.find(key);
+            if (!rebuilt || cached == _forwardShaderCache.end() || !cached->second) {
+                continue;
+            }
+            ShaderDefinition definition;
+            ShaderCode code;
+            if (!forwardVariantCode(recipe.programName, recipe.options, recipe.variantId, recipe.overrides,
+                    definition, code)) {
+                continue;
+            }
+            if (definition.vshader != cached->second->vertexEntry() ||
+                definition.fshader != cached->second->fragmentEntry()) {
+                spdlog::warn("Shader watcher: variant '{}' changed its entry points; it keeps its previous code",
+                    cached->second->name());
+                continue;
+            }
+            if (_device->replaceShaderCode(*cached->second, code)) {
+                ++reloaded;
+            } else {
+                spdlog::warn("Shader watcher: the device refused the recompiled variant '{}'", cached->second->name());
+            }
+        }
+        spdlog::info("Shader watcher: reloaded {} variant(s) of {} program build(s)", reloaded, changed.size());
+        return reloaded;
     }
 
     void ProgramLibrary::prepareDepthOnlyShaders(const bool vsm)
@@ -884,8 +980,10 @@ namespace visutwin::canvas
             return cached->second;
         }
 
-        auto shader = buildForwardShaderVariant("shadow", options, key.hash(), material);
+        auto overrides = chunkOverrides(material);
+        auto shader = buildForwardShaderVariant("shadow", options, key.hash(), overrides);
         _forwardShaderCache[key] = shader;
+        rememberVariantRecipe(key, shader, "shadow", options, key.hash(), std::move(overrides));
         return shader;
     }
 

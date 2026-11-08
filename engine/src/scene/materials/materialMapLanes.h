@@ -6,9 +6,8 @@
 // The material block's map lanes (MaterialUniforms::mapLanes, bindlessResidency.h): one per
 // map the forward and shadow programs sample, in this order, each named by the MATERIAL
 // SLOT the map is set under (TextureSlot::slot, the number a material has always named its
-// textures by) and whether a map on that slot keeps its texture's own sampler state (the
-// rows that bound a combined sampler before the table) or reads through sampler 0, the
-// default state. tools/generate_shader_bindings.py reads this list into bindings.slang as
+// textures by). Every map reads through its texture's own sampler state (sampler 0 when the
+// texture is in the default state). tools/generate_shader_bindings.py reads this list into bindings.slang as
 // VT_MAP_LANE_<name>, so the shaders index the lanes by the same names.
 #pragma once
 
@@ -17,31 +16,31 @@
 namespace visutwin::canvas
 {
 #define VT_MATERIAL_MAP_LANES(X) \
-    X(baseColorMap,               0,   1) \
-    X(normalMap,                  1,   1) \
-    X(metalRoughMap,              3,   1) \
-    X(occlusionMap,               4,   1) \
-    X(emissiveMap,                5,   1) \
-    X(clearCoatMap,               7,   0) \
-    X(clearCoatGlossMap,          13,  0) \
-    X(clearCoatNormalMap,         14,  0) \
-    X(heightMap,                  17,  0) \
-    X(lightMap,                   19,  1) \
-    X(detailNormalMap,            23,  0) \
-    X(glossMap,                   31,  0) \
-    X(thicknessMap,               32,  0) \
-    X(refractionMap,              33,  0) \
-    X(opacityMap,                 34,  0) \
-    X(anisotropyMap,              42,  0) \
-    X(specularColorMap,           43,  0) \
-    X(specularityFactorMap,       44,  0) \
-    X(materialEnvAtlas,           45,  0) \
-    X(iridescenceMap,             47,  0) \
-    X(iridescenceThicknessMap,    48,  0) \
-    X(diffuseTransmissionMap,     49,  0) \
-    X(diffuseTransmissionColorMap, 50, 0) \
-    X(planarReflectionMap,        51,  0) \
-    X(displacementMap,            141, 0)
+    X(baseColorMap,               0) \
+    X(normalMap,                  1) \
+    X(metalRoughMap,              3) \
+    X(occlusionMap,               4) \
+    X(emissiveMap,                5) \
+    X(clearCoatMap,               7) \
+    X(clearCoatGlossMap,          13) \
+    X(clearCoatNormalMap,         14) \
+    X(heightMap,                  17) \
+    X(lightMap,                   19) \
+    X(detailNormalMap,            23) \
+    X(glossMap,                   31) \
+    X(thicknessMap,               32) \
+    X(refractionMap,              33) \
+    X(opacityMap,                 34) \
+    X(anisotropyMap,              42) \
+    X(specularColorMap,           43) \
+    X(specularityFactorMap,       44) \
+    X(materialEnvAtlas,           45) \
+    X(iridescenceMap,             47) \
+    X(iridescenceThicknessMap,    48) \
+    X(diffuseTransmissionMap,     49) \
+    X(diffuseTransmissionColorMap, 50) \
+    X(planarReflectionMap,        51) \
+    X(displacementMap,            141)
 
     /// The material slot of the vertex-stage displacement map (StandardMaterial::setDisplacementMap),
     /// a lane and no row: it was vertex texture 41 before the table.
@@ -63,7 +62,7 @@ namespace visutwin::canvas
 
     enum class MaterialMapLane : uint32_t
     {
-#define VT_MATERIAL_MAP_LANE_ENUM(name, slot, ownSampler) name,
+#define VT_MATERIAL_MAP_LANE_ENUM(name, slot) name,
         VT_MATERIAL_MAP_LANES(VT_MATERIAL_MAP_LANE_ENUM)
 #undef VT_MATERIAL_MAP_LANE_ENUM
         Count
@@ -74,9 +73,8 @@ namespace visutwin::canvas
     struct MaterialMapLaneRow
     {
         int slot;
-        bool ownSampler;
     };
-#define VT_MATERIAL_MAP_LANE_ROW(name, slot, ownSampler) MaterialMapLaneRow{slot, ownSampler != 0},
+#define VT_MATERIAL_MAP_LANE_ROW(name, slot) MaterialMapLaneRow{slot},
     inline constexpr MaterialMapLaneRow kMaterialMapLaneRows[] = {VT_MATERIAL_MAP_LANES(VT_MATERIAL_MAP_LANE_ROW)};
 #undef VT_MATERIAL_MAP_LANE_ROW
 
@@ -89,11 +87,6 @@ namespace visutwin::canvas
             }
         }
         return -1;
-    }
-    /// Whether a map in `lane` keeps its texture's own sampler state.
-    constexpr bool materialMapLaneOwnSampler(const uint32_t lane)
-    {
-        return lane < kMaterialMapLaneCount && kMaterialMapLaneRows[lane].ownSampler;
     }
     static_assert(materialMapLaneForSlot(0) == 0 && materialMapLaneForSlot(19) == 9 &&
         materialMapLaneForSlot(141) == 24 && materialMapLaneForSlot(2) == -1 && materialMapLaneForSlot(9) == -1);

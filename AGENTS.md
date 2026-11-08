@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 194 example applications derived from ExampleApp: upstream ports + one original scene (ambient-occlusion-davinci)
+  examples/        # 195 example applications derived from ExampleApp: upstream ports + two original scenes (ambient-occlusion-davinci, order-independent-transparency)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -331,6 +331,22 @@ bindings like a program of the tree, so it needs the source tree at run time. Wh
   persistent shader cache (`slang-vert` / `slang-frag` / `slang-comp`, keyed on the Slang
   version, target, program, every module and the bindings). This is the hot-reload and
   override path; it also runs when the bundle lacks a program.
+- **`VISUTWIN_SHADER_WATCH=1` reloads a shader IN PLACE when its sources change** (implies
+  `VISUTWIN_SLANG_RUNTIME`). `Engine::render` polls the tree's `.slang` time stamps
+  (`ShaderSourceWatcher`, every 250 ms) and on a change recompiles every live shader whose
+  source fingerprint moved (`slangSourceFingerprint`: the program, its includes, every module,
+  the bindings), through two halves: `reloadChangedSlangShaders` for the shaders the three
+  `getOrCreateSlangShader*` functions made, `ProgramLibrary::reloadChangedPrograms` for the
+  forward and shadow programs and every cached variant built from them. The new code goes INTO
+  the existing `Shader` (`GraphicsDevice::replaceShaderCode` -> `Shader::adoptCode`), which takes
+  a new id, so every holder keeps its pointer and every pipeline cache keyed on the id builds
+  again. So a new backend shader class overrides `swapBackendCode` (every member holding compiled
+  code) or a reload swaps nothing, and a cache keyed on a shader's POINTER instead of its id
+  serves the old pipeline after a reload. A fingerprint is taken BEFORE its compile, or an edit
+  landing during a slow compile (the forward program takes seconds) is missed. A failed compile,
+  a refused Metal compile (`waitUntilCompiled`) or changed entry-point names keep the old code
+  with a warning. Custom MSL / GLSL shaders and the chunk registry's default texts are not
+  watched; the superseded pipelines stay in their caches until the device goes.
 - **Prove a migrated program with a stimulus, not only a match**: a copy of the tree with
   the program's output changed, run through `VISUTWIN_SLANG_RUNTIME` and
   `VISUTWIN_CANVAS_SHADERS`, must change the frame on both backends. A pass that never runs
@@ -598,10 +614,11 @@ read there returns the white 1x1: a program serving a material draw AND quad pas
 dynamic sky) declares one reader per map PER PASS, over the lanes in the material pass and over
 the quad inputs in the others (its clouds read white, "no clouds", with the lane readers shared).
 Adding a map is one line in `materialMapLanes.h` (its slot
-number, which stays the material-facing name, and whether it keeps its texture's own sampler
-state) plus a `VT_MAP_FUNCTIONS` line in the forward head and the read; no row, no binder case.
-A map on one of the six former combined rows (0, 1, 3, 4, 5, 19) keeps its texture's own
-sampler state, every other map reads through sampler 0, the default state. The capacities
+number, which stays the material-facing name) plus a `VT_MAP_FUNCTIONS` line in the forward head
+and the read; no row, no binder case. Every map reads through its TEXTURE's own sampler state
+(wrap, filter; sampler 0 is the default state), whatever lane it is on: until 2026-11-08 only
+the six former combined rows (0, 1, 3, 4, 5, 19) did and every other map read the default
+state, so a clamped planar reflection map or material env atlas wrapped at its edges. The capacities
 (`kBindlessTableTextureCapacity` 1024, 64 arrays, 16 volumes, 64 samplers) are bounded by what
 ONE Vulkan set may hold (`maxPerSetDescriptors`, 1212 on MoltenVK 1.4.2, whatever the
 per-stage after-bind limits say), and set 7 is the last set MoltenVK allows. A Vulkan device
@@ -3492,6 +3509,25 @@ present, but the rule below never depends on reading it.
   `WireRenderer` / `Scene::drawLine`, not WideLines: a wide line folds back across the screen
   where a segment crosses the near plane, and a WideLineRenderer re-uploads every segment it
   holds whenever one line changes. Detail in ARCHITECTURE.md, immediate lines.
+- **An order-independent transparency layer's transparent sublayer is drawn by a
+  `RenderPassOit`, never by a forward pass** (`Layer::setOrderIndependentTransparency`,
+  `scene/renderer/renderPassOit.h`, weighted blended). The forward renderer splits a block at
+  such an action (`isOrderIndependentAction`): the actions before it, the OIT pass (an
+  accumulation into RGBA16F + RGBA8 cleared to 0, then a composite quad over the camera's
+  target), the actions after it; a camera frame splits its post-grab pass the same way, at the
+  FIRST such layer only (a later one draws as usual). The accumulation runs with
+  `ProgramLibrary::setOitAccumulate` on: a variant (`VT_FEATURE_OIT_ACCUMULATE`, a frame switch
+  in `forwardFrameBits`) whose fragment entry `forwardFragmentOit` writes the weighted colour and
+  the coverage, while `renderForwardLayer` overrides every draw's blend and depth state
+  (`RenderPassOit::accumulationBlendState`, `DepthState::noDepth`). The targets have NO depth
+  attachment: occlusion is the entry's own compare against `sceneDepthGrab`, so the camera must
+  have its scene depth map, which the renderer requests for every camera drawing such a layer
+  (`CameraComponent::setOitDepthRequest`, synced each update and graph build) and gives back
+  when it stops. Consequences: the layer must come AFTER the depth layer (World's transparent
+  sublayer does), or it is tested against the previous frame's depth; every material in it is
+  composited as NORMAL alpha blending (a premultiplied or additive material is not); and a new
+  path drawing a forward layer's transparent sublayer must check `isOrderIndependentAction` or
+  the layer is drawn twice. `RenderPassForward` is no longer `final`: the accumulation subclasses it.
 - **Leftover instance bindings follow the next draw.** The backends pick the
   instancing vertex layout by scanning bound slots, so shadow passes must unbind
   slot 5 after an instanced caster.

@@ -7,6 +7,9 @@
 #ifdef VISUTWIN_HAS_VULKAN
 
 #include "vulkanShader.h"
+
+#include <utility>
+
 #include "vulkanGraphicsDevice.h"
 #include "platform/graphics/spirvReflect.h"
 
@@ -71,6 +74,28 @@ namespace visutwin::canvas
             _skyVertexModule != VK_NULL_HANDLE ? "ok" : "none",
             _colorVertexModule != VK_NULL_HANDLE ? "ok" : "none",
             _pointVertexModule != VK_NULL_HANDLE ? "ok" : "none");
+    }
+
+    void VulkanShader::swapBackendCode(Shader& other)
+    {
+        // A pipeline keeps no reference to the modules it was built from, so the old modules
+        // may go with `other` while pipelines built from them are still in flight.
+        auto& fresh = static_cast<VulkanShader&>(other);
+        std::swap(_vertexInputLocations, fresh._vertexInputLocations);
+        std::swap(_vertexModule, fresh._vertexModule);
+        std::swap(_instancedVertexModule, fresh._instancedVertexModule);
+        std::swap(_skyVertexModule, fresh._skyVertexModule);
+        std::swap(_colorVertexModule, fresh._colorVertexModule);
+        std::swap(_pointVertexModule, fresh._pointVertexModule);
+        std::swap(_dynamicBatchVertexModule, fresh._dynamicBatchVertexModule);
+        std::swap(_skinnedVertexModule, fresh._skinnedVertexModule);
+        std::swap(_morphedVertexModule, fresh._morphedVertexModule);
+        std::swap(_skinnedMorphedVertexModule, fresh._skinnedMorphedVertexModule);
+        std::swap(_fragmentModule, fresh._fragmentModule);
+        std::swap(_computeModule, fresh._computeModule);
+        std::swap(_features, fresh._features);
+        std::swap(_specializeFeatures, fresh._specializeFeatures);
+        std::swap(_depthOnlyFragment, fresh._depthOnlyFragment);
     }
 
     VulkanShader::~VulkanShader()

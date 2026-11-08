@@ -2336,6 +2336,42 @@ clustered-lighting 26 px, which db309b5 reproduces to the pixel). Phase 3 (not s
 sampler per lane chosen by the material rather than the former combined rows, and the quad
 inputs through the table, which would free Vulkan's set 1 and Metal's slots 0-11.
 
+
+**Phase 3 (2026-11-08).** Two parts, of very different size.
+
+(a) Per-lane samplers. Landed: every map reads through its texture's own sampler state, not
+only the maps on the six former combined rows (`materialMapLanes.h` lost its sampler column;
+`Material::packMapLane`). A texture in the default state is sampler 0, so only a map whose
+texture asks for another wrap or filter changes. The planar reflection map and a material's
+environment atlas, both clamped, are the visible cases; they used to wrap and filter
+anisotropically at their edges. The A/B numbers are in the engineering log.
+
+(b) Quad inputs through the table. NOT done: it needs a decision. Twenty-eight programs declare
+quad inputs:
+- 49 plain 2D (linear), 12 depth (point), 11 texel (`Load`), 2 point;
+- 5 cube, 3 texture array;
+- 2 uint, 2 multisampled colour, 2 multisampled depth;
+- 2 shadow-compare, plus the comparison sampler.
+
+The table holds 2D textures, arrays and volumes only. Retiring Vulkan's set 1 and Metal's
+slots 0-11 would mean adding cube, multisampled and integer kinds, and a comparison sampler
+array, to a set that already holds 1,168 of the 1,212 descriptors MoltenVK 1.4.2 allows per set:
+- 16 cubes, 4 multisampled, 8 uint and 4 int textures, and 4 comparison samplers, come to 1,204;
+- that leaves 8 descriptors for any later kind, and no room to grow the 2D capacity.
+
+It would also break every CUSTOM quad shader written in MSL or GLSL (`useCachedShader`,
+`ShaderSourceSet`, applications' own), which bind their inputs by exactly those slots. Three
+ways forward:
+1. Keep set 1 for custom native shaders and move only the engine's Slang quad programs to the
+   table: uniform, but frees nothing.
+2. Move everything and require custom quad shaders to read the table, or be Slang
+   (`useSlangSource`): frees the slots, an API break.
+3. Leave the quad inputs on their rows: they are per-pass, not per-material, so they never
+   grew the way material maps did.
+
+The WebGPU backend is the forcing function. Its default limits (16 sampled textures and 16
+samplers per stage) are what the per-material rows hit on MoltenVK; per-pass quad inputs stay
+under them as they are.
 ### 3. An extract and render split with a task pool
 
 Bevy runs simulation and rendering one frame apart on two threads (pipelined rendering:
@@ -2374,13 +2410,65 @@ too.
 
 ### Cheap and separable
 
-Order-independent transparency (per-pixel linked lists, a viz need: overlapping
-transparent isosurfaces and streamlines composite wrongly back-to-front); a settings file
+A settings file
 framework (reflect-derived in Bevy, a named-property table here, the same table item 4
-needs); a shader file watcher over `VISUTWIN_SLANG_RUNTIME` and `shaderSourceRoots()`
-(the override path already recompiles from the tree, so a watcher only has to bump the
-chunk registry's version); visibility-range LOD with a dithered crossfade (the opacity
-dither feature already exists for the fade).
+needs); visibility-range LOD with a dithered crossfade (the opacity dither feature already
+exists for the fade).
+
+**Order-independent transparency (landed 2026-11-08).** Weighted blended (McGuire and Bavoil,
+JCGT 2013), not per-pixel linked lists: one accumulation pass and one composite, no storage
+buffers or fragment atomics, the same on both backends, approximate where many layers of similar
+depth overlap. Opt-in per layer (`Layer::setOrderIndependentTransparency`). `RenderPassOit`
+(`scene/renderer/renderPassOit.h`) is a pass with no target whose before-passes do the work:
+- The accumulation, a `RenderPassForward` subclass with `ProgramLibrary::setOitAccumulate` on,
+  draws the layer's transparent sublayer into RGBA16F (colour x alpha x weight, alpha x weight;
+  blend ONE, ONE) and RGBA8 (the coverage, a premultiplied "over" of alpha, so both clear to 0).
+  The weight is the paper's equation 7 on the view depth.
+- The composite (`oit-composite.slang`) blends the weighted average over the camera's target by
+  the coverage.
+
+Occlusion is a compare against the camera's scene depth map in the fragment entry
+(`forwardFragmentOit`), with no depth attachment. That one choice makes the back buffer (MSAA
+depth no target can share), a camera's own target and a camera frame's scene target (whose MSAA
+depth is the prepass texture) work alike, and keeps the discard out of every other variant. The
+renderer requests the depth map for each camera drawing such a layer. The standalone path splits
+a block at the layer; a camera frame splits its post-grab transparent pass, at the first OIT
+layer only. Verified:
+- `order-independent-transparency` (an original scene) at frame 60 on both backends, back buffer
+  and camera frame. Metal and Vulkan agree to 1 count except 1-2 silhouette pixels (3,434 and
+  3,359 pixels at 1-2 counts; 115 and 15 pixels with OIT off). Against sorting it moves 108k
+  pixels.
+- Removing the depth compare in a copied tree (`VISUTWIN_SLANG_RUNTIME`) draws the panes behind
+  the box over it (22.6k pixels), so the occlusion test is live. The runtime compile reproduces
+  the bundled frame exactly.
+- `tests/oitGpuTests.cpp` (`gpu`) holds the blend states and the composite against the closed
+  form on both devices, order-independent to the count. `tests/oitFrameGraphTests.cpp` holds
+  the split, the depth request and the camera-frame path.
+
+**Shader file watcher (landed 2026-11-08).** `VISUTWIN_SHADER_WATCH=1` (which implies
+`VISUTWIN_SLANG_RUNTIME`). Bumping the chunk registry's version, as first planned, would have
+reached only the forward variants a material re-resolves, and none of the forty-odd places that
+hold a quad or compute shader they made once. So the reload swaps code into the existing objects
+instead. `ShaderSourceWatcher` (`scene/shader-lib/shaderSourceWatcher.h`) polls the `.slang`
+modification times of the tree every 250 ms from `Engine::render`; FSEvents and inotify would
+need a backend per platform for a tree a poll covers in well under a millisecond. A change
+re-fingerprints every live shader (`slangSourceFingerprint`, the same source material the Vulkan
+disk cache keys on), and recompiles the ones that moved. The two halves are
+`reloadChangedSlangShaders`, over a registry of what each `getOrCreateSlangShader*` shader was
+compiled from, and `ProgramLibrary::reloadChangedPrograms`, over each program build's sources and
+each cached variant's recipe (program, options, chunk overrides). The new code goes into the
+existing shader (`GraphicsDevice::replaceShaderCode`, `Shader::adoptCode`, the backends'
+`swapBackendCode`), which takes the fresh shader's id, so every pipeline cache keyed on the id
+misses and builds again. On Metal the swap waits for the fresh library (`waitUntilCompiled`), so
+MSL that Apple's compiler refuses keeps the old code. Verified live on both backends with a copied
+tree:
+- An edit to `forward/forward-fragment-user.slang` 3 s into `clearcoat` reloaded 8 variants and
+  reddened every lit surface (246k pixels, identical between backends but for 15 at 1 count).
+- One to `programs/upsample.slang` in `post-processing` reloaded the bloom upsample (920k pixels,
+  75 at 1 count between backends).
+
+`tests/shaderHotReloadTests.cpp` holds the swap, the poller, a reload with the edited code, a
+failed compile keeping the old one, a module edit, and a shadow variant rebuilt in place.
 
 ### Not worth borrowing
 

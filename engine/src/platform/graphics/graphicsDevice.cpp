@@ -233,6 +233,12 @@ namespace visutwin::canvas
         return std::make_shared<Shader>(this, definition);
     }
 
+    bool GraphicsDevice::replaceShaderCode(Shader& target, const ShaderCode& code)
+    {
+        const auto fresh = createShaderFromCode(target.definition(), code);
+        return fresh && fresh->waitUntilCompiled() && target.adoptCode(*fresh);
+    }
+
     void GraphicsDevice::clearVertexBuffer()
     {
         _vertexBuffers.clear();

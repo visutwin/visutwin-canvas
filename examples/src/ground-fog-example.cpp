@@ -178,6 +178,7 @@ float4 groundFogFragment(Varyings input) : SV_Target0
     // The depth preview: the camera's depth map, linearised over the far clip and gamma-encoded.
     const char* const kDepthPreviewSlang = R"slang(
 import vtquad;
+import vtsrgb;
 #include "bindings.slang"
 
 struct DepthPreviewUniforms

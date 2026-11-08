@@ -19,6 +19,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -161,4 +162,27 @@ namespace visutwin::canvas
     /// hash when `features` is not empty). With no files it is getOrCreateSlangShader. Null, with the diagnostics logged, when it does not compile.
     std::shared_ptr<Shader> getOrCreateSlangShaderWithFiles(GraphicsDevice* device, const std::string& program,
         const SlangFileOverrides& files, const std::string& variant = {}, const ShaderFeatureSet& features = {});
+
+    /// Whether VISUTWIN_SHADER_WATCH is set (and not "0"): the engine then polls the shader
+    /// source tree and recompiles what a change touches (reloadChangedSlangShaders,
+    /// ProgramLibrary::reloadChangedPrograms). Watching implies VISUTWIN_SLANG_RUNTIME: every
+    /// program is compiled from the tree, so there is a source to recompile.
+    [[nodiscard]] bool slangShaderWatchEnabled();
+
+    /// The engine/shaders/slang directory the runtime path compiles from (shaderSourceRoots()),
+    /// or an empty path.
+    [[nodiscard]] std::filesystem::path slangShaderSourceDir();
+
+    /// A fingerprint of every source a compile of `program` / `variant` with `files` replaced
+    /// reads: the program, the files it includes, every module and the bindings. Equal
+    /// fingerprints compile to the same code; 0 when the program is not found.
+    [[nodiscard]] uint64_t slangSourceFingerprint(std::string_view program, std::string_view variant,
+        const SlangFileOverrides& files = {});
+
+    /// Recompiles every live Slang shader of `device` (made through the three getOrCreate
+    /// functions above while the watcher was on) whose sources' fingerprint moved, and swaps
+    /// the new code into the shader every holder already has (GraphicsDevice::replaceShaderCode).
+    /// A shader that fails to compile, or whose entry points changed, keeps its code; the
+    /// diagnostics are logged. The number reloaded.
+    int reloadChangedSlangShaders(GraphicsDevice* device);
 }

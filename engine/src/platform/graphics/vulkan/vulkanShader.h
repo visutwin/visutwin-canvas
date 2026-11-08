@@ -73,6 +73,9 @@ namespace visutwin::canvas
         // the pipeline declares every attribute of the vertex format.
         [[nodiscard]] std::optional<uint64_t> vertexInputLocations(VkShaderModule module) const;
 
+    protected:
+        void swapBackendCode(Shader& other) override;
+
     private:
         VkShaderModule createModule(const uint32_t* spirv, size_t wordCount);
         VkShaderModule createVertexModule(const uint32_t* spirv, size_t wordCount);

@@ -222,6 +222,11 @@ namespace visutwin::canvas
         void requestSceneColorMap(bool enabled);
         void requestSceneDepthMap(bool enabled);
 
+        /// The renderer's own depth-map request for a camera that renders a layer with
+        /// order-independent transparency (its fragments test against the scene depth map): one
+        /// request, taken when `enabled` first holds and given back when it stops.
+        void setOitDepthRequest(bool enabled);
+
         /// Requests (or releases, counted like requestSceneDepthMap) the camera's hierarchical
         /// depth (Hi-Z) pyramid: built every frame from its scene depth map, after everything the
         /// camera renders and ahead of its after-passes, and published to hiZMapHandle() for a
@@ -387,6 +392,7 @@ namespace visutwin::canvas
 
         // A counter of requests of depth map rendering
         int _renderSceneDepthMap = 0;
+        bool _oitDepthRequested = false;
         int _renderHiZ = 0;
 
         DofSettings _dof;

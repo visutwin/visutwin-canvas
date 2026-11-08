@@ -109,6 +109,14 @@ namespace visutwin::canvas
         }
     }
 
+    void CameraComponent::setOitDepthRequest(const bool enabled)
+    {
+        if (enabled != _oitDepthRequested) {
+            _oitDepthRequested = enabled;
+            requestSceneDepthMap(enabled);
+        }
+    }
+
     void CameraComponent::requestHiZ(const bool enabled)
     {
         if (!enabled && _renderHiZ == 0) {

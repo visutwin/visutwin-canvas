@@ -26,7 +26,7 @@ namespace visutwin::canvas
      * first pass, so a pass reaching into another camera's actions would draw them with the
      * wrong shadow fit.
      */
-    class RenderPassForward final : public RenderPass
+    class RenderPassForward : public RenderPass
     {
     public:
         RenderPassForward(const std::shared_ptr<GraphicsDevice>& device,

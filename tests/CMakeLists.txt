@@ -47,6 +47,9 @@ visutwin_add_unit_test(visutwin-hiz-pyramid-gpu-tests hiz-pyramid-gpu hiZPyramid
 visutwin_add_unit_test(visutwin-gaussian-mipmaps-gpu-tests gaussian-mipmaps-gpu gaussianMipmapsGpuTests.cpp LABELS gpu TIMEOUT 60)
 # GraphicsDevice::multiDraw on a real device (tests/multiDrawGpuTests.cpp); `gpu` label for the same reason.
 visutwin_add_unit_test(visutwin-multi-draw-gpu-tests multi-draw-gpu multiDrawGpuTests.cpp LABELS gpu TIMEOUT 60)
+# Order-independent transparency's accumulation blend and composite on a real device
+# (tests/oitGpuTests.cpp); `gpu` label for the same reason.
+visutwin_add_unit_test(visutwin-oit-gpu-tests oit-gpu oitGpuTests.cpp LABELS gpu TIMEOUT 60)
 # The scene maps a compute kernel reads through vtscenemaps, on a real device
 # (tests/sceneMapsGpuTests.cpp); `gpu` label for the same reason.
 visutwin_add_unit_test(visutwin-scene-maps-gpu-tests scene-maps-gpu sceneMapsGpuTests.cpp LABELS gpu TIMEOUT 60)
@@ -72,6 +75,9 @@ if(VISUTWIN_SHADER_SLANG)
     # (VISUTWIN_SLANG_RUNTIME) produces code for the same backend.
     visutwin_add_unit_test(visutwin-slang-bundle-tests slang-bundle slangBundleTests.cpp)
     visutwin_add_unit_test(visutwin-slang-gpu-tests slang-gpu slangGpuTests.cpp LABELS gpu TIMEOUT 120)
+    # The shader watcher (tests/shaderHotReloadTests.cpp): a copy of the shader tree edited
+    # under a device that keeps its code; the reload swaps the new code into the same shader.
+    visutwin_add_unit_test(visutwin-shader-hot-reload-tests shader-hot-reload shaderHotReloadTests.cpp TIMEOUT 120)
     # EXPERIMENTAL bindless table (tests/bindlessGpuTests.cpp): one Slang program reading 64
     # textures through 4 samplers by run-time index on this build's device, Metal argument
     # buffer or Vulkan update-after-bind set; `gpu` label.
@@ -187,6 +193,7 @@ visutwin_add_unit_test(visutwin-shader-composition-tests shader-composition shad
 visutwin_add_unit_test(visutwin-camera-frame-stop-tests camera-frame-stop cameraFrameStopTests.cpp)
 visutwin_add_unit_test(visutwin-camera-frame-effect-tests camera-frame-effect cameraFrameEffectTests.cpp)
 visutwin_add_unit_test(visutwin-forward-pass-camera-tests forward-pass-camera forwardPassCameraTests.cpp)
+visutwin_add_unit_test(visutwin-oit-frame-graph-tests oit-frame-graph oitFrameGraphTests.cpp)
 visutwin_add_unit_test(visutwin-auto-exposure-tests auto-exposure autoExposureTests.cpp)
 visutwin_add_unit_test(visutwin-compose-effects-tests compose-effects composeEffectsTests.cpp)
 visutwin_add_unit_test(visutwin-lens-flare-effect-tests lens-flare-effect lensFlareEffectTests.cpp)

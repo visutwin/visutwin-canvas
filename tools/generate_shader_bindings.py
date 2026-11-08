@@ -206,7 +206,7 @@ def material_block(fields_header: Path) -> list[str]:
     return lines
 
 
-MAP_LANE_RE = re.compile(r'X\(\s*(\w+)\s*,\s*(\d+)\s*,\s*([01])\s*\)')
+MAP_LANE_RE = re.compile(r'X\(\s*(\w+)\s*,\s*(\d+)\s*\)')
 CAPACITY_RE = re.compile(r'kBindlessTable(Texture|TextureArray|Volume|Sampler)Capacity\s*=\s*(\d+)')
 TABLE_SLOT_RE = re.compile(r'kBindlessTableMetalBufferSlot\s*=\s*(\d+)')
 TABLE_SET_RE = re.compile(r'kBindlessTableVulkanSet\s*=\s*(\d+)')
@@ -269,7 +269,7 @@ def bindless_table(table_header: Path, lanes_header: Path) -> list[str]:
              "#define VT_MAP_ARRAY_SAMPLE_LEVEL(laneIndex, uvw, lod) VT_BINDLESS_TEXTURE_ARRAY(VT_MATERIAL_LANE(laneIndex)).SampleLevel(VT_BINDLESS_SAMPLER(VT_MATERIAL_LANE(laneIndex)), uvw, lod)",
              "#define VT_MAP_VOLUME_SAMPLE_LEVEL(laneIndex, uvw, lod) VT_BINDLESS_VOLUME(VT_MATERIAL_LANE(laneIndex)).SampleLevel(VT_BINDLESS_SAMPLER(VT_MATERIAL_LANE(laneIndex)), uvw, lod)",
              f"// ---- The map lanes ({lanes_header.name}), by the map's name ----"]
-    for index, (name, _slot, _own) in enumerate(lanes):
+    for index, (name, _slot) in enumerate(lanes):
         lines.append(f"#define VT_MAP_LANE_{name} {index}u")
     return lines
 

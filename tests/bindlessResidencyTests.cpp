@@ -170,7 +170,8 @@ int main()
         check(bindlessLaneTexture(lane(lanes, 1)) == clampMap->bindlessIndex(), "the normal map's lane carries its index");
         check(bindlessLaneSampler(lane(lanes, 1)) != 0, "a clamping map on a combined row keeps its own sampler state");
         check(bindlessLaneTexture(lane(lanes, 31)) == glossMap->bindlessIndex(), "the gloss map's lane carries its index");
-        check(bindlessLaneSampler(lane(lanes, 31)) == 0, "a map on a separate-image row reads through sampler 0 whatever its state");
+        check(bindlessLaneSampler(lane(lanes, 31)) == bindlessLaneSampler(lane(lanes, 1)),
+            "a map on any other row keeps its own sampler state too: the gloss map clamps as the normal map does");
         check(lane(lanes, 5) == 0, "a map the material does not set packs 0");
         material.setDiffuseMap(nullptr);
         check(lane(material.packedMapLanes(), 0) == 0, "clearing a map clears its lane");

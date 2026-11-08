@@ -91,3 +91,38 @@ ForwardMrt4Out forwardFragmentMrt4(ForwardVarying input, bool isFrontFace : SV_I
     result.color3 = outputs.color3;
     return result;
 }
+
+// Order-independent transparency's accumulation (RenderPassOit, weighted blended): attachment 0
+// adds colour * alpha * weight and alpha * weight, attachment 1 the coverage alpha, blended as a
+// premultiplied "over" so it holds 1 - prod(1 - alpha). The weight falls off with the view depth
+// (McGuire and Bavoil's equation 7), so the nearer of overlapping surfaces dominates. The pass
+// has no depth attachment: a fragment behind the opaque scene (the camera's scene depth map) is
+// discarded here, which is why this is an entry of its own and no other variant loses early
+// depth testing to it.
+struct ForwardOitOut
+{
+    float4 accumulation : SV_Target0;
+    float4 coverage : SV_Target1;
+};
+
+[shader("fragment")]
+ForwardOitOut forwardFragmentOit(ForwardVarying input, bool isFrontFace : SV_IsFrontFace)
+{
+    if (lighting.cameraNearFar.w > 0.5) {
+        uint width;
+        uint height;
+        sceneDepthGrab.GetDimensions(width, height);
+        const float2 uv = input.position.xy / float2(max(width, 1u), max(height, 1u));
+        if (input.position.z > sceneDepthGrab.SampleLevel(nearestClampSampler, uv, 0.0).r) {
+            discard;
+        }
+    }
+    const float4 color = forwardShade(input, isFrontFace);
+    const float alpha = saturate(color.a);
+    const float z = abs(input.viewDepth);
+    const float weight = alpha * clamp(10.0 / (1e-5 + pow(z / 5.0, 2.0) + pow(z / 200.0, 6.0)), 1e-2, 3e3);
+    ForwardOitOut result;
+    result.accumulation = float4(color.rgb * alpha, alpha) * weight;
+    result.coverage = float4(alpha, alpha, alpha, alpha);
+    return result;
+}
