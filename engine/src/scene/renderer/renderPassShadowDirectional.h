@@ -22,7 +22,8 @@ namespace visutwin::canvas
     {
     public:
         RenderPassShadowDirectional(const std::shared_ptr<GraphicsDevice>& device,
-            Light* light, Camera* camera, int face, ComponentRegistry* registry);
+            Light* light, Camera* camera, int face, ComponentRegistry* registry,
+            const ShadowRenderer* shadowRenderer = nullptr);
 
         void execute() override;
         void prepareShaders() override;
@@ -30,6 +31,7 @@ namespace visutwin::canvas
     private:
         Light* _light = nullptr;
         Camera* _camera = nullptr;
+        const ShadowRenderer* _shadowRenderer = nullptr;
         std::shared_ptr<GraphicsDevice> _graphicsDevice;
         int _face = 0;
         // Whose casters a pass with no prepared list collects.

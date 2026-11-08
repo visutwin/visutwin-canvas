@@ -74,6 +74,7 @@ namespace visutwin::canvas
                 if (!bindLocalShadowState(_graphicsDevice.get(), programLibrary.get(), light, shaders)) {
                     return;
                 }
+                shaders.lodViewer = _shadowRenderer->lodViewer();
                 _graphicsDevice->setViewport(rect.getX(), rect.getY(), rect.getZ(), rect.getW());
                 _graphicsDevice->setScissor(static_cast<int>(rect.getX()), static_cast<int>(rect.getY()),
                     static_cast<int>(rect.getZ()), static_cast<int>(rect.getW()));

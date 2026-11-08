@@ -475,7 +475,7 @@ namespace visutwin::canvas
         }
 
         auto renderPass = std::make_shared<RenderPassShadowDirectional>(_device, light, camera, face,
-            _shadowRenderer->componentRegistry());
+            _shadowRenderer->componentRegistry(), _shadowRenderer);
         _shadowRenderer->setupRenderPass(renderPass.get(), shadowCamera, clearRenderTarget);
         return renderPass;
     }

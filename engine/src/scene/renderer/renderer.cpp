@@ -555,6 +555,7 @@ namespace visutwin::canvas
         const bool hasCameraFrustum = camera && cameraNode;
         const Frustum cameraFrustum = hasCameraFrustum
             ? buildCameraFrustum(camera, cameraNode) : Frustum{};
+        const Vector3 cameraPosition = hasCameraFrustum ? cameraNode->position() : Vector3();
         const uint32_t cullingMask = camera ? camera->cullingMask() : 0xFFFFFFFFu;
 
         // The stamps this set is culled under, read before the sweep: the sweep itself
@@ -627,6 +628,11 @@ namespace visutwin::canvas
             // is never frustum culled.
             if (!material->isSkybox() && hasCameraFrustum && meshInstance->cull() &&
                 !isVisibleInFrustum(cameraFrustum, meshInstance->aabb())) {
+                return Bucket::None;
+            }
+            // Outside its visibility range, as outside the frustum. A set reused while the
+            // frustum is unchanged keeps this answer: the camera has not moved.
+            if (hasCameraFrustum && !material->isSkybox() && meshInstance->visibilityFadeFrom(cameraPosition) == 0.0f) {
                 return Bucket::None;
             }
 
@@ -1912,9 +1918,10 @@ namespace visutwin::canvas
         };
 
         /// What a draw contributes to its shader variant, read off its mesh instance;
-        /// `cameraClipped`: the camera the draw is for has clipping planes.
+        /// `cameraClipped`: the camera the draw is for has clipping planes; `lodFade`: the
+        /// instance's visibility-range fade at that camera (MeshInstance::visibilityFadeFrom).
         ShaderVariantInputs shaderVariantInputs(const MeshInstance* meshInstance, const Material* boundMaterial,
-            const bool cameraClipped)
+            const bool cameraClipped, const float lodFade = 1.0f)
         {
             ShaderVariantInputs variant;
             variant.material = boundMaterial;
@@ -1945,6 +1952,10 @@ namespace visutwin::canvas
             variant.screenSpace = meshInstance->screenSpace();
             if (meshInstance->clipped() && meshInstance->material()) {
                 variant.clipPlanes |= CLIP_PLANES_MESH;
+            }
+            // Fades through the same copy of the material block as the planes.
+            if (visibilityFadePartial(lodFade) && meshInstance->material() && !meshInstance->material()->isSkybox()) {
+                variant.clipPlanes |= CLIP_LOD_FADE;
             }
             return variant;
         }
@@ -2263,15 +2274,21 @@ namespace visutwin::canvas
                 // device over the material's lightmap slot.
                 Texture* instanceLightMap = meshInstance ? meshInstance->lightMap().get() : nullptr;
 
+                // The visibility range at this camera: the cull dropped what it hides, so only a
+                // fade band is left to see here.
+                const float lodFade = meshInstance && ctx.view.cameraNode
+                    ? meshInstance->visibilityFadeFrom(ctx.view.position) : 1.0f;
                 const ShaderVariantInputs variant = shaderVariantInputs(meshInstance, boundMaterial,
-                    !cameraClip.empty());
+                    !cameraClip.empty(), lodFade);
 
                 device.setInstanceLightMap(instanceLightMap);
                 // The instance's parameter overrides, applied over the bound material's block,
-                // and the clipping planes of the instance and of the camera written in.
+                // and the clipping planes of the instance and of the camera and the fade
+                // written in.
                 const MaterialUniforms* instanceUniforms = meshInstance && entry->material
                     ? meshInstance->overriddenUniforms(boundMaterial,
-                        (variant.clipPlanes & CLIP_PLANES_CAMERA) ? &cameraClip : nullptr)
+                        (variant.clipPlanes & CLIP_PLANES_CAMERA) ? &cameraClip : nullptr,
+                        (variant.clipPlanes & CLIP_LOD_FADE) ? lodFade : 1.0f)
                     : nullptr;
                 device.setInstanceMaterialUniforms(instanceUniforms,
                     instanceUniforms ? meshInstance->overriddenUniformsVersion() : 0);

@@ -46,3 +46,22 @@ void applyClipPlanes(float3 worldPos)
         }
     }
 }
+
+// The visibility range's dithered crossfade (MeshInstance::setVisibilityRange), in the same copy
+// of the block: lodFadeParams.x = f keeps the fragments whose noise is below f (fading out), -f
+// those at or above 1 - f (fading in), so a level fading out and the next fading in over one band
+// split every pixel between them. The noise is the blue-noise texture of the opacity dither, read
+// LINEARLY (that dither's gamma would skew the fraction kept) and without the TAA jitter, so the
+// two levels test the same value at a pixel. Only in a variant with VT_FEATURE_LOD_FADE.
+void applyLodFade(float2 screenPos)
+{
+    if (vtFeatureEnabled(VT_FEATURE_LOD_FADE_BIT)) {
+        const uint2 texel = uint2(glslMod(floor(screenPos), 32.0));
+        const uint index = texel.y * 32u + texel.x;
+        const float noise = float((kBlueNoise32[index >> 2u] >> ((index & 3u) * 8u)) & 0xFFu) / 255.0;
+        const float fade = material.lodFadeParams.x;
+        if (fade >= 0.0 ? noise >= fade : noise < 1.0 + fade) {
+            discard;
+        }
+    }
+}

@@ -61,13 +61,24 @@ namespace visutwin::canvas
         return true;
     }
 
+    float MeshInstance::visibilityFadeFrom(const Vector3& viewer)
+    {
+        if (!_visibilityRange.limits()) {
+            return 1.0f;
+        }
+        return _visibilityRange.fadeAt((aabb().center() - viewer).length());
+    }
+
     const MaterialUniforms* MeshInstance::overriddenUniforms(const Material* material,
-        const ClipPlanes* cameraClip) const
+        const ClipPlanes* cameraClip, float lodFade) const
     {
         if (cameraClip && cameraClip->empty()) {
             cameraClip = nullptr;
         }
-        if ((_parameters.empty() && _clip.empty() && !cameraClip) || !material) {
+        if (!visibilityFadePartial(lodFade)) {
+            lodFade = 1.0f;
+        }
+        if ((_parameters.empty() && _clip.empty() && !cameraClip && lodFade == 1.0f) || !material) {
             return nullptr;
         }
         const uint64_t clipVersion = _clip.version();
@@ -76,7 +87,7 @@ namespace visutwin::canvas
         const MaterialUniforms& base = material->packedUniforms();
         if (!_overrideBlock || _parametersChanged || material != _overrideMaterial ||
             material->uniformsVersion() != _overrideMaterialVersion || clipVersion != _overrideClipVersion ||
-            cameraClipVersion != _overrideCameraClipVersion) {
+            cameraClipVersion != _overrideCameraClipVersion || lodFade != _overrideLodFade) {
             if (!_overrideBlock) {
                 _overrideBlock = std::make_unique<MaterialUniforms>();
             }
@@ -90,6 +101,8 @@ namespace visutwin::canvas
                 _overrideBlock->clipParams[2] = static_cast<float>(cameraClip->planes().size());
                 _overrideBlock->clipParams[3] = cameraClip->intersection() ? 1.0f : 0.0f;
             }
+            _overrideBlock->lodFadeParams[0] = lodFade == 1.0f ? 0.0f : lodFade;
+            _overrideLodFade = lodFade;
             _overrideMaterial = material;
             _overrideMaterialVersion = material->uniformsVersion();
             _overrideClipVersion = clipVersion;
@@ -134,6 +147,7 @@ namespace visutwin::canvas
         clone->_batchGroupId = _batchGroupId;
         clone->_parameters = _parameters;
         clone->_clip = _clip;
+        clone->_visibilityRange = _visibilityRange;
         clone->_parametersChanged = !_parameters.empty();
 
         // A morph and a skin are per-instance STATE over shared data: the clone gets

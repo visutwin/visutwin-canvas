@@ -280,6 +280,7 @@ namespace visutwin::canvas
 
 
         ShadowRendererDirectional* shadowRendererDirectional() const { return _shadowRendererDirectional.get(); }
+        ShadowRenderer* shadowRenderer() const { return _shadowRenderer.get(); }
 
 
     private:

@@ -89,6 +89,12 @@ namespace visutwin::canvas
         if (meshInstance->screenSpace()) {
             return false;
         }
+        // Outside its visibility range for the camera the pass draws for: not there, and
+        // inside a fade band dithered like its forward draw.
+        const float lodFade = shaders.lodViewer ? meshInstance->visibilityFadeFrom(*shaders.lodViewer) : 1.0f;
+        if (lodFade == 0.0f) {
+            return false;
+        }
 
         if (auto* gsplat = meshInstance->gsplatInstance()) {
             if (!drawGSplatDepthOnly(device, meshInstance, *gsplat, viewProjection, shaders, camera)) {
@@ -123,9 +129,12 @@ namespace visutwin::canvas
         if (material) {
             clip |= meshInstance->clipped() ? CLIP_PLANES_MESH : 0u;
             clip |= cameraClip ? CLIP_PLANES_CAMERA : 0u;
+            clip |= visibilityFadePartial(lodFade) ? CLIP_LOD_FADE : 0u;
         }
         device->setMaterial(clip ? material : frontendMaterial);
-        const MaterialUniforms* clipUniforms = clip ? meshInstance->overriddenUniforms(material, cameraClip) : nullptr;
+        const MaterialUniforms* clipUniforms = clip
+            ? meshInstance->overriddenUniforms(material, cameraClip, (clip & CLIP_LOD_FADE) ? lodFade : 1.0f)
+            : nullptr;
         device->setInstanceMaterialUniforms(clipUniforms, clipUniforms ? meshInstance->overriddenUniformsVersion() : 0);
 
         const auto* mesh = meshInstance->mesh();

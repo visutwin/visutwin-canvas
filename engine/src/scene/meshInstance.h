@@ -21,6 +21,7 @@
 #include "mesh.h"
 #include "morphInstance.h"
 #include "skinInstance.h"
+#include "visibilityRange.h"
 #include "gsplat/gsplatInstance.h"
 #include "scene/constants.h"
 #include "materials/material.h"
@@ -171,11 +172,12 @@ namespace visutwin::canvas
 
         /// The block a draw of this instance with `material` uploads: the material's packed
         /// block with the overrides applied and the clipping planes written in (the
-        /// instance's own, and `cameraClip`, the planes of the camera the draw is for),
-        /// rebuilt only when any of them changed. Null when the instance overrides nothing
-        /// and nothing clips it (the material's own block is used).
+        /// instance's own, and `cameraClip`, the planes of the camera the draw is for), and
+        /// `lodFade`, the visibility range's fade at that camera (visibilityFadeFrom; 0 or 1:
+        /// none), rebuilt only when any of them changed. Null when the instance overrides
+        /// nothing and nothing clips or fades it (the material's own block is used).
         const MaterialUniforms* overriddenUniforms(const Material* material,
-            const ClipPlanes* cameraClip = nullptr) const;
+            const ClipPlanes* cameraClip = nullptr, float lodFade = 1.0f) const;
         /// Names the block overriddenUniforms() last returned: unique across all materials
         /// and instances, so a backend can key a per-frame reuse on (block, version).
         uint64_t overriddenUniformsVersion() const { return _overrideVersion; }
@@ -198,6 +200,27 @@ namespace visutwin::canvas
         void setClipping(const ClipPlanes& clip);
         const ClipPlanes& clipping() const { return _clip; }
         bool clipped() const { return !_clip.empty(); }
+
+        /**
+         * The camera distances at which the instance is drawn (visibilityRange.h): a level of
+         * detail. Measured from the camera to the centre of the instance's world bounds,
+         * culled outside the range like an instance outside the frustum, and drawn dithered
+         * inside a fade band, in every pass. A shadow follows the camera it is rendered for:
+         * a directional shadow the camera it is fitted to, a local light's the frame's
+         * presentation camera, so two levels never cast at once. A range that limits nothing
+         * (the default) costs nothing. Like the clipping planes, the fade rides in the
+         * instance's copy of its material block, so an instance drawn without a material of
+         * its own is not faded (only culled).
+         */
+        void setVisibilityRange(const VisibilityRange& range)
+        {
+            bumpCullVersionIf(!(_visibilityRange == range));
+            _visibilityRange = range;
+        }
+        const VisibilityRange& visibilityRange() const { return _visibilityRange; }
+        /// The range's fade (VisibilityRange::fadeAt) seen from `viewer`, a world position; 1
+        /// for an instance whose range limits nothing.
+        float visibilityFadeFrom(const Vector3& viewer);
 
         bool cull() const { return _cull; }
         void setCull(const bool value) { bumpCullVersionIf(_cull != value); _cull = value; }
@@ -632,6 +655,8 @@ namespace visutwin::canvas
         mutable uint64_t _overrideClipVersion = 0;
         mutable uint64_t _overrideCameraClipVersion = 0;
         ClipPlanes _clip;
+        mutable float _overrideLodFade = 1.0f;
+        VisibilityRange _visibilityRange;
         bool _cull = true;
         bool _screenSpace = false;
         bool _visibleThisFrame = false;

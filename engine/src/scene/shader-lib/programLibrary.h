@@ -304,6 +304,7 @@ namespace visutwin::canvas
             bool screenSpace = false;       // the world position IS the clip position (screen-space UI)
             bool clipPlanesMesh = false;    // the mesh instance's clipping planes discard fragments
             bool clipPlanesCamera = false;  // the camera's clipping planes discard fragments
+            bool lodFade = false;           // the visibility range's dithered crossfade discards fragments
             bool lightmapBake = false;      // UV-space lightmap bake: rasterize the unwrap, output diffuse light
             bool lightmapBakeAccum = false; // Accumulating bake pass: direct light only, ambient already baked
             bool debugPass = false;         // Debug surface-quantity output (mode chosen at runtime)

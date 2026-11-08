@@ -113,6 +113,7 @@
     X(ColorOutputs4,             "VT_FEATURE_COLOR_OUTPUTS_4") \
     X(ClipPlanesMesh,            "VT_FEATURE_CLIP_PLANES_MESH") \
     X(ClipPlanesCamera,          "VT_FEATURE_CLIP_PLANES_CAMERA") \
+    X(LodFade,                   "VT_FEATURE_LOD_FADE") \
     X(IridescenceMap,            "VT_FEATURE_IRIDESCENCE_MAP") \
     X(IridescenceThicknessMap,   "VT_FEATURE_IRIDESCENCE_THICKNESS_MAP") \
     X(DiffuseTransmission,       "VT_FEATURE_DIFFUSE_TRANSMISSION") \

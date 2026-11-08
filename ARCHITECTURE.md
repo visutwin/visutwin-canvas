@@ -692,8 +692,8 @@ their own (the gloss map has no tiling).
 Example: `refraction-example.cpp` (port of upstream `materials/material-refraction`).
 
 ### Material System
-- `Material` base: glTF PBR metallic-roughness, `MaterialUniforms` struct (1056 bytes, emitted from `materialUniformFields.h`) matches GPU `MaterialData`
-- **Clipping planes** (`MeshInstance` / `RenderComponent` / `Camera` / `CameraComponent` `setClippingPlanes` + `setClipIntersection`, the `ClipPlanes` value type in `scene/clipPlanes.h`): up to eight world-space planes per set, a fragment behind ANY plane of a set discarded, or under intersection one behind ALL of them; the mesh instance's set and its camera's are tested one after the other. Both ride in the mesh instance's copy of its material block (`overriddenUniforms(material, cameraClip)`: `clipPlanes`, `cameraClipPlanes`, `clipParams`), so moving planes compiles nothing; the variant comes from two draw flags (`ClipPlaneSets`, `VT_FEATURE_CLIP_PLANES_MESH` / `_CAMERA`), so an unclipped variant has no discard. `forward/common-clip-planes.slang :: applyClipPlanes` is the first statement of `forwardFragment` (picking included) and of the shadow program's `applyShadowOpacity`; a clipped caster gets a fragment stage. The mesh planes clip every pass, shadows included; the camera's clip its forward, pick and depth-prepass draws (`DepthOnlyShaders::cameraClip`), never a shadow, a screen-space element or the sky. A draw needs a material of its own to be clipped (the planes live in its block). A render component hands its planes and mode to every mesh instance it has or gets, replacing planes set on them directly; a clipped mesh instance's entity is not batched (the batch group is torn down when clipping comes or goes). DEVIATION: upstream sets the camera planes as view uniforms; here they ride in the per-draw block, which the depth prepass also binds. `VISUTWIN_CLIP_PLANE` drives either set on any example; `clipping-planes` (upstream's turbofan cutaway) shows both modes, its section capped by red back faces drawn with the same planes.
+- `Material` base: glTF PBR metallic-roughness, `MaterialUniforms` struct (1072 bytes, emitted from `materialUniformFields.h`) matches GPU `MaterialData`
+- **Clipping planes** (`MeshInstance` / `RenderComponent` / `Camera` / `CameraComponent` `setClippingPlanes` + `setClipIntersection`, the `ClipPlanes` value type in `scene/clipPlanes.h`): up to eight world-space planes per set, a fragment behind ANY plane of a set discarded, or under intersection one behind ALL of them; the mesh instance's set and its camera's are tested one after the other. Both ride in the mesh instance's copy of its material block (`overriddenUniforms(material, cameraClip)`: `clipPlanes`, `cameraClipPlanes`, `clipParams`), so moving planes compiles nothing; the variant comes from two draw flags (`ClipPlaneSets`, `VT_FEATURE_CLIP_PLANES_MESH` / `_CAMERA`), so an unclipped variant has no discard. `forward/common-clip-planes.slang :: applyClipPlanes` is the first statement of `forwardFragment` (picking included) and of the shadow program's `applyShadowOpacity`; a clipped caster gets a fragment stage. The mesh planes clip every pass, shadows included; the camera's clip its forward, pick and depth-prepass draws (`DepthOnlyShaders::cameraClip`), never a shadow, a screen-space element or the sky. A draw needs a material of its own to be clipped (the planes live in its block). A render component hands its planes and mode to every mesh instance it has or gets, replacing planes set on them directly; a clipped mesh instance's entity is not batched (the batch group is torn down when clipping comes or goes). DEVIATION: upstream sets the camera planes as view uniforms; here they ride in the per-draw block, which the depth prepass also binds. `VISUTWIN_CLIP_PLANE` drives either set on any example; `clipping-planes` (upstream's turbofan cutaway) shows both modes, its section capped by red back faces drawn with the same planes. A visibility range's crossfade takes the same route (the third flag, `CLIP_LOD_FADE`, and `lodFadeParams`; see the visibility ranges note in the design directions).
 - Parameter overrides: `Material::setParameter` and `MeshInstance::setParameter` both go through
   `Material::applyParameterOverrides`, which reads the material's names (`material_diffuse`,
   `material_opacity`, `material_emissive`, `material_gloss`, `material_metalness`, ...; glTF
@@ -2334,9 +2334,9 @@ either tree (its fog shader called `linearToSrgb` without `import vtsrgb;`, fixe
 across backends at 37 pixels of 1 count. The suites: 120 unit tests on each backend, the 8 `gpu`
 tests on each, the Vulkan smoke test; the goldens exact but for the three 1x references
 already stale before phase 1 (Metal dynamic-batching 162 px and clustered-lighting 30 px, Vulkan
-clustered-lighting 26 px, which db309b5 reproduces to the pixel). Phase 3 (not started): a
-sampler per lane chosen by the material rather than the former combined rows, and the quad
-inputs through the table, which would free Vulkan's set 1 and Metal's slots 0-11.
+clustered-lighting 26 px, which db309b5 reproduces to the pixel). Phase 3 (below): a
+sampler per lane chosen by the material rather than the former combined rows (done), and the
+quad inputs through the table (decided against).
 
 
 **Phase 3 (2026-11-08).** Two parts, of very different size.
@@ -2348,8 +2348,9 @@ texture asks for another wrap or filter changes. The planar reflection map and a
 environment atlas, both clamped, are the visible cases; they used to wrap and filter
 anisotropically at their edges. The A/B numbers are in the engineering log.
 
-(b) Quad inputs through the table. NOT done: it needs a decision. Twenty-eight programs declare
-quad inputs:
+(b) Quad inputs through the table. DECIDED AGAINST (2026-11-08): the quad inputs stay on their
+rows (option 3 below), which closes the bindless direction. Twenty-eight programs declare quad
+inputs:
 - 49 plain 2D (linear), 12 depth (point), 11 texel (`Load`), 2 point;
 - 5 cube, 3 texture array;
 - 2 uint, 2 multisampled colour, 2 multisampled depth;
@@ -2369,11 +2370,14 @@ ways forward:
 2. Move everything and require custom quad shaders to read the table, or be Slang
    (`useSlangSource`): frees the slots, an API break.
 3. Leave the quad inputs on their rows: they are per-pass, not per-material, so they never
-   grew the way material maps did.
+   grew the way material maps did. CHOSEN.
 
-The WebGPU backend is the forcing function. Its default limits (16 sampled textures and 16
-samplers per stage) are what the per-material rows hit on MoltenVK; per-pass quad inputs stay
-under them as they are.
+Why 3: the WebGPU backend was the forcing function, and its default limits (16 sampled textures
+and 16 samplers per stage) are what the per-MATERIAL rows hit on MoltenVK. Per-pass quad inputs
+stay under them as they are: the largest quad program (compose) declares 8 of the 12. Option 1 costs the work and
+frees nothing, and option 2 spends the last descriptors of the set and breaks every custom
+native quad shader for slots no backend is short of. Reopen it only if a backend's per-stage
+limit falls below what one quad program reads.
 ### 3. An extract and render split with a task pool
 
 Bevy runs simulation and rendering one frame apart on two threads (pipelined rendering:
@@ -2414,8 +2418,26 @@ too.
 
 A settings file
 framework (reflect-derived in Bevy, a named-property table here, the same table item 4
-needs); visibility-range LOD with a dithered crossfade (the opacity dither feature already
-exists for the fade).
+needs).
+
+**Visibility ranges (landed 2026-11-08).** Bevy's `VisibilityRange` mechanism on this
+engine's seams (`MeshInstance::setVisibilityRange`, `scene/visibilityRange.h`): a range is
+four distances (fade in from, drawn whole from, fade out from, hidden from), measured from the
+camera to the centre of the instance's world bounds. Outside it the cull sweep drops the
+instance; inside a band the fade rides the clipping planes' route, a third draw flag
+(`CLIP_LOD_FADE`, `VT_FEATURE_LOD_FADE`) and a lane of the instance's copy of its material
+block (`lodFadeParams`, which grew `MaterialUniforms` and the per-draw slot to 1072 bytes), so
+the dither costs only the draws inside a band. The two levels of a band take complementary
+halves of one blue-noise pattern (f against -(1 - f)), which cover every pixel once. Shadows
+follow the camera the shadow is rendered for. Not done: a fade measured in the shader from
+per-instance data (Bevy's route, which would also fade hardware instances one by one), and
+TAA-jittered noise, which would let TAA turn the dither into a blend. Verified:
+- `tests/visibilityRangeTests.cpp`: no pixel doubled or missing over 2,001 distances across a
+  band at every one of the 256 noise values; the variants, the block, the cull, a reused cull
+  set and the shadow casters on a stub engine.
+- `visibility-range` (an original scene) at three dolly times: Metal and Vulkan agree to 1
+  count everywhere, dither patterns included. `VISUTWIN_CULL_CHECK=1` over 600 frames of the
+  dolly: no mismatch between reused and fresh cull sets.
 
 **Order-independent transparency (landed 2026-11-08).** Weighted blended (McGuire and Bavoil,
 JCGT 2013), not per-pixel linked lists: one accumulation pass and one composite, no storage

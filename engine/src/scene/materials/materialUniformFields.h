@@ -163,6 +163,11 @@
     /* x = the number of mesh planes, y = 1 when they clip by intersection, */ \
     /* z, w = the same for the camera's planes. */ \
     X(vec4, clipParams, {0, 0, 0, 0}) \
+    /* x = the visibility range's crossfade (VT_FEATURE_LOD_FADE only), written like the clip */ \
+    /* planes into the instance's copy: f in (0, 1) keeps the fraction f of the fragments as */ \
+    /* the instance fades OUT, -f keeps f as it fades IN, the complementary pattern, so two */ \
+    /* levels crossfading over one band cover each pixel once. yzw = pad. */ \
+    X(vec4, lodFadeParams, {0, 0, 0, 0}) \
     /* --- Iridescence maps, read only under VT_FEATURE_IRIDESCENCE_MAP / _THICKNESS_MAP --- */ \
     /* x = the UV set of the intensity map (r scales the intensity), y = of the thickness map */ \
     /* (g blends from iridescenceParams.z, the minimum, to .w, the maximum), zw = pad. */ \

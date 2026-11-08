@@ -93,6 +93,7 @@ namespace visutwin::canvas
         options.clipPlanesMesh = (clipPlanes & CLIP_PLANES_MESH) != 0;
         // The camera's planes do not clip screen-space elements.
         options.clipPlanesCamera = (clipPlanes & CLIP_PLANES_CAMERA) != 0 && !screenSpace;
+        options.lodFade = (clipPlanes & CLIP_LOD_FADE) != 0;
         options.skybox = material && material->isSkybox();
         options.skyDepth = options.skybox && material->depthState() && material->depthState()->depthWrite();
         options.alphaTest = material && material->alphaMode() == AlphaMode::MASK;
@@ -431,6 +432,7 @@ namespace visutwin::canvas
         set(ShaderFeature::ScreenSpace, options.screenSpace);
         set(ShaderFeature::ClipPlanesMesh, options.clipPlanesMesh);
         set(ShaderFeature::ClipPlanesCamera, options.clipPlanesCamera);
+        set(ShaderFeature::LodFade, options.lodFade);
         set(ShaderFeature::Msdf, options.msdf);
         set(ShaderFeature::NoTonemap, options.noTonemap);
         set(ShaderFeature::LightmapBake, options.lightmapBake);
@@ -603,7 +605,7 @@ namespace visutwin::canvas
         // caster that needs neither; Metal keeps the frontend there, which reads only its material's flags.
         const bool metal = _device->shaderLanguage() == ShaderLanguage::Msl;
         const bool needsOpacity = options.alphaTest || options.shadowDither || options.clipPlanesMesh ||
-            options.clipPlanesCamera;
+            options.clipPlanesCamera || options.lodFade;
         if (shadow) {
             definition.fshader = options.vsmShadows ? "shadowVsmFragment"
                 : (needsOpacity || metal) ? "shadowOpacityFragment" : "";
@@ -654,7 +656,7 @@ namespace visutwin::canvas
     {
         // The draw's flags take the low bits of a memo's state word, the frame
         // switches the rest.
-        constexpr unsigned kForwardDrawBitCount = 10;
+        constexpr unsigned kForwardDrawBitCount = 11;
     }
 
     uint64_t ProgramLibrary::forwardFrameBits() const
@@ -716,7 +718,8 @@ namespace visutwin::canvas
         add(screenSpace);
         add((clipPlanes & CLIP_PLANES_MESH) != 0);
         add((clipPlanes & CLIP_PLANES_CAMERA) != 0);
-        static_assert(kForwardDrawBitCount == 10, "one bit per draw flag above");
+        add((clipPlanes & CLIP_LOD_FADE) != 0);
+        static_assert(kForwardDrawBitCount == 11, "one bit per draw flag above");
         return bits | (forwardFrameBits() << kForwardDrawBitCount);
     }
 
@@ -973,6 +976,7 @@ namespace visutwin::canvas
         // camera (the depth prepass), never a shadow, which renders from the light.
         options.clipPlanesMesh = (clipPlanes & CLIP_PLANES_MESH) != 0;
         options.clipPlanesCamera = (clipPlanes & CLIP_PLANES_CAMERA) != 0;
+        options.lodFade = (clipPlanes & CLIP_LOD_FADE) != 0;
 
         const VariantKey key = makeVariantKey("shadow", options, material);
         const auto cached = _forwardShaderCache.find(key);

@@ -53,9 +53,9 @@ namespace visutwin::canvas
      * volumetric fog's block is 512 bytes. On Vulkan this is the dynamic
      * descriptor's range, and the allocation behind it is padded to match, so a
      * shader can never read past its own allocation. MaterialUniforms itself is
-     * 1056 bytes.
+     * 1072 bytes.
      */
-    inline constexpr size_t kPerDrawUniformCapacity = 1056;
+    inline constexpr size_t kPerDrawUniformCapacity = 1072;
 
     class Compute;
     class Texture;

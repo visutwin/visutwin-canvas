@@ -26,6 +26,17 @@ namespace visutwin::canvas
         ComponentRegistry* componentRegistry() const { return _componentRegistry; }
         void setComponentRegistry(ComponentRegistry* registry) { _componentRegistry = registry; }
 
+        /// Where the casters' visibility ranges (MeshInstance::setVisibilityRange) are measured
+        /// from in a shadow pass with no view camera of its own: the frame's shadow-fit
+        /// (presentation) camera, set once a frame by the renderer. Null: no camera this frame,
+        /// and the ranges are not applied.
+        const Vector3* lodViewer() const { return _hasLodViewer ? &_lodViewer : nullptr; }
+        void setLodViewer(const Vector3* viewer)
+        {
+            _hasLodViewer = viewer != nullptr;
+            _lodViewer = viewer ? *viewer : Vector3();
+        }
+
         /// Whether this light's shadow map should be re-rendered this frame. PURE —
         /// call it as often as you like. A SHADOWUPDATE_THISFRAME request is consumed
         /// by Renderer::consumeOneShotShadows once the frame graph is built.
@@ -42,5 +53,7 @@ namespace visutwin::canvas
 
     private:
         ComponentRegistry* _componentRegistry = nullptr;
+        Vector3 _lodViewer;
+        bool _hasLodViewer = false;
     };
 }

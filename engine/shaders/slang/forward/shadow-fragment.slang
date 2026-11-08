@@ -24,6 +24,9 @@ void applyShadowOpacity(ForwardVertexOut input)
 {
     // What the clipping planes clip casts no shadow and writes no prepass depth.
     applyClipPlanes(input.worldPos);
+    // A level crossfading with the next casts the complementary half of the shadow map's
+    // texels, so the two together cast one shadow.
+    applyLodFade(input.position.xy);
     // Neither the alpha test nor the dither is in this variant: the specialised function has
     // no discard at all, so the caster keeps early depth testing (a fragment stage that MAY
     // discard loses it on Apple GPUs whether or not the branch is taken).

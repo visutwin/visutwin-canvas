@@ -28,6 +28,10 @@ namespace visutwin::canvas
         CLIP_PLANES_NONE = 0,
         CLIP_PLANES_MESH = 1,     // the mesh instance's own planes (every pass, shadows included)
         CLIP_PLANES_CAMERA = 2,   // the camera's planes (the camera's passes, not shadows)
+        // Not planes: the dithered crossfade of a mesh instance inside a fade band of its
+        // visibility range (MeshInstance::setVisibilityRange), every pass. A discard like the
+        // planes', carried in the same copy of the material block, so it rides with them.
+        CLIP_LOD_FADE = 4,
     };
 
     class ClipPlanes

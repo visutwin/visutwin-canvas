@@ -141,6 +141,9 @@ namespace visutwin::canvas
         shaders.dynamicBatch = programLibrary->getShadowShader(nullptr, true);
         // The camera's clipping planes clip the depth the scene pass is paired with.
         shaders.cameraClip = &camera->clipping();
+        // Its levels of detail as the scene pass draws them.
+        const Vector3 cameraPosition = camera->node() ? camera->node()->position() : Vector3();
+        shaders.lodViewer = camera->node() ? &cameraPosition : nullptr;
         if (!shaders.plain) {
             static bool warned = false;
             if (!warned) {

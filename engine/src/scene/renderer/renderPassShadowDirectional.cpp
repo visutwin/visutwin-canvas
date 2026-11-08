@@ -29,9 +29,10 @@
 namespace visutwin::canvas
 {
     RenderPassShadowDirectional::RenderPassShadowDirectional(const std::shared_ptr<GraphicsDevice>& device,
-        Light* light, Camera* camera, const int face, ComponentRegistry* registry)
-        : RenderPass(device), _light(light), _camera(camera), _graphicsDevice(device), _face(face),
-          _registry(registry)
+        Light* light, Camera* camera, const int face, ComponentRegistry* registry,
+        const ShadowRenderer* shadowRenderer)
+        : RenderPass(device), _light(light), _camera(camera), _shadowRenderer(shadowRenderer),
+          _graphicsDevice(device), _face(face), _registry(registry)
     {
         _requiresCubemaps = false;
         _name = "RenderPassShadowDirectional";
@@ -85,6 +86,11 @@ namespace visutwin::canvas
         shaders.plain = shadowShader;
         shaders.dynamicBatch = shadowShaderDynBatch;
         shaders.vsm = vsm;
+        // The casters' levels of detail as the camera this shadow is fitted to sees them, or
+        // the frame's shadow-fit camera for a fit shared by every camera (shadow bounds).
+        GraphNode* viewNode = _camera ? _camera->node() : nullptr;
+        const Vector3 viewPosition = viewNode ? viewNode->position() : Vector3();
+        shaders.lodViewer = viewNode ? &viewPosition : (_shadowRenderer ? _shadowRenderer->lodViewer() : nullptr);
 
         _graphicsDevice->setShader(shadowShader);
 

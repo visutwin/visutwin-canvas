@@ -77,6 +77,7 @@ namespace visutwin::canvas
         if (!bindLocalShadowState(_graphicsDevice.get(), programLibrary.get(), _light, shaders, vsm)) {
             return;
         }
+        shaders.lodViewer = _shadowRenderer->lodViewer();
         // The whole map, stated: a splat caster sizes its footprints in the viewport's pixels.
         if (const auto& target = renderTarget()) {
             _graphicsDevice->setViewport(0.0f, 0.0f, static_cast<float>(target->width()),

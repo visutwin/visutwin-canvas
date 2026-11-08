@@ -42,6 +42,10 @@ namespace visutwin::canvas
         // The clipping planes of the camera the pass draws for, which clip its casters as
         // well as their own planes do; null for a shadow pass, which draws from a light.
         const ClipPlanes* cameraClip = nullptr;
+        // Where the casters' visibility ranges are measured from (MeshInstance::
+        // setVisibilityRange): the camera the pass draws for, or for a shadow the camera it
+        // is rendered for. Null applies no range.
+        const Vector3* lodViewer = nullptr;
     };
 
     /**

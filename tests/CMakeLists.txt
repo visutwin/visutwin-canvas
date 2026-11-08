@@ -238,6 +238,7 @@ visutwin_add_unit_test(visutwin-bindless-residency-tests bindless-residency bind
 visutwin_add_unit_test(visutwin-resources-outlive-device-tests resources-outlive-device resourcesOutliveDeviceTests.cpp)
 visutwin_add_unit_test(visutwin-sky-material-tests sky-material skyMaterialTests.cpp)
 visutwin_add_unit_test(visutwin-clip-planes-tests clip-planes clipPlanesTests.cpp)
+visutwin_add_unit_test(visutwin-visibility-range-tests visibility-range visibilityRangeTests.cpp)
 visutwin_add_unit_test(visutwin-directional-shadow-bounds-tests directional-shadow-bounds directionalShadowBoundsTests.cpp)
 visutwin_add_unit_test(visutwin-gsplat-sh-tests gsplat-sh gsplatShTests.cpp)
 visutwin_add_unit_test(visutwin-scene-map-handle-tests scene-map-handles sceneMapHandleTests.cpp)

@@ -414,6 +414,13 @@ namespace visutwin::canvas
         // The shadows with shadow bounds: one fit for every camera.
         cullBoundedShadowmaps();
         Camera* shadowFitCamera = selectShadowFitCamera(actions);
+        // A shadow pass that renders for no view camera of its own (a local light, a bounded
+        // directional one) picks its casters' levels of detail as this camera sees them.
+        if (ShadowRenderer* shadows = shadowRenderer()) {
+            GraphNode* fitNode = shadowFitCamera ? shadowFitCamera->node() : nullptr;
+            const Vector3 fitPosition = fitNode ? fitNode->position() : Vector3();
+            shadows->setLodViewer(fitNode ? &fitPosition : nullptr);
+        }
         const std::vector<Camera*> cameras = uniqueCameras(actions);
         for (Camera* cam : cameras) {
             const CameraComponent* cameraComponent = nullptr;

@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 195 example applications derived from ExampleApp: upstream ports + two original scenes (ambient-occlusion-davinci, order-independent-transparency)
+  examples/        # 196 example applications derived from ExampleApp: upstream ports + three original scenes (ambient-occlusion-davinci, order-independent-transparency, visibility-range)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -1062,7 +1062,7 @@ sampler. A quad pass may draw a vertex buffer of its own instead of the fullscre
 (`RenderPassShaderQuad::setGeometry`, a triangle list in the standard 56-byte layout, written
 per frame into a ring of `maxFramesInFlight` buffers). The block rides the per-draw MATERIAL slot (Metal buffer 3 / Vulkan
 set 0 binding 0) via `GraphicsDevice::setQuadUniformData`; `kPerDrawUniformCapacity`
-(1056; `MaterialUniforms` itself is 1056 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
+(1072; `MaterialUniforms` itself is 1072 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
 allocation behind it. A smaller block is copied into the front of a full-size
 allocation, so never shorten the allocation. Quad passes draw an oversized
 fullscreen TRIANGLE and, on Metal, bind `_postSampler` (linear, clamp, no anisotropy),
@@ -3878,6 +3878,25 @@ present, but the rule below never depends on reading it.
   (`ClipPlaneSets`, two bits of `forwardStateBits`), so a new path that resolves a forward or
   shadow variant for a mesh instance passes it or the draw is not clipped. Detail in
   ARCHITECTURE.md, material system.
+- **A visibility range (`MeshInstance::setVisibilityRange`, `scene/visibilityRange.h`) is a
+  level of detail, and its crossfade rides with the clipping planes.** The distance is from
+  the camera to the centre of the instance's WORLD BOUNDS. The cull sweep drops an instance
+  outside its range (a reused cull set keeps the answer, which holds because a camera that
+  moved has a new frustum; `setVisibilityRange` bumps the `CullVersion`). Inside a fade band
+  the draw takes `CLIP_LOD_FADE` (the third `ClipPlaneSets` bit, `VT_FEATURE_LOD_FADE`) and
+  its signed fade in `MaterialUniforms::lodFadeParams.x` of the instance's copy of its block
+  (`overriddenUniforms(material, cameraClip, lodFade)`): f keeps the fragments whose
+  blue-noise value is below f (fading out), -f those at or above 1 - f (fading in), so two
+  levels meeting at one band split every pixel exactly once (`applyLodFade`, read without the
+  opacity dither's gamma and without TAA jitter, so both levels test the same value). A draw
+  drawn whole takes no fade variant, so a range costs an instance outside its bands nothing.
+  Every depth-only pass applies it through `DepthOnlyShaders::lodViewer`: the prepass from
+  its camera, a directional shadow from the camera it is fitted to, a local or bounded
+  directional shadow from the frame's shadow-fit camera (`ShadowRenderer::lodViewer`, set in
+  `cullDirectionalShadowsAndInstances`), so the shadow is that of the level the camera sees.
+  A new path that draws a mesh instance owes the same cull and fade, or both levels draw
+  whole. `tests/visibilityRangeTests.cpp` holds the coverage, the variants, the block, the
+  cull and the shadow casters; `visibility-range` shows it.
 - **A REALTIME directional shadow is fitted and rendered PER CAMERA; a one-shot or
   static one has ONE fit.** Each light has one shadow atlas and one live palette, so
   `Renderer::cullShadowmaps` keeps every camera's palette and cascade distances in that
