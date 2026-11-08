@@ -1234,7 +1234,9 @@ Upstream's `ScreenComponent` and `ElementComponent` layout
 - The engine's programs are precompiled in the Slang bundle (a metallib, SPIR-V). Metal
   relies on the system's shader cache for the rest between runs; Vulkan keeps its own in
   `ShaderDiskCache`: run-time Slang and custom-GLSL SPIR-V and the device's pipeline cache
-  (`GraphicsDeviceOptions::persistentShaderCache` / `shaderCacheDirectory`).
+  (`GraphicsDeviceOptions::persistentShaderCache` / `shaderCacheDirectory`), one pipeline
+  cache file per application (`pipelineCacheName`), pruned by age and total size once a
+  process.
 
 ### Render pass types
 

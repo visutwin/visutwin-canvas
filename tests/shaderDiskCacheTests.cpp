@@ -10,6 +10,7 @@
 // byte for byte, so a stale file, a damaged one, or two keys with one hash are all
 // misses. A wrong hit here would run another shader's code with nothing to show why.
 
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -131,6 +132,100 @@ int main()
         rewrite(original);
         const auto restored = cache.load("spirv", key);
         check(restored && *restored == payload, "the undamaged file is still accepted");
+    }
+
+    std::cout << "\nstored size\n";
+    {
+        std::filesystem::remove_all(directory);
+        const ShaderDiskCache cache(directory);
+        check(!cache.storedSize("pipelines", key).has_value(), "nothing stored has no size");
+        cache.store("pipelines", key, payload);
+        const auto size = cache.storedSize("pipelines", key);
+        check(size && *size == 4 * sizeof(uint64_t) + key.size() + payload.size(),
+            "a stored entry's size is header, key and payload");
+    }
+
+    std::cout << "\npruning\n";
+    {
+        using namespace std::chrono_literals;
+        std::filesystem::remove_all(directory);
+        const ShaderDiskCache cache(directory);
+        const auto now = std::filesystem::file_time_type::clock::now();
+        const auto pathOf = [&](const std::string& kind, const std::string& entryKey) {
+            cache.store(kind, entryKey, payload);
+            // The file the store just wrote: the newest one of the kind.
+            std::filesystem::path newest;
+            auto newestTime = std::filesystem::file_time_type::min();
+            for (const auto& file : filesIn(directory)) {
+                if (file.filename().string().starts_with(kind + "-")) {
+                    const auto time = std::filesystem::last_write_time(file);
+                    if (newest.empty() || time >= newestTime) {
+                        newest = file;
+                        newestTime = time;
+                    }
+                }
+            }
+            return newest;
+        };
+        const auto fresh = pathOf("spirv", "fresh");
+        const auto old = pathOf("spirv", "old");
+        std::filesystem::last_write_time(old, now - 24h * 30);
+        const auto readOld = pathOf("slang-frag", "read but old");
+        std::filesystem::last_write_time(readOld, now - 24h * 30);
+        check(cache.load("slang-frag", "read but old").has_value(), "an old entry is read");
+        check(now - std::filesystem::last_write_time(readOld) < 1h, "and the hit moves its time to now");
+
+        // A writer that died mid-store, and one storing right now.
+        auto deadTemporary = fresh;
+        deadTemporary += ".0123456789abcdef.tmp";
+        auto liveTemporary = fresh;
+        liveTemporary += ".fedcba9876543210.tmp";
+        std::ofstream(deadTemporary) << "half";
+        std::ofstream(liveTemporary) << "half";
+        std::filesystem::last_write_time(deadTemporary, now - 3h);
+        // Files the cache did not name, however old, are not its to remove.
+        const auto foreign = directory / "notes.bin";
+        const auto foreignHex = directory / "spirv-0123.bin";
+        std::ofstream(foreign) << "keep";
+        std::ofstream(foreignHex) << "keep";
+        std::filesystem::last_write_time(foreign, now - 24h * 365);
+        std::filesystem::last_write_time(foreignHex, now - 24h * 365);
+
+        const auto result = cache.prune();
+        check(result.filesRemoved == 2, "prune removes two files (" + std::to_string(result.filesRemoved) + ")");
+        check(!std::filesystem::exists(old), "the entry not touched for a month");
+        check(!std::filesystem::exists(deadTemporary), "and the temporary file of a writer that died");
+        check(std::filesystem::exists(fresh) && std::filesystem::exists(readOld),
+            "while a fresh entry and one just read stay");
+        check(std::filesystem::exists(liveTemporary), "as does a temporary file being written now");
+        check(std::filesystem::exists(foreign) && std::filesystem::exists(foreignHex),
+            "and files the cache did not name");
+        check(cache.load("spirv", "fresh").has_value(), "a kept entry still loads");
+
+        // Over the size budget, the oldest entries go first.
+        ShaderDiskCache::PruneLimits tight;
+        std::filesystem::last_write_time(readOld, now - 2h);
+        std::filesystem::last_write_time(fresh, now - 1h);
+        const auto newest = pathOf("spirv", "newest");
+        const uint64_t keptSize = *cache.storedSize("spirv", "fresh") + *cache.storedSize("spirv", "newest");
+        tight.maxTotalBytes = keptSize;
+        const auto squeezed = cache.prune(tight);
+        check(squeezed.filesRemoved == 1 && !std::filesystem::exists(readOld),
+            "a budget of two entries removes the oldest of three");
+        check(std::filesystem::exists(fresh) && std::filesystem::exists(newest) &&
+            squeezed.bytesKept == keptSize, "and keeps the two newest");
+
+        check(ShaderDiskCache().prune().filesRemoved == 0, "a disabled cache prunes nothing");
+    }
+
+    std::cout << "\nthe executable's name\n";
+    {
+        const std::string name = ShaderDiskCache::executableName();
+        check(name.find("shaderDiskCache") != std::string::npos ||
+            name.find("shader-disk-cache") != std::string::npos ||
+            name.find("shader_disk_cache") != std::string::npos,
+            "names this test (" + name + ")");
+        check(name.find('/') == std::string::npos, "without its directory");
     }
 
     std::cout << "\ndisabled\n";

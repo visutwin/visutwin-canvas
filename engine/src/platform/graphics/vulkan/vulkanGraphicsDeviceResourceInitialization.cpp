@@ -11,11 +11,13 @@
 #define VK_ENABLE_BETA_EXTENSIONS
 #include "vulkanGraphicsDevice.h"
 
+#include <atomic>
 #include <chrono>
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <vector>
 #include <VkBootstrap.h>
@@ -456,13 +458,33 @@ namespace visutwin::canvas
             options.shaderCacheDirectory, options.persistentShaderCache));
         if (_shaderDiskCache.enabled()) {
             setVulkanShaderDiskCache(&_shaderDiskCache);
+            // Once a process: entries from old drivers, keys and shader versions are never
+            // asked for again, and a writer killed mid-store leaves its temporary file.
+            static std::atomic<bool> pruned{false};
+            if (!pruned.exchange(true)) {
+                const auto started = std::chrono::steady_clock::now();
+                const auto result = _shaderDiskCache.prune();
+                if (result.filesRemoved > 0) {
+                    spdlog::info("Vulkan shader cache: pruned {} files ({:.1f} MB) in {:.1f} ms, {:.1f} MB kept",
+                        result.filesRemoved, static_cast<double>(result.bytesRemoved) / 1e6,
+                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count(),
+                        static_cast<double>(result.bytesKept) / 1e6);
+                }
+            }
         }
 
-        // The pipeline cache belongs to one device and one driver build; the driver
-        // checks its own header as well, and starts empty if it does not like the data.
+        // The pipeline cache belongs to one device, one driver build and one application;
+        // the driver checks its own header as well, and starts empty if it does not like
+        // the data. Per application, because a VkPipelineCache only ever grows: shared by
+        // every program run against the directory it held all of their pipelines, and
+        // MoltenVK compiles every library in it when it is created, so each start paid for
+        // every other program's pipelines (85 MB and seconds of startup across the examples).
         VkPhysicalDeviceProperties properties{};
         vkGetPhysicalDeviceProperties(_physicalDevice, &properties);
+        const std::string application = options.pipelineCacheName.empty()
+            ? ShaderDiskCache::executableName() : options.pipelineCacheName;
         _pipelineCacheKey = "vulkan pipeline cache\n";
+        _pipelineCacheKey += "application " + application + "\n";
         _pipelineCacheKey += "vendor " + std::to_string(properties.vendorID) +
             " device " + std::to_string(properties.deviceID) +
             " driver " + std::to_string(properties.driverVersion) + "\nuuid";
@@ -470,11 +492,23 @@ namespace visutwin::canvas
             _pipelineCacheKey += " " + std::to_string(byte);
         }
 
-        const auto stored = _shaderDiskCache.load("pipelines", _pipelineCacheKey);
+        // A cache this large holds pipelines that runs with other shaders or variants left
+        // behind (it never sheds one); loading it costs more than rebuilding what this run
+        // uses, so start empty and let the next save write only this run's pipelines.
+        constexpr uint64_t kMaxPipelineCacheLoadBytes = 32ull << 20;
+        std::optional<std::vector<uint8_t>> stored;
+        if (const auto size = _shaderDiskCache.storedSize("pipelines", _pipelineCacheKey);
+            size && *size > kMaxPipelineCacheLoadBytes) {
+            spdlog::info("Vulkan shader cache: pipeline cache of {:.1f} MB is over {} MB; starting it afresh",
+                static_cast<double>(*size) / 1e6, kMaxPipelineCacheLoadBytes >> 20);
+        } else {
+            stored = _shaderDiskCache.load("pipelines", _pipelineCacheKey);
+        }
         VkPipelineCacheCreateInfo info{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
         if (stored) {
             info.initialDataSize = stored->size();
             info.pInitialData = stored->data();
+            _pipelineCacheOnDiskSize = stored->size();
         }
         if (vkCreatePipelineCache(_device, &info, nullptr, &_pipelineCache) != VK_SUCCESS) {
             // Data the driver refuses outright: try once more with none.
@@ -507,7 +541,15 @@ namespace visutwin::canvas
             return;
         }
         data.resize(size);
+        // Every pipeline creation counts as new, a cache hit included, so a run that built
+        // nothing new still gets here. A pipeline cache only grows, so an unchanged size
+        // means no new entry: leave the file alone. (Not the bytes: MoltenVK 1.4.2 writes
+        // the same entries in a different order on every save.)
+        if (data.size() == _pipelineCacheOnDiskSize) {
+            return;
+        }
         if (_shaderDiskCache.store("pipelines", _pipelineCacheKey, data)) {
+            _pipelineCacheOnDiskSize = data.size();
             spdlog::debug("Vulkan shader cache: wrote {} bytes of pipeline cache in {:.1f} ms", data.size(),
                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
         }

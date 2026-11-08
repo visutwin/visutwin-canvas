@@ -47,6 +47,10 @@ namespace visutwin::canvas
         /// which also lists the environment overrides.
         bool persistentShaderCache{true};
         std::string shaderCacheDirectory;
+        /// The name Vulkan's pipeline cache is kept under: one cache file per name, so
+        /// applications sharing the cache directory do not load each other's pipelines.
+        /// Empty means the executable's file name.
+        std::string pipelineCacheName;
 
         /// Multisample the back buffer: every pass that renders to it draws into a
         /// multisampled colour and depth-stencil pair, resolved into the drawable at the

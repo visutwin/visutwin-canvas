@@ -3276,8 +3276,19 @@ present, but the rule below never depends on reading it.
   every run reconverts each pipeline's SPIR-V (on MoltenVK most of a pipeline's
   creation) and reruns shaderc: a warm first frame of 300 ms instead of 70. A compile
   setting changed in `vulkanCompileGlsl` must change the tag at the top of its cache
-  key, or old entries are served. `vulkanSmoke` points the cache at a directory of its
-  own; `tests/shaderDiskCacheTests.cpp` holds the format and every miss.
+  key, or old entries are served. The PIPELINE cache is one file per APPLICATION
+  (`GraphicsDeviceOptions::pipelineCacheName`, the executable's name by default): a
+  `VkPipelineCache` never sheds an entry, and MoltenVK compiles every library in one when it
+  is created, so a cache shared by every program grew to 85 MB and each example's start
+  paid for all of them (176 ms warm against 9 ms for its own 1 MB, and long enough cold to
+  time captures out). A cache over 32 MB is not loaded (the next save writes only that
+  run's pipelines), and a save whose size has not moved is skipped (MoltenVK writes the
+  same entries in a new ORDER each time, so compare sizes, not bytes). Once a process,
+  `ShaderDiskCache::prune` removes temporaries older than an hour (a writer killed
+  mid-store), entries not modified for 14 days (a hit refreshes the time once a day, the
+  access time being unreliable) and the oldest past 256 MB, touching only files named as
+  the cache names them. `vulkanSmoke` points the cache at a directory of its own;
+  `tests/shaderDiskCacheTests.cpp` holds the format, every miss and the pruning.
 - **A camera frame's depth prepass RENDERS only where something reads the depth before
   the scene pass, or under MSAA** (`RenderPassCameraFrame::prepassRenders`).
   `prepassEnabled` means "there is a depth consumer" (TAA, SSAO, DOF, fog, a requested

@@ -5,6 +5,7 @@
 //
 #include "shaderDiskCache.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -12,6 +13,10 @@
 #include <cstring>
 #include <fstream>
 #include <system_error>
+
+#if defined(_WIN32)
+#include <stdlib.h>
+#endif
 
 #include "spdlog/spdlog.h"
 #include "core/hash.h"
@@ -40,6 +45,53 @@ namespace visutwin::canvas
         {
             const char* value = std::getenv(name);
             return (value && *value) ? value : nullptr;
+        }
+
+        bool isHex16(const std::string_view text)
+        {
+            if (text.size() != 16) {
+                return false;
+            }
+            for (const char c : text) {
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // "<kind>-<16 hex>.bin", kind lower-case letters, digits and dashes.
+        bool isEntryName(const std::string_view name)
+        {
+            constexpr std::string_view suffix = ".bin";
+            if (name.size() < 1 + 1 + 16 + suffix.size() || !name.ends_with(suffix)) {
+                return false;
+            }
+            const std::string_view stem = name.substr(0, name.size() - suffix.size());
+            const size_t dash = stem.size() - 17;
+            if (stem[dash] != '-' || !isHex16(stem.substr(dash + 1))) {
+                return false;
+            }
+            for (const char c : stem.substr(0, dash)) {
+                if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-')) {
+                    return false;
+                }
+            }
+            return dash > 0;
+        }
+
+        // "<entry name>.<16 hex>.tmp", what store() writes before its rename.
+        bool isTemporaryName(const std::string_view name)
+        {
+            constexpr std::string_view suffix = ".tmp";
+            if (name.size() < 1 + 16 + suffix.size() || !name.ends_with(suffix)) {
+                return false;
+            }
+            const std::string_view stem = name.substr(0, name.size() - suffix.size());
+            if (stem.size() < 17 || stem[stem.size() - 17] != '.' || !isHex16(stem.substr(stem.size() - 16))) {
+                return false;
+            }
+            return isEntryName(stem.substr(0, stem.size() - 17));
         }
     }
 
@@ -120,7 +172,127 @@ namespace visutwin::canvas
         if (!file) {
             return std::nullopt;
         }
+        file.close();
+        // A hit keeps the entry alive for prune(), which goes by modification time (the
+        // access time is not reliably kept). Once a day is enough, and costs one stat.
+        std::error_code error;
+        const auto path = pathFor(kind, key);
+        const auto modified = std::filesystem::last_write_time(path, error);
+        const auto now = std::filesystem::file_time_type::clock::now();
+        if (!error && now - modified > std::chrono::hours(24)) {
+            std::filesystem::last_write_time(path, now, error);
+        }
         return payload;
+    }
+
+    std::optional<uint64_t> ShaderDiskCache::storedSize(const std::string_view kind, const std::string_view key) const
+    {
+        if (!enabled()) {
+            return std::nullopt;
+        }
+        std::error_code error;
+        const auto size = std::filesystem::file_size(pathFor(kind, key), error);
+        if (error) {
+            return std::nullopt;
+        }
+        return static_cast<uint64_t>(size);
+    }
+
+    ShaderDiskCache::PruneResult ShaderDiskCache::prune(const PruneLimits& limits) const
+    {
+        PruneResult result;
+        if (!enabled()) {
+            return result;
+        }
+        struct Entry
+        {
+            std::filesystem::path path;
+            std::filesystem::file_time_type modified;
+            uint64_t size;
+        };
+        std::vector<Entry> entries;
+        const auto now = std::filesystem::file_time_type::clock::now();
+        std::error_code error;
+        std::filesystem::directory_iterator it(_directory, error);
+        if (error) {
+            return result;
+        }
+        const auto remove = [&](const std::filesystem::path& path, const uint64_t size) {
+            std::error_code removeError;
+            if (std::filesystem::remove(path, removeError)) {
+                ++result.filesRemoved;
+                result.bytesRemoved += size;
+                return true;
+            }
+            return false;
+        };
+        for (const auto end = std::filesystem::directory_iterator(); it != end; it.increment(error)) {
+            if (error) {
+                break;
+            }
+            std::error_code entryError;
+            if (!it->is_regular_file(entryError) || entryError) {
+                continue;
+            }
+            const std::string name = it->path().filename().string();
+            const bool temporary = isTemporaryName(name);
+            if (!temporary && !isEntryName(name)) {
+                continue;
+            }
+            const auto size = static_cast<uint64_t>(it->file_size(entryError));
+            const auto modified = std::filesystem::last_write_time(it->path(), entryError);
+            if (entryError) {
+                continue;
+            }
+            const auto age = now - modified;
+            if (temporary ? age > limits.temporaryAge : age > limits.maxAge) {
+                if (remove(it->path(), size)) {
+                    continue;
+                }
+            }
+            if (!temporary) {
+                entries.push_back({it->path(), modified, size});
+            }
+        }
+
+        uint64_t total = 0;
+        for (const Entry& entry : entries) {
+            total += entry.size;
+        }
+        if (total > limits.maxTotalBytes) {
+            std::sort(entries.begin(), entries.end(),
+                [](const Entry& a, const Entry& b) { return a.modified < b.modified; });
+            for (const Entry& entry : entries) {
+                if (total <= limits.maxTotalBytes) {
+                    break;
+                }
+                if (remove(entry.path, entry.size)) {
+                    total -= entry.size;
+                }
+            }
+        }
+        result.bytesKept = total;
+        return result;
+    }
+
+    std::string ShaderDiskCache::executableName()
+    {
+#if defined(__APPLE__)
+        if (const char* name = getprogname()) {
+            return name;
+        }
+        return {};
+#elif defined(_WIN32)
+        char* path = nullptr;
+        if (_get_pgmptr(&path) == 0 && path) {
+            return std::filesystem::path(path).stem().string();
+        }
+        return {};
+#else
+        std::error_code error;
+        const auto path = std::filesystem::read_symlink("/proc/self/exe", error);
+        return error ? std::string{} : path.filename().string();
+#endif
     }
 
     bool ShaderDiskCache::store(const std::string_view kind, const std::string_view key,

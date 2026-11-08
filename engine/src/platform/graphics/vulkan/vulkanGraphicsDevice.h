@@ -845,6 +845,9 @@ namespace visutwin::canvas
         ShaderDiskCache _shaderDiskCache;
         VkPipelineCache _pipelineCache = VK_NULL_HANDLE;
         std::string _pipelineCacheKey;
+        // The size of the payload the cache file holds, so a run that only hit cached
+        // pipelines does not write the same cache back (see savePipelineCache).
+        uint64_t _pipelineCacheOnDiskSize = 0;
         uint64_t _pipelinesCreated = 0;
         uint64_t _pipelinesSaved = 0;
         int _framesSincePipelineCreated = 0;
