@@ -40,7 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  examples/        # 196 example applications derived from ExampleApp: upstream ports + three original scenes (ambient-occlusion-davinci, order-independent-transparency, visibility-range)
+  examples/        # 197 example applications derived from ExampleApp: upstream ports + three original scenes (ambient-occlusion-davinci, order-independent-transparency, visibility-range)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -1426,7 +1426,12 @@ present, but the rule below never depends on reading it.
   the one its mesh mask selects (`clusterParams2.y`: dynamic if the mesh has it, otherwise
   lightmapped). Clustered lighting is ON by default, as upstream,
   so a scene that needs the non-clustered path (PCSS local shadows) has to say
-  `setClusteredLightingEnabled(false)`. Clustered COOKIES come from a cookie atlas laid
+  `setClusteredLightingEnabled(false)`. Which area-light SHAPES clustered lighting supports is
+  `LightingParams::areaLightRectEnabled` / `DiskEnabled` / `SphereEnabled` (all on): a light of a
+  disabled shape is packed as PUNCTUAL (`buildClusterLightInput`, from `areaLightShapes()`), and the
+  forward variants leave that shape's code out of the cluster loop (`VT_FEATURE_CLUSTER_AREA_*`,
+  frame switches), so the packing is what keeps a disabled shape from reaching code that is not
+  there. Clustered COOKIES come from a cookie atlas laid
   out like the shadow atlas (same slot rects, `RenderPassCookieRenderer` copies each
   cookie in when its light gets a slot AND whenever the cookie's content changed since
   the last copy: `Texture::uploadVersion` against `Light::cookieRenderVersion`, so a
@@ -2297,7 +2302,8 @@ present, but the rule below never depends on reading it.
   encoded bytes and marks it `as_is` (KTX2 payloads are recognised by their magic);
   `prepareFromModel` decodes or transcodes every image in a `parallelFor`, straight to
   RGBA8, top row first (`StbVerticalFlipScope(false)`, per thread): a WebP payload (RIFF /
-  WEBP magic, `EXT_texture_webp`) through libwebp, every other format through stb, which
+  WEBP magic, `EXT_texture_webp`) through libwebp (`parsers/texture/webpDecoder.h`, the one
+  decoder texture assets and the async texture loader share), every other format through stb, which
   cannot read WebP (the extension was accepted as required while every such image came out a
   magenta placeholder, until `car-showcase`'s car and showroom, all WebP, were ported); an AVIF
   still falls to the placeholder. Decoding inside the
@@ -2563,8 +2569,11 @@ present, but the rule below never depends on reading it.
   order beside its elements (`ScreenComponent::processDrawOrderSync`).
   A particle's colour is LINEAR and owes the target upstream's output stage (particle_end):
   the colour map AND the colour graph are decoded from gamma space (the graph's rgb on the
-  CPU when its LUT is built, clamped to [0, 1]; alpha is never decoded), multiplied, then
-  tone-mapped with the scene's exposure and gamma-encoded, or left linear on a camera
+  CPU when its LUT is built, clamped to [0, 1]; alpha is never decoded), multiplied, fogged
+  with the camera's fog at the view depth (`ParticleEmitter::setFog`, filled per draw like the
+  output stage; an ADDITIVE emitter fades to black rather than to the fog colour, and a
+  screen-space one and dynamic-sky haze take none), then tone-mapped with the scene's exposure
+  and gamma-encoded, or left linear on a camera
   frame's HDR scene (`ParticleEmitter::setOutput`, filled per draw by the renderer like the
   splats' tail). A ramp left undecoded draws every mid-tone of a colour graph BRIGHTER than
   upstream's (a 0.5 grey at about 0.73). The kernel's randomness is an INTEGER hash (PCG of the particle

@@ -569,6 +569,19 @@ namespace visutwin::canvas
         _renderParams.outputParams[2] = linearTarget ? 1.0f : 0.0f;
     }
 
+    void ParticleEmitter::setFog(const Color& linearColor, const int type, const float start, const float end,
+        const float density)
+    {
+        _renderParams.fogColor[0] = linearColor.r;
+        _renderParams.fogColor[1] = linearColor.g;
+        _renderParams.fogColor[2] = linearColor.b;
+        _renderParams.fogColor[3] = _options.blendType == ParticleBlendType::BLEND_ADDITIVE ? 0.0f : 1.0f;
+        _renderParams.fogParams[0] = start;
+        _renderParams.fogParams[1] = end;
+        _renderParams.fogParams[2] = density;
+        _renderParams.fogParams[3] = static_cast<float>(std::max(type, 0));
+    }
+
     std::unique_ptr<MeshInstance> ParticleEmitter::createMeshInstance(GraphNode* node)
     {
         // A mesh emitter draws its mesh once per particle; its vertices are

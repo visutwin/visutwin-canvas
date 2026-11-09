@@ -214,6 +214,9 @@ visutwin_add_unit_test(visutwin-msdf-text-tests msdf-text msdfTextTests.cpp)
 visutwin_add_unit_test(visutwin-markup-tests markup markupTests.cpp)
 visutwin_add_unit_test(visutwin-script-lifetime-tests script-lifetime scriptLifetimeTests.cpp)
 visutwin_add_unit_test(visutwin-annotation-tests annotation annotationTests.cpp)
+# CameraControls' mouse button actions and ground pan, through the engine's real Mouse on a
+# stub device (tests/cameraControlsTests.cpp).
+visutwin_add_unit_test(visutwin-camera-controls-tests camera-controls cameraControlsTests.cpp)
 visutwin_add_unit_test(visutwin-script-phase-tests script-phases scriptPhaseTests.cpp)
 visutwin_add_unit_test(visutwin-ui-visual-sharing-tests ui-visual-sharing uiVisualSharingTests.cpp)
 visutwin_add_unit_test(visutwin-render2d-tests render2d render2dTests.cpp)
@@ -239,6 +242,7 @@ visutwin_add_unit_test(visutwin-resources-outlive-device-tests resources-outlive
 visutwin_add_unit_test(visutwin-sky-material-tests sky-material skyMaterialTests.cpp)
 visutwin_add_unit_test(visutwin-clip-planes-tests clip-planes clipPlanesTests.cpp)
 visutwin_add_unit_test(visutwin-visibility-range-tests visibility-range visibilityRangeTests.cpp)
+visutwin_add_unit_test(visutwin-webp-decoder-tests webp-decoder webpDecoderTests.cpp DEFINITIONS VISUTWIN_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets")
 visutwin_add_unit_test(visutwin-directional-shadow-bounds-tests directional-shadow-bounds directionalShadowBoundsTests.cpp)
 visutwin_add_unit_test(visutwin-gsplat-sh-tests gsplat-sh gsplatShTests.cpp)
 visutwin_add_unit_test(visutwin-scene-map-handle-tests scene-map-handles sceneMapHandleTests.cpp)

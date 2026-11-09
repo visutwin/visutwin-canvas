@@ -235,6 +235,10 @@ namespace visutwin::canvas
         /// and tone mapping, and whether the target is a camera frame's linear HDR scene
         /// (tone mapping and gamma left to compose). Called by the renderer per draw.
         void setOutput(float exposure, int toneMapping, bool linearTarget);
+        /// The camera's fog for this draw: `linearColor` linear, `type` the FogType (0 none),
+        /// start / end for linear fog, density for the exponential ones. An additive emitter
+        /// fades to black instead of the fog colour.
+        void setFog(const Color& linearColor, int type, float start, float end, float density);
 
         [[nodiscard]] std::unique_ptr<MeshInstance> createMeshInstance(GraphNode* node);
 

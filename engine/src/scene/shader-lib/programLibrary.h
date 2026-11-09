@@ -164,6 +164,9 @@ namespace visutwin::canvas
         // Set when any area rect light is active in the scene.
         // When true, forward shaders compile with VT_FEATURE_AREA_LIGHTS.
         void setAreaLightsEnabled(bool value) { _areaLightsEnabled = value; }
+        /// The area light shapes the cluster loop shades as area lights (LightingParams::
+        /// areaLightShapes; bit 1 rect, 2 disk, 3 sphere); the code of the others is left out.
+        void setClusterAreaLightShapes(uint32_t mask) { _clusterAreaLightShapes = mask; }
 
         // Set when SSAO is in per-material lighting mode (SSAOTYPE_LIGHTING).
         // When true, forward shaders compile with VT_FEATURE_SSAO to sample
@@ -319,6 +322,7 @@ namespace visutwin::canvas
             bool dynamicBatch = false;      // Dynamic batching — per-vertex bone index + matrix palette
             bool pointSize = false;         // Point primitive rendering — [[point_size]] in vertex output
             bool areaLights = false;        // Area rectangular lights — MRP evaluation in main loop
+            uint32_t clusterAreaShapes = 0; // the shapes the cluster loop shades as area lights
             bool unlit = false;             // KHR_materials_unlit, StandardMaterial::unlit — skip PBR lighting
             bool noLights = false;          // StandardMaterial::useLighting false: lit pipeline, no lights
             bool vertexColorGamma = false;  // vertex colours are gamma encoded: decode in the vertex stage
@@ -464,6 +468,7 @@ namespace visutwin::canvas
         uint64_t _cachedChunksHash = 0;
         bool _clusteredLightingEnabled = false;
         bool _areaLightsEnabled = false;
+        uint32_t _clusterAreaLightShapes = 0xEu;
         bool _ssaoEnabled = false;
         bool _atmosphereEnabled = false;
         bool _lightProbesEnabled = false;

@@ -8,8 +8,10 @@
 #include <cctype>
 
 #include <algorithm>
+#include <cstring>
 
 #include <fstream>
+
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "framework/handlers/resourceLoader.h"
@@ -18,6 +20,7 @@
 #include "framework/parsers/objParser.h"
 #include "framework/parsers/stlParser.h"
 #include "framework/parsers/texture/ddsParser.h"
+#include "framework/parsers/texture/webpDecoder.h"
 #include "framework/parsers/texture/ktx2Transcoder.h"
 // TexHint, for tagging loaded textures into the asset VRAM bucket. Reachable
 // transitively through the parser headers, but named directly here.
@@ -365,14 +368,24 @@ namespace visutwin::canvas
                     spdlog::info("Loaded HDR texture '{}': {}x{} channels={}", _name, width, height, channels);
                     _resources.emplace_back(std::move(texture));
                 } else {
-                    // LDR path: load as 8-bit RGBA
-                    stbi_uc* pixels = stbi_load(_file.c_str(), &width, &height, &channels, STBI_rgb_alpha);
-                    if (!pixels || width <= 0 || height <= 0) {
-                        spdlog::error("Failed to decode texture asset '{}' from '{}'", _name, _file);
-                        if (pixels) {
-                            stbi_image_free(pixels);
-                        }
+                    // LDR path: load as 8-bit RGBA, a WebP image through libwebp, every other
+                    // format through stb.
+                    std::vector<uint8_t> webpPixels;
+                    const WebPFile webp = decodeWebPFile(_file, webpPixels, width, height);
+                    if (webp == WebPFile::Failed) {
+                        spdlog::error("Failed to decode WebP texture asset '{}' from '{}'", _name, _file);
                         return std::nullopt;
+                    }
+                    stbi_uc* pixels = nullptr;
+                    if (webp == WebPFile::NotWebP) {
+                        pixels = stbi_load(_file.c_str(), &width, &height, &channels, STBI_rgb_alpha);
+                        if (!pixels || width <= 0 || height <= 0) {
+                            spdlog::error("Failed to decode texture asset '{}' from '{}'", _name, _file);
+                            if (pixels) {
+                                stbi_image_free(pixels);
+                            }
+                            return std::nullopt;
+                        }
                     }
 
                     TextureOptions options;
@@ -387,10 +400,13 @@ namespace visutwin::canvas
                     auto texture = std::make_unique<Texture>(graphicsDevice.get(), options);
                     texture->setEncoding(textureEncodingFor(_data.type, false));
                     const auto dataSize = static_cast<size_t>(width) * static_cast<size_t>(height) * 4u;
-                    texture->setLevelData(0, reinterpret_cast<const uint8_t*>(pixels), dataSize);
+                    texture->setLevelData(0, pixels ? reinterpret_cast<const uint8_t*>(pixels) : webpPixels.data(),
+                        dataSize);
                     texture->upload();
 
-                    stbi_image_free(pixels);
+                    if (pixels) {
+                        stbi_image_free(pixels);
+                    }
                     _resources.emplace_back(std::move(texture));
                 }
             } else if (_type == AssetType::CUBEMAP) {

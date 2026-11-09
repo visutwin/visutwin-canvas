@@ -12,9 +12,12 @@
 #include <spdlog/spdlog.h>
 
 #include "core/math/quaternion.h"
+#include "extras/input/sources/sourceEvents.h"
 #include "framework/components/camera/cameraComponent.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
+#include "platform/input/inputConstants.h"
+#include "platform/input/mouse.h"
 
 namespace visutwin::canvas
 {
@@ -43,6 +46,17 @@ namespace visutwin::canvas
         {
             delta.append({v.getX(), v.getY(), v.getZ()});
         }
+
+        /// Left, middle and right as 0, 1 and 2, the order of the actions; -1 for any other.
+        int mouseButtonIndex(const MouseButton button)
+        {
+            switch (button) {
+            case MouseButton::Left: return 0;
+            case MouseButton::Middle: return 1;
+            case MouseButton::Right: return 2;
+            default: return -1;
+            }
+        }
     }
 
     CameraControls::CameraControls()
@@ -64,15 +78,51 @@ namespace visutwin::canvas
         });
 
         // Inputs gathered while disabled are discarded.
-        on("state", [this](bool) { discardInputs(); });
+        on("state", [this](bool) {
+            _activeButton = -1;
+            _pressedButton = -1;
+            discardInputs();
+        });
     }
 
     CameraControls::~CameraControls()
     {
+        releasePointerHandles();
         _desktopInput.destroy();
         _orbitMobileInput.destroy();
         _flyMobileInput.destroy();
         _gamepadInput.destroy();
+    }
+
+    void CameraControls::releasePointerHandles()
+    {
+        releaseHandles(_pointerHandles);
+    }
+
+    void CameraControls::onMouseDown(const MouseEvent& event)
+    {
+        _pointer = Vector2(event.x, event.y);
+        const int button = mouseButtonIndex(event.button);
+        // A press the desktop source ignores (synthesized from a touch, or while the input is
+        // blocked) presses no button here either.
+        if (event.fromTouch || _inputBlocked || button < 0) {
+            return;
+        }
+
+        // The movement since the last update belongs to the drag before this press. An update
+        // applies one action, so the movement is dropped when that drag had another action,
+        // rather than applied by the action of this button.
+        const int owner = _pressedButton >= 0 ? _pressedButton : _activeButton;
+        if (owner >= 0 && _buttonActions[owner] != _buttonActions[button]) {
+            _desktopInput.deltas.at("mouse").read();
+        }
+        _pressedButton = button;
+    }
+
+    void CameraControls::setGroundPan(const bool enable)
+    {
+        _groundPan = enable;
+        _orbitController.horizontalPan = enable;
     }
 
     void CameraControls::discardInputs()
@@ -331,6 +381,58 @@ namespace visutwin::canvas
         return Vector3(nx * halfX, ny * halfY, 0.0f);
     }
 
+    Vector3 CameraControls::screenToGroundPan(const float x, const float y, const float dx, const float dy,
+                                              const float height, const float yaw) const
+    {
+        const Camera* camera = _camera ? _camera->camera() : nullptr;
+        if (!camera || (dx == 0.0f && dy == 0.0f)) {
+            return Vector3(0.0f);
+        }
+
+        // The point of the plane under a canvas position: the ray from the near to the far clip
+        // distance, or none when the plane is not in view there.
+        const auto toPlane = [&](const float sx, const float sy, Vector3& out) {
+            const Vector3 nearPoint = _camera->screenToWorld(sx, sy, camera->nearClip());
+            const Vector3 farPoint = _camera->screenToWorld(sx, sy, camera->farClip());
+            const float t = (height - nearPoint.getY()) / (farPoint.getY() - nearPoint.getY());
+            if (!(t >= 0.0f && t <= 1.0f)) {
+                return false;
+            }
+            out = Vector3::lerp(nearPoint, farPoint, t);
+            return true;
+        };
+        Vector3 before;
+        Vector3 after;
+        if (!toPlane(x - dx, y - dy, before) || !toPlane(x, y, after)) {
+            return Vector3(0.0f);
+        }
+
+        // The view moves against the cursor, measured along the right and forward directions
+        // turned by the yaw alone: the directions the orbit controller moves the focus point
+        // along. The directions of the camera itself would flip once it looks past straight down.
+        const Vector3 shift = before - after;
+        const Quaternion yawRotation = Quaternion::fromEulerAngles(0.0f, yaw, 0.0f);
+        const Vector3 right = yawRotation * Vector3(1.0f, 0.0f, 0.0f);
+        const Vector3 forward = yawRotation * Vector3(0.0f, 0.0f, -1.0f);
+        return Vector3(shift.dot(right), shift.dot(forward), 0.0f);
+    }
+
+    void CameraControls::appendMouseMove(const MouseAction action, const float dx, const float dy, const float orbit)
+    {
+        // A button ignored by the camera leaves its mouse movement to the application. Panning
+        // follows the pan action, or shift with any other.
+        const float follow = action != MouseAction::NONE ? 1.0f : 0.0f;
+        const float pan = (action == MouseAction::PAN || (_state.shift != 0.0f && follow != 0.0f)) ? 1.0f : 0.0f;
+
+        const Vector3 panMove = _groundPan
+            ? screenToGroundPan(_pointer.x, _pointer.y, dx, dy, _pose.getFocus().getY(), _pose.angles.getY())
+            : screenToWorld(dx, dy, _pose.distance);
+        appendVector(_frame.delta("move"), panMove * (orbit * pan * (_enablePan ? 1.0f : 0.0f)));
+
+        const float rotate = follow * (1.0f - orbit * pan) * _rotateSpeed;
+        appendVector(_frame.delta("rotate"), Vector3(dx * rotate, dy * rotate, 0.0f));
+    }
+
     void CameraControls::update(float dt)
     {
         if (!ensureSetup()) {
@@ -338,6 +440,15 @@ namespace visutwin::canvas
         }
         if (!_sourcesAttached) {
             if (Engine* engine = entity()->engine()) {
+                // The cursor position is tracked for the ground pan, which holds the ground
+                // under it, and the pressed button is taken from the press itself. Subscribed
+                // before the desktop source, so a press is seen here first.
+                if (Mouse* mouse = engine->mouse()) {
+                    _pointerHandles.push_back(mouse->on("mousedown", [this](const MouseEvent& e) { onMouseDown(e); }));
+                    _pointerHandles.push_back(mouse->on("mousemove", [this](const MouseEvent& e) {
+                        _pointer = Vector2(e.x, e.y);
+                    }));
+                }
                 _desktopInput.attach(engine);
                 _orbitMobileInput.attach(engine);
                 _flyMobileInput.attach(engine);
@@ -382,16 +493,25 @@ namespace visutwin::canvas
         _state.ctrl += k(KC::CTRL);
         _state.touches += count[0];
 
-        if (button[0] == 1.0f || button[1] == 1.0f || wheel[0] != 0.0f) {
+        // A pressed button starts the mode of its action, and the mouse movement follows the
+        // action of the last button pressed.
+        const int pressedButton = _pressedButton;
+        _pressedButton = -1;
+        if (pressedButton >= 0) {
+            _activeButton = pressedButton;
+        }
+        const MouseAction pressed = pressedButton >= 0 ? _buttonActions[pressedButton] : MouseAction::NONE;
+        const MouseAction action = _activeButton >= 0 ? _buttonActions[_activeButton] : MouseAction::NONE;
+
+        if (wheel[0] != 0.0f || pressed == MouseAction::ORBIT || pressed == MouseAction::PAN) {
             setMode(Mode::ORBIT);
-        } else if (button[2] == 1.0f || _state.axis.length() > 0.0f) {
+        } else if (pressed == MouseAction::LOOK || _state.axis.length() > 0.0f) {
             setMode(Mode::FLY);
         }
 
         const float orbit = _mode == Mode::ORBIT ? 1.0f : 0.0f;
         const float fly = _mode == Mode::FLY ? 1.0f : 0.0f;
         const float twoFingers = _state.touches > 1.0f ? 1.0f : 0.0f;
-        const float desktopPan = (_state.shift != 0.0f || _state.mouse[1] != 0.0f) ? 1.0f : 0.0f;
         const bool mobileJoystick = _flyMobileInput.layout().ends_with("joystick");
         const float pan = _enablePan ? 1.0f : 0.0f;
 
@@ -410,12 +530,16 @@ namespace visutwin::canvas
 
         // desktop move
         Vector3 v = normalizedOrZero(_state.axis) * (fly * moveMult);
-        v += screenToWorld(mouse[0], mouse[1], _pose.distance) * (orbit * desktopPan * pan);
         v += Vector3(0.0f, 0.0f, wheel[0]) * (orbit * zoomDeltaMult);
         appendVector(move, v);
 
-        // desktop rotate
-        appendVector(rotate, Vector3(mouse[0], mouse[1], 0.0f) * ((1.0f - orbit * desktopPan) * rotateDeltaMult));
+        // desktop mouse
+        appendMouseMove(action, mouse[0], mouse[1], orbit);
+
+        // the movement of the button has been applied, until it is released
+        if (_activeButton >= 0 && _state.mouse[_activeButton] <= 0.0f) {
+            _activeButton = -1;
+        }
 
         // mobile move
         v = Vector3(leftInput[0], 0.0f, -leftInput[1]) * (fly * moveMult);

@@ -1,6 +1,6 @@
 # VisuTwin Canvas Examples
 
-196 example applications, each a small self-contained program built on the
+197 example applications, each a small self-contained program built on the
 engine. All but three are ports of [PlayCanvas](https://playcanvas.com/) engine
 examples, so they can be compared side by side with upstream: the file header names
 the upstream example and lists every place the port could not follow it. The
@@ -225,6 +225,7 @@ The second column is the upstream example each one ports, as
 | particles | compute/particles | 1M compute-simulated particles colliding with spheres |
 | particles-anim-index | graphics/particles-anim-index | Sprite-sheet animation rows selected by animIndex |
 | particles-random-sprites | graphics/particles-random-sprites | Coin and bonus sprite sheets, each particle picking a random animation |
+| impact-effects | particles/impact-effects | Bullet hits, explosions and magic bursts of one-shot emitters, lights and decals, raycast against the reflecting room |
 
 ### Scene, camera & loading
 

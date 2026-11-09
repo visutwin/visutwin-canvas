@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <vector>
 
 namespace visutwin::canvas
@@ -20,6 +21,25 @@ namespace visutwin::canvas
         /// a non-punctual shape shades as an LTC area light only while this is set (off
         /// by default; outside clustered lighting shapes always apply).
         bool areaLightsEnabled = false;
+        /// Which area light SHAPES the clustered lighting supports while `areaLightsEnabled`
+        /// is set (all by default). A shaped light whose shape is off shades as punctual in
+        /// the cluster grid, and the forward variants leave that shape's code out of the
+        /// cluster loop, so a scene with rectangular lights alone (the usual case) turns the
+        /// other two off. Outside clustered lighting every shape applies.
+        bool areaLightRectEnabled = true;
+        bool areaLightDiskEnabled = true;
+        bool areaLightSphereEnabled = true;
+
+        /// The clustered area light shapes as a mask, 1 << LightShape (bit 0, punctual, never
+        /// set); 0 when clustered area lights are off.
+        uint32_t areaLightShapes() const
+        {
+            if (!areaLightsEnabled) {
+                return 0u;
+            }
+            return (areaLightRectEnabled ? 1u << 1 : 0u) | (areaLightDiskEnabled ? 1u << 2 : 0u) |
+                (areaLightSphereEnabled ? 1u << 3 : 0u);
+        }
 
         /// The cluster grid: space is subdivided into this many cells and each holds
         /// up to `maxLightsPerCell` lights. More cells means fewer lights per cell to

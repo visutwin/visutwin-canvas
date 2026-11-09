@@ -77,6 +77,9 @@
     X(Unlit,                     "VT_FEATURE_UNLIT") \
     X(Pick,                      "VT_FEATURE_PICK") \
     X(AreaLights,                "VT_FEATURE_AREA_LIGHTS") \
+    X(ClusterAreaRect,           "VT_FEATURE_CLUSTER_AREA_RECT") \
+    X(ClusterAreaDisk,           "VT_FEATURE_CLUSTER_AREA_DISK") \
+    X(ClusterAreaSphere,         "VT_FEATURE_CLUSTER_AREA_SPHERE") \
     X(VsmShadows,                "VT_FEATURE_VSM_SHADOWS") \
     X(Lightmap,                  "VT_FEATURE_LIGHTMAP") \
     X(DynamicRefraction,         "VT_FEATURE_DYNAMIC_REFRACTION") \

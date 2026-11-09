@@ -6,18 +6,24 @@
 // Script over the input
 // framework in extras/input: an orbit, a fly and a focus controller, fed by a keyboard
 // and mouse source, a multi-touch source (orbit), a dual-gesture source (fly) and a
-// gamepad source. Left or middle button and the wheel switch to orbit, the right
-// button or a movement key to fly; F-style focusing glides through the focus
-// controller and hands back to orbit when it arrives or any input interrupts it.
+// gamepad source. Each mouse button has an action (orbit, pan, look or none; by
+// default left orbits, middle pans, right looks): a button that orbits or pans and the
+// wheel switch to orbit, a button that looks or a movement key to fly. F-style focusing
+// glides through the focus controller and hands back to orbit when it arrives or any
+// input interrupts it. With ground pan, panning moves across the horizontal plane at the
+// focus point's height, holding the point of the ground under the cursor.
 //
 // DEVIATION: the sources listen to the engine's input devices (the application's
 // event loop feeds them), not to the canvas; there is no XR frame discard. The camera
-// rotation is set as a WORLD rotation.
+// rotation is set as a WORLD rotation. The cursor position the ground pan needs and the
+// button a press names come from the engine's Mouse events, not canvas pointer events.
 //
 #pragma once
 
+#include <array>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "core/math/vector2.h"
 #include "core/math/vector3.h"
@@ -36,6 +42,7 @@
 namespace visutwin::canvas
 {
     class CameraComponent;
+    struct MouseEvent;
 
     class CameraControls : public Script
     {
@@ -43,6 +50,16 @@ namespace visutwin::canvas
         SCRIPT_NAME("CameraControls")
 
         enum class Mode { ORBIT, FLY, FOCUS };
+
+        /// What a mouse button does.
+        /// - ORBIT: turns the view around the focus point, or pans it while shift is held.
+        /// - PAN: pans the view (see setGroundPan).
+        /// - LOOK: turns the view in place, as when flying with the keys.
+        /// - NONE: ignores the button and the drag that follows, leaving them to the application.
+        ///
+        /// DEVIATION: an enum where upstream takes strings, so there is no invalid action to
+        /// warn about.
+        enum class MouseAction { ORBIT, PAN, LOOK, NONE };
 
         CameraControls();
         ~CameraControls() override;
@@ -97,6 +114,23 @@ namespace visutwin::canvas
         [[nodiscard]] const std::string& mobileInputLayout() const { return _flyMobileInput.layout(); }
         void setGamepadDeadZone(const Vector2& zone) { _gamepadDeadZone = zone; }
 
+        /// The action of the left mouse button; ORBIT by default.
+        void setLeftButton(const MouseAction action) { _buttonActions[0] = action; }
+        [[nodiscard]] MouseAction leftButton() const { return _buttonActions[0]; }
+        /// The action of the middle mouse button; PAN by default.
+        void setMiddleButton(const MouseAction action) { _buttonActions[1] = action; }
+        [[nodiscard]] MouseAction middleButton() const { return _buttonActions[1]; }
+        /// The action of the right mouse button; LOOK by default.
+        void setRightButton(const MouseAction action) { _buttonActions[2] = action; }
+        [[nodiscard]] MouseAction rightButton() const { return _buttonActions[2]; }
+
+        /// Whether panning moves across the ground instead of the plane of the view (off by
+        /// default). A mouse drag then holds the point of the ground under the cursor, as when
+        /// dragging a map, and the view keeps its height. The ground is the horizontal plane at
+        /// the height of the focus point. Panning with two touches moves across the ground too.
+        void setGroundPan(bool enable);
+        [[nodiscard]] bool groundPan() const { return _groundPan; }
+
         /// Glide to orbit `point`, keeping the view direction; at the current distance,
         /// or at the one setFocusPoint started from when resetZoom.
         void focus(const Vector3& point, bool resetZoom = false);
@@ -121,7 +155,11 @@ namespace visutwin::canvas
         void reset();
 
         /// Ignore presses and the wheel (e.g. while a HUD has the pointer).
-        void setInputBlocked(const bool blocked) { _desktopInput.setPointerBlocked(blocked); }
+        void setInputBlocked(const bool blocked)
+        {
+            _inputBlocked = blocked;
+            _desktopInput.setPointerBlocked(blocked);
+        }
 
         /// Keep the camera's far clip at least max(orbitDistance * scale, minimum).
         void setAutoFarClip(bool enable, float scale = 10.0f, float minimum = 1000.0f)
@@ -137,6 +175,10 @@ namespace visutwin::canvas
         void applyPose();
         [[nodiscard]] Vector3 cameraForward() const;
         [[nodiscard]] Vector3 screenToWorld(float dx, float dy, float dz) const;
+        [[nodiscard]] Vector3 screenToGroundPan(float x, float y, float dx, float dy, float height, float yaw) const;
+        void appendMouseMove(MouseAction action, float dx, float dy, float orbit);
+        void onMouseDown(const MouseEvent& event);
+        void releasePointerHandles();
         void discardInputs();
 
         CameraComponent* _camera = nullptr;
@@ -176,6 +218,21 @@ namespace visutwin::canvas
         bool _hasMode = false;
 
         InputFrame _frame{{{"move", 3}, {"rotate", 3}}};
+
+        // The action of each mouse button: left, middle, right.
+        std::array<MouseAction, 3> _buttonActions{MouseAction::ORBIT, MouseAction::PAN, MouseAction::LOOK};
+        // The button the mouse movement follows: the last one pressed, until the update
+        // after its release, or -1.
+        int _activeButton = -1;
+        // The button pressed since the last update, or -1. Taken from the press itself, as
+        // the button deltas of a press and a release between two updates cancel out while
+        // the movement of the drag in between is still to be applied.
+        int _pressedButton = -1;
+        bool _groundPan = false;
+        bool _inputBlocked = false;
+        // The cursor position on the canvas, in points.
+        Vector2 _pointer = Vector2(0.0f, 0.0f);
+        std::vector<EventHandlePtr> _pointerHandles;
 
         struct State
         {

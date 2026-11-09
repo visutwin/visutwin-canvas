@@ -59,8 +59,12 @@ namespace visutwin::canvas
         const auto& move = values.at("move");
         const auto& rotate = values.at("rotate");
 
-        // move: pan the focus in the view plane, scale the distance
-        const Vector3 offset = rotationOf(_rootPose.angles) * Vector3(move[0], move[1], 0.0f);
+        // move: pan the focus, scale the distance. A horizontal pan is turned by the yaw of
+        // the view alone, so forward stays level with the ground; otherwise the pan follows
+        // the plane of the view
+        const Vector3 offset = horizontalPan
+            ? Quaternion::fromEulerAngles(0.0f, _rootPose.angles.getY(), 0.0f) * Vector3(move[0], 0.0f, -move[1])
+            : rotationOf(_rootPose.angles) * Vector3(move[0], move[1], 0.0f);
         _targetRootPose.move(offset);
         const float dist = _targetChildPose.position.getZ();
         _targetChildPose.move(Vector3(0.0f, 0.0f, dist * (1.0f + move[2]) - dist));

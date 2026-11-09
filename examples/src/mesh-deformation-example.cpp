@@ -5,11 +5,20 @@
 //
 // Port of upstream graphics/mesh-deformation.
 //
-// The statue, deformed on the CPU every frame: each vertex keeps its height and is pushed along
-// x and z by 50 x sin(time + y x 0.01), in the mesh's own space, so the statue sways in a wave
-// running up its height. Only the positions change; the normals stay as loaded. It is lit by the
-// helipad environment atlas alone (skybox mip 2, exposure 1), and the camera circles it at a
-// radius of 25 and a height of 15, looking at (0, 7, 0).
+// The statue, deformed on the CPU every frame, in a dark studio. Each vertex keeps its height and
+// is pushed round a circle in x and z (sin and cos of one phase), in the mesh's own space: with t
+// the vertex's height between the lowest and highest vertex of all the meshes, the phase is
+// 1.5 x time + 4 t and the radius 0.09 x that height range x t^2, so the base stays anchored and a
+// wave runs up the statue, swaying it most at the top. Only the positions change; the normals stay
+// as loaded.
+//
+// The helipad environment atlas (skybox mip 2, intensity 0.35, exposure 1) gives only soft ambient
+// light: the skybox layer is disabled and the camera clears to a dark blue grey. A warm key light
+// (50, 35, intensity 2.2) casts soft VSM shadows of the statue onto itself (2048, blur 15, distance
+// four statue heights, bias 0.2, normal offset 0.1), and a cool rim light (20, 215, intensity 1.6)
+// lights it from behind. The camera (field of view 40) renders through a camera frame with ACES
+// tone mapping, bloom 0.02 and a vignette of intensity 0.6, and circles the statue at 1.9 statue
+// heights, at 0.7 of its height, looking just below the centre of its bounds.
 //
 // Each mesh keeps its loaded positions, and a mesh several instances share is deformed once. A
 // deformed mesh is drawn from vertex buffers of its own, one per frame in flight, so a frame the
@@ -20,6 +29,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <unordered_set>
@@ -30,7 +40,9 @@
 #include "framework/assets/asset.h"
 #include "platform/graphics/vertexBuffer.h"
 #include "platform/graphics/vertexFormat.h"
+#include "scene/composition/layerComposition.h"
 #include "scene/constants.h"
+#include "scene/layer.h"
 #include "scene/mesh.h"
 #include "scene/meshInstance.h"
 
@@ -71,24 +83,64 @@ protected:
             return false;
         }
 
-        // The skydome
+        // Dark studio look: the environment only provides soft ambient light, the skybox itself
+        // is hidden
+        const Color backgroundColor(0.035f, 0.04f, 0.06f, 1.0f);
         scene()->setSkyboxMip(2);
         scene()->setExposure(1.0f);
+        scene()->setSkyboxIntensity(0.35f);
         scene()->setEnvAtlas(helipad);
-
-        // The camera
-        _camera = createCamera(Vector3(0.0f, 7.0f, 24.0f));
-        if (auto* component = _camera->findComponent<CameraComponent>(); component && component->camera()) {
-            component->camera()->setClearColor(Color(0.4f, 0.45f, 0.5f, 1.0f));
+        if (const auto layers = scene()->layers()) {
+            if (const auto skyLayer = layers->getLayerById(LAYERID_SKYBOX)) {
+                skyLayer->setEnabled(false);
+            }
         }
 
-        // The hierarchy of entities with render components that is the statue
+        // The hierarchy of entities with render components that is the statue, casting and
+        // receiving shadows
         Entity* entity = statue->instantiateRenderEntity();
         if (!entity) {
             spdlog::error("The statue has no render entity");
             return false;
         }
         root()->addChild(entity);
+        for (auto* render : entity->findComponents<RenderComponent>()) {
+            render->setCastShadows(true);
+            render->setReceiveShadows(true);
+        }
+
+        // World space bounds of the statue, used to frame the camera
+        _bounds = entityBounds(entity);
+        _height = _bounds.halfExtents().getY() * 2.0f;
+
+        // The camera, where the orbit starts, with tone mapping, bloom and a vignette
+        _camera = createCamera(Vector3(0.0f, _height * 0.7f, _height * 1.9f));
+        if (auto* component = _camera->findComponent<CameraComponent>(); component && component->camera()) {
+            component->camera()->setClearColor(backgroundColor);
+            component->camera()->setFov(40.0f);
+            component->setToneMapping(TONEMAP_ACES);
+            auto rendering = component->rendering();
+            rendering.bloomIntensity = 0.02f;
+            rendering.vignetteEnabled = true;
+            rendering.vignetteIntensity = 0.6f;
+            component->setRendering(rendering);
+        }
+
+        // Key light with soft self-shadowing
+        Entity* key = createDirectionalLight(Vector3(50.0f, 35.0f, 0.0f), Color(1.0f, 0.93f, 0.82f, 1.0f), 2.2f, true);
+        key->setName("key");
+        if (auto* light = key->findComponent<LightComponent>()) {
+            light->setShadowResolution(2048);
+            light->setShadowType(SHADOW_VSM_16F);
+            light->setVsmBlurSize(15);
+            light->setShadowDistance(_height * 4.0f);
+            light->setShadowBias(0.2f);
+            light->setShadowNormalBias(0.1f);
+        }
+
+        // Cool rim light from behind
+        Entity* rim = createDirectionalLight(Vector3(20.0f, 215.0f, 0.0f), Color(0.35f, 0.55f, 1.0f, 1.0f), 1.6f);
+        rim->setName("rim");
 
         // Collect the positions of every mesh to work on, each mesh once
         const int bufferCount = std::max(1, device()->maxFramesInFlight());
@@ -106,6 +158,19 @@ protected:
         }
         spdlog::info("Deforming {} meshes", _meshes.size());
 
+        // The statue is anchored at its base: the deformation grows towards the top
+        float minY = std::numeric_limits<float>::infinity();
+        float maxY = -std::numeric_limits<float>::infinity();
+        for (const DeformedMesh& deformed : _meshes) {
+            for (size_t k = 1; k < deformed.srcPositions.size(); k += 3) {
+                minY = std::min(minY, deformed.srcPositions[k]);
+                maxY = std::max(maxY, deformed.srcPositions[k]);
+            }
+        }
+        _minY = minY;
+        _range = maxY - minY;
+        _strength = _range * 0.09f;
+
         return true;
     }
 
@@ -114,21 +179,30 @@ protected:
         _time += dt;
 
         // Orbit the camera
-        _camera->setLocalPosition(25.0f * std::sin(_time * 0.2f), 15.0f, 25.0f * std::cos(_time * 0.2f));
-        _camera->lookAt(Vector3(0.0f, 7.0f, 0.0f));
+        const float r = _height * 1.9f;
+        _camera->setLocalPosition(r * std::sin(_time * 0.15f), _height * 0.7f, r * std::cos(_time * 0.15f));
+        const Vector3& center = _bounds.center();
+        _camera->lookAt(Vector3(center.getX(), center.getY() - _height * 0.05f, center.getZ()));
 
-        constexpr float strength = 50.0f;
+        if (!(_range > 0.0f)) {
+            return;
+        }
         ++_bufferIndex;
 
-        // Modify the mesh positions every frame: x and z waved by a sine of y
+        // Modify the mesh positions every frame
         for (DeformedMesh& deformed : _meshes) {
             const size_t count = deformed.srcPositions.size() / 3;
             Vector3 min;
             Vector3 max;
             for (size_t k = 0; k < count; ++k) {
+                // A wave travels up the statue, displacing x and z (a circular sway), with the
+                // amount growing towards the top
                 const float* src = &deformed.srcPositions[k * 3];
-                const float wave = strength * std::sin(_time + src[1] * 0.01f);
-                const float position[3] = {src[0] + wave, src[1], src[2] + wave};
+                const float y = src[1];
+                const float t = (y - _minY) / _range;
+                const float phase = _time * 1.5f + t * 4.0f;
+                const float amount = _strength * t * t;
+                const float position[3] = {src[0] + amount * std::sin(phase), y, src[2] + amount * std::cos(phase)};
                 std::memcpy(deformed.vertices.data() + k * deformed.stride + deformed.positionOffset, position,
                     sizeof(position));
 
@@ -193,6 +267,11 @@ private:
     std::unique_ptr<Asset> _statue;
     std::vector<DeformedMesh> _meshes;
     Entity* _camera = nullptr;
+    BoundingBox _bounds;
+    float _height = 1.0f;
+    float _minY = 0.0f;
+    float _range = 0.0f;
+    float _strength = 0.0f;
     size_t _bufferIndex = 0;
     float _time = 0.0f;
 };

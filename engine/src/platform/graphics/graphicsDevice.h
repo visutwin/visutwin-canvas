@@ -165,6 +165,10 @@ namespace visutwin::canvas
         float wrapParams[4];         // xyz wrap bounds, w = 1 when wrapping
         float emitterPosition[4];    // xyz the emitter's world position (the wrap origin), w = localSpace
         float softParams[4];         // x softening, y camera near, z camera far, w = 1 when soft
+        // The camera's fog, applied before tone mapping at the view depth: rgb the linear fog
+        // colour, w its weight (0 for additive blending, which fades to black instead).
+        float fogColor[4];
+        float fogParams[4];          // start, end, density, type (0 none, 1 linear, 2 exp, 3 exp2)
         // Light cube (scene ambient + directional lights, six directions), for
         // lit particles; [0].w = 1 when lit, [1].w = 1 for half Lambert, [2].w = 1 with a normal map,
         // [3].w the sprite sheet's animation count and [4].w = 1 to pick one at random per particle.
@@ -173,7 +177,7 @@ namespace visutwin::canvas
         // x = size (quad half-extent), y = scale graph2, z = alpha graph2
         float scaleLut[16][4];
     };
-    static_assert(sizeof(GpuParticleRenderParams) == 944);
+    static_assert(sizeof(GpuParticleRenderParams) == 976);
 
     /// Bytes each backend stages for one draw's splat parameter block (setGSplatState);
     /// a larger block is refused. One constant so the backends cannot accept different sizes.

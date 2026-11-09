@@ -42,6 +42,8 @@ struct ParticleRenderParams
     float4 wrapParams;    // xyz bounds, w = wrap
     float4 emitterPosition; // xyz, w = local space
     float4 softParams;    // softening, camera near, camera far, soft
+    float4 fogColor;      // linear rgb, w = weight of the colour (0 for additive blending)
+    float4 fogParams;     // start, end, density, type (0 none, 1 linear, 2 exp, 3 exp2)
     float4 lightCube[6];  // rgb; [0].w lit, [1].w half Lambert, [2].w normal map,
                           // [3].w animation count, [4].w random animation per particle
     float4 colorLut[16];  // rgb + alpha over normalized life
@@ -314,6 +316,24 @@ float4 particleFS(ParticleVaryings input) : SV_Target0
         rgb *= negNormal.x * params.lightCube[0].xyz + posNormal.x * params.lightCube[1].xyz +
                negNormal.y * params.lightCube[2].xyz + posNormal.y * params.lightCube[3].xyz +
                negNormal.z * params.lightCube[4].xyz + posNormal.z * params.lightCube[5].xyz;
+    }
+
+    // The camera's fog at the view depth, the depth the forward fog uses, before tone mapping.
+    // An additive particle fades to black with distance instead of to the fog colour (adding
+    // the fog colour would brighten everything behind it).
+    const uint fogType = uint(params.fogParams.w + 0.5);
+    if (fogType != 0u) {
+        float fogFactor;
+        if (fogType == 1u) {
+            const float fogEnd = max(params.fogParams.y, params.fogParams.x + 1e-3);
+            fogFactor = (fogEnd - input.viewDepth) / (fogEnd - params.fogParams.x);
+        } else if (fogType == 2u) {
+            fogFactor = exp(-input.viewDepth * max(params.fogParams.z, 0.0));
+        } else {
+            const float d = input.viewDepth * max(params.fogParams.z, 0.0);
+            fogFactor = exp(-d * d);
+        }
+        rgb = lerp(params.fogColor.xyz * params.fogColor.w, rgb, saturate(fogFactor));
     }
 
     // The colour is linear: a gamma target tone-maps it with the scene's exposure and

@@ -336,6 +336,7 @@ namespace visutwin::canvas
         options.pcf1Shadows = _pcf1ShadowsEnabled && !options.skybox;
         options.pcf5Shadows = _pcf5ShadowsEnabled && !options.skybox;
         options.areaLights = _areaLightsEnabled && !options.skybox;
+        options.clusterAreaShapes = _clusterAreaLightShapes;
 
         // A material that takes no lights (useLighting off) gets no clustered lights
         // either, and nothing that only shades a light — the light loops are empty.
@@ -449,6 +450,12 @@ namespace visutwin::canvas
         set(ShaderFeature::VertexColorGamma, options.vertexColorGamma);
         set(ShaderFeature::Pick, options.pick);
         set(ShaderFeature::AreaLights, options.areaLights);
+        // Meaningful only with area lights and clustering both on; otherwise left clear so a
+        // variant without them does not split on a setting it never reads.
+        const bool clusterAreas = options.areaLights && options.lightClustering;
+        set(ShaderFeature::ClusterAreaRect, clusterAreas && (options.clusterAreaShapes & (1u << 1)) != 0);
+        set(ShaderFeature::ClusterAreaDisk, clusterAreas && (options.clusterAreaShapes & (1u << 2)) != 0);
+        set(ShaderFeature::ClusterAreaSphere, clusterAreas && (options.clusterAreaShapes & (1u << 3)) != 0);
         set(ShaderFeature::VsmShadows, options.vsmShadows);
         set(ShaderFeature::Lightmap, options.lightmap);
         set(ShaderFeature::DynamicRefraction, options.dynamicRefraction);
@@ -687,6 +694,9 @@ namespace visutwin::canvas
         add(_pcf1ShadowsEnabled);
         add(_pcf5ShadowsEnabled);
         add(_areaLightsEnabled);
+        add((_clusterAreaLightShapes & (1u << 1)) != 0);
+        add((_clusterAreaLightShapes & (1u << 2)) != 0);
+        add((_clusterAreaLightShapes & (1u << 3)) != 0);
         add(_envAtlasEncoding == EnvAtlasEncoding::Rgbp);
         add(_envAtlasEncoding == EnvAtlasEncoding::Rgbm);
         add(_skyboxReflectionEnabled);

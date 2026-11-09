@@ -1776,7 +1776,7 @@ namespace visutwin::canvas
         /// set, order-independent: the dispatch list is sorted by apparent size, which
         /// differs per camera, and two layers seeing the same lights must still hash alike.
         void buildClusterLightInput(const std::vector<LightDispatchEntry>& localLights,
-            const bool clusteredShadowsEnabled, const bool clusteredCookiesEnabled, const bool clusteredAreaLights,
+            const bool clusteredShadowsEnabled, const bool clusteredCookiesEnabled, const uint32_t clusteredAreaShapes,
             std::vector<ClusterLightData>& lights, std::vector<const void*>& members)
         {
             lights.clear();
@@ -1797,8 +1797,11 @@ namespace visutwin::canvas
                 // mesh-instance mask (dynamic or lightmapped).
                 lcd.lightMask = dispatchEntry.mask;
                 // A shaped light is an area light in the grid only with clustered area
-                // lights enabled; otherwise it shades as punctual.
-                if (clusteredAreaLights && ld.shape != 0u) {
+                // lights enabled and its shape among the enabled ones (LightingParams::
+                // areaLightShapes); otherwise it shades as punctual. The forward variants
+                // leave the code of a disabled shape out of the cluster loop, so a light of
+                // that shape must never reach it as one.
+                if (ld.shape != 0u && ld.shape < 32u && (clusteredAreaShapes & (1u << ld.shape)) != 0u) {
                     lcd.shape = ld.shape;
                     lcd.areaHalfWidth = ld.areaHalfWidth;
                     lcd.areaHalfHeight = ld.areaHalfHeight;
@@ -2141,6 +2144,17 @@ namespace visutwin::canvas
                 // Tone map and gamma-encode on a gamma target, leave
                 // both to compose on a camera frame's linear HDR scene.
                 particles->setOutput(ctx.scene ? ctx.scene->exposureFor(view.camera) : 1.0f, view.toneMapping, device.hdrPass());
+                {
+                    // The camera's fog, as the splats take it: no dynamic sky haze, and none for
+                    // a screen-space emitter, whose depth is not a distance.
+                    const FogParams fog = ctx.scene ? ctx.scene->fogFor(view.camera) : FogParams{};
+                    const bool fogged = fog.enabled && fog.type != FogType::FOG_DYNAMIC_SKY_HAZE &&
+                        !particles->options().screenSpace;
+                    Color fogLinear;
+                    fogLinear.linear(&fog.color);
+                    particles->setFog(fogLinear, fogged ? static_cast<int>(fog.type) : 0, fog.start, fog.end,
+                        fog.density);
+                }
                 if (particles->options().lighting) {
                     // The light cube: the scene ambient in every direction, plus each
                     // directional light weighted by how far the direction faces along it —
@@ -2402,6 +2416,7 @@ namespace visutwin::canvas
         programLibrary.setPcf1ShadowsEnabled(lightFeatures.pcf1Shadows);
         programLibrary.setPcf5ShadowsEnabled(lightFeatures.pcf5Shadows);
         programLibrary.setAreaLightsEnabled(lightFeatures.areaLights);
+        programLibrary.setClusterAreaLightShapes(_scene ? _scene->lighting().areaLightShapes() : 0u);
 
         // LTC lookup tables: created lazily the first time an area light is
         // seen, then bound at fragment slots 20/21 every frame they're needed.
@@ -2661,9 +2676,9 @@ namespace visutwin::canvas
             static thread_local std::vector<const void*> lightSetMembers;
             const bool clusteredCookies = _scene && _scene->lighting().cookiesEnabled &&
                 _lightTextureAtlas && _lightTextureAtlas->cookieAtlasTexture();
-            const bool clusteredAreaLights = _scene && _scene->lighting().areaLightsEnabled;
+            const uint32_t clusteredAreaShapes = _scene ? _scene->lighting().areaLightShapes() : 0u;
             const bool clusteredShadows = !_scene || _scene->lighting().shadowsEnabled;
-            buildClusterLightInput(lights.local, clusteredShadows, clusteredCookies, clusteredAreaLights, clusterLights,
+            buildClusterLightInput(lights.local, clusteredShadows, clusteredCookies, clusteredAreaShapes, clusterLights,
                 lightSetMembers);
             bindLayerClusterLights(clusterLights, lightSetMembers);
         }

@@ -841,6 +841,9 @@ private:
         // them twice. None of the lights casts shadows.
         scene()->lighting().areaLightsEnabled = true;
         scene()->lighting().shadowsEnabled = false;
+        // All the area lights are rectangles, so the cluster loop carries no disk or sphere code.
+        scene()->lighting().areaLightDiskEnabled = false;
+        scene()->lighting().areaLightSphereEnabled = false;
         auto* strips = static_cast<Entity*>(_roomEntity->findByName("LightStrips"));
         const BoundingBox stripBounds = strips ? strips->findComponent<RenderComponent>()->meshInstances()[0]->aabb()
                                                : BoundingBox(Vector3(0.0f, 4.8f, 0.0f), Vector3(6.0f, 0.05f, 3.0f));
@@ -990,6 +993,47 @@ private:
                 material->setBumpiness(0.08f);
             }
         }
+        // The paints share one shader, so a change of the paint compiles nothing. Each paint
+        // material has every feature any paint uses: the normal map of the flakes, the clear coat,
+        // and the iridescent film with its thickness texture. Where its own look has none of them,
+        // they are set to have no effect.
+        {
+            const MaterialPtr flakes = findMaterial(_car, "Paint 1 Carmine");
+            const MaterialPtr film = findMaterial(_car, "Paint 1 Pearl");
+            // a clear coat or iridescence too faint to see, as a value of 0 leaves it out of the shader
+            constexpr float kFaint = 1e-9f;
+            for (const char* look : {"Carmine", "Pearl", "Graphite"}) {
+                for (const char* slot : {"Paint 1", "Paint 2"}) {
+                    const MaterialPtr material = findMaterial(_car, std::string(slot) + " " + look);
+                    if (!material || !flakes || !film) {
+                        continue;
+                    }
+                    if (!material->normalMap()) {
+                        // the flakes, flattened out by a bumpiness of 0
+                        material->setNormalMap(flakes->normalMap());
+                        material->setNormalMapTiling(flakes->normalMapTiling());
+                        material->setNormalMapOffset(flakes->normalMapOffset());
+                        material->setBumpiness(0.0f);
+                    }
+                    if (material->clearCoat() <= 0.0f) {
+                        // the gloss is set as the coat of the flakes sets it, which the shader reads the same way
+                        material->setClearCoat(kFaint);
+                        material->setClearCoatGloss(flakes->clearCoatGloss());
+                        material->setClearCoatGlossInvert(flakes->clearCoatGlossInvert());
+                    }
+                    if (material->iridescenceIntensity() <= 0.0f) {
+                        material->setIridescenceIntensity(kFaint);
+                    }
+                    if (!material->iridescenceThicknessMap()) {
+                        // the texture blends between two equal thicknesses, so the film keeps its one thickness
+                        material->setIridescenceThicknessMap(film->iridescenceThicknessMap());
+                        material->setIridescenceThicknessMapUv(film->iridescenceThicknessMapUv());
+                        material->setIridescenceThicknessMin(material->iridescenceThicknessMax());
+                    }
+                }
+            }
+        }
+
         // The candy paint is tinted for the colours other than its own, and the pearl paint takes
         // other base colours and film thicknesses for other colours of its swirls.
         _candyColor = findMaterial(_car, "Paint 1 Carmine")->diffuse();

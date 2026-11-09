@@ -109,7 +109,15 @@
                 }
 
                 if (clShape != 0u) {
-                    // An area light: LTC, as the main loop (common-ltc's helpers).
+                    // An area light: LTC, as the main loop (common-ltc's helpers). The CPU packs
+                    // only enabled shapes (LightingParams::areaLightShapes), so with one shape on
+                    // the shape is known here and the helpers fold to that shape's code alone.
+                    const bool rectOn = vtFeatureEnabled(VT_FEATURE_CLUSTER_AREA_RECT_BIT);
+                    const bool diskOn = vtFeatureEnabled(VT_FEATURE_CLUSTER_AREA_DISK_BIT);
+                    const bool sphereOn = vtFeatureEnabled(VT_FEATURE_CLUSTER_AREA_SPHERE_BIT);
+                    clShape = (rectOn && !diskOn && !sphereOn) ? 1u
+                        : (!rectOn && diskOn && !sphereOn) ? 2u
+                        : (!rectOn && !diskOn && sphereOn) ? 3u : clShape;
                     float3 p0, p1, p2, p3;
                     float sphereRadius = ltcAreaLight(clShape, cl.positionRange.xyz, cl.areaHalfWidth.xyz,
                         cl.areaHalfHeight.xyz, N, lighting.cameraPosExposure.xyz, p0, p1, p2, p3);

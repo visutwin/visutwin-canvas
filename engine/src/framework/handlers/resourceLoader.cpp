@@ -15,6 +15,7 @@
 
 #include "framework/parsers/glbParser.h"
 #include "framework/parsers/texture/ktx2Transcoder.h"
+#include "framework/parsers/texture/webpDecoder.h"
 #include "spdlog/spdlog.h"
 #include "stb_image.h"
 #include "framework/assets/stbImageFlip.h"
@@ -279,7 +280,17 @@ namespace visutwin::canvas
             spdlog::info("TextureResourceHandler: decoded HDR '{}' {}x{} ch={}",
                 url, pd.width, pd.height, pd.channels);
         } else {
-            // ── LDR path: decode to RGBA8 ──
+            // ── LDR path: decode to RGBA8; a WebP image through libwebp, which stb cannot read ──
+            const WebPFile webp = decodeWebPFile(url, pd.pixels, pd.width, pd.height);
+            if (webp == WebPFile::Failed) {
+                spdlog::error("TextureResourceHandler: failed to decode WebP '{}'", url);
+                return nullptr;
+            }
+            if (webp == WebPFile::Decoded) {
+                pd.channels = 4;
+                result->pixelData = std::move(pd);
+                return result;
+            }
             stbi_uc* pixels = stbi_load(url.c_str(), &pd.width, &pd.height, &pd.channels, STBI_rgb_alpha);
             if (!pixels || pd.width <= 0 || pd.height <= 0) {
                 spdlog::error("TextureResourceHandler: failed to decode '{}'", url);
