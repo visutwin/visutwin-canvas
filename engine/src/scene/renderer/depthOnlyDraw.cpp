@@ -91,8 +91,14 @@ namespace visutwin::canvas
         }
         // Outside its visibility range for the camera the pass draws for: not there, and
         // inside a fade band dithered like its forward draw.
-        const float lodFade = shaders.lodViewer ? meshInstance->visibilityFadeFrom(*shaders.lodViewer) : 1.0f;
-        if (lodFade == 0.0f) {
+        MeshInstance::LodFadeDraw lod;
+        if (shaders.lodViewer) {
+            lod.state = meshInstance->visibilityFrom(*shaders.lodViewer);
+            lod.viewer = *shaders.lodViewer;
+            lod.jitter[0] = shaders.lodJitter[0];
+            lod.jitter[1] = shaders.lodJitter[1];
+        }
+        if (lod.state.hidden()) {
             return false;
         }
 
@@ -129,11 +135,17 @@ namespace visutwin::canvas
         if (material) {
             clip |= meshInstance->clipped() ? CLIP_PLANES_MESH : 0u;
             clip |= cameraClip ? CLIP_PLANES_CAMERA : 0u;
-            clip |= visibilityFadePartial(lodFade) ? CLIP_LOD_FADE : 0u;
+            const bool instancedDraw = meshInstance->instancingData().vertexBuffer && meshInstance->instancingData().count > 0;
+            if (lod.state.perInstance && instancedDraw) {
+                clip |= CLIP_LOD_FADE_INSTANCED;
+            } else if (!lod.state.perInstance && visibilityFadePartial(lod.state.fade)) {
+                clip |= CLIP_LOD_FADE;
+            }
         }
         device->setMaterial(clip ? material : frontendMaterial);
         const MaterialUniforms* clipUniforms = clip
-            ? meshInstance->overriddenUniforms(material, cameraClip, (clip & CLIP_LOD_FADE) ? lodFade : 1.0f)
+            ? meshInstance->overriddenUniforms(material, cameraClip,
+                (clip & (CLIP_LOD_FADE | CLIP_LOD_FADE_INSTANCED)) ? &lod : nullptr)
             : nullptr;
         device->setInstanceMaterialUniforms(clipUniforms, clipUniforms ? meshInstance->overriddenUniformsVersion() : 0);
 

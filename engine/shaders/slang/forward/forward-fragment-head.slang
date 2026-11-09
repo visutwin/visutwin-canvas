@@ -371,6 +371,9 @@ struct ForwardVarying
     // The model's +Y axis in world space (normal matrix), for the object-space tangent frame
     // a material without normal, clearcoat-normal or height maps builds its anisotropy on.
     [[vk::location(9)]] float3 objectUp : TEXCOORD8;
+    // A hardware-instanced draw's per-instance visibility-range fade (VT_FEATURE_LOD_FADE_INSTANCED,
+    // forwardInstanced), 1 everywhere else.
+    [[vk::location(10)]] nointerpolation float lodFade : TEXCOORD9;
 };
 
 // What a vertex entry hands on. In the shadow program that is only what a shadow fragment
@@ -384,6 +387,7 @@ struct ForwardVertexOut
     [[vk::location(0)]] float3 worldPos : TEXCOORD0;
     [[vk::location(2)]] float2 uv0 : TEXCOORD2;
     [[vk::location(3)]] float2 uv1 : TEXCOORD3;
+    [[vk::location(10)]] nointerpolation float lodFade : TEXCOORD9;
 };
 ForwardVertexOut forwardVertexOut(ForwardVarying v)
 {
@@ -392,6 +396,7 @@ ForwardVertexOut forwardVertexOut(ForwardVarying v)
     o.worldPos = v.worldPos;
     o.uv0 = v.uv0;
     o.uv1 = v.uv1;
+    o.lodFade = v.lodFade;
     return o;
 }
 #else

@@ -61,33 +61,56 @@ namespace visutwin::canvas
         return true;
     }
 
-    float MeshInstance::visibilityFadeFrom(const Vector3& viewer)
+    VisibilityState MeshInstance::visibilityFrom(const Vector3& viewer)
     {
         if (!_visibilityRange.limits()) {
-            return 1.0f;
+            return {};
         }
-        return _visibilityRange.fadeAt((aabb().center() - viewer).length());
+        const BoundingBox bounds = aabb();
+        if (_visibilityRange.perInstance && _instancingData.vertexBuffer && _instancingData.count > 0) {
+            // Every instance's origin lies within the instances' combined bounds, so its
+            // distance lies between the box's nearest point and its farthest corner.
+            const Vector3 offset = (viewer - bounds.center()).abs();
+            const Vector3 half = bounds.halfExtents();
+            const float nearest = Vector3::max(offset - half, Vector3(0.0f)).length();
+            const float farthest = (offset + half).length();
+            return perInstanceVisibility(_visibilityRange, nearest, farthest);
+        }
+        return {_visibilityRange.fadeAt((bounds.center() - viewer).length()), false};
     }
 
     const MaterialUniforms* MeshInstance::overriddenUniforms(const Material* material,
-        const ClipPlanes* cameraClip, float lodFade) const
+        const ClipPlanes* cameraClip, const LodFadeDraw* lod) const
     {
         if (cameraClip && cameraClip->empty()) {
             cameraClip = nullptr;
         }
-        if (!visibilityFadePartial(lodFade)) {
-            lodFade = 1.0f;
+        // A range drawn whole writes nothing; a partial whole-instance fade or a per-instance
+        // range does.
+        if (lod && !lod->state.perInstance && !visibilityFadePartial(lod->state.fade)) {
+            lod = nullptr;
         }
-        if ((_parameters.empty() && _clip.empty() && !cameraClip && lodFade == 1.0f) || !material) {
+        if ((_parameters.empty() && _clip.empty() && !cameraClip && !lod) || !material) {
             return nullptr;
         }
+        const auto sameLod = [&] {
+            if (!lod || !_overrideHasLod) {
+                return !lod && !_overrideHasLod;
+            }
+            return lod->state.fade == _overrideLod.state.fade &&
+                lod->state.perInstance == _overrideLod.state.perInstance &&
+                lod->viewer.getX() == _overrideLod.viewer.getX() && lod->viewer.getY() == _overrideLod.viewer.getY() &&
+                lod->viewer.getZ() == _overrideLod.viewer.getZ() &&
+                lod->jitter[0] == _overrideLod.jitter[0] && lod->jitter[1] == _overrideLod.jitter[1] &&
+                _visibilityRange == _overrideLodRange;
+        };
         const uint64_t clipVersion = _clip.version();
         const uint64_t cameraClipVersion = cameraClip ? cameraClip->version() : 0;
         // packedUniforms() first: it can move the material's version.
         const MaterialUniforms& base = material->packedUniforms();
         if (!_overrideBlock || _parametersChanged || material != _overrideMaterial ||
             material->uniformsVersion() != _overrideMaterialVersion || clipVersion != _overrideClipVersion ||
-            cameraClipVersion != _overrideCameraClipVersion || lodFade != _overrideLodFade) {
+            cameraClipVersion != _overrideCameraClipVersion || !sameLod()) {
             if (!_overrideBlock) {
                 _overrideBlock = std::make_unique<MaterialUniforms>();
             }
@@ -101,8 +124,21 @@ namespace visutwin::canvas
                 _overrideBlock->clipParams[2] = static_cast<float>(cameraClip->planes().size());
                 _overrideBlock->clipParams[3] = cameraClip->intersection() ? 1.0f : 0.0f;
             }
-            _overrideBlock->lodFadeParams[0] = lodFade == 1.0f ? 0.0f : lodFade;
-            _overrideLodFade = lodFade;
+            if (lod) {
+                _overrideBlock->lodFadeParams[0] = lod->state.perInstance ? 0.0f : lod->state.fade;
+                _overrideBlock->lodFadeParams[1] = lod->jitter[0];
+                _overrideBlock->lodFadeParams[2] = lod->jitter[1];
+                _overrideBlock->lodViewerParams[0] = lod->viewer.getX();
+                _overrideBlock->lodViewerParams[1] = lod->viewer.getY();
+                _overrideBlock->lodViewerParams[2] = lod->viewer.getZ();
+                _overrideBlock->lodRangeParams[0] = _visibilityRange.fadeInStart;
+                _overrideBlock->lodRangeParams[1] = _visibilityRange.fadeInEnd;
+                _overrideBlock->lodRangeParams[2] = _visibilityRange.fadeOutStart;
+                _overrideBlock->lodRangeParams[3] = _visibilityRange.fadeOutEnd;
+                _overrideLod = *lod;
+                _overrideLodRange = _visibilityRange;
+            }
+            _overrideHasLod = lod != nullptr;
             _overrideMaterial = material;
             _overrideMaterialVersion = material->uniformsVersion();
             _overrideClipVersion = clipVersion;

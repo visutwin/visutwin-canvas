@@ -173,11 +173,19 @@ namespace visutwin::canvas
         /// The block a draw of this instance with `material` uploads: the material's packed
         /// block with the overrides applied and the clipping planes written in (the
         /// instance's own, and `cameraClip`, the planes of the camera the draw is for), and
-        /// `lodFade`, the visibility range's fade at that camera (visibilityFadeFrom; 0 or 1:
-        /// none), rebuilt only when any of them changed. Null when the instance overrides
+        /// `lod`, the visibility range at that pass's viewer (null, or drawn whole: none),
+        /// rebuilt only when any of them changed. Null when the instance overrides
         /// nothing and nothing clips or fades it (the material's own block is used).
+        /// What a draw writes into the copy for the visibility range: the state at the pass's
+        /// viewer (visibilityFrom), that viewer, and the noise offset (the camera's dither jitter).
+        struct LodFadeDraw
+        {
+            VisibilityState state;
+            Vector3 viewer;
+            float jitter[2] = {0.0f, 0.0f};
+        };
         const MaterialUniforms* overriddenUniforms(const Material* material,
-            const ClipPlanes* cameraClip = nullptr, float lodFade = 1.0f) const;
+            const ClipPlanes* cameraClip = nullptr, const LodFadeDraw* lod = nullptr) const;
         /// Names the block overriddenUniforms() last returned: unique across all materials
         /// and instances, so a backend can key a per-frame reuse on (block, version).
         uint64_t overriddenUniformsVersion() const { return _overrideVersion; }
@@ -218,9 +226,11 @@ namespace visutwin::canvas
             _visibilityRange = range;
         }
         const VisibilityRange& visibilityRange() const { return _visibilityRange; }
-        /// The range's fade (VisibilityRange::fadeAt) seen from `viewer`, a world position; 1
-        /// for an instance whose range limits nothing.
-        float visibilityFadeFrom(const Vector3& viewer);
+        /// What the range does seen from `viewer`, a world position: the whole instance's fade
+        /// from the centre of its bounds, or for a per-instance range on an instanced mesh the
+        /// verdict over its instances' bounds (perInstanceVisibility). Drawn whole for a range
+        /// that limits nothing.
+        VisibilityState visibilityFrom(const Vector3& viewer);
 
         bool cull() const { return _cull; }
         void setCull(const bool value) { bumpCullVersionIf(_cull != value); _cull = value; }
@@ -655,7 +665,9 @@ namespace visutwin::canvas
         mutable uint64_t _overrideClipVersion = 0;
         mutable uint64_t _overrideCameraClipVersion = 0;
         ClipPlanes _clip;
-        mutable float _overrideLodFade = 1.0f;
+        mutable LodFadeDraw _overrideLod;
+        mutable bool _overrideHasLod = false;
+        mutable VisibilityRange _overrideLodRange;
         VisibilityRange _visibilityRange;
         bool _cull = true;
         bool _screenSpace = false;

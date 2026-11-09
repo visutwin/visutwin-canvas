@@ -32,6 +32,9 @@ namespace visutwin::canvas
         // visibility range (MeshInstance::setVisibilityRange), every pass. A discard like the
         // planes', carried in the same copy of the material block, so it rides with them.
         CLIP_LOD_FADE = 4,
+        // The same, decided per instance of a hardware-instanced mesh in the vertex stage
+        // (VisibilityRange::perInstance).
+        CLIP_LOD_FADE_INSTANCED = 8,
     };
 
     class ClipPlanes

@@ -21,7 +21,7 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
     // What the clipping planes clip is not there in any pass: before the alpha test, the
     // pick output and everything else.
     applyClipPlanes(fragWorldPos);
-    applyLodFade(input.position.xy);
+    applyLodFade(input.position.xy, input.lodFade);
     // Skybox: sample the environment along the view direction and output it
     // directly — no surface lighting. The sky vertex stage carries the pre-transform
     // vertex position in the normal varying, which IS the view ray: the world position

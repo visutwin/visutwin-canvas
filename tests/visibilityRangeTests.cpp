@@ -144,7 +144,8 @@ int main()
     {
         StandardMaterial material;
         MeshInstance instance(static_cast<Mesh*>(nullptr), &material);
-        check(instance.visibilityFadeFrom(Vector3(0.0f, 0.0f, 100.0f)) == 1.0f, "no range: drawn from anywhere");
+        const VisibilityState whole = instance.visibilityFrom(Vector3(0.0f, 0.0f, 100.0f));
+        check(whole.fade == 1.0f && !whole.perInstance && !whole.hidden(), "no range: drawn from anywhere");
         const uint64_t before = CullVersion::current();
         instance.setVisibilityRange(nearLevel);
         check(CullVersion::current() != before, "a new range moves the cull version");
@@ -152,19 +153,69 @@ int main()
         instance.setVisibilityRange(nearLevel);
         check(CullVersion::current() == after, "the same range does not");
 
-        check(instance.overriddenUniforms(&material, nullptr, 1.0f) == nullptr, "drawn whole: no block");
-        const MaterialUniforms* block = instance.overriddenUniforms(&material, nullptr, 0.25f);
+        const auto draw = [](const float fade, const float jitterX = 0.0f) {
+            MeshInstance::LodFadeDraw lod;
+            lod.state.fade = fade;
+            lod.viewer = Vector3(1.0f, 2.0f, 3.0f);
+            lod.jitter[0] = jitterX;
+            lod.jitter[1] = 0.5f;
+            return lod;
+        };
+        const MeshInstance::LodFadeDraw wholeDraw = draw(1.0f);
+        check(instance.overriddenUniforms(&material, nullptr, &wholeDraw) == nullptr, "drawn whole: no block");
+        const MeshInstance::LodFadeDraw quarter = draw(0.25f, 0.125f);
+        const MaterialUniforms* block = instance.overriddenUniforms(&material, nullptr, &quarter);
         check(block && block->lodFadeParams[0] == 0.25f, "in a band: a block carrying the fade");
+        check(block && block->lodFadeParams[1] == 0.125f && block->lodFadeParams[2] == 0.5f,
+            "and the noise offset (the camera's dither jitter)");
         const uint64_t version = instance.overriddenUniformsVersion();
-        block = instance.overriddenUniforms(&material, nullptr, -0.75f);
-        check(block && block->lodFadeParams[0] == -0.75f && instance.overriddenUniformsVersion() != version,
+        const MeshInstance::LodFadeDraw quarterNextFrame = draw(0.25f, 0.375f);
+        block = instance.overriddenUniforms(&material, nullptr, &quarterNextFrame);
+        check(block && block->lodFadeParams[1] == 0.375f && instance.overriddenUniformsVersion() != version,
+            "a new jitter (the next TAA frame) moves the version");
+        const uint64_t jitterVersion = instance.overriddenUniformsVersion();
+        const MeshInstance::LodFadeDraw fadingIn = draw(-0.75f, 0.375f);
+        block = instance.overriddenUniforms(&material, nullptr, &fadingIn);
+        check(block && block->lodFadeParams[0] == -0.75f && instance.overriddenUniformsVersion() != jitterVersion,
             "another fade moves the version");
         instance.setClippingPlanes(std::vector<Plane>{Plane(Vector3(1.0f, 0.0f, 0.0f), 0.0f)});
-        block = instance.overriddenUniforms(&material, nullptr, 1.0f);
+        block = instance.overriddenUniforms(&material, nullptr, &wholeDraw);
         check(block && block->lodFadeParams[0] == 0.0f && block->clipParams[0] == 1.0f,
             "a clipped instance drawn whole carries no fade");
         auto clone = instance.cloneFor(nullptr);
         check(clone->visibilityRange() == nearLevel, "a clone carries the range");
+    }
+
+    std::cout << "per-instance ranges\n";
+    {
+        // Instances lying 5 to 20 units away against [0, 0, 10, 12]: some whole, some fading, some hidden.
+        check(perInstanceVisibility(nearLevel, 5.0f, 20.0f).perInstance, "a spread across the band: per instance");
+        check(perInstanceVisibility(nearLevel, 12.0f, 30.0f).hidden(), "all beyond the end: hidden whole");
+        const VisibilityState inside = perInstanceVisibility(nearLevel, 1.0f, 9.5f);
+        check(!inside.perInstance && inside.fade == 1.0f, "all short of the band: drawn whole, no per-instance variant");
+        check(perInstanceVisibility(farLevel, 1.0f, 9.0f).hidden(), "all nearer than a far level's band: hidden");
+        check(perInstanceVisibility(farLevel, 1.0f, 10.5f).perInstance, "one reaching into the band: per instance");
+
+        StandardMaterial material;
+        MeshInstance instance(static_cast<Mesh*>(nullptr), &material);
+        VisibilityRange range = nearLevel;
+        range.perInstance = true;
+        instance.setVisibilityRange(range);
+        const VisibilityState notInstanced = instance.visibilityFrom(Vector3(0.0f, 0.0f, 11.0f));
+        check(!notInstanced.perInstance && notInstanced.fade == 0.5f,
+            "without instancing the flag is ignored: the whole instance fades");
+        MeshInstance::LodFadeDraw lod;
+        lod.state.perInstance = true;
+        lod.viewer = Vector3(4.0f, 5.0f, 6.0f);
+        const MaterialUniforms* block = instance.overriddenUniforms(&material, nullptr, &lod);
+        check(block && block->lodFadeParams[0] == 0.0f && block->lodViewerParams[0] == 4.0f &&
+                  block->lodViewerParams[2] == 6.0f && block->lodRangeParams[0] == 0.0f &&
+                  block->lodRangeParams[2] == 10.0f && block->lodRangeParams[3] == 12.0f,
+            "a per-instance draw carries the viewer and the range for the vertex stage");
+        lod.viewer = Vector3(4.0f, 5.0f, 7.0f);
+        const uint64_t version = instance.overriddenUniformsVersion();
+        instance.overriddenUniforms(&material, nullptr, &lod);
+        check(instance.overriddenUniformsVersion() != version, "another viewer (a shadow pass) moves the version");
     }
 
     std::cout << "variants\n";
@@ -177,6 +228,14 @@ int main()
             false, CLIP_LOD_FADE);
         check(plain && !plain->features().test(ShaderFeature::LodFade), "a whole draw: no fade (no discard)");
         check(fading && fading->features().test(ShaderFeature::LodFade) && fading != plain, "a fading draw's variant");
+        const auto instancedFade = library.getForwardShader(&material, false, false, false, false, true, false, false,
+            false, CLIP_LOD_FADE_INSTANCED);
+        check(instancedFade && instancedFade->features().test(ShaderFeature::LodFadeInstanced) &&
+                  !instancedFade->features().test(ShaderFeature::LodFade), "a per-instance draw's variant");
+        const auto instancedShadow = library.getShadowShader(nullptr, false, false, false, true, false, false,
+            CLIP_LOD_FADE_INSTANCED);
+        check(instancedShadow && instancedShadow->features().test(ShaderFeature::LodFadeInstanced) &&
+                  !instancedShadow->fragmentEntry().empty(), "and its shadow, which dithers in a fragment stage");
         const auto shadow = library.getShadowShader(nullptr, false, false, false, false, false, false, CLIP_LOD_FADE);
         check(shadow && shadow->features().test(ShaderFeature::LodFade) && !shadow->fragmentEntry().empty(),
             "a fading caster fades its shadow, in a fragment stage");

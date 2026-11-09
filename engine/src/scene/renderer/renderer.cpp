@@ -632,7 +632,7 @@ namespace visutwin::canvas
             }
             // Outside its visibility range, as outside the frustum. A set reused while the
             // frustum is unchanged keeps this answer: the camera has not moved.
-            if (hasCameraFrustum && !material->isSkybox() && meshInstance->visibilityFadeFrom(cameraPosition) == 0.0f) {
+            if (hasCameraFrustum && !material->isSkybox() && meshInstance->visibilityFrom(cameraPosition).hidden()) {
                 return Bucket::None;
             }
 
@@ -1899,6 +1899,8 @@ namespace visutwin::canvas
             Material* defaultMaterial;
             bool transparent;
             bool clusteredEnabled;
+            // The visibility range's noise offset: the camera's dither jitter (Renderer::ditherJitterFor).
+            float lodJitter[2] = {0.0f, 0.0f};
         };
 
         /// The inputs ProgramLibrary::bindMaterial resolves a variant from. The
@@ -1921,10 +1923,10 @@ namespace visutwin::canvas
         };
 
         /// What a draw contributes to its shader variant, read off its mesh instance;
-        /// `cameraClipped`: the camera the draw is for has clipping planes; `lodFade`: the
-        /// instance's visibility-range fade at that camera (MeshInstance::visibilityFadeFrom).
+        /// `cameraClipped`: the camera the draw is for has clipping planes; `lod`: the
+        /// instance's visibility range at that camera (MeshInstance::visibilityFrom).
         ShaderVariantInputs shaderVariantInputs(const MeshInstance* meshInstance, const Material* boundMaterial,
-            const bool cameraClipped, const float lodFade = 1.0f)
+            const bool cameraClipped, const VisibilityState& lod = {})
         {
             ShaderVariantInputs variant;
             variant.material = boundMaterial;
@@ -1957,8 +1959,12 @@ namespace visutwin::canvas
                 variant.clipPlanes |= CLIP_PLANES_MESH;
             }
             // Fades through the same copy of the material block as the planes.
-            if (visibilityFadePartial(lodFade) && meshInstance->material() && !meshInstance->material()->isSkybox()) {
-                variant.clipPlanes |= CLIP_LOD_FADE;
+            if (meshInstance->material() && !meshInstance->material()->isSkybox()) {
+                if (lod.perInstance && variant.instanced) {
+                    variant.clipPlanes |= CLIP_LOD_FADE_INSTANCED;
+                } else if (!lod.perInstance && visibilityFadePartial(lod.fade)) {
+                    variant.clipPlanes |= CLIP_LOD_FADE;
+                }
             }
             return variant;
         }
@@ -2290,10 +2296,15 @@ namespace visutwin::canvas
 
                 // The visibility range at this camera: the cull dropped what it hides, so only a
                 // fade band is left to see here.
-                const float lodFade = meshInstance && ctx.view.cameraNode
-                    ? meshInstance->visibilityFadeFrom(ctx.view.position) : 1.0f;
+                MeshInstance::LodFadeDraw lod;
+                if (meshInstance && ctx.view.cameraNode) {
+                    lod.state = meshInstance->visibilityFrom(ctx.view.position);
+                    lod.viewer = ctx.view.position;
+                    lod.jitter[0] = ctx.lodJitter[0];
+                    lod.jitter[1] = ctx.lodJitter[1];
+                }
                 const ShaderVariantInputs variant = shaderVariantInputs(meshInstance, boundMaterial,
-                    !cameraClip.empty(), lodFade);
+                    !cameraClip.empty(), lod.state);
 
                 device.setInstanceLightMap(instanceLightMap);
                 // The instance's parameter overrides, applied over the bound material's block,
@@ -2302,7 +2313,7 @@ namespace visutwin::canvas
                 const MaterialUniforms* instanceUniforms = meshInstance && entry->material
                     ? meshInstance->overriddenUniforms(boundMaterial,
                         (variant.clipPlanes & CLIP_PLANES_CAMERA) ? &cameraClip : nullptr,
-                        (variant.clipPlanes & CLIP_LOD_FADE) ? lodFade : 1.0f)
+                        (variant.clipPlanes & (CLIP_LOD_FADE | CLIP_LOD_FADE_INSTANCED)) ? &lod : nullptr)
                     : nullptr;
                 device.setInstanceMaterialUniforms(instanceUniforms,
                     instanceUniforms ? meshInstance->overriddenUniformsVersion() : 0);
@@ -2539,6 +2550,18 @@ namespace visutwin::canvas
             [](const MeshInstance* meshInstance) { return meshInstance ? meshInstance->material() : nullptr; });
     }
 
+    Vector4 Renderer::ditherJitterFor(const Camera* camera)
+    {
+        if (!camera || camera->jitter() <= 0.0f) {
+            return Vector4(0.0f, 0.0f, 0.0f, 0.0f);
+        }
+        if (_blueNoiseJitterVersion != _device->renderVersion()) {
+            _blueNoiseJitterVersion = _device->renderVersion();
+            _blueNoiseJitter = _blueNoise.vec4();
+        }
+        return _blueNoiseJitter;
+    }
+
     void Renderer::renderForwardLayer(Camera* camera, RenderTarget* renderTarget, Layer* layer, bool transparent)
     {
         if (!camera || !layer || !_device) {
@@ -2659,17 +2682,10 @@ namespace visutwin::canvas
 
         bindLayerEnvironment(*_device, _scene.get(), view);
 
-        // The opacity dither moves with the TAA jitter, one step
-        // a frame, and stands still for a camera that does not jitter.
-        if (camera->jitter() > 0.0f) {
-            if (_blueNoiseJitterVersion != _device->renderVersion()) {
-                _blueNoiseJitterVersion = _device->renderVersion();
-                _blueNoiseJitter = _blueNoise.vec4();
-            }
-            _device->setDitherJitter(_blueNoiseJitter);
-        } else {
-            _device->setDitherJitter(Vector4(0.0f, 0.0f, 0.0f, 0.0f));
-        }
+        // The opacity dither and the visibility range's dither move with the TAA jitter, one
+        // step a frame, and stand still for a camera that does not jitter.
+        const Vector4 ditherJitter = ditherJitterFor(camera);
+        _device->setDitherJitter(ditherJitter);
 
         if (clusteredEnabled) {
             static thread_local std::vector<ClusterLightData> clusterLights;
@@ -2693,6 +2709,7 @@ namespace visutwin::canvas
             .defaultMaterial = defaultMaterial.get(),
             .transparent = transparent,
             .clusteredEnabled = clusteredEnabled,
+            .lodJitter = {ditherJitter.getX(), ditherJitter.getY()},
         }, drawEntries);
     }
 }

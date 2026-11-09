@@ -144,6 +144,11 @@ namespace visutwin::canvas
         // Its levels of detail as the scene pass draws them.
         const Vector3 cameraPosition = camera->node() ? camera->node()->position() : Vector3();
         shaders.lodViewer = camera->node() ? &cameraPosition : nullptr;
+        if (_renderer) {
+            const Vector4 jitter = _renderer->ditherJitterFor(camera);
+            shaders.lodJitter[0] = jitter.getX();
+            shaders.lodJitter[1] = jitter.getY();
+        }
         if (!shaders.plain) {
             static bool warned = false;
             if (!warned) {

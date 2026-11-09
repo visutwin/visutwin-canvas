@@ -160,6 +160,7 @@ ForwardVarying forwardFinish(float4 world, float4 clip, float3x3 normalMatrix, f
     // clip.w is the view depth under a perspective projection: the cascade pick and fog.
     o.viewDepth = clip.w;
     o.color = float4(1.0, 1.0, 1.0, 1.0);
+    o.lodFade = 1.0;
 #if defined(VT_SHADOW_PROGRAM)
     // A shadow fragment reads the position, the world position and the UVs alone; constants
     // here let the compiler drop the normal frame (and a skinned draw's normal blend), which
@@ -370,8 +371,19 @@ ForwardVarying forwardInstanced(ForwardVertexIn input, float4x4 instance)
     const float4 world = mul(float4(position, 1.0), model);
     // The bare 3x3 carries the normal (uniform-scale instances).
     const float3x3 normalMatrix = float3x3(model[0].xyz, model[1].xyz, model[2].xyz);
-    return forwardFinish(world, forwardClip(world), normalMatrix, normal, tangent, input.uv0,
+    ForwardVarying o = forwardFinish(world, forwardClip(world), normalMatrix, normal, tangent, input.uv0,
         input.uv1, drawModel());
+    // A per-instance visibility range: the instance's own fade, from its origin's distance to the
+    // pass's viewer; an instance it hides is moved out of the clip volume whole, so it costs no
+    // fragments (every vertex of it lands at the same point outside).
+    if (vtFeatureEnabled(VT_FEATURE_LOD_FADE_INSTANCED_BIT)) {
+        const float3 origin = mul(float4(0.0, 0.0, 0.0, 1.0), model).xyz;
+        o.lodFade = lodFadeAtDistance(distance(origin, material.lodViewerParams.xyz));
+        if (o.lodFade == 0.0) {
+            o.position = float4(2.0, 2.0, 2.0, 1.0);
+        }
+    }
+    return o;
 }
 
 ForwardVertexIn forwardVertexOf(ForwardInstancedVertexIn input)

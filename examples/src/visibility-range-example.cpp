@@ -8,7 +8,7 @@
 // crossfading neighbouring levels with complementary dithers.
 //
 // A field of 5 x 9 markers, 6 units apart, on a grey ground 80 units square (receiving
-// shadows, casting none). Each marker is
+// shadows, casting none). Each marker is 1.6 units across on every axis and is
 // three mesh instances at one spot, coloured so the level shows: a green sphere (the near
 // level, drawn up to 12 units and fading out by 16), a yellow cylinder (fading in over 12-16,
 // out over 28-32) and a red box (fading in over 28-32, drawn beyond). The distance is from the
@@ -19,12 +19,22 @@
 // back over 20 seconds, so the bands sweep through the field: nearest green, then yellow, then
 // red, with a dithered crossfade wherever a marker sits in a band.
 //
+// The same field drawn instanced (key 3) is one hardware-instanced mesh per level, 45 instances
+// each, with a PER-INSTANCE range: each instance is measured from its own origin and faded or
+// hidden in the vertex stage, and must look exactly like the separate entities. Under TAA (key T)
+// the dither changes with the jitter every frame, so the crossfade resolves to a smooth blend.
+//
 // Keys:
 //   1  bands 4 units wide / hard switches at 14 and 30 (bands)
 //   2  pause / resume the dolly
+//   3  separate entities / one instanced mesh per level (separate)
+//   T  TAA on / off (off)
+// VISUTWIN_VR_INSTANCED=1 starts instanced and VISUTWIN_VR_TAA=1 with TAA (for captures).
 //
 #include <array>
 #include <cmath>
+#include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <numbers>
 #include <string>
@@ -33,6 +43,7 @@
 #include "../exampleApp.h"
 #include "framework/components/camera/cameraComponent.h"
 #include "framework/components/render/renderComponent.h"
+#include "platform/graphics/vertexFormat.h"
 #include "scene/materials/standardMaterial.h"
 #include "scene/visibilityRange.h"
 
@@ -51,6 +62,7 @@ namespace
     // Where each level changes to the next, and the width of its band.
     constexpr std::array<float, 2> kSwitchDistances = {14.0f, 30.0f};
     constexpr float kBandWidth = 4.0f;
+    constexpr float kMarkerSize = 1.6f;
 }
 
 class VisibilityRangeExample final : public ExampleApp
@@ -84,22 +96,48 @@ protected:
             render->setCastShadows(false);
         }
 
+        // A uniform scale, so the instanced draws (which carry normals by the bare 3x3) shade the
+        // markers as the separate entities (inverse transpose) do.
+        const Vector3 markerScale(kMarkerSize, kMarkerSize, kMarkerSize);
+        std::vector<uint8_t> instanceBytes;
         for (int row = 0; row < kRows; ++row) {
             for (int column = 0; column < kColumns; ++column) {
                 const Vector3 position((static_cast<float>(column) - (kColumns - 1) * 0.5f) * kSpacing, 1.0f,
                     -static_cast<float>(row) * kSpacing);
                 for (size_t level = 0; level < levelShapes.size(); ++level) {
                     Entity* marker = createPrimitive(levelShapes[level], levelMaterials[level], position,
-                        Vector3(1.6f, 2.0f, 1.6f));
+                        markerScale);
                     marker->setName("Marker-" + std::to_string(row) + "-" + std::to_string(column) + "-" +
                         std::to_string(level));
+                    _separate.push_back(marker);
                     if (auto* render = marker->findComponent<RenderComponent>()) {
                         for (MeshInstance* meshInstance : render->meshInstances()) {
-                            _levels.push_back({meshInstance, static_cast<int>(level)});
+                            _levels.push_back({meshInstance, static_cast<int>(level), false});
                         }
                     }
                 }
+                const Matrix4 matrix = Matrix4::trs(position, Quaternion(), markerScale);
+                const size_t offset = instanceBytes.size();
+                instanceBytes.resize(offset + VertexFormat::INSTANCING_MATRIX_SIZE);
+                std::memcpy(instanceBytes.data() + offset, &matrix, VertexFormat::INSTANCING_MATRIX_SIZE);
             }
+        }
+        // One instanced mesh per level, all 45 markers in one draw.
+        for (size_t level = 0; level < levelShapes.size(); ++level) {
+            Entity* field = createPrimitive(levelShapes[level], levelMaterials[level], Vector3(0.0f, 0.0f, 0.0f),
+                Vector3(1.0f, 1.0f, 1.0f));
+            field->setName(std::string("InstancedField-") + std::to_string(level));
+            VertexBufferOptions options;
+            options.data = instanceBytes;
+            auto buffer = device()->createVertexBuffer(VertexFormat::defaultInstancingFormat(),
+                kRows * kColumns, options);
+            if (auto* render = field->findComponent<RenderComponent>()) {
+                for (MeshInstance* meshInstance : render->meshInstances()) {
+                    meshInstance->setInstancing(buffer, kRows * kColumns);
+                    _levels.push_back({meshInstance, static_cast<int>(level), true});
+                }
+            }
+            _instanced.push_back(field);
         }
 
         Entity* light = createDirectionalLight(Vector3(-50.0f, 30.0f, 0.0f), Color(1.0f, 1.0f, 1.0f, 1.0f), 1.2f);
@@ -111,11 +149,19 @@ protected:
 
         Entity* camera = createCamera(Vector3(0.0f, kCameraHeight, kDollyNear));
         _cameraEntity = camera;
+        _camera = camera->findComponent<CameraComponent>();
         camera->findComponent<CameraComponent>()->camera()->setClearColor(Color(0.55f, 0.65f, 0.8f, 1.0f));
         placeCamera();
 
+        if (const char* value = std::getenv("VISUTWIN_VR_INSTANCED"); value && value[0] == '1') {
+            _useInstanced = true;
+        }
+        if (const char* value = std::getenv("VISUTWIN_VR_TAA"); value && value[0] == '1') {
+            _taa = true;
+        }
+        applyMode();
         applyRanges();
-        spdlog::info("Keys: 1 crossfade bands / hard switches, 2 pause the dolly");
+        spdlog::info("Keys: 1 crossfade bands / hard switches, 2 pause the dolly, 3 instanced, T TAA");
         return true;
     }
 
@@ -134,6 +180,12 @@ protected:
             applyRanges();
         } else if (keyboard->wasPressed(Key::Digit2)) {
             _paused = !_paused;
+        } else if (keyboard->wasPressed(Key::Digit3)) {
+            _useInstanced = !_useInstanced;
+            applyMode();
+        } else if (keyboard->wasPressed(Key::T)) {
+            _taa = !_taa;
+            applyMode();
         }
     }
 
@@ -142,7 +194,23 @@ private:
     {
         MeshInstance* meshInstance;
         int level;
+        bool instanced;
     };
+
+    void applyMode()
+    {
+        for (Entity* entity : _separate) {
+            entity->setEnabled(!_useInstanced);
+        }
+        for (Entity* entity : _instanced) {
+            entity->setEnabled(_useInstanced);
+        }
+        if (_camera) {
+            _camera->setTaaEnabled(_taa);
+        }
+        spdlog::info("Markers drawn {}, TAA {}", _useInstanced ? "instanced (a range per instance)" :
+            "as separate entities", _taa ? "on" : "off");
+    }
 
     void placeCamera()
     {
@@ -169,6 +237,7 @@ private:
                 range.fadeOutStart = at - half;
                 range.fadeOutEnd = at + half;
             }
+            range.perInstance = entry.instanced;
             entry.meshInstance->setVisibilityRange(range);
         }
         spdlog::info("Levels switch at {} and {} units, {}", kSwitchDistances[0], kSwitchDistances[1],
@@ -182,6 +251,11 @@ private:
     float _time = 0.0f;
     bool _bands = true;
     bool _paused = false;
+    bool _useInstanced = false;
+    bool _taa = false;
+    CameraComponent* _camera = nullptr;
+    std::vector<Entity*> _separate;
+    std::vector<Entity*> _instanced;
 };
 
 VISUTWIN_EXAMPLE_MAIN(VisibilityRangeExample)

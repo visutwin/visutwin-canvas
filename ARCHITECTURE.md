@@ -692,7 +692,7 @@ their own (the gloss map has no tiling).
 Example: `refraction-example.cpp` (port of upstream `materials/material-refraction`).
 
 ### Material System
-- `Material` base: glTF PBR metallic-roughness, `MaterialUniforms` struct (1072 bytes, emitted from `materialUniformFields.h`) matches GPU `MaterialData`
+- `Material` base: glTF PBR metallic-roughness, `MaterialUniforms` struct (1104 bytes, emitted from `materialUniformFields.h`) matches GPU `MaterialData`
 - **Clipping planes** (`MeshInstance` / `RenderComponent` / `Camera` / `CameraComponent` `setClippingPlanes` + `setClipIntersection`, the `ClipPlanes` value type in `scene/clipPlanes.h`): up to eight world-space planes per set, a fragment behind ANY plane of a set discarded, or under intersection one behind ALL of them; the mesh instance's set and its camera's are tested one after the other. Both ride in the mesh instance's copy of its material block (`overriddenUniforms(material, cameraClip)`: `clipPlanes`, `cameraClipPlanes`, `clipParams`), so moving planes compiles nothing; the variant comes from two draw flags (`ClipPlaneSets`, `VT_FEATURE_CLIP_PLANES_MESH` / `_CAMERA`), so an unclipped variant has no discard. `forward/common-clip-planes.slang :: applyClipPlanes` is the first statement of `forwardFragment` (picking included) and of the shadow program's `applyShadowOpacity`; a clipped caster gets a fragment stage. The mesh planes clip every pass, shadows included; the camera's clip its forward, pick and depth-prepass draws (`DepthOnlyShaders::cameraClip`), never a shadow, a screen-space element or the sky. A draw needs a material of its own to be clipped (the planes live in its block). A render component hands its planes and mode to every mesh instance it has or gets, replacing planes set on them directly; a clipped mesh instance's entity is not batched (the batch group is torn down when clipping comes or goes). DEVIATION: upstream sets the camera planes as view uniforms; here they ride in the per-draw block, which the depth prepass also binds. `VISUTWIN_CLIP_PLANE` drives either set on any example; `clipping-planes` (upstream's turbofan cutaway) shows both modes, its section capped by red back faces drawn with the same planes. A visibility range's crossfade takes the same route (the third flag, `CLIP_LOD_FADE`, and `lodFadeParams`; see the visibility ranges note in the design directions).
 - Parameter overrides: `Material::setParameter` and `MeshInstance::setParameter` both go through
   `Material::applyParameterOverrides`, which reads the material's names (`material_diffuse`,
@@ -2426,12 +2426,34 @@ four distances (fade in from, drawn whole from, fade out from, hidden from), mea
 camera to the centre of the instance's world bounds. Outside it the cull sweep drops the
 instance; inside a band the fade rides the clipping planes' route, a third draw flag
 (`CLIP_LOD_FADE`, `VT_FEATURE_LOD_FADE`) and a lane of the instance's copy of its material
-block (`lodFadeParams`, which grew `MaterialUniforms` and the per-draw slot to 1072 bytes), so
-the dither costs only the draws inside a band. The two levels of a band take complementary
-halves of one blue-noise pattern (f against -(1 - f)), which cover every pixel once. Shadows
-follow the camera the shadow is rendered for. Not done: a fade measured in the shader from
-per-instance data (Bevy's route, which would also fade hardware instances one by one), and
-TAA-jittered noise, which would let TAA turn the dither into a blend. Verified:
+block (`lodFadeParams`, with `lodViewerParams` and `lodRangeParams` for per-instance ranges,
+which grew `MaterialUniforms` and the per-draw slot to 1104 bytes), so the dither costs only
+the draws inside a band. The two levels of a band take complementary halves of one blue-noise
+pattern (f against -(1 - f)), which cover every pixel once. Shadows follow the camera the
+shadow is rendered for.
+
+Two follow-ups landed the same week (2026-11-09):
+- TAA-jittered noise. The noise is offset by the camera's dither jitter (`Renderer::
+  ditherJitterFor`, the opacity dither's blue-noise step, written into `lodFadeParams.yz` by the
+  forward pass and the depth prepass alike; zero for shadows and for a camera that does not
+  jitter), so both levels stay complementary in every frame while the pattern moves, and TAA
+  resolves the crossfade into a blend. On `visibility-range` with time frozen, the crossfade
+  half of the frame's high-pass energy drops from 5.63 to 1.57 with TAA on.
+- Per-instance ranges for hardware-instanced meshes (`VisibilityRange::perInstance`). The
+  instanced vertex entry, under `VT_FEATURE_LOD_FADE_INSTANCED` (the fourth `ClipPlaneSets` bit),
+  measures each instance's origin from the pass's viewer (`lodViewerParams`, written per pass)
+  through `lodFadeAtDistance`, the shader twin of `VisibilityRange::fadeAt` over `lodRangeParams`;
+  a hidden instance is moved out of the clip volume whole, and the fade reaches the fragment as a
+  flat varying (`lodFade`, location 10, kept in the shadow program's outputs too). The CPU decides
+  only for the whole mesh, from the instances' combined bounds (`perInstanceVisibility`: hidden
+  when every distance from the box's nearest point to its farthest corner is hidden, whole when
+  every one is drawn whole, which needs no per-instance variant). `visibility-range` draws its
+  field either way: separate entities and one instanced mesh per level agree within 300 pixels
+  (at most 4 over 8 counts, the same on both backends: the shadow fit over the instanced
+  bounds), the dither patterns pixel for pixel. Not done: the GPU instance culler does not test
+  the range, so a hidden instance still costs its vertices.
+
+Verified:
 - `tests/visibilityRangeTests.cpp`: no pixel doubled or missing over 2,001 distances across a
   band at every one of the 256 noise values; the variants, the block, the cull, a reused cull
   set and the shadow casters on a stub engine.

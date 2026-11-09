@@ -1062,7 +1062,7 @@ sampler. A quad pass may draw a vertex buffer of its own instead of the fullscre
 (`RenderPassShaderQuad::setGeometry`, a triangle list in the standard 56-byte layout, written
 per frame into a ring of `maxFramesInFlight` buffers). The block rides the per-draw MATERIAL slot (Metal buffer 3 / Vulkan
 set 0 binding 0) via `GraphicsDevice::setQuadUniformData`; `kPerDrawUniformCapacity`
-(1072; `MaterialUniforms` itself is 1072 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
+(1104; `MaterialUniforms` itself is 1104 bytes and is asserted to fit) sizes that slot, the Vulkan material descriptor's range, and the padded
 allocation behind it. A smaller block is copied into the front of a full-size
 allocation, so never shorten the allocation. Quad passes draw an oversized
 fullscreen TRIANGLE and, on Metal, bind `_postSampler` (linear, clamp, no anisotropy),
@@ -3894,11 +3894,19 @@ present, but the rule below never depends on reading it.
   moved has a new frustum; `setVisibilityRange` bumps the `CullVersion`). Inside a fade band
   the draw takes `CLIP_LOD_FADE` (the third `ClipPlaneSets` bit, `VT_FEATURE_LOD_FADE`) and
   its signed fade in `MaterialUniforms::lodFadeParams.x` of the instance's copy of its block
-  (`overriddenUniforms(material, cameraClip, lodFade)`): f keeps the fragments whose
+  (`overriddenUniforms(material, cameraClip, &lodFadeDraw)`): f keeps the fragments whose
   blue-noise value is below f (fading out), -f those at or above 1 - f (fading in), so two
   levels meeting at one band split every pixel exactly once (`applyLodFade`, read without the
-  opacity dither's gamma and without TAA jitter, so both levels test the same value). A draw
-  drawn whole takes no fade variant, so a range costs an instance outside its bands nothing.
+  opacity dither's gamma, offset by the camera's TAA dither jitter in `lodFadeParams.yz`, which
+  both levels read alike, so TAA blends the crossfade; `Renderer::ditherJitterFor` gives the
+  forward pass and the depth prepass the same offset, a shadow none). A draw drawn whole takes
+  no fade variant, so a range costs an instance outside its bands nothing. A PER-INSTANCE range
+  (`VisibilityRange::perInstance`, a hardware-instanced mesh) takes `CLIP_LOD_FADE_INSTANCED`:
+  the instanced vertex entry measures each instance's origin from `lodViewerParams` (the pass's
+  viewer) against `lodRangeParams` through `lodFadeAtDistance`, the shader twin of
+  `VisibilityRange::fadeAt` (change both), collapses a hidden instance and hands the fade on as
+  the flat `lodFade` varying; the CPU only culls or skips the variant for the whole mesh from its
+  instances' bounds (`perInstanceVisibility`).
   Every depth-only pass applies it through `DepthOnlyShaders::lodViewer`: the prepass from
   its camera, a directional shadow from the camera it is fitted to, a local or bounded
   directional shadow from the frame's shadow-fit camera (`ShadowRenderer::lodViewer`, set in

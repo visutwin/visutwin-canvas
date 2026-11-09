@@ -46,6 +46,9 @@ namespace visutwin::canvas
         // setVisibilityRange): the camera the pass draws for, or for a shadow the camera it
         // is rendered for. Null applies no range.
         const Vector3* lodViewer = nullptr;
+        // The noise offset of the crossfade: the camera's dither jitter for the depth prepass, so
+        // its depth matches the forward pass's pattern; zero for a shadow.
+        float lodJitter[2] = {0.0f, 0.0f};
     };
 
     /**

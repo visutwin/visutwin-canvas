@@ -26,6 +26,10 @@ namespace visutwin::canvas
         float fadeInEnd = 0.0f;
         float fadeOutStart = kInfinity;
         float fadeOutEnd = kInfinity;
+        /// For a hardware-instanced mesh: each instance measured from its own origin and faded
+        /// or hidden on its own in the vertex stage, instead of the whole mesh from the centre
+        /// of its bounds. Ignored for a mesh drawn without instancing.
+        bool perInstance = false;
 
         /// Whether the range hides the instance at any distance (the default does not).
         bool limits() const { return fadeInEnd > 0.0f || fadeOutStart < kInfinity; }
@@ -58,6 +62,33 @@ namespace visutwin::canvas
 
         bool operator==(const VisibilityRange&) const = default;
     };
+
+    /// What a visibility range does to a mesh instance seen from one viewer.
+    struct VisibilityState
+    {
+        /// The whole instance's fade (VisibilityRange::fadeAt): 1 drawn whole, 0 hidden, a
+        /// signed fraction inside a band. Read only while `perInstance` is false.
+        float fade = 1.0f;
+        /// Each instance decides for itself in the vertex stage (VT_FEATURE_LOD_FADE_INSTANCED).
+        bool perInstance = false;
+
+        bool hidden() const { return !perInstance && fade == 0.0f; }
+    };
+
+    /// A per-instance range over instances lying `nearest` to `farthest` from the viewer: hidden
+    /// when every distance in that interval is hidden, whole when every one is drawn whole (no
+    /// per-instance variant needed), otherwise decided per instance.
+    inline VisibilityState perInstanceVisibility(const VisibilityRange& range, const float nearest,
+        const float farthest)
+    {
+        if (farthest < range.fadeInStart || nearest >= range.fadeOutEnd) {
+            return {0.0f, false};
+        }
+        if (nearest >= range.fadeInEnd && farthest < range.fadeOutStart) {
+            return {1.0f, false};
+        }
+        return {1.0f, true};
+    }
 
     /// Whether a fade value from VisibilityRange::fadeAt draws only part of the instance, which
     /// takes the dithered variant.

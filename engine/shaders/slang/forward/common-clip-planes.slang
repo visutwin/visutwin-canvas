@@ -47,21 +47,63 @@ void applyClipPlanes(float3 worldPos)
     }
 }
 
-// The visibility range's dithered crossfade (MeshInstance::setVisibilityRange), in the same copy
-// of the block: lodFadeParams.x = f keeps the fragments whose noise is below f (fading out), -f
-// those at or above 1 - f (fading in), so a level fading out and the next fading in over one band
-// split every pixel between them. The noise is the blue-noise texture of the opacity dither, read
-// LINEARLY (that dither's gamma would skew the fraction kept) and without the TAA jitter, so the
-// two levels test the same value at a pixel. Only in a variant with VT_FEATURE_LOD_FADE.
-void applyLodFade(float2 screenPos)
+// The visibility range's dithered crossfade (MeshInstance::setVisibilityRange), in the same copy of
+// the block. A fade f keeps the fragments whose noise is below f (fading out), -f those at or above
+// 1 - f (fading in), so a level fading out and the next fading in over one band split every pixel
+// between them. The noise is the blue-noise texture of the opacity dither, read LINEARLY (that
+// dither's gamma would skew the fraction kept) and offset by lodFadeParams.yz, the camera's TAA
+// dither jitter (0 for a shadow, and for a camera that does not jitter): both levels read the same
+// offset, so they stay complementary in every frame, and a new pattern each frame lets TAA blend
+// the two instead of showing the dither.
+float lodFadeNoise(float2 screenPos)
+{
+    const float2 uv = frac(screenPos / 32.0 + material.lodFadeParams.yz);
+    const uint2 texel = min(uint2(uv * 32.0), uint2(31u));
+    const uint index = texel.y * 32u + texel.x;
+    return float((kBlueNoise32[index >> 2u] >> ((index & 3u) * 8u)) & 0xFFu) / 255.0;
+}
+
+// The range's fade at a distance: the shader twin of VisibilityRange::fadeAt (visibilityRange.h),
+// over lodRangeParams (fade in from, drawn whole from, fade out from, hidden from). Change both.
+float lodFadeAtDistance(float distance)
+{
+    const float4 r = material.lodRangeParams;
+    if (distance >= r.w) {
+        return 0.0;
+    }
+    if (distance >= r.z) {
+        return (r.w - distance) / (r.w - r.z);
+    }
+    if (distance < r.x) {
+        return 0.0;
+    }
+    if (distance < r.y) {
+        const float f = (distance - r.x) / (r.y - r.x);
+        return f > 0.0 ? -f : 0.0;
+    }
+    return 1.0;
+}
+
+void applyLodFadeValue(float2 screenPos, float fade)
+{
+    if (fade >= 1.0) {
+        return;
+    }
+    const float noise = lodFadeNoise(screenPos);
+    if (fade == 0.0 || (fade > 0.0 ? noise >= fade : noise < 1.0 + fade)) {
+        discard;
+    }
+}
+
+// `instanceFade`: the fade the instanced vertex stage computed for this instance (the
+// ForwardVarying's lodFade), read under VT_FEATURE_LOD_FADE_INSTANCED; the whole instance's
+// fade comes from the block under VT_FEATURE_LOD_FADE. Neither variant: no discard at all.
+void applyLodFade(float2 screenPos, float instanceFade)
 {
     if (vtFeatureEnabled(VT_FEATURE_LOD_FADE_BIT)) {
-        const uint2 texel = uint2(glslMod(floor(screenPos), 32.0));
-        const uint index = texel.y * 32u + texel.x;
-        const float noise = float((kBlueNoise32[index >> 2u] >> ((index & 3u) * 8u)) & 0xFFu) / 255.0;
-        const float fade = material.lodFadeParams.x;
-        if (fade >= 0.0 ? noise >= fade : noise < 1.0 + fade) {
-            discard;
-        }
+        applyLodFadeValue(screenPos, material.lodFadeParams.x);
+    }
+    if (vtFeatureEnabled(VT_FEATURE_LOD_FADE_INSTANCED_BIT)) {
+        applyLodFadeValue(screenPos, instanceFade);
     }
 }

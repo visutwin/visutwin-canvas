@@ -250,6 +250,11 @@ namespace visutwin::canvas
         /// renderForwardLayer uses at draw time.
         void resolveAutoAspectRatio(Camera* camera) const;
 
+        /// The dither jitter of `camera` this frame: a blue-noise step taken once a frame while it
+        /// jitters for TAA, zero for a camera that does not. The opacity dither and the
+        /// visibility range's crossfade read it, in the forward pass and the depth prepass alike.
+        Vector4 ditherJitterFor(const Camera* camera);
+
     protected:
         /// The components of the engine whose scene this renders (null without a scene).
         ComponentRegistry* componentRegistry() const;
@@ -281,6 +286,7 @@ namespace visutwin::canvas
 
         ShadowRendererDirectional* shadowRendererDirectional() const { return _shadowRendererDirectional.get(); }
         ShadowRenderer* shadowRenderer() const { return _shadowRenderer.get(); }
+
 
 
     private:

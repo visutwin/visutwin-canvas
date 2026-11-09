@@ -308,6 +308,7 @@ namespace visutwin::canvas
             bool clipPlanesMesh = false;    // the mesh instance's clipping planes discard fragments
             bool clipPlanesCamera = false;  // the camera's clipping planes discard fragments
             bool lodFade = false;           // the visibility range's dithered crossfade discards fragments
+            bool lodFadeInstanced = false;  // the same per instance, decided in the instanced vertex stage
             bool lightmapBake = false;      // UV-space lightmap bake: rasterize the unwrap, output diffuse light
             bool lightmapBakeAccum = false; // Accumulating bake pass: direct light only, ambient already baked
             bool debugPass = false;         // Debug surface-quantity output (mode chosen at runtime)
