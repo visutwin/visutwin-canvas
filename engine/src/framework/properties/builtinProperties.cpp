@@ -3,16 +3,18 @@
 //
 // Created by Arnis Lektauers on 09.11.2026
 //
-// The engine's own property types: the entity node, the light, camera, render and element
-// components, and the standard material. A property is named after the getter it reads,
+// The engine's own property types: the entity node, the light, camera, render, element and
+// screen components, and the standard material. A property is named after the getter it reads,
 // so a frontend's name and the C++ one agree.
 //
 #include "propertyTable.h"
 
 #include "framework/components/camera/cameraComponent.h"
+#include "framework/components/componentSystem.h"
 #include "framework/components/element/elementComponent.h"
 #include "framework/components/light/lightComponent.h"
 #include "framework/components/render/renderComponent.h"
+#include "framework/components/screen/screenComponent.h"
 #include "framework/entity.h"
 #include "scene/camera.h"
 #include "scene/constants.h"
@@ -26,6 +28,16 @@ namespace visutwin::canvas
         std::function<C*(Entity&)> componentOf()
         {
             return [](Entity& entity) { return entity.findComponent<C>(); };
+        }
+
+        // The component's own type: found on, added to and removed from an entity by name.
+        template <class C>
+        TypeBuilder<C> registerComponent(PropertyRegistry& registry, std::string name, std::string description)
+        {
+            auto type = registry.registerType<C>(std::move(name), std::move(description), componentOf<C>());
+            type.component([](Entity& entity) { return entity.template addComponent<C>() != nullptr; },
+                [](Entity& entity) { return entity.template removeComponent<C>(); });
+            return type;
         }
 
         template <class C>
@@ -65,8 +77,7 @@ namespace visutwin::canvas
 
         void registerLight(PropertyRegistry& registry)
         {
-            auto type = registry.registerType<LightComponent>("light", "A light component.",
-                componentOf<LightComponent>());
+            auto type = registerComponent<LightComponent>(registry, "light", "A light component.");
             enabledProperty(type);
             type.property("type", &LightComponent::type, &LightComponent::setType)
                     .options({{static_cast<int>(LightType::LIGHTTYPE_DIRECTIONAL), "directional"},
@@ -132,8 +143,7 @@ namespace visutwin::canvas
 
         void registerCamera(PropertyRegistry& registry)
         {
-            auto type = registry.registerType<CameraComponent>("camera", "A camera component.",
-                componentOf<CameraComponent>());
+            auto type = registerComponent<CameraComponent>(registry, "camera", "A camera component.");
             enabledProperty(type);
             type.property("priority", &CameraComponent::priority, &CameraComponent::setPriority)
                     .describe("Cameras render in increasing priority.")
@@ -190,8 +200,7 @@ namespace visutwin::canvas
 
         void registerRender(PropertyRegistry& registry)
         {
-            auto type = registry.registerType<RenderComponent>("render", "A render component.",
-                componentOf<RenderComponent>());
+            auto type = registerComponent<RenderComponent>(registry, "render", "A render component.");
             enabledProperty(type);
             type.property("type", &RenderComponent::type, &RenderComponent::setType)
                     .describe("A primitive (box, sphere, cylinder, cone, capsule, plane) or asset.")
@@ -205,8 +214,7 @@ namespace visutwin::canvas
 
         void registerElement(PropertyRegistry& registry)
         {
-            auto type = registry.registerType<ElementComponent>("element", "A UI element component.",
-                componentOf<ElementComponent>());
+            auto type = registerComponent<ElementComponent>(registry, "element", "A UI element component.");
             enabledProperty(type);
             type.property("type", &ElementComponent::type, &ElementComponent::setType)
                     .options({{static_cast<int>(ElementType::Group), "group"},
@@ -253,6 +261,26 @@ namespace visutwin::canvas
                 .property("mask", &ElementComponent::mask, &ElementComponent::setMask)
                 .property("drawOrder", &ElementComponent::drawOrder, &ElementComponent::setDrawOrder)
                     .describe("Assigned by the element's screen; set to order by hand.");
+        }
+
+        void registerScreen(PropertyRegistry& registry)
+        {
+            auto type = registerComponent<ScreenComponent>(registry, "screen",
+                "A UI screen component: the root its elements are laid out in.");
+            enabledProperty(type);
+            type.property("screenSpace", &ScreenComponent::screenSpace, &ScreenComponent::setScreenSpace)
+                    .describe("Drawn over the view in canvas points; otherwise a plane in the world.")
+                .property("resolution", &ScreenComponent::resolution, &ScreenComponent::setResolution)
+                    .describe("A world-space screen's size; a screen-space one follows the canvas.")
+                .property("referenceResolution", &ScreenComponent::referenceResolution,
+                    &ScreenComponent::setReferenceResolution)
+                .property("scaleMode", &ScreenComponent::scaleMode, &ScreenComponent::setScaleMode)
+                    .options({{static_cast<int>(ScreenScaleMode::None), "none"},
+                        {static_cast<int>(ScreenScaleMode::Blend), "blend"}})
+                .property("scaleBlend", &ScreenComponent::scaleBlend, &ScreenComponent::setScaleBlend)
+                    .range(0, 1, 0.01f)
+                .property("priority", &ScreenComponent::priority, &ScreenComponent::setPriority)
+                .property("scale", &ScreenComponent::scale);
         }
 
         void registerStandardMaterial(PropertyRegistry& registry)
@@ -314,6 +342,7 @@ namespace visutwin::canvas
         registerCamera(registry);
         registerRender(registry);
         registerElement(registry);
+        registerScreen(registry);
         registerStandardMaterial(registry);
     }
 }

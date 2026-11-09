@@ -24,6 +24,8 @@
 #include "framework/components/light/lightComponentSystem.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/components/render/renderComponentSystem.h"
+#include "framework/components/screen/screenComponent.h"
+#include "framework/components/screen/screenComponentSystem.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
 #include "framework/properties/propertyTable.h"
@@ -132,7 +134,7 @@ int main()
 {
     std::cout << std::unitbuf;
     auto engine = makeTestEngine<RenderComponentSystem, LightComponentSystem, CameraComponentSystem,
-        ElementComponentSystem>(std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{.cpuBuffers = true}));
+        ScreenComponentSystem, ElementComponentSystem>(std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{.cpuBuffers = true}));
     PropertyRegistry& registry = PropertyRegistry::instance();
 
     // --- Entity ids ---------------------------------------------------------------------
@@ -183,6 +185,7 @@ int main()
     auto material = std::make_shared<StandardMaterial>();
     material->setGloss(0.3f);
     render->setMaterial(material.get());
+    rig->addComponent<ScreenComponent>();
     addElement(rig);
 
     for (const auto& type : registry.types()) {
@@ -194,9 +197,18 @@ int main()
             sweep(*type, target);
         }
     }
-    for (const char* name : {"node", "light", "camera", "render", "element", "standard"}) {
+    for (const char* name : {"node", "light", "camera", "render", "element", "screen", "standard"}) {
         check(registry.type(name) != nullptr, std::string("the built-in type ") + name + " is registered");
     }
+
+    // --- Components by type name --------------------------------------------------------
+    const TypeDesc* lightType = registry.type("light");
+    check(lightType->isComponent() && !registry.type("node")->isComponent() && !registry.type("standard")->isComponent(),
+        "component types are marked; the node and the material are not");
+    check(lightType->removeFrom(*rig) && !rig->findComponent<LightComponent>() && !lightType->removeFrom(*rig),
+        "a component is removed by its type, once");
+    check(lightType->addTo(*rig) && rig->findComponent<LightComponent>() != nullptr, "and added back");
+    light = rig->findComponent<LightComponent>();
 
     // --- Reading and writing through the registry ----------------------------------------
     check(registry.set(*rig, "light.intensity", PropertyValue(2.5f)) == PropertyStatus::Ok &&

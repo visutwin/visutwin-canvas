@@ -70,6 +70,18 @@ namespace visutwin::canvas
         return it != programLibraries.end() ? it->second : nullptr;
     }
 
+    void releaseProgramLibrary(GraphicsDevice* device)
+    {
+        // Out of both maps first, freed after: a shader's destructor must not find it half-removed.
+        std::shared_ptr<ProgramLibrary> released;
+        if (const auto it = programLibraries.find(device); it != programLibraries.end()) {
+            released = std::move(it->second);
+            programLibraries.erase(it);
+        }
+        programLibraryDeviceCache.remove(device);
+        released.reset();
+    }
+
     namespace
     {
         bool variantBit(const uint64_t variantBits, const int bit)

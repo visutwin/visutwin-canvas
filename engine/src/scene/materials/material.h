@@ -527,4 +527,6 @@ namespace visutwin::canvas
     // Assigns the default material to device cache
     void setDefaultMaterial(const std::shared_ptr<GraphicsDevice>& device, const std::shared_ptr<Material>& material);
     std::shared_ptr<Material> getDefaultMaterial(const std::shared_ptr<GraphicsDevice>& device);
+    /// Forgets the device's default material (the engine that set it calls this as it is destroyed).
+    void releaseDefaultMaterial(GraphicsDevice* device);
 }

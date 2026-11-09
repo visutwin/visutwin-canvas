@@ -10,6 +10,19 @@ set(VISUTWIN_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
 option(VISUTWIN_BUILD_EXAMPLES "Build the VisuTwin Canvas example applications" OFF)
 
+# The C API shared library (capi/): on by default where it has been built and tested (macOS);
+# elsewhere it waits for a check of the PIC engine and the version script on that platform.
+if(APPLE)
+    set(_visutwin_c_api_default ON)
+else()
+    set(_visutwin_c_api_default OFF)
+endif()
+option(VISUTWIN_BUILD_C_API "Build the C API shared library (visutwin_canvas_c)" ${_visutwin_c_api_default})
+if(VISUTWIN_BUILD_C_API)
+    # The static engine goes into a shared library.
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
+
 # Sanitizers for this project's own targets (engine, tests, examples, tools), as a
 # semicolon list: "address;undefined" is what the `sanitize` preset and CI use. vcpkg's
 # dependencies stay uninstrumented, which AddressSanitizer tolerates. Undefined
@@ -52,6 +65,9 @@ if(APPLE)
 endif()
 
 add_subdirectory(engine)
+if(VISUTWIN_BUILD_C_API)
+    add_subdirectory(capi)
+endif()
 if(VISUTWIN_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()

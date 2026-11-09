@@ -211,6 +211,12 @@ namespace visutwin::canvas
         }
 
         if (_graphicsDevice) {
+            // The program library this engine installed holds the device, and the static
+            // caches hold the library: forgotten here, the device goes when its owner lets go
+            // of it, instead of at process exit (where its shaders would be freed after the
+            // device's driver had already been torn down).
+            releaseProgramLibrary(_graphicsDevice.get());
+            releaseDefaultMaterial(_graphicsDevice.get());
             _graphicsDevice.reset();
         }
 

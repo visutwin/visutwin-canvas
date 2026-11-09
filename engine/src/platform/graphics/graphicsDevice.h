@@ -94,12 +94,15 @@ namespace visutwin::canvas
      * on per-frame and per-draw paths).
      *
      * The guard is a function-local static, so each call site warns independently
-     * and only once process-wide, regardless of how many devices exist.
+     * and only once process-wide, regardless of how many devices exist. A device that
+     * draws nothing by design (the null device) answers false to
+     * reportsUnsupportedFeatures() and says nothing.
      */
 #define VT_DEVICE_FEATURE_UNSUPPORTED(name)                                        \
     do {                                                                           \
         static std::atomic_flag vtFeatureWarned = ATOMIC_FLAG_INIT;                \
-        if (!vtFeatureWarned.test_and_set(std::memory_order_relaxed)) {            \
+        if (reportsUnsupportedFeatures() &&                                        \
+            !vtFeatureWarned.test_and_set(std::memory_order_relaxed)) {            \
             ::visutwin::canvas::logUnsupportedDeviceFeature(name);                  \
         }                                                                          \
     } while (false)
@@ -1118,6 +1121,11 @@ namespace visutwin::canvas
         std::shared_ptr<RenderTarget> renderTarget() const { return _renderTarget; }
         void setRenderTarget(const std::shared_ptr<RenderTarget>& target) { _renderTarget = target; }
         bool insideRenderPass() const { return _insideRenderPass; }
+
+        /// Whether an optional entry point this device leaves at its empty default logs a
+        /// warning on first use (VT_DEVICE_FEATURE_UNSUPPORTED). False for a device that draws
+        /// nothing by design.
+        virtual bool reportsUnsupportedFeatures() const { return true; }
 
         /**
          * False when the device cannot record any work for the current frame,

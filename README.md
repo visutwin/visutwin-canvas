@@ -258,6 +258,7 @@ int main()
         engine->render();
     }
 
+    engine->destroy();   // frees the scene and lets go of the device
     engine.reset();
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
@@ -268,6 +269,35 @@ int main()
 The Vulkan backend creates its own swap chain from the window instead (an
 `SDL_WINDOW_VULKAN` window, no SDL renderer); `examples/exampleApp.cpp` sets up
 either backend, plus input devices and camera controls.
+
+### From C, or any language that calls C
+
+On macOS the build also produces `libvisutwin_canvas_c`, a shared library with a C99 interface
+(`capi/include/visutwin/visutwin.h`) for frontends in other languages: Julia through `ccall`,
+Python through `ctypes`, Rust, C#. It names entities by id, reads and writes every property of
+the engine's property table by name, and leaves the frame loop to the caller:
+
+```c
+vt_engine_desc desc = {sizeof(vt_engine_desc), "Hello", 900, 700, VT_BACKEND_DEFAULT, 0};
+vt_engine* engine;
+vt_entity box;
+vt_property type;
+int32_t quit = 0;
+
+vt_engine_create(&desc, &engine);
+vt_entity_create(engine, 0, "Box", &box);
+vt_component_add(engine, box, "render");
+vt_property_find("render.type", &type);
+vt_set_string(engine, box, type, "box");
+/* ... a light and a camera the same way ... */
+while (!quit) {
+    vt_frame(engine, 1.0f / 60.0f, &quit);
+}
+vt_engine_destroy(engine);
+```
+
+`capi/examples/hello.c` is the whole program. `VT_BACKEND_NULL` runs the engine with no window
+and no GPU, for tests and headless logic.
 
 ## Building and testing
 

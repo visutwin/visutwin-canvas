@@ -429,6 +429,17 @@ namespace visutwin::canvas
         return it != defaultMaterials.end() ? it->second : nullptr;
     }
 
+    void releaseDefaultMaterial(GraphicsDevice* device)
+    {
+        std::shared_ptr<Material> released;
+        if (const auto it = defaultMaterials.find(device); it != defaultMaterials.end()) {
+            released = std::move(it->second);
+            defaultMaterials.erase(it);
+        }
+        defaultMaterialDeviceCache.remove(device);
+        released.reset();
+    }
+
     void Material::setShaderChunk(const std::string& name, std::string source)
     {
         markUniformsDirty();

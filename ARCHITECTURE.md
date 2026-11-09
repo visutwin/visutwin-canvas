@@ -2433,7 +2433,8 @@ view is JULIA, which changes the answer: Julia calls C in-process (`ccall`), sci
 visualisation moves arrays a socket would have to serialise, and a scene driven every frame wants
 calls, not messages. So the core is a property table and a C API in the same process, and a
 JSON-RPC protocol is one optional client of the same table, later. Design note (2026-11-09; first
-written around JSON-RPC the same day); phase 1, the table and the ids, landed the same day (below).
+written around JSON-RPC the same day); phases 1 (the table and the ids) and 2 (the C API core)
+landed the same day (below).
 
 **Goals.** A stable, in-process C interface a Julia package wraps thinly (and Python, Rust or C#
 could use unchanged); generic access to every exposed property without per-property glue; bulk
@@ -2469,10 +2470,12 @@ glTF's disambiguation of same-named siblings) resolves to an id; names alone are
 Meshes, materials, textures and assets get `ResourceId`s on the same terms, the engine holding the
 reference until the caller releases it.
 
-**3. The C API** (`include/visutwin/visutwin.h`, a shared library `visutwin_canvas_c` linking the
-static engine and exporting only `vt_*`; `VISUTWIN_BUILD_C_API`):
-- C99 in the header, opaque handles, every function returning a `vt_status` (an enum), messages
-  through `vt_last_error(engine)`; no exception crosses the boundary (caught at each entry).
+**3. The C API** (`capi/include/visutwin/visutwin.h`, a shared library `visutwin_canvas_c` linking
+the static engine and exporting only `vt_*`; `VISUTWIN_BUILD_C_API`):
+- C99 in the header, opaque handles, every function returning a `vt_status` (an `int32_t` with
+  named constants, not a C enum, so its size is fixed), messages through `vt_last_error()` (the
+  calling thread's last failure: an engine-less call can fail too); no exception crosses the
+  boundary (caught at each entry).
 - Versioned: `vt_api_version()`; every descriptor struct begins with its `size`, so fields can be
   appended without breaking a caller built against an older header.
 - Lookups once, calls by handle: `vt_type_find(engine, "light")`, `vt_property_find(type,
@@ -2520,7 +2523,7 @@ feature) or in the Julia layer (HTTP.jl over the C API) — whichever owns the p
 (light, camera, render, element) and the standard material (LANDED, below; the overlay inspector it
 named was dropped: ImGui may leave the engine, and the inspector a Julia frontend wants is its own);
 (2) the C API core: lifecycle and loop, entities, components, properties, schema, errors and the
-thread check, tested in C on the stub device; (3) bulk data and resources: meshes, textures,
+thread check, tested in C on a null device (LANDED, below); (3) bulk data and resources: meshes, textures,
 materials, assets, headless rendering and capture; (4) `VisuTwin.jl` over it, with a few scenes
 ported as its examples; (5) the remote protocol, only when a client needs it.
 
@@ -2549,6 +2552,34 @@ every property of every type on a real entity (typed, named once, enums named, s
 the text form reading back) and holds the ids, the paths and the statuses; breaking a setter or
 dropping an enum's options fails it. Not yet: `ResourceId`s, entity creation and components by
 type name (phase 2, with the C API), tags, a script's properties.
+
+**Phase 2 (landed 2026-11-09).** `capi/`: the header, `src/visutwin.cpp` (one file over the
+engine and the property table), the export lists (`exports.txt` for ld64, `exports.map` for GNU
+ld: only `vt_*` leaves the library; 56 symbols) and `examples/hello.c`, a C program building a
+lit, shadowed scene by property names alone (Metal and Vulkan render it alike, 1 px over 8 of
+2.5 M). What it covers: the version; statuses with names and the thread's last message; the
+engine (`vt_engine_desc` with backend DEFAULT / METAL / VULKAN / NULL and flags for MSAA and
+vsync, light, camera, render, script, screen and element systems, an `ElementInput`), the loop
+(`vt_poll_events`, `vt_wait_next_frame`, `vt_update`, `vt_render`, `vt_frame`; the first of them
+starts the engine, `vt_engine_start` does it explicitly), `vt_frame_stats_get`; entities (root,
+create, destroy and free, alive, find by path, path, parent, set parent with a cycle check,
+children, describe); components by type NAME (`vt_component_add` / `_remove` / `_has`, through
+`TypeDesc::addTo` / `removeFrom`, which `TypeBuilder::component` sets); the schema (types and
+properties by index or name, size-versioned info structs, enum options); and typed get / set per
+value type plus `vt_get_text` / `vt_set_text`. Handles: a type is its registry index + 1, a
+property `(type << 32) | index`. The NULL backend is an engine-level `NullGraphicsDevice`
+(`platform/graphics/null/`: CPU-kept buffers, frame-buffer-less targets, draws counted, no
+missing-feature warnings), so the C test runs without a GPU or a window. Callbacks
+(`vt_on`) are left out: the caller owns the loop. Found on the way: an engine was never freed
+(its script registry, element input and tick hold it, so dropping the last outside reference
+freed nothing) and a device never before process exit (its program library, which holds it,
+sits in a static per-device cache keyed on it); the C API calls `Engine::destroy()`, which now
+releases the device's program library and default material (`releaseProgramLibrary`,
+`releaseDefaultMaterial`), and a device that still outlives its engine is logged. The examples
+harness does not call `destroy()` yet. `tests/capiTests.c` (C99, 72 checks, threads through
+pthreads) and `tests/engineLifetimeTests.cpp` hold it. Not yet: Linux and Windows (the option is
+on only on macOS: the version script and the PIC engine want a check there), `ResourceId`s,
+materials, meshes, textures, headless GPU rendering and capture (phase 3).
 
 **Open questions.** Windowing: an engine-owned SDL window, or rendering into a host's view (an
 `NSView` / `CAMetalLayer` or a Vulkan surface handed in), which a Julia GUI toolkit would want;

@@ -40,6 +40,7 @@ visutwin-canvas/
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
+  capi/            # The C API: include/visutwin/visutwin.h (C99), the visutwin_canvas_c shared library, a C example
   examples/        # 197 example applications derived from ExampleApp: upstream ports + three original scenes (ambient-occlusion-davinci, order-independent-transparency, visibility-range)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
@@ -74,6 +75,15 @@ cmake --build --preset default
 ctest --preset default
 ```
 
+- **`VISUTWIN_BUILD_C_API` (ON on macOS, OFF elsewhere for now) builds `capi/`**: the shared
+  library `visutwin_canvas_c` over the static engine, exporting ONLY the `vt_*` functions of
+  `capi/include/visutwin/visutwin.h` (`capi/exports.txt` for ld64, `exports.map` for GNU ld), and
+  turns on `CMAKE_POSITION_INDEPENDENT_CODE` for the tree. The library is its own binary, so it
+  carries the metal-cpp implementation unit (`capi/src/metalCppImplementation.cpp`). The header
+  is C99 and stays so (`tests/capiTests.c` compiles it as C99 and drives the API on the null
+  backend, ctest `capi`); a struct in it is only ever APPENDED to, since callers built against an
+  older header pass smaller ones (every struct begins with its `size`). Turning it on for Linux
+  wants the PIC engine and the version script checked there first.
 - **Test presets exclude the `vulkan`, `golden` and `gpu` labels.** `vulkan-validation-smoke`,
   `golden-images` and `gpu-instance-cull` need a GPU and a window, so `ctest --preset default`,
   `vulkan` and `sanitize` run the unit tests only, `ctest --preset vulkan-smoke` runs the smoke
@@ -3126,6 +3136,26 @@ present, but the rule below never depends on reading it.
   setter does not take (a derived or fitted value) is registered READ-ONLY instead. Code across
   that boundary names an entity by `EntityId` (process-wide, never reused; `Engine::entityById`
   answers null for a freed or `destroying()` entity) or by `Entity::path()`, never by pointer.
+  The C API reaches every registered type and property with no code of its own; a component type
+  is added and removed by name only when its registration says how (`TypeBuilder::component`,
+  `registerComponent<C>` in `builtinProperties.cpp`).
+- **An engine is freed only after `Engine::destroy()`.** Its script registry, element input and
+  tick callback hold the engine itself, so dropping the last outside `shared_ptr` frees nothing
+  and `~Engine` never runs. `destroy()` breaks those cycles and releases the device's program
+  library and default material (`releaseProgramLibrary` / `releaseDefaultMaterial`): the library
+  HOLDS its device and sits in a static per-device cache, so until then the device lived to
+  process exit, where its shaders were freed after the driver (an abort at exit on Vulkan from
+  the C API's shared library). The C API calls it and warns if the device still outlives its
+  engine; the examples harness and most tests do not yet. A new static cache keyed on a device
+  must not hold the device (or anything that does) beyond the engine's `destroy()`:
+  `tests/engineLifetimeTests.cpp` builds and destroys an engine three times and fails if the
+  device survives.
+- **A device that draws nothing by design says so** (`GraphicsDevice::reportsUnsupportedFeatures`,
+  false for the `NullGraphicsDevice` in `platform/graphics/null/`), and the empty optional entry
+  points then log nothing (`VT_DEVICE_FEATURE_UNSUPPORTED` asks first). The null device keeps
+  buffer bytes on the CPU, counts draws and builds targets without frame buffers: the engine runs
+  in full with nothing drawn (the C API's `VT_BACKEND_NULL`). The test stub (`tests/support/
+  stubDevice.h`) stays the configurable device for tests of the null paths.
 - **`ResourceLoader::shutdown` delivers every undelivered completion as an ERROR, and a
   `load()` after it fails at once** — otherwise an `Asset` stays `_loading` forever and a
   later `loadAsync` coalesces onto a load that will never finish.

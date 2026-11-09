@@ -486,4 +486,8 @@ namespace visutwin::canvas
     // Assigns the program library to the device cache.
     void setProgramLibrary(const std::shared_ptr<GraphicsDevice>& device, const std::shared_ptr<ProgramLibrary>& library);
     std::shared_ptr<ProgramLibrary> getProgramLibrary(const std::shared_ptr<GraphicsDevice>& device);
+    /// Forgets the device's library, freeing it and its shaders now. The library holds its device,
+    /// so until this runs the device outlives everyone else's references to it; the engine that
+    /// set the library calls it as it is destroyed, while the device can still free the shaders.
+    void releaseProgramLibrary(GraphicsDevice* device);
 }

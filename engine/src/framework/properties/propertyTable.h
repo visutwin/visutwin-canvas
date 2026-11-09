@@ -104,6 +104,12 @@ namespace visutwin::canvas
         /// The type's object on an entity, or null when the entity has none. Empty for a type
         /// no entity carries, whose objects are handed over directly.
         std::function<void*(Entity& entity)> resolve;
+        /// For a component type: adds the component to an entity (true when it has one after)
+        /// and removes it (true when it had one). Empty for every other type.
+        std::function<bool(Entity& entity)> addTo;
+        std::function<bool(Entity& entity)> removeFrom;
+
+        bool isComponent() const { return static_cast<bool>(addTo); }
 
         const PropertyDesc* property(std::string_view propertyName) const;
     };
@@ -236,6 +242,14 @@ namespace visutwin::canvas
         TypeBuilder& options(std::vector<EnumOption> values)
         {
             last().options = std::move(values);
+            return *this;
+        }
+
+        /// Marks the type as a component an entity can be given and lose by its name.
+        TypeBuilder& component(std::function<bool(Entity&)> addTo, std::function<bool(Entity&)> removeFrom)
+        {
+            _type.addTo = std::move(addTo);
+            _type.removeFrom = std::move(removeFrom);
             return *this;
         }
 

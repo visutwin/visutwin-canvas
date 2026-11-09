@@ -1,0 +1,1181 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 09.11.2026
+//
+// The C API over the engine. Every entry point clears the thread's error, checks its
+// arguments and the engine's thread, and catches whatever the engine throws, so no exception
+// crosses the boundary. Entities are found by id on each call; properties go through the
+// property table (framework/properties), so a property registered there is reachable here
+// without a line of this file.
+//
+#include "visutwin/visutwin.h"
+
+#include <SDL3/SDL.h>
+
+#include <cmath>
+#include <cstring>
+#include <exception>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <thread>
+#include <utility>
+#include <vector>
+
+#include "framework/components/camera/cameraComponentSystem.h"
+#include "framework/components/element/elementComponentSystem.h"
+#include "framework/components/light/lightComponentSystem.h"
+#include "framework/components/render/renderComponentSystem.h"
+#include "framework/components/screen/screenComponentSystem.h"
+#include "framework/components/script/scriptComponentSystem.h"
+#include "framework/engine.h"
+#include "framework/entity.h"
+#include "framework/input/elementInput.h"
+#include "framework/properties/propertyTable.h"
+#include "platform/graphics/graphicsDeviceCreate.h"
+#include "platform/graphics/null/nullGraphicsDevice.h"
+#include "spdlog/spdlog.h"
+
+using namespace visutwin::canvas;
+
+struct vt_engine
+{
+    std::thread::id thread;
+    vt_backend backend = VT_BACKEND_NULL;
+    SDL_Window* window = nullptr;
+    SDL_Renderer* renderer = nullptr;
+    bool sdlInitialized = false;
+    bool gamepadInitialized = false;
+    std::shared_ptr<GraphicsDevice> device;
+    std::shared_ptr<ElementInput> elementInput;
+    std::shared_ptr<Engine> engine;
+    bool started = false;
+    uint64_t frames = 0;
+};
+
+namespace
+{
+    thread_local std::string lastError;
+
+    vt_status fail(const vt_status status, std::string message)
+    {
+        lastError = std::move(message);
+        return status;
+    }
+
+    // Runs one entry point: a clear error to start, every exception caught.
+    template <class Body>
+    vt_status guarded(Body&& body)
+    {
+        lastError.clear();
+        try {
+            return body();
+        } catch (const std::exception& exception) {
+            return fail(VT_ERROR_INTERNAL, std::string("engine error: ") + exception.what());
+        } catch (...) {
+            return fail(VT_ERROR_INTERNAL, "engine error");
+        }
+    }
+
+    vt_status checkEngine(const vt_engine* engine)
+    {
+        if (!engine || !engine->engine) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no engine");
+        }
+        if (std::this_thread::get_id() != engine->thread) {
+            return fail(VT_ERROR_WRONG_THREAD, "an engine is driven only from the thread that created it");
+        }
+        return VT_OK;
+    }
+
+    // The engine check, then the entity, or a status.
+    vt_status findEntity(vt_engine* engine, const vt_entity id, Entity*& out)
+    {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        out = engine->engine->entityById(EntityId{id});
+        if (!out) {
+            return fail(VT_ERROR_NOT_FOUND, "no entity " + std::to_string(id) + " in this engine");
+        }
+        return VT_OK;
+    }
+
+    // Writes `text` for the two-call pattern: no buffer only reports the length.
+    vt_status writeString(const std::string_view text, char* buffer, const size_t capacity, size_t* length)
+    {
+        if (length) {
+            *length = text.size();
+        }
+        if (!buffer) {
+            return VT_OK;
+        }
+        if (capacity == 0) {
+            return fail(VT_ERROR_BUFFER_TOO_SMALL, "a buffer of capacity 0");
+        }
+        const size_t copied = std::min(text.size(), capacity - 1);
+        std::memcpy(buffer, text.data(), copied);
+        buffer[copied] = '\0';
+        if (copied < text.size()) {
+            return fail(VT_ERROR_BUFFER_TOO_SMALL, "the text needs " + std::to_string(text.size() + 1) + " bytes");
+        }
+        return VT_OK;
+    }
+
+    vt_status fromPropertyStatus(const PropertyStatus status, const std::string_view what)
+    {
+        std::string message = std::string(what) + ": " + propertyStatusName(status);
+        switch (status) {
+        case PropertyStatus::Ok: return VT_OK;
+        case PropertyStatus::NoType: return fail(VT_ERROR_NO_TYPE, std::move(message));
+        case PropertyStatus::NoProperty: return fail(VT_ERROR_NO_PROPERTY, std::move(message));
+        case PropertyStatus::NoTarget: return fail(VT_ERROR_NO_TARGET, std::move(message));
+        case PropertyStatus::ReadOnly: return fail(VT_ERROR_READ_ONLY, std::move(message));
+        case PropertyStatus::TypeMismatch: return fail(VT_ERROR_TYPE_MISMATCH, std::move(message));
+        case PropertyStatus::InvalidValue: return fail(VT_ERROR_INVALID_VALUE, std::move(message));
+        }
+        return fail(VT_ERROR_INTERNAL, std::move(message));
+    }
+
+    // ---- Schema handles: a type is its index + 1, a property (type << 32) | its index ----
+
+    const TypeDesc* typeOf(const vt_type type)
+    {
+        const auto& types = PropertyRegistry::instance().types();
+        return type >= 1 && type <= types.size() ? types[type - 1].get() : nullptr;
+    }
+
+    vt_type handleOf(const TypeDesc* type)
+    {
+        const auto& types = PropertyRegistry::instance().types();
+        for (size_t i = 0; i < types.size(); ++i) {
+            if (types[i].get() == type) {
+                return static_cast<vt_type>(i + 1);
+            }
+        }
+        return 0;
+    }
+
+    const PropertyDesc* propertyOf(const vt_property property, const TypeDesc** owner = nullptr)
+    {
+        const TypeDesc* type = typeOf(static_cast<vt_type>(property >> 32));
+        const uint64_t index = property & 0xffffffffu;
+        if (!type || index >= type->properties.size()) {
+            return nullptr;
+        }
+        if (owner) {
+            *owner = type;
+        }
+        return &type->properties[index];
+    }
+
+    vt_value_type valueTypeOf(const ValueType type)
+    {
+        switch (type) {
+        case ValueType::Bool: return VT_VALUE_BOOL;
+        case ValueType::Int: return VT_VALUE_INT;
+        case ValueType::Float: return VT_VALUE_FLOAT;
+        case ValueType::Vec2: return VT_VALUE_VEC2;
+        case ValueType::Vec3: return VT_VALUE_VEC3;
+        case ValueType::Vec4: return VT_VALUE_VEC4;
+        case ValueType::Quat: return VT_VALUE_QUAT;
+        case ValueType::Color: return VT_VALUE_COLOR;
+        case ValueType::String: return VT_VALUE_STRING;
+        case ValueType::Enum: return VT_VALUE_ENUM;
+        case ValueType::EntityRef: return VT_VALUE_ENTITY;
+        }
+        return VT_VALUE_NONE;
+    }
+
+    // Copies a struct the library filled into the caller's, as far as the caller's size says.
+    template <class T>
+    vt_status fillSized(T* out, T filled)
+    {
+        if (!out || out->size < sizeof(uint32_t)) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "an output struct without its size");
+        }
+        const uint32_t size = out->size;
+        filled.size = size;
+        std::memcpy(out, &filled, std::min<size_t>(size, sizeof(T)));
+        return VT_OK;
+    }
+
+    std::string qualifiedName(const TypeDesc& type, const PropertyDesc& property)
+    {
+        return type.name + "." + property.name;
+    }
+
+    // The property's object on the entity, after the engine, entity and property checks.
+    vt_status resolveProperty(vt_engine* engine, const vt_entity id, const vt_property handle,
+        const PropertyDesc*& property, void*& target, const TypeDesc** ownerOut = nullptr)
+    {
+        Entity* entity = nullptr;
+        if (const vt_status status = findEntity(engine, id, entity); status != VT_OK) {
+            return status;
+        }
+        const TypeDesc* owner = nullptr;
+        property = propertyOf(handle, &owner);
+        if (!property) {
+            return fail(VT_ERROR_NO_PROPERTY, "no property " + std::to_string(handle));
+        }
+        if (!owner->resolve) {
+            return fail(VT_ERROR_NO_TARGET, "type " + owner->name + " is not carried by an entity");
+        }
+        target = owner->resolve(*entity);
+        if (!target) {
+            return fail(VT_ERROR_NO_TARGET, "entity " + std::to_string(id) + " has no " + owner->name);
+        }
+        if (ownerOut) {
+            *ownerOut = owner;
+        }
+        return VT_OK;
+    }
+
+    bool typeAccepts(const ValueType actual, const ValueType asked)
+    {
+        return actual == asked || (asked == ValueType::Int && actual == ValueType::Enum);
+    }
+
+    template <class Out, class Convert>
+    vt_status getTyped(vt_engine* engine, const vt_entity id, const vt_property handle, const ValueType asked,
+        Out* out, Convert convert)
+    {
+        return guarded([&]() -> vt_status {
+            if (!out) {
+                return fail(VT_ERROR_INVALID_ARGUMENT, "no output");
+            }
+            const PropertyDesc* property = nullptr;
+            void* target = nullptr;
+            const TypeDesc* owner = nullptr;
+            if (const vt_status status = resolveProperty(engine, id, handle, property, target, &owner);
+                status != VT_OK) {
+                return status;
+            }
+            if (!typeAccepts(property->type, asked)) {
+                return fail(VT_ERROR_TYPE_MISMATCH, qualifiedName(*owner, *property) + " is a " +
+                    valueTypeName(property->type) + ", not a " + valueTypeName(asked));
+            }
+            *out = convert(property->get(target));
+            return VT_OK;
+        });
+    }
+
+    vt_status setTyped(vt_engine* engine, const vt_entity id, const vt_property handle, const ValueType asked,
+        const PropertyValue& value)
+    {
+        return guarded([&]() -> vt_status {
+            const PropertyDesc* property = nullptr;
+            void* target = nullptr;
+            const TypeDesc* owner = nullptr;
+            if (const vt_status status = resolveProperty(engine, id, handle, property, target, &owner);
+                status != VT_OK) {
+                return status;
+            }
+            if (!typeAccepts(property->type, asked)) {
+                return fail(VT_ERROR_TYPE_MISMATCH, qualifiedName(*owner, *property) + " is a " +
+                    valueTypeName(property->type) + ", not a " + valueTypeName(asked));
+            }
+            return fromPropertyStatus(PropertyRegistry::set(*property, target, value),
+                qualifiedName(*owner, *property));
+        });
+    }
+
+    const TypeDesc* componentType(const char* name, vt_status& status)
+    {
+        if (!name) {
+            status = fail(VT_ERROR_INVALID_ARGUMENT, "no type name");
+            return nullptr;
+        }
+        const TypeDesc* type = PropertyRegistry::instance().type(name);
+        if (!type) {
+            status = fail(VT_ERROR_NO_TYPE, std::string("no type ") + name);
+            return nullptr;
+        }
+        if (!type->isComponent()) {
+            status = fail(VT_ERROR_INVALID_ARGUMENT, std::string(name) + " is not a component type");
+            return nullptr;
+        }
+        status = VT_OK;
+        return type;
+    }
+
+    void countFrame(vt_engine* engine) { ++engine->frames; }
+
+    void startIfNeeded(vt_engine* engine)
+    {
+        if (!engine->started) {
+            engine->started = true;
+            engine->engine->start();
+            countFrame(engine);
+        }
+    }
+
+    void teardown(vt_engine* engine)
+    {
+        // The engine owns entities that borrow the device: it goes first, SDL last.
+        const std::weak_ptr<GraphicsDevice> device = engine->device;
+        // destroy() and not only the reset: the engine's script registry, element input and tick
+        // hold the engine itself, so without it the last reference dropped here frees nothing.
+        if (engine->engine) {
+            engine->engine->destroy();
+        }
+        engine->engine.reset();
+        engine->elementInput.reset();
+        engine->device.reset();
+        // Everything holding the device has let go by now; a device kept alive past this point
+        // (a static cache, a cycle) would be freed at process exit, after its driver.
+        if (const auto survivor = device.lock()) {
+            spdlog::warn("vt_engine_destroy: the graphics device outlived its engine ({} references)",
+                survivor.use_count() - 1);
+        }
+        if (engine->renderer) {
+            SDL_DestroyRenderer(engine->renderer);
+            engine->renderer = nullptr;
+        }
+        if (engine->window) {
+            SDL_DestroyWindow(engine->window);
+            engine->window = nullptr;
+        }
+        if (engine->gamepadInitialized) {
+            SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+            engine->gamepadInitialized = false;
+        }
+        if (engine->sdlInitialized) {
+            SDL_QuitSubSystem(SDL_INIT_VIDEO);
+            engine->sdlInitialized = false;
+        }
+    }
+}
+
+extern "C" {
+
+uint32_t vt_api_version(void)
+{
+    return (static_cast<uint32_t>(VT_API_VERSION_MAJOR) << 16) | VT_API_VERSION_MINOR;
+}
+
+const char* vt_status_name(const vt_status status)
+{
+    switch (status) {
+    case VT_OK: return "VT_OK";
+    case VT_ERROR_INVALID_ARGUMENT: return "VT_ERROR_INVALID_ARGUMENT";
+    case VT_ERROR_INVALID_STATE: return "VT_ERROR_INVALID_STATE";
+    case VT_ERROR_WRONG_THREAD: return "VT_ERROR_WRONG_THREAD";
+    case VT_ERROR_NOT_FOUND: return "VT_ERROR_NOT_FOUND";
+    case VT_ERROR_NO_TYPE: return "VT_ERROR_NO_TYPE";
+    case VT_ERROR_NO_PROPERTY: return "VT_ERROR_NO_PROPERTY";
+    case VT_ERROR_NO_TARGET: return "VT_ERROR_NO_TARGET";
+    case VT_ERROR_READ_ONLY: return "VT_ERROR_READ_ONLY";
+    case VT_ERROR_TYPE_MISMATCH: return "VT_ERROR_TYPE_MISMATCH";
+    case VT_ERROR_INVALID_VALUE: return "VT_ERROR_INVALID_VALUE";
+    case VT_ERROR_BUFFER_TOO_SMALL: return "VT_ERROR_BUFFER_TOO_SMALL";
+    case VT_ERROR_UNSUPPORTED: return "VT_ERROR_UNSUPPORTED";
+    case VT_ERROR_INTERNAL: return "VT_ERROR_INTERNAL";
+    default: return "VT_ERROR_UNKNOWN";
+    }
+}
+
+const char* vt_last_error(void)
+{
+    return lastError.c_str();
+}
+
+// ---- Engine ---------------------------------------------------------------------------
+
+vt_status vt_engine_create(const vt_engine_desc* desc, vt_engine** out)
+{
+    return guarded([&]() -> vt_status {
+        if (!out) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no output");
+        }
+        *out = nullptr;
+        // The fields this caller's header knows; the rest keep their defaults.
+        vt_engine_desc d{};
+        d.size = sizeof(vt_engine_desc);
+        if (desc) {
+            if (desc->size < sizeof(uint32_t)) {
+                return fail(VT_ERROR_INVALID_ARGUMENT, "vt_engine_desc.size is not set");
+            }
+            std::memcpy(&d, desc, std::min<size_t>(desc->size, sizeof(vt_engine_desc)));
+        }
+        const int width = d.width > 0 ? d.width : 1280;
+        const int height = d.height > 0 ? d.height : 720;
+        if (d.backend < VT_BACKEND_DEFAULT || d.backend > VT_BACKEND_NULL) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "unknown backend " + std::to_string(d.backend));
+        }
+
+        auto engine = std::make_unique<vt_engine>();
+        engine->thread = std::this_thread::get_id();
+
+        if (d.backend == VT_BACKEND_NULL) {
+            engine->backend = VT_BACKEND_NULL;
+            engine->device = std::make_shared<NullGraphicsDevice>(width, height);
+        } else {
+            Backend backend = defaultBackend();
+            if (d.backend == VT_BACKEND_METAL) {
+                backend = Backend::Metal;
+            } else if (d.backend == VT_BACKEND_VULKAN) {
+                backend = Backend::Vulkan;
+            }
+            engine->backend = backend == Backend::Metal ? VT_BACKEND_METAL : VT_BACKEND_VULKAN;
+            if (backend == Backend::Metal) {
+                SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
+            }
+            if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+                return fail(VT_ERROR_UNSUPPORTED, std::string("SDL could not start: ") + SDL_GetError());
+            }
+            engine->sdlInitialized = true;
+            // Without it SDL delivers no gamepad events; the engine runs on without them.
+            engine->gamepadInitialized = SDL_InitSubSystem(SDL_INIT_GAMEPAD);
+            SDL_WindowFlags flags = SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE;
+            flags |= backend == Backend::Vulkan ? SDL_WINDOW_VULKAN : SDL_WINDOW_METAL;
+            engine->window = SDL_CreateWindow(d.title ? d.title : "VisuTwin", width, height, flags);
+            if (!engine->window) {
+                const std::string error = SDL_GetError();
+                teardown(engine.get());
+                return fail(VT_ERROR_UNSUPPORTED, "no window: " + error);
+            }
+
+            GraphicsDeviceOptions options;
+            options.backend = backend;
+            options.window = engine->window;
+            options.antialias = (d.flags & VT_ENGINE_NO_ANTIALIAS) == 0;
+            if (backend == Backend::Metal) {
+                // The SDL renderer only hands over its CAMetalLayer.
+                engine->renderer = SDL_CreateRenderer(engine->window, nullptr);
+                options.swapChain = engine->renderer ? SDL_GetRenderMetalLayer(engine->renderer) : nullptr;
+                options.vsync = (d.flags & VT_ENGINE_NO_VSYNC) == 0;
+                if (!options.swapChain) {
+                    const std::string error = SDL_GetError();
+                    teardown(engine.get());
+                    return fail(VT_ERROR_UNSUPPORTED, "no Metal layer: " + error);
+                }
+                SDL_SetRenderVSync(engine->renderer, options.vsync ? SDL_RENDERER_VSYNC_ADAPTIVE : 0);
+            }
+            engine->device = createGraphicsDevice(options);
+            if (!engine->device) {
+                teardown(engine.get());
+                return fail(VT_ERROR_UNSUPPORTED, std::string("no ") + backendName(backend) + " device");
+            }
+        }
+
+        AppOptions appOptions;
+        appOptions.graphicsDevice = engine->device;
+        appOptions.keyboard = std::make_shared<Keyboard>();
+        appOptions.mouse = std::make_shared<Mouse>();
+        appOptions.touch = std::make_shared<TouchDevice>();
+        appOptions.gamepads = std::make_shared<GamePads>();
+        appOptions.registerComponentSystem<RenderComponentSystem>();
+        appOptions.registerComponentSystem<CameraComponentSystem>();
+        appOptions.registerComponentSystem<LightComponentSystem>();
+        appOptions.registerComponentSystem<ScriptComponentSystem>();
+        appOptions.registerComponentSystem<ScreenComponentSystem>();
+        appOptions.registerComponentSystem<ElementComponentSystem>();
+        engine->elementInput = std::make_shared<ElementInput>();
+        appOptions.elementInput = engine->elementInput;
+
+        engine->engine = std::make_shared<Engine>(engine->window);
+        engine->engine->init(appOptions);
+        if (engine->window) {
+            engine->engine->setCanvasFillMode(FillMode::FILLMODE_FILL_WINDOW);
+            engine->engine->setCanvasResolution(ResolutionMode::RESOLUTION_AUTO);
+        }
+        *out = engine.release();
+        return VT_OK;
+    });
+}
+
+vt_status vt_engine_destroy(vt_engine* engine)
+{
+    return guarded([&]() -> vt_status {
+        if (!engine) {
+            return VT_OK;
+        }
+        if (std::this_thread::get_id() != engine->thread) {
+            return fail(VT_ERROR_WRONG_THREAD, "an engine is destroyed on the thread that created it");
+        }
+        teardown(engine);
+        delete engine;
+        return VT_OK;
+    });
+}
+
+vt_status vt_engine_backend(vt_engine* engine, vt_backend* out)
+{
+    return guarded([&]() -> vt_status {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        if (!out) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no output");
+        }
+        *out = engine->backend;
+        return VT_OK;
+    });
+}
+
+vt_status vt_engine_start(vt_engine* engine)
+{
+    return guarded([&]() -> vt_status {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        if (engine->started) {
+            return fail(VT_ERROR_INVALID_STATE, "the engine has started already");
+        }
+        startIfNeeded(engine);
+        return VT_OK;
+    });
+}
+
+vt_status vt_poll_events(vt_engine* engine, int32_t* quit)
+{
+    return guarded([&]() -> vt_status {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        bool closing = false;
+        if (engine->window) {
+            SDL_Event event;
+            while (SDL_PollEvent(&event)) {
+                engine->engine->handleInputEvent(event);
+                if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
+                    closing = true;
+                }
+            }
+        }
+        if (quit) {
+            *quit = closing ? 1 : 0;
+        }
+        return VT_OK;
+    });
+}
+
+vt_status vt_wait_next_frame(vt_engine* engine)
+{
+    return guarded([&]() -> vt_status {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        engine->engine->waitForNextFrame();
+        return VT_OK;
+    });
+}
+
+vt_status vt_update(vt_engine* engine, const float dt)
+{
+    return guarded([&]() -> vt_status {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        if (!std::isfinite(dt) || dt < 0.0f) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "dt must be a finite, non-negative number of seconds");
+        }
+        if (!engine->started) {
+            startIfNeeded(engine);
+            return VT_OK;
+        }
+        engine->engine->update(dt);
+        return VT_OK;
+    });
+}
+
+vt_status vt_render(vt_engine* engine)
+{
+    return guarded([&]() -> vt_status {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        if (!engine->started) {
+            startIfNeeded(engine);
+            return VT_OK;
+        }
+        engine->engine->render();
+        countFrame(engine);
+        return VT_OK;
+    });
+}
+
+vt_status vt_frame(vt_engine* engine, const float dt, int32_t* quit)
+{
+    if (const vt_status status = vt_poll_events(engine, quit); status != VT_OK) {
+        return status;
+    }
+    if (const vt_status status = vt_wait_next_frame(engine); status != VT_OK) {
+        return status;
+    }
+    if (const bool starting = engine && !engine->started; starting) {
+        return vt_update(engine, dt);
+    }
+    if (const vt_status status = vt_update(engine, dt); status != VT_OK) {
+        return status;
+    }
+    return vt_render(engine);
+}
+
+vt_status vt_frame_stats_get(vt_engine* engine, vt_frame_stats* out)
+{
+    return guarded([&]() -> vt_status {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        vt_frame_stats stats{};
+        stats.frames = engine->frames;
+        if (const auto& application = engine->engine->stats()) {
+            stats.draw_calls = application->drawCalls().total;
+            stats.triangles = application->frame().triangles;
+            stats.cameras = application->frame().cameras;
+        }
+        return fillSized(out, stats);
+    });
+}
+
+// ---- Entities -------------------------------------------------------------------------
+
+vt_status vt_entity_root(vt_engine* engine, vt_entity* out)
+{
+    return guarded([&]() -> vt_status {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        if (!out) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no output");
+        }
+        *out = engine->engine->root()->id().value;
+        return VT_OK;
+    });
+}
+
+vt_status vt_entity_create(vt_engine* engine, const vt_entity parent, const char* name, vt_entity* out)
+{
+    return guarded([&]() -> vt_status {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        Entity* parentEntity = engine->engine->root();
+        if (parent != 0) {
+            if (const vt_status status = findEntity(engine, parent, parentEntity); status != VT_OK) {
+                return status;
+            }
+        }
+        auto entity = std::make_unique<Entity>();
+        entity->setEngine(engine->engine.get());
+        entity->setName(name ? name : "");
+        Entity* created = entity.get();
+        parentEntity->addChild(std::move(entity));
+        if (out) {
+            *out = created->id().value;
+        }
+        return VT_OK;
+    });
+}
+
+vt_status vt_entity_destroy(vt_engine* engine, const vt_entity id)
+{
+    return guarded([&]() -> vt_status {
+        Entity* entity = nullptr;
+        if (const vt_status status = findEntity(engine, id, entity); status != VT_OK) {
+            return status;
+        }
+        if (entity == engine->engine->root() || !entity->parent()) {
+            return fail(VT_ERROR_INVALID_STATE, "the root cannot be destroyed");
+        }
+        entity->destroy();
+        // The parent owned it; taking it back frees it and everything below it.
+        std::unique_ptr<GraphNode> owned = entity->parent()->removeChild(entity);
+        owned.reset();
+        return VT_OK;
+    });
+}
+
+vt_status vt_entity_alive(vt_engine* engine, const vt_entity id, int32_t* out)
+{
+    return guarded([&]() -> vt_status {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        if (!out) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no output");
+        }
+        *out = engine->engine->entityById(EntityId{id}) ? 1 : 0;
+        return VT_OK;
+    });
+}
+
+vt_status vt_entity_find(vt_engine* engine, const char* path, vt_entity* out)
+{
+    return guarded([&]() -> vt_status {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        if (!path || !out) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no path or no output");
+        }
+        Entity* entity = engine->engine->entityByPath(path);
+        if (!entity) {
+            return fail(VT_ERROR_NOT_FOUND, std::string("no entity at '") + path + "'");
+        }
+        *out = entity->id().value;
+        return VT_OK;
+    });
+}
+
+vt_status vt_entity_path(vt_engine* engine, const vt_entity id, char* buffer, const size_t capacity, size_t* length)
+{
+    return guarded([&]() -> vt_status {
+        Entity* entity = nullptr;
+        if (const vt_status status = findEntity(engine, id, entity); status != VT_OK) {
+            return status;
+        }
+        return writeString(entity->path(), buffer, capacity, length);
+    });
+}
+
+vt_status vt_entity_parent(vt_engine* engine, const vt_entity id, vt_entity* out)
+{
+    return guarded([&]() -> vt_status {
+        Entity* entity = nullptr;
+        if (const vt_status status = findEntity(engine, id, entity); status != VT_OK) {
+            return status;
+        }
+        if (!out) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no output");
+        }
+        const auto* parent = dynamic_cast<const Entity*>(entity->parent());
+        *out = parent ? parent->id().value : 0;
+        return VT_OK;
+    });
+}
+
+vt_status vt_entity_set_parent(vt_engine* engine, const vt_entity id, const vt_entity parent)
+{
+    return guarded([&]() -> vt_status {
+        Entity* entity = nullptr;
+        if (const vt_status status = findEntity(engine, id, entity); status != VT_OK) {
+            return status;
+        }
+        Entity* newParent = engine->engine->root();
+        if (parent != 0) {
+            if (const vt_status status = findEntity(engine, parent, newParent); status != VT_OK) {
+                return status;
+            }
+        }
+        if (!entity->parent()) {
+            return fail(VT_ERROR_INVALID_STATE, "the root has no parent to change");
+        }
+        for (const GraphNode* node = newParent; node; node = node->parent()) {
+            if (node == entity) {
+                return fail(VT_ERROR_INVALID_ARGUMENT, "an entity cannot move below itself");
+            }
+        }
+        if (entity->parent() != newParent) {
+            newParent->addChild(static_cast<GraphNode*>(entity));
+        }
+        return VT_OK;
+    });
+}
+
+vt_status vt_entity_children(vt_engine* engine, const vt_entity id, vt_entity* buffer, const size_t capacity,
+    size_t* count)
+{
+    return guarded([&]() -> vt_status {
+        Entity* entity = nullptr;
+        if (const vt_status status = findEntity(engine, id, entity); status != VT_OK) {
+            return status;
+        }
+        std::vector<vt_entity> children;
+        entity->forEachChild([&](GraphNode* child) {
+            if (const auto* childEntity = dynamic_cast<const Entity*>(child)) {
+                children.push_back(childEntity->id().value);
+            }
+        });
+        if (count) {
+            *count = children.size();
+        }
+        if (!buffer) {
+            return VT_OK;
+        }
+        const size_t written = std::min(capacity, children.size());
+        std::memcpy(buffer, children.data(), written * sizeof(vt_entity));
+        if (written < children.size()) {
+            return fail(VT_ERROR_BUFFER_TOO_SMALL, "the entity has " + std::to_string(children.size()) + " children");
+        }
+        return VT_OK;
+    });
+}
+
+vt_status vt_entity_describe(vt_engine* engine, const vt_entity id, char* buffer, const size_t capacity,
+    size_t* length)
+{
+    return guarded([&]() -> vt_status {
+        Entity* entity = nullptr;
+        if (const vt_status status = findEntity(engine, id, entity); status != VT_OK) {
+            return status;
+        }
+        return writeString(describeEntityProperties(*entity), buffer, capacity, length);
+    });
+}
+
+// ---- Components -----------------------------------------------------------------------
+
+vt_status vt_component_add(vt_engine* engine, const vt_entity id, const char* typeName)
+{
+    return guarded([&]() -> vt_status {
+        Entity* entity = nullptr;
+        if (const vt_status status = findEntity(engine, id, entity); status != VT_OK) {
+            return status;
+        }
+        vt_status status = VT_OK;
+        const TypeDesc* type = componentType(typeName, status);
+        if (!type) {
+            return status;
+        }
+        if (!type->addTo(*entity)) {
+            return fail(VT_ERROR_UNSUPPORTED, "this engine cannot add a " + type->name);
+        }
+        return VT_OK;
+    });
+}
+
+vt_status vt_component_remove(vt_engine* engine, const vt_entity id, const char* typeName)
+{
+    return guarded([&]() -> vt_status {
+        Entity* entity = nullptr;
+        if (const vt_status status = findEntity(engine, id, entity); status != VT_OK) {
+            return status;
+        }
+        vt_status status = VT_OK;
+        const TypeDesc* type = componentType(typeName, status);
+        if (!type) {
+            return status;
+        }
+        if (!type->removeFrom(*entity)) {
+            return fail(VT_ERROR_NO_TARGET, "entity " + std::to_string(id) + " has no " + type->name);
+        }
+        return VT_OK;
+    });
+}
+
+vt_status vt_component_has(vt_engine* engine, const vt_entity id, const char* typeName, int32_t* out)
+{
+    return guarded([&]() -> vt_status {
+        Entity* entity = nullptr;
+        if (const vt_status status = findEntity(engine, id, entity); status != VT_OK) {
+            return status;
+        }
+        if (!out) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no output");
+        }
+        vt_status status = VT_OK;
+        const TypeDesc* type = componentType(typeName, status);
+        if (!type) {
+            return status;
+        }
+        *out = type->resolve(*entity) ? 1 : 0;
+        return VT_OK;
+    });
+}
+
+// ---- Schema ---------------------------------------------------------------------------
+
+vt_status vt_type_count(uint32_t* out)
+{
+    return guarded([&]() -> vt_status {
+        if (!out) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no output");
+        }
+        *out = static_cast<uint32_t>(PropertyRegistry::instance().types().size());
+        return VT_OK;
+    });
+}
+
+vt_status vt_type_at(const uint32_t index, vt_type* out)
+{
+    return guarded([&]() -> vt_status {
+        if (!out) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no output");
+        }
+        if (index >= PropertyRegistry::instance().types().size()) {
+            return fail(VT_ERROR_NO_TYPE, "no type at index " + std::to_string(index));
+        }
+        *out = index + 1;
+        return VT_OK;
+    });
+}
+
+vt_status vt_type_find(const char* name, vt_type* out)
+{
+    return guarded([&]() -> vt_status {
+        if (!name || !out) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no name or no output");
+        }
+        const TypeDesc* type = PropertyRegistry::instance().type(name);
+        if (!type) {
+            return fail(VT_ERROR_NO_TYPE, std::string("no type ") + name);
+        }
+        *out = handleOf(type);
+        return VT_OK;
+    });
+}
+
+vt_status vt_type_get_info(const vt_type handle, vt_type_info* out)
+{
+    return guarded([&]() -> vt_status {
+        const TypeDesc* type = typeOf(handle);
+        if (!type) {
+            return fail(VT_ERROR_NO_TYPE, "no type " + std::to_string(handle));
+        }
+        vt_type_info info{};
+        info.name = type->name.c_str();
+        info.description = type->description.c_str();
+        info.property_count = static_cast<uint32_t>(type->properties.size());
+        info.flags = (type->resolve ? VT_TYPE_ON_ENTITY : 0u) | (type->isComponent() ? VT_TYPE_COMPONENT : 0u);
+        return fillSized(out, info);
+    });
+}
+
+vt_status vt_property_find(const char* name, vt_property* out)
+{
+    return guarded([&]() -> vt_status {
+        if (!name || !out) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no name or no output");
+        }
+        const auto [type, property] = PropertyRegistry::instance().find(name);
+        if (!type) {
+            return fail(VT_ERROR_NO_TYPE, std::string("no type in '") + name + "' (type.property)");
+        }
+        if (!property) {
+            return fail(VT_ERROR_NO_PROPERTY, std::string("no property ") + name);
+        }
+        const auto index = static_cast<uint64_t>(property - type->properties.data());
+        *out = (static_cast<uint64_t>(handleOf(type)) << 32) | index;
+        return VT_OK;
+    });
+}
+
+vt_status vt_property_at(const vt_type handle, const uint32_t index, vt_property* out)
+{
+    return guarded([&]() -> vt_status {
+        if (!out) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no output");
+        }
+        const TypeDesc* type = typeOf(handle);
+        if (!type) {
+            return fail(VT_ERROR_NO_TYPE, "no type " + std::to_string(handle));
+        }
+        if (index >= type->properties.size()) {
+            return fail(VT_ERROR_NO_PROPERTY, type->name + " has no property at index " + std::to_string(index));
+        }
+        *out = (static_cast<uint64_t>(handle) << 32) | index;
+        return VT_OK;
+    });
+}
+
+vt_status vt_property_get_info(const vt_property handle, vt_property_info* out)
+{
+    return guarded([&]() -> vt_status {
+        const TypeDesc* owner = nullptr;
+        const PropertyDesc* property = propertyOf(handle, &owner);
+        if (!property) {
+            return fail(VT_ERROR_NO_PROPERTY, "no property " + std::to_string(handle));
+        }
+        vt_property_info info{};
+        info.name = property->name.c_str();
+        info.description = property->description.c_str();
+        info.unit = property->unit.c_str();
+        info.value_type = valueTypeOf(property->type);
+        info.flags = property->readOnly() ? VT_PROPERTY_READ_ONLY : 0u;
+        info.min = property->min;
+        info.max = property->max;
+        info.step = property->step;
+        info.option_count = static_cast<uint32_t>(property->options.size());
+        info.type = handleOf(owner);
+        return fillSized(out, info);
+    });
+}
+
+vt_status vt_property_option(const vt_property handle, const uint32_t index, int32_t* value, const char** name)
+{
+    return guarded([&]() -> vt_status {
+        const PropertyDesc* property = propertyOf(handle);
+        if (!property) {
+            return fail(VT_ERROR_NO_PROPERTY, "no property " + std::to_string(handle));
+        }
+        if (index >= property->options.size()) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, property->name + " has no option at index " + std::to_string(index));
+        }
+        if (value) {
+            *value = property->options[index].value;
+        }
+        if (name) {
+            *name = property->options[index].name.c_str();
+        }
+        return VT_OK;
+    });
+}
+
+// ---- Property values ------------------------------------------------------------------
+
+vt_status vt_get_bool(vt_engine* e, const vt_entity id, const vt_property p, int32_t* out)
+{
+    return getTyped(e, id, p, ValueType::Bool, out, [](const PropertyValue& v) { return std::get<bool>(v) ? 1 : 0; });
+}
+
+vt_status vt_set_bool(vt_engine* e, const vt_entity id, const vt_property p, const int32_t value)
+{
+    return setTyped(e, id, p, ValueType::Bool, PropertyValue(value != 0));
+}
+
+vt_status vt_get_int(vt_engine* e, const vt_entity id, const vt_property p, int32_t* out)
+{
+    return getTyped(e, id, p, ValueType::Int, out, [](const PropertyValue& v) { return std::get<int>(v); });
+}
+
+vt_status vt_set_int(vt_engine* e, const vt_entity id, const vt_property p, const int32_t value)
+{
+    return setTyped(e, id, p, ValueType::Int, PropertyValue(static_cast<int>(value)));
+}
+
+vt_status vt_get_float(vt_engine* e, const vt_entity id, const vt_property p, float* out)
+{
+    return getTyped(e, id, p, ValueType::Float, out, [](const PropertyValue& v) { return std::get<float>(v); });
+}
+
+vt_status vt_set_float(vt_engine* e, const vt_entity id, const vt_property p, const float value)
+{
+    return setTyped(e, id, p, ValueType::Float, PropertyValue(value));
+}
+
+vt_status vt_get_vec2(vt_engine* e, const vt_entity id, const vt_property p, vt_vec2* out)
+{
+    return getTyped(e, id, p, ValueType::Vec2, out, [](const PropertyValue& v) {
+        const auto& x = std::get<Vector2>(v);
+        return vt_vec2{x.x, x.y};
+    });
+}
+
+vt_status vt_set_vec2(vt_engine* e, const vt_entity id, const vt_property p, const vt_vec2 value)
+{
+    return setTyped(e, id, p, ValueType::Vec2, PropertyValue(Vector2(value.x, value.y)));
+}
+
+vt_status vt_get_vec3(vt_engine* e, const vt_entity id, const vt_property p, vt_vec3* out)
+{
+    return getTyped(e, id, p, ValueType::Vec3, out, [](const PropertyValue& v) {
+        const auto& x = std::get<Vector3>(v);
+        return vt_vec3{x.getX(), x.getY(), x.getZ()};
+    });
+}
+
+vt_status vt_set_vec3(vt_engine* e, const vt_entity id, const vt_property p, const vt_vec3 value)
+{
+    return setTyped(e, id, p, ValueType::Vec3, PropertyValue(Vector3(value.x, value.y, value.z)));
+}
+
+vt_status vt_get_vec4(vt_engine* e, const vt_entity id, const vt_property p, vt_vec4* out)
+{
+    return getTyped(e, id, p, ValueType::Vec4, out, [](const PropertyValue& v) {
+        const auto& x = std::get<Vector4>(v);
+        return vt_vec4{x.getX(), x.getY(), x.getZ(), x.getW()};
+    });
+}
+
+vt_status vt_set_vec4(vt_engine* e, const vt_entity id, const vt_property p, const vt_vec4 value)
+{
+    return setTyped(e, id, p, ValueType::Vec4, PropertyValue(Vector4(value.x, value.y, value.z, value.w)));
+}
+
+vt_status vt_get_quat(vt_engine* e, const vt_entity id, const vt_property p, vt_vec4* out)
+{
+    return getTyped(e, id, p, ValueType::Quat, out, [](const PropertyValue& v) {
+        const auto& x = std::get<Quaternion>(v);
+        return vt_vec4{x.getX(), x.getY(), x.getZ(), x.getW()};
+    });
+}
+
+vt_status vt_set_quat(vt_engine* e, const vt_entity id, const vt_property p, const vt_vec4 value)
+{
+    return setTyped(e, id, p, ValueType::Quat, PropertyValue(Quaternion(value.x, value.y, value.z, value.w)));
+}
+
+vt_status vt_get_color(vt_engine* e, const vt_entity id, const vt_property p, vt_color* out)
+{
+    return getTyped(e, id, p, ValueType::Color, out, [](const PropertyValue& v) {
+        const auto& c = std::get<Color>(v);
+        return vt_color{c.r, c.g, c.b, c.a};
+    });
+}
+
+vt_status vt_set_color(vt_engine* e, const vt_entity id, const vt_property p, const vt_color value)
+{
+    return setTyped(e, id, p, ValueType::Color, PropertyValue(Color(value.r, value.g, value.b, value.a)));
+}
+
+vt_status vt_get_entity(vt_engine* e, const vt_entity id, const vt_property p, vt_entity* out)
+{
+    return getTyped(e, id, p, ValueType::EntityRef, out,
+        [](const PropertyValue& v) { return std::get<EntityId>(v).value; });
+}
+
+vt_status vt_set_entity(vt_engine* e, const vt_entity id, const vt_property p, const vt_entity value)
+{
+    return setTyped(e, id, p, ValueType::EntityRef, PropertyValue(EntityId{value}));
+}
+
+vt_status vt_get_string(vt_engine* e, const vt_entity id, const vt_property p, char* buffer, const size_t capacity,
+    size_t* length)
+{
+    std::string text;
+    if (const vt_status status = getTyped(e, id, p, ValueType::String, &text,
+            [](const PropertyValue& v) { return std::get<std::string>(v); });
+        status != VT_OK) {
+        return status;
+    }
+    return guarded([&]() -> vt_status { return writeString(text, buffer, capacity, length); });
+}
+
+vt_status vt_set_string(vt_engine* e, const vt_entity id, const vt_property p, const char* value)
+{
+    if (!value) {
+        lastError = "no string";
+        return VT_ERROR_INVALID_ARGUMENT;
+    }
+    return setTyped(e, id, p, ValueType::String, PropertyValue(std::string(value)));
+}
+
+vt_status vt_get_text(vt_engine* engine, const vt_entity id, const vt_property handle, char* buffer,
+    const size_t capacity, size_t* length)
+{
+    return guarded([&]() -> vt_status {
+        const PropertyDesc* property = nullptr;
+        void* target = nullptr;
+        if (const vt_status status = resolveProperty(engine, id, handle, property, target); status != VT_OK) {
+            return status;
+        }
+        return writeString(formatPropertyValue(*property, property->get(target)), buffer, capacity, length);
+    });
+}
+
+vt_status vt_set_text(vt_engine* engine, const vt_entity id, const vt_property handle, const char* text)
+{
+    return guarded([&]() -> vt_status {
+        if (!text) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no text");
+        }
+        const PropertyDesc* property = nullptr;
+        void* target = nullptr;
+        const TypeDesc* owner = nullptr;
+        if (const vt_status status = resolveProperty(engine, id, handle, property, target, &owner); status != VT_OK) {
+            return status;
+        }
+        PropertyValue value;
+        if (!parsePropertyValue(*property, text, value)) {
+            return fail(VT_ERROR_TYPE_MISMATCH, std::string("'") + text + "' is not a " +
+                valueTypeName(property->type) + " for " + qualifiedName(*owner, *property));
+        }
+        return fromPropertyStatus(PropertyRegistry::set(*property, target, value), qualifiedName(*owner, *property));
+    });
+}
+
+} // extern "C"
