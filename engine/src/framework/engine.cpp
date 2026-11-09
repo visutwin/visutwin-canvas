@@ -872,4 +872,29 @@ namespace visutwin::canvas
             }
         }
     }
+
+    Entity* Engine::entityById(const EntityId id) const
+    {
+        Entity* entity = Entity::findById(id);
+        return entity && entity->findEngine() == this ? entity : nullptr;
+    }
+
+    Entity* Engine::entityByPath(const std::string_view path) const
+    {
+        Entity* current = _root.get();
+        size_t start = 0;
+        while (current && start < path.size()) {
+            const size_t end = std::min(path.find('/', start), path.size());
+            const std::string_view segment = path.substr(start, end - start);
+            Entity* next = nullptr;
+            current->forEachChild([&](GraphNode* child) {
+                if (!next && child->name() == segment) {
+                    next = dynamic_cast<Entity*>(child);
+                }
+            });
+            current = next;
+            start = end + 1;
+        }
+        return current && !current->destroying() ? current : nullptr;
+    }
 }

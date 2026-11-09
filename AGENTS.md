@@ -3115,6 +3115,17 @@ present, but the rule below never depends on reading it.
   catches). `DestroyWatch` (`framework/destroyWatch.h`) is that handle: `watch()` on set,
   and it unsubscribes on the next `watch()`, `reset()` and in its destructor. Joint ends, the transform gizmo's target, a button's image entity and the
   outline renderer's records do; `tests/triageContractsTests.cpp` holds the button.
+- **Code that edits engine state GENERICALLY goes through the property table**
+  (`framework/properties/propertyTable.h`, ARCHITECTURE.md design direction 4): the dump, the
+  harness's assignments and the coming C API read the same `PropertyRegistry`, so a property is
+  one `.property(name, getter, setter)` line in `builtinProperties.cpp` (named after its getter,
+  the value type deduced from it, an enum given its `options`), never glue at each consumer. A new
+  setter on a registered type that should be editable owes its line. A setter must accept the
+  value its getter returns and leave the getter reading it back: `tests/propertyTableTests.cpp`
+  sweeps every property of every type for exactly that, so a getter that reports something the
+  setter does not take (a derived or fitted value) is registered READ-ONLY instead. Code across
+  that boundary names an entity by `EntityId` (process-wide, never reused; `Engine::entityById`
+  answers null for a freed or `destroying()` entity) or by `Entity::path()`, never by pointer.
 - **`ResourceLoader::shutdown` delivers every undelivered completion as an ERROR, and a
   `load()` after it fails at once** — otherwise an `Asset` stays `_loading` forever and a
   later `loadAsync` coalesces onto a load that will never finish.
@@ -4080,6 +4091,12 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
 17. `VISUTWIN_TONE_MAPPING=n` sets `Tonemap` n on the scene and every camera, so the forward
     tail and a camera frame's compose both take it (an example that sets its tone mapping
     again later wins). `sky` drives the forward tail, `hdr` the compose.
+18. `VISUTWIN_SET_PROPERTY="path:type.property=value[;...]"` sets any registered property of an
+    example's entity once after `create()` ("Light:light.intensity=2;Ground:render.castShadows=false";
+    the path is `Entity::path`, the text what `formatPropertyValue` writes), and
+    `VISUTWIN_DUMP_PROPERTIES=1` (or a path, for one subtree) logs every entity's properties
+    after it: the way to find an example's entity names and to change a value without editing
+    the example.
 
 Animated examples cannot be screenshot-diffed across shader changes unless they run
 under `VISUTWIN_FIXED_DT`.

@@ -48,6 +48,7 @@
 #include "core/log.h"
 #include "framework/components/componentRegistry.h"
 #include "framework/components/render/renderComponent.h"
+#include "framework/properties/propertyTable.h"
 #include "scene/mesh.h"
 #include "platform/graphics/instanceCuller.h"
 #include "platform/graphics/vertexBuffer.h"
@@ -380,6 +381,47 @@ namespace visutwin::canvas
                     count, onCamera ? "camera(s)" : "render component(s)");
             } else {
                 spdlog::warn("VISUTWIN_CLIP_PLANE='{}' is not nx,ny,nz,d[,camera]; ignored", clip);
+            }
+        }
+
+        // VISUTWIN_SET_PROPERTY="path:type.property=value[;...]" sets properties of the
+        // example's entities through the property table (path as Entity::path, the value as
+        // its text form: "Light:light.intensity=2;Box:render.castShadows=false"; a material,
+        // carried by no entity, is not reached this way).
+        // VISUTWIN_DUMP_PROPERTIES=1 then logs every entity's properties, or with a path only
+        // that entity's subtree's. Both act once, after create().
+        if (const char* assignments = std::getenv("VISUTWIN_SET_PROPERTY"); assignments && *assignments) {
+            std::string_view rest(assignments);
+            while (!rest.empty()) {
+                const size_t end = std::min(rest.find(';'), rest.size());
+                const std::string_view assignment = rest.substr(0, end);
+                rest = end < rest.size() ? rest.substr(end + 1) : std::string_view();
+                if (assignment.empty()) {
+                    continue;
+                }
+                const PropertyStatus status = applyPropertyAssignment(*_engine, assignment);
+                if (status == PropertyStatus::Ok) {
+                    spdlog::info("Set {} from VISUTWIN_SET_PROPERTY", assignment);
+                } else {
+                    spdlog::warn("VISUTWIN_SET_PROPERTY '{}' not applied: {}", assignment, propertyStatusName(status));
+                }
+            }
+        }
+        if (const char* dump = std::getenv("VISUTWIN_DUMP_PROPERTIES"); dump && *dump) {
+            const std::string_view under = std::string_view(dump) == "1" ? std::string_view() : std::string_view(dump);
+            Entity* top = _engine->entityByPath(under);
+            if (!top) {
+                spdlog::warn("VISUTWIN_DUMP_PROPERTIES: no entity at '{}'", under);
+            }
+            const auto visit = [](const auto& self, GraphNode* node) -> void {
+                if (auto* entity = dynamic_cast<Entity*>(node); entity && entity->parent()) {
+                    spdlog::info("Properties of '{}' (id {}):\n{}", entity->path(), entity->id().value,
+                        describeEntityProperties(*entity));
+                }
+                node->forEachChild([&](GraphNode* child) { self(self, child); });
+            };
+            if (top) {
+                visit(visit, top);
             }
         }
 

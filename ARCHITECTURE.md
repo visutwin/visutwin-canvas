@@ -2399,20 +2399,163 @@ latency is the price (the `waitForNextFrame` rule above measured 7 ms against 18
 work (the cull sweep per camera, the sort per layer, shadow caster lists per light) is the
 smaller, separable half and can come first.
 
-### 4. A remote protocol and a reflection-lite inspector
+**Measured (2026-11-09).** Shipped scenes never showed the cull or the sort (the cull sweep reads
+0.006 ms Release on `ambient-occlusion`, and a static scene reuses its cull sets). A stress run
+does: N boxes of 8 materials under a root turned every frame (so no set is reused), a shadowed
+fill light, `hierarchy` on the Release Vulkan tree, median of frames 120-360:
 
-Bevy's remote protocol is JSON-RPC over HTTP with eighteen world methods (query, get and
-mutate components and resources, spawn, despawn, reparent, trigger an event) and a schema
-registry; its inspector is built on it and attaches to a running app, driven by
-annotations (range, step, units) on the reflected types. For a digital twin that surface
-is the product's own API as much as a debugging aid. This engine has no reflection and
-should not build one; the minimum is a per-component-type registration of named
-properties (getter, setter, type, range and unit) alongside `listInstance`, served over a
-WebSocket or HTTP endpoint from `Engine::components()` (`ComponentRegistry`, entities by
-name or path through the hierarchy), with the ImGui overlay (`engine/src/overlay/`) as the
-first local client. Keep the protocol's shape (method names, JSON encoding of the math
-types) stable from the first version, since visutwin-geo and visutwin-viz would speak it
-too.
+| boxes | draws | render | cull | sort | forward | shadow |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 5k | 14.8k | 11.8 ms | 1.07 | 0.17 | 5.79 | 1.38 |
+| 20k | 34.5k | 28.1 ms | 2.84 | 0.77 | 14.7 | 2.44 |
+| 50k | 78.5k | 61.4 ms | 5.82 | 1.94 | 31.5 | 5.89 |
+
+`sample` at 50k puts the main thread at: forward encoding 51% (the Vulkan draw path 32%), the camera
+cull sweep 19% and the directional shadow cull 14% (both mostly `MeshInstance::aabb` and
+`isVisibleInFrustum`), `sortDrawEntries` 8%, MoltenVK's submit-time encode 13%, and
+`GraphNode::worldScaleSign` 9%, which is not the sign (it is cached) but the first read of 50k
+moved world transforms. So the loops a task pool would split are about 30% of such a frame (a
+saving of perhaps 20% on eight cores), and about 10% at 5k moving instances, while the largest
+item, encoding the draws, is not on the list (instancing is the answer there). What blocks a
+parallel cull is the LAZY world transform: `aabb()` syncs a node and its dirty ancestors on read,
+which two threads reading siblings under one moved parent would race. The prerequisite is a
+serial (or per-subtree parallel) sync of every dirty node before the sweep, after which the sweep
+reads only; the sort per layer and the caster list per light are independent already. Not built:
+the trigger is a real scene with this many MOVING instances.
+
+### 4. A property table, a C API and a Julia frontend (a remote protocol later)
+
+Bevy's answer to "drive a running app from outside" is its remote protocol (BRP): JSON-RPC 2.0 over
+HTTP, world methods (query, get / insert / remove / mutate components, spawn, despawn, reparent,
+`+watch` streams), `registry.schema`, and an inspector driven by annotations (range, step, units)
+on the reflected types. This engine has no reflection and should not build one. The frontend in
+view is JULIA, which changes the answer: Julia calls C in-process (`ccall`), scientific
+visualisation moves arrays a socket would have to serialise, and a scene driven every frame wants
+calls, not messages. So the core is a property table and a C API in the same process, and a
+JSON-RPC protocol is one optional client of the same table, later. Design note (2026-11-09; first
+written around JSON-RPC the same day); phase 1, the table and the ids, landed the same day (below).
+
+**Goals.** A stable, in-process C interface a Julia package wraps thinly (and Python, Rust or C#
+could use unchanged); generic access to every exposed property without per-property glue; bulk
+data passed by pointer; the overlay inspector and a settings-file framework reading the same
+description; zero cost when unused. Not goals: a general reflection system, C++ across the
+boundary, a scene file format (it can reuse the table later), remote rendering.
+
+**1. The property table** (`framework/properties/`): each component type registers its properties
+once, beside `listInstance`, under a stable type name:
+
+    registerProperties<LightComponent>("light", {
+        property("intensity", &LightComponent::intensity, &LightComponent::setIntensity)
+            .range(0.0f, 10.0f).step(0.01f),
+        property("color", &LightComponent::color, &LightComponent::setColor),   // authored sRGB
+        property("range", ...).unit("m"),
+        property("type", ...).enumValues({"directional", "omni", "spot"}),
+    });
+
+A property is a name, a VALUE TYPE (bool, int, float, vec2 / 3 / 4, quaternion, colour, string,
+enum, entity reference, resource reference), a getter, an optional setter (read-only otherwise)
+and metadata (range, step, unit, a line of description). The entity registers its node properties
+the same way (name, enabled, local position, Euler rotation in degrees, scale, tags), and so do
+materials (`StandardMaterial` as type "standard", its setters' own conventions: colours authored
+sRGB). Plain C++, no macros reading declarations: a type exposes exactly what it means to; geo and
+viz register their own.
+
+**2. Identity.** An entity gets an `EntityId`, a 64-bit PROCESS-wide counter assigned at creation and
+never reused (the component serial's pattern; one counter rather than one per engine, so an id
+names one entity whichever engine is asked, and `Engine::entityById` checks the hierarchy). Code across the boundary holds ids, never
+pointers, so a call on a destroyed entity returns an error instead of touching freed memory: what a
+garbage-collected caller needs. A PATH (`Root/Arm/Wheel`, the animation binder's spelling, with
+glTF's disambiguation of same-named siblings) resolves to an id; names alone are not unique.
+Meshes, materials, textures and assets get `ResourceId`s on the same terms, the engine holding the
+reference until the caller releases it.
+
+**3. The C API** (`include/visutwin/visutwin.h`, a shared library `visutwin_canvas_c` linking the
+static engine and exporting only `vt_*`; `VISUTWIN_BUILD_C_API`):
+- C99 in the header, opaque handles, every function returning a `vt_status` (an enum), messages
+  through `vt_last_error(engine)`; no exception crosses the boundary (caught at each entry).
+- Versioned: `vt_api_version()`; every descriptor struct begins with its `size`, so fields can be
+  appended without breaking a caller built against an older header.
+- Lookups once, calls by handle: `vt_type_find(engine, "light")`, `vt_property_find(type,
+  "intensity")` return small integers; `vt_set_float(engine, entity, property, value)`,
+  `vt_set_vec3`, `vt_set_color`, `vt_get_*` with out-parameters, one typed pair per value type,
+  plus `vt_schema(...)` to enumerate types, properties, value types and metadata.
+- Entities: create (parent, name), destroy, find by path, add and remove components by type,
+  children through the two-call pattern (ask the count, pass a buffer).
+- Bulk data: `vt_mesh_create(engine, &desc)` with pointers and counts for positions, normals,
+  UVs, colours and indices; `vt_texture_create` / `vt_texture_update(region)` with a pointer, a
+  size and a pixel format; materials as resources set through the table. Arrays are READ DURING
+  THE CALL and copied into the engine (the Julia wrapper holds them with `GC.@preserve`), so no
+  lifetime crosses the boundary; a later zero-copy path can map a buffer instead.
+- The loop belongs to the caller, as it already does for the examples: `vt_engine_create(&desc)`
+  (window title, size, backend, or headless), `vt_poll_events` (SDL events into
+  `Engine::handleInputEvent`, returns quit), `vt_wait_next_frame`, `vt_update(dt)`, `vt_render()`,
+  or `vt_frame(dt)` for all of them; callbacks (`vt_on(engine, "update", fn, user)`) are C function
+  pointers (Julia's `@cfunction`), called on the engine thread.
+- One thread: every call must come from the thread that created the engine, which on macOS must be
+  the MAIN thread (the window and Metal), and is checked at each entry (`VT_WRONG_THREAD`). A Julia
+  task on another thread hands its work to the main one.
+- Headless rendering and `vt_capture(engine, buffer, size)` (a frame read back into the caller's
+  array, `Texture::read`), for tests and for notebooks that show images.
+- Tests: a C file compiled as C99 (the header stays C), driving the API on the stub device.
+
+**4. The Julia package** (`VisuTwin.jl`, a sibling repository like geo and viz): a thin layer over
+the C API. `Engine` and `Entity` wrap a handle and an id; components appear as property proxies
+(`light.intensity = 2.0f0`, reading the schema once); arrays go in under `GC.@preserve`. FINALIZERS
+FREE NOTHING in the engine: Julia runs them on the collector's schedule, possibly on another
+thread, so engine objects are released explicitly (or queued to the engine thread). In the REPL
+the frame loop runs as a task on the main thread (`@async` with `yield()`), so the prompt stays
+live while the window renders. Development loads the local library (`Libdl`, an environment
+variable); distribution later needs a binary package built with Julia's BinaryBuilder (every vcpkg
+dependency rebuilt there), a project of its own.
+
+**5. A remote protocol, if an out-of-process client appears** (an operator's dashboard, a remote
+inspector, a twin that must outlive its client): a JSON-RPC dispatcher over the same table, BRP's
+method names where the meaning matches, values encoded as above (vectors as arrays, colours in
+their setters' space, angles in degrees, entity references as `{"entity": id}`), applied on the
+engine thread at the start of each update within a time budget, localhost by default with a token
+for anything else. It could live in C++ (IXWebSocket, BSD-3, vcpkg 12.1.0, without its `ssl`
+feature) or in the Julia layer (HTTP.jl over the C API) — whichever owns the process.
+
+**6. Phases.** (1) the property table and `EntityId`, for the entity node and the core components
+(light, camera, render, element) and the standard material (LANDED, below; the overlay inspector it
+named was dropped: ImGui may leave the engine, and the inspector a Julia frontend wants is its own);
+(2) the C API core: lifecycle and loop, entities, components, properties, schema, errors and the
+thread check, tested in C on the stub device; (3) bulk data and resources: meshes, textures,
+materials, assets, headless rendering and capture; (4) `VisuTwin.jl` over it, with a few scenes
+ported as its examples; (5) the remote protocol, only when a client needs it.
+
+**Phase 1 (landed 2026-11-09).** `framework/properties/propertyTable.h`: `ValueType`,
+`PropertyValue` (a variant: Int and Enum both hold an int, an entity reference an `EntityId`),
+`PropertyDesc` (getter, optional setter, range / step / unit / description hints, enum options),
+`TypeDesc` (a stable name, its properties, a resolver from an entity to its object, empty for a
+type no entity carries), and the process-wide `PropertyRegistry` (`instance()` registers the
+built-ins once; `registerType<T>(name, description, resolver)` returns a `TypeBuilder<T>` whose
+`property(name, getter[, setter])` deduces the value type from what the getter returns, member
+functions and lambdas alike). Reads and writes go through `PropertyRegistry::get` / `set`, by
+qualified name on an entity ("light.intensity") or by descriptor on an object, returning a
+`PropertyStatus` (no type, no property, no target, read-only, type mismatch, invalid enum value);
+the hints are not enforced. Text: `formatPropertyValue` / `parsePropertyValue` (round-trip,
+floats in their shortest exact form, enums by option name), `describeEntityProperties` (every
+"type.property = value" of an entity and its render component's standard material) and
+`applyPropertyAssignment(engine, "path:type.property=value")`. Six built-in types, 123
+properties (`builtinProperties.cpp`, each named after its getter): node (id, name, enabled,
+parent, local position, Euler rotation in degrees through the new `Quaternion::getEulerAngles`,
+scale, world position), light, camera (projection, fov, clip planes, clear state, tone mapping,
+physical exposure, the TAA / SSAO / DOF switches), render, element, and standard (no resolver: a
+material is handed over). Identity: `Entity::id()`, `Entity::findById`, `Entity::path()`,
+`Engine::entityById` / `entityByPath`. The examples harness reads two variables
+(`VISUTWIN_SET_PROPERTY`, `VISUTWIN_DUMP_PROPERTIES`). `tests/propertyTableTests.cpp` sweeps
+every property of every type on a real entity (typed, named once, enums named, set(get()) a no-op,
+the text form reading back) and holds the ids, the paths and the statuses; breaking a setter or
+dropping an enum's options fails it. Not yet: `ResourceId`s, entity creation and components by
+type name (phase 2, with the C API), tags, a script's properties.
+
+**Open questions.** Windowing: an engine-owned SDL window, or rendering into a host's view (an
+`NSView` / `CAMetalLayer` or a Vulkan surface handed in), which a Julia GUI toolkit would want;
+whether geo and viz extend the same library or ship C APIs of their own (viz's volumes are the
+main bulk-data client); whether `EntityId`s must survive a save and reload; how a SCRIPT exposes
+properties (a `Script::properties()` registration through the same table); and whether a Makie
+backend over the C API is worth more to Julia users than a package of its own.
 
 ### Cheap and separable
 

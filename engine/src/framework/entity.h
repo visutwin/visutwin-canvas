@@ -14,6 +14,7 @@
 #include "components/componentSystemRegistry.h"
 #include "components/script/scriptComponent.h"
 #include "engine.h"
+#include "entityId.h"
 #include "components/component.h"
 #include "scene/graphNode.h"
 
@@ -32,7 +33,21 @@ namespace visutwin::canvas
     class Entity : public GraphNode
     {
     public:
+        Entity();
         virtual ~Entity();
+
+        /// This entity's id: unique in the process and never reused (entityId.h). A clone gets
+        /// a new one.
+        [[nodiscard]] EntityId id() const { return _id; }
+
+        /// The live entity with this id, or null when there is none or it is being destroyed.
+        /// Any engine's; Engine::entityById keeps to one.
+        [[nodiscard]] static Entity* findById(EntityId id);
+
+        /// The names from below the root of this entity's hierarchy down to it, joined by '/'
+        /// ("Car/Wheel"); empty for the root. Engine::entityByPath finds the entity from it,
+        /// the FIRST child of each name where siblings share one.
+        [[nodiscard]] std::string path() const;
 
         /// Tear the entity down in a DEFINED order: descendants first, then this
         /// entity's components disabled lowest-`order()` first and released in the
@@ -215,6 +230,7 @@ namespace visutwin::canvas
         static void resolveClonedReferences(const Entity& source, Entity& clone, const CloneNodeMap& map);
 
         Engine* _engine = nullptr;
+        EntityId _id;
 
         bool _destroying = false;
         bool _excludedFromClone = false;

@@ -4,6 +4,9 @@
 // Created by Arnis Lektauers on 18.10.2025
 //
 #include <algorithm>
+#include <atomic>
+#include <mutex>
+#include <unordered_map>
 
 #include "entity.h"
 
@@ -14,12 +17,76 @@
 
 namespace visutwin::canvas
 {
+    namespace
+    {
+        // Every live entity by id. Leaked on purpose: an entity held by a global may be freed
+        // after any static map would be.
+        struct EntityIndex
+        {
+            std::mutex mutex;
+            std::unordered_map<uint64_t, Entity*> entities;
+        };
+
+        EntityIndex& entityIndex()
+        {
+            static auto* index = new EntityIndex();
+            return *index;
+        }
+
+        uint64_t nextEntityId()
+        {
+            static std::atomic<uint64_t> counter{0};
+            return counter.fetch_add(1, std::memory_order_relaxed) + 1;
+        }
+    }
+
+    Entity::Entity() : _id{nextEntityId()}
+    {
+        EntityIndex& index = entityIndex();
+        const std::lock_guard lock(index.mutex);
+        index.entities.emplace(_id.value, this);
+    }
+
     Entity::~Entity()
     {
         // Idempotent: an entity destroyed explicitly has already run this, and one
         // that was not still gets the defined teardown order rather than whatever
         // order its storage happens to release in.
         destroy();
+
+        EntityIndex& index = entityIndex();
+        const std::lock_guard lock(index.mutex);
+        index.entities.erase(_id.value);
+    }
+
+    Entity* Entity::findById(const EntityId id)
+    {
+        if (!id) {
+            return nullptr;
+        }
+        EntityIndex& index = entityIndex();
+        const std::lock_guard lock(index.mutex);
+        const auto it = index.entities.find(id.value);
+        if (it == index.entities.end() || it->second->destroying()) {
+            return nullptr;
+        }
+        return it->second;
+    }
+
+    std::string Entity::path() const
+    {
+        std::vector<const GraphNode*> chain;
+        for (const GraphNode* node = this; node->parent(); node = node->parent()) {
+            chain.push_back(node);
+        }
+        std::string result;
+        for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+            if (!result.empty()) {
+                result += '/';
+            }
+            result += (*it)->name();
+        }
+        return result;
     }
 
     std::vector<Component*> Entity::orderedComponents() const

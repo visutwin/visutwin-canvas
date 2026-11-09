@@ -173,6 +173,11 @@ namespace visutwin::canvas
          */
         static Quaternion fromEulerAngles(float ax, float ay, float az);
 
+        /// The Euler angles in degrees that fromEulerAngles turns into this rotation (the same
+        /// order). At a pitch of +/-90 degrees about Y the X and Z turns are one axis, and the
+        /// whole of it is reported as X with Z 0.
+        Vector3 getEulerAngles() const;
+
         /**
          *  Converts the specified 4x4 matrix to a quaternion
          */

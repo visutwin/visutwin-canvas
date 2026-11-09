@@ -14,6 +14,7 @@
 #include "scene/shader-lib/shaderSourceWatcher.h"
 #include "applicationStats.h"
 #include "constants.h"
+#include "entityId.h"
 #include "sceneRegistry.h"
 #include "assets/assetRegistry.h"
 #include "bundles/bundleRegistry.h"
@@ -138,6 +139,14 @@ namespace visutwin::canvas
         float fixedTimeAlpha() const { return _fixedTimeAlpha; }
 
         Entity* root() const { return _root.get(); }
+
+        /// The live entity of this engine's hierarchy with this id, or null (Entity::findById
+        /// keeps to no engine).
+        Entity* entityById(EntityId id) const;
+
+        /// The entity at a path under the root (Entity::path: names joined by '/', the first
+        /// child of each name where siblings share one; empty is the root), or null.
+        Entity* entityByPath(std::string_view path) const;
 
         std::shared_ptr<ScriptRegistry> scripts() const { return _scripts; }
 

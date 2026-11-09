@@ -426,6 +426,35 @@ namespace visutwin::canvas
         );
     }
 
+    inline Vector3 Quaternion::getEulerAngles() const
+    {
+        const float qx = getX();
+        const float qy = getY();
+        const float qz = getZ();
+        const float qw = getW();
+        constexpr float halfPi = 1.57079632679489661923f;
+
+        const float a2 = 2.0f * (qw * qy - qx * qz);
+        float x;
+        float y;
+        float z;
+        if (a2 <= -0.99999f) {
+            x = 2.0f * std::atan2(qx, qw);
+            y = -halfPi;
+            z = 0.0f;
+        } else if (a2 >= 0.99999f) {
+            x = 2.0f * std::atan2(qx, qw);
+            y = halfPi;
+            z = 0.0f;
+        } else {
+            x = std::atan2(2.0f * (qw * qx + qy * qz), 1.0f - 2.0f * (qx * qx + qy * qy));
+            y = std::asin(a2);
+            z = std::atan2(2.0f * (qw * qz + qx * qy), 1.0f - 2.0f * (qy * qy + qz * qz));
+        }
+        constexpr float toDegrees = 57.29577951308232f;
+        return Vector3(x * toDegrees, y * toDegrees, z * toDegrees);
+    }
+
     inline Quaternion Quaternion::fromMatrix4(const Matrix4& mat)
     {
         auto m00 = mat.getElement(0, 0);
