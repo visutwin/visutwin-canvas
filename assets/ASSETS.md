@@ -36,6 +36,10 @@ for details.
 - `playcanvas.png` / `playcanvas-grey.png` — logo textures (CC-0 assets, but the
   depicted logo is a third-party mark: branding, not reusable art)
 - `snowflake.png`, `spark.png`, `particles-numbers.png` — particle sprites (CC-0)
+- `vfx/` (`smoke-flipbook.webp`, `explosion-flipbook.webp`, `scorch-decal.webp`,
+  `bullet-hole-decal.webp`, `rune-decal.webp`) — byte-identical to upstream's example textures,
+  generated procedurally by its own script with no third-party content (`vfx/vfx-textures.txt`
+  says so); WebP, read through the shared libwebp decoder. Used by `impact-effects`.
 - `particles-coins.png` (4x6 coin sprite sheet) and `particles-bonus.png` (4x2 bonus icons) —
   byte-identical to upstream's example sprites, which record no licence. LICENCE TO CONFIRM.
   Used by `particles-random-sprites`.

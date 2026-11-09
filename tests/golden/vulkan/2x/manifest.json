@@ -36,8 +36,8 @@
   },
   "dynamic-batching": {
     "capture_size": [
-      1100,
-      750
+      900,
+      700
     ],
     "frame": 150
   },
