@@ -474,6 +474,8 @@ protected:
         if (_material) {
             _material->setFogTexture(nullptr);
         }
+        // The preview pass holds the graphics device.
+        _previewPass.reset();
     }
 
 private:

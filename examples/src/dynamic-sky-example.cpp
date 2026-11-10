@@ -271,6 +271,13 @@ protected:
         scene()->setFogColor(Color(0.165f * day, 0.549f * day, 0.596f * day, 1.0f));
     }
 
+    // Holds the graphics device: released while the engine and the device are alive.
+    void destroy() override
+    {
+        _sky.reset();
+        _autoExposure.reset();
+    }
+
 private:
     void applySettings()
     {

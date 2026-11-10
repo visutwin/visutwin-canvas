@@ -103,6 +103,12 @@ protected:
         }
     }
 
+    // Holds the graphics device: released while the engine and the device are alive.
+    void destroy() override
+    {
+        _renderer.reset();
+    }
+
 private:
     static const char* capName(const LineCap cap)
     {

@@ -2576,7 +2576,7 @@ freed nothing) and a device never before process exit (its program library, whic
 sits in a static per-device cache keyed on it); the C API calls `Engine::destroy()`, which now
 releases the device's program library and default material (`releaseProgramLibrary`,
 `releaseDefaultMaterial`), and a device that still outlives its engine is logged. The examples
-harness does not call `destroy()` yet. `tests/capiTests.c` (C99, 72 checks, threads through
+harness calls `destroy()` as well, and warns the same way. `tests/capiTests.c` (C99, 72 checks, threads through
 pthreads) and `tests/engineLifetimeTests.cpp` hold it. Not yet: Linux and Windows (the option is
 on only on macOS: the version script and the PIC engine want a check there), `ResourceId`s,
 materials, meshes, textures, headless GPU rendering and capture (phase 3).

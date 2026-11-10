@@ -290,6 +290,13 @@ protected:
         }
     }
 
+    // Holds the graphics device: released while the engine and the device are alive.
+    void destroy() override
+    {
+        _sunFlare.reset();
+        _lensFlare.reset();
+    }
+
 private:
     struct Lamp
     {

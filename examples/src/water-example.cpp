@@ -283,6 +283,12 @@ protected:
         return true;
     }
 
+    // Holds the graphics device: released while the engine and the device are alive.
+    void destroy() override
+    {
+        _sky.reset();
+    }
+
 private:
     // The sun's position, the bloom and the fog's daylight for the hour.
     void applyTimeOfDay()

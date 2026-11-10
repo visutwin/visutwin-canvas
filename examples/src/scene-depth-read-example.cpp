@@ -165,6 +165,12 @@ protected:
         _pending = true;
     }
 
+    // Holds the graphics device: released while the engine and the device are alive.
+    void destroy() override
+    {
+        _reader.reset();
+    }
+
 private:
     void setupPhase(const size_t phase)
     {

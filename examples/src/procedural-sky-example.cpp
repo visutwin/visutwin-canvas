@@ -340,6 +340,12 @@ protected:
         }
     }
 
+    // Holds the graphics device: released while the engine and the device are alive.
+    void destroy() override
+    {
+        _sky.reset();
+    }
+
 private:
     std::unique_ptr<Asset> _laboratoryAsset;
     std::unique_ptr<Asset> _terrainAsset;

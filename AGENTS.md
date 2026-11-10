@@ -3145,8 +3145,13 @@ present, but the rule below never depends on reading it.
   library and default material (`releaseProgramLibrary` / `releaseDefaultMaterial`): the library
   HOLDS its device and sits in a static per-device cache, so until then the device lived to
   process exit, where its shaders were freed after the driver (an abort at exit on Vulkan from
-  the C API's shared library). The C API calls it and warns if the device still outlives its
-  engine; the examples harness and most tests do not yet. A new static cache keyed on a device
+  the C API's shared library). The C API and the examples harness (`ExampleApp::shutdown`) call
+  it and warn if the device still outlives its engine; most unit tests do not. An application
+  with its own loop owes the call too. An EXAMPLE member holding something that holds the device
+  (a camera frame effect, a render pass, a reader, a wide-line renderer) is released in the
+  example's `destroy()` hook, which runs while the engine is alive; left to the example's
+  destructor it outlives the window and SDL, and the harness logs "the graphics device outlived
+  the engine". All 197 examples exit 0 on both backends without that line (2026-11-10). A new static cache keyed on a device
   must not hold the device (or anything that does) beyond the engine's `destroy()`:
   `tests/engineLifetimeTests.cpp` builds and destroys an engine three times and fails if the
   device survives.

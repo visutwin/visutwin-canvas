@@ -955,8 +955,19 @@ namespace visutwin::canvas
         _hudRegularFont.reset();
         _hudBoldFont.reset();
 
+        // destroy() and not only the reset: the engine's script registry, element input and tick
+        // hold the engine itself, so the reset alone frees nothing, and the device would then
+        // live until process exit, past the window and SDL.
+        const std::weak_ptr<GraphicsDevice> device = _device;
+        if (_engine) {
+            _engine->destroy();
+        }
         _engine.reset();
         _device.reset();
+        if (const auto survivor = device.lock()) {
+            spdlog::warn("{}: the graphics device outlived the engine ({} references)", _options.title,
+                survivor.use_count() - 1);
+        }
 
         if (_renderer) {
             SDL_DestroyRenderer(_renderer);
