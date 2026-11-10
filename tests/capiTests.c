@@ -66,6 +66,31 @@ static int optionValue(vt_property p, const char* name)
     return -1;
 }
 
+/* Counts a model's entities, and its cameras and lights still enabled, below `entity`. */
+static void walk(vt_engine* engine, vt_entity entity, int* entities, int* cameras, int* lights, int* enabled)
+{
+    vt_entity children[64];
+    size_t count = 0, i;
+    int32_t has = 0, on = 0;
+    ++*entities;
+    if (vt_component_has(engine, entity, "camera", &has) == VT_OK && has) {
+        ++*cameras;
+        if (vt_get_bool(engine, entity, property("camera.enabled"), &on) == VT_OK && on) {
+            ++*enabled;
+        }
+    }
+    if (vt_component_has(engine, entity, "light", &has) == VT_OK && has) {
+        ++*lights;
+        if (vt_get_bool(engine, entity, property("light.enabled"), &on) == VT_OK && on) {
+            ++*enabled;
+        }
+    }
+    vt_entity_children(engine, entity, children, 64, &count);
+    for (i = 0; i < count && i < 64; ++i) {
+        walk(engine, children[i], entities, cameras, lights, enabled);
+    }
+}
+
 typedef struct ThreadProbe
 {
     vt_engine* engine;
@@ -374,6 +399,70 @@ int main(void)
             "the null backend renders it but has no pixels to give");
         check(vt_camera_set_offscreen(engine, offscreenCamera, 0, 0) == VT_OK &&
             vt_entity_destroy(engine, offscreenCamera) == VT_OK, "and it goes back to the window");
+    }
+
+    /* ---- Models, loaded textures, camera controls ---- */
+    {
+        char file[1024];
+        vt_entity model = 0, heart = 0, viewer = 0, notCamera = 0;
+        vt_resource loaded = 0, material = 0;
+        vt_vec3 center, half;
+        int entities = 0, cameras = 0, lights = 0, enabled = 0;
+
+        snprintf(file, sizeof(file), "%s/models/geometry-camera-light.glb", VT_TEST_ASSETS);
+        check(vt_gltf_load(engine, file, 0, &model) == VT_OK && model != 0, "a glTF model is loaded");
+        walk(engine, model, &entities, &cameras, &lights, &enabled);
+        printf("        %d entities, %d cameras, %d lights\n", entities, cameras, lights);
+        check(entities > 1 && cameras >= 1 && lights >= 1 && enabled == 0,
+            "its hierarchy is entities, its camera and light come disabled");
+        check(vt_entity_bounds(engine, model, &center, &half) == VT_OK && half.x > 0.0f && half.y > 0.0f,
+            "its bounds are what it draws");
+        check(vt_frame(engine, 1.0f / 60.0f, NULL) == VT_OK, "and a frame draws it");
+        snprintf(file, sizeof(file), "%s/models/heart_draco.glb", VT_TEST_ASSETS);
+        check(vt_gltf_load(engine, file, model, &heart) == VT_OK && vt_entity_parent(engine, heart, &parent) == VT_OK &&
+            parent == model, "a Draco-compressed model loads below another entity");
+        check(vt_gltf_load(engine, "/no/such/model.glb", 0, &heart) == VT_ERROR_NOT_FOUND, "a missing file is not found");
+        snprintf(file, sizeof(file), "%s/textures/checkboard.png", VT_TEST_ASSETS);
+        check(vt_gltf_load(engine, file, 0, &heart) == VT_ERROR_INVALID_ARGUMENT, "an image is not a model");
+
+        check(vt_texture_load(engine, file, VT_TEXTURE_MIPMAPS, &loaded) == VT_OK && vt_material_create(engine, &material) == VT_OK &&
+            vt_material_set_texture(engine, material, "diffuseMap", loaded) == VT_OK, "an image file is loaded as a texture");
+        check(vt_texture_load(engine, "/no/such/image.png", 0, &loaded) == VT_ERROR_NOT_FOUND, "a missing image is not found");
+        check(vt_resource_release(engine, material) == VT_OK, "and released with its material");
+        {
+            vt_resource atlas = 0;
+            snprintf(file, sizeof(file), "%s/cubemaps/studio-env-atlas.png", VT_TEST_ASSETS);
+            check(vt_texture_load(engine, file, VT_TEXTURE_ENV_ATLAS, &atlas) == VT_OK &&
+                vt_scene_set_environment(engine, atlas) == VT_OK && vt_resource_release(engine, atlas) == VT_OK &&
+                vt_frame(engine, 1.0f / 60.0f, NULL) == VT_OK, "an environment atlas lights the scene, kept past its release");
+            check(vt_scene_set_environment(engine, model) == VT_ERROR_NOT_FOUND &&
+                vt_scene_set_environment(engine, 0) == VT_OK && vt_frame(engine, 1.0f / 60.0f, NULL) == VT_OK,
+                "an entity is no environment, and 0 removes it");
+            snprintf(file, sizeof(file), "%s/textures/checkboard.png", VT_TEST_ASSETS);
+        }
+
+        check(vt_entity_create(engine, 0, "Viewer", &viewer) == VT_OK && vt_component_add(engine, viewer, "camera") == VT_OK &&
+            vt_component_add(engine, viewer, "cameraControls") == VT_OK &&
+            vt_component_has(engine, viewer, "cameraControls", &flag) == VT_OK && flag == 1,
+            "a camera is given orbit controls");
+        check(vt_entity_create(engine, 0, "NotACamera", &notCamera) == VT_OK &&
+            vt_component_add(engine, notCamera, "cameraControls") == VT_ERROR_UNSUPPORTED, "an entity without a camera is not");
+        position.x = 0.0f; position.y = 0.0f; position.z = 10.0f;
+        vt_set_vec3(engine, viewer, property("node.position"), position);
+        center.x = 0.0f; center.y = 0.0f; center.z = 0.0f;
+        check(vt_set_vec3(engine, viewer, property("cameraControls.focusPoint"), center) == VT_OK &&
+            vt_set_float(engine, viewer, property("cameraControls.orbitDistance"), 4.0f) == VT_OK &&
+            vt_frame(engine, 1.0f / 60.0f, NULL) == VT_OK &&
+            vt_get_vec3(engine, viewer, property("node.position"), &position) == VT_OK && fabsf(position.z - 4.0f) < 1e-3f,
+            "its orbit distance moves the camera toward the focus point");
+        check(vt_get_text(engine, viewer, property("cameraControls.mode"), text, sizeof(text), &length) == VT_OK,
+            "its mode reads back");
+        check(vt_component_remove(engine, viewer, "cameraControls") == VT_OK &&
+            vt_component_has(engine, viewer, "cameraControls", &flag) == VT_OK && flag == 0 &&
+            vt_frame(engine, 1.0f / 60.0f, NULL) == VT_OK, "and loses them again");
+        vt_entity_destroy(engine, model);
+        vt_entity_destroy(engine, viewer);
+        vt_entity_destroy(engine, notCamera);
     }
 
     /* ---- Destruction ---- */

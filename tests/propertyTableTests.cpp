@@ -26,6 +26,7 @@
 #include "framework/components/render/renderComponentSystem.h"
 #include "framework/components/screen/screenComponent.h"
 #include "framework/components/screen/screenComponentSystem.h"
+#include "framework/components/script/scriptComponentSystem.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
 #include "framework/properties/propertyTable.h"
@@ -135,7 +136,7 @@ int main()
 {
     std::cout << std::unitbuf;
     auto engine = makeTestEngine<RenderComponentSystem, LightComponentSystem, CameraComponentSystem,
-        ScreenComponentSystem, ElementComponentSystem>(std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{.cpuBuffers = true}));
+        ScreenComponentSystem, ElementComponentSystem, ScriptComponentSystem>(std::make_shared<StubGraphicsDevice>(StubGraphicsDevice::Options{.cpuBuffers = true}));
     PropertyRegistry& registry = PropertyRegistry::instance();
 
     // --- Entity ids ---------------------------------------------------------------------
@@ -187,6 +188,9 @@ int main()
     material->setGloss(0.3f);
     render->setMaterial(material.get());
     rig->addComponent<ScreenComponent>();
+    // Camera controls on the rig, which has a camera (an entity without one is refused).
+    check(registry.type("cameraControls")->addTo(*rig), "the rig takes camera controls");
+    check(!registry.type("cameraControls")->addTo(*car), "an entity without a camera does not");
     addElement(rig);
 
     for (const auto& type : registry.types()) {
@@ -200,7 +204,7 @@ int main()
             sweep(*type, target);
         }
     }
-    for (const char* name : {"node", "light", "camera", "render", "element", "screen", "scene", "standard"}) {
+    for (const char* name : {"node", "light", "camera", "render", "element", "screen", "cameraControls", "scene", "standard"}) {
         check(registry.type(name) != nullptr, std::string("the built-in type ") + name + " is registered");
     }
 

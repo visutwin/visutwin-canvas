@@ -4,7 +4,7 @@
 // Created by Arnis Lektauers on 09.11.2026
 //
 // The engine's own property types: the entity node, the light, camera, render, element and
-// screen components, the scene and the standard material. A property is named after the getter it reads,
+// screen components, the camera controls, the scene and the standard material. A property is named after the getter it reads,
 // so a frontend's name and the C++ one agree.
 //
 #include "propertyTable.h"
@@ -15,6 +15,8 @@
 #include "framework/components/light/lightComponent.h"
 #include "framework/components/render/renderComponent.h"
 #include "framework/components/screen/screenComponent.h"
+#include "framework/components/script/scriptComponent.h"
+#include "extras/script/cameraControls.h"
 #include "framework/entity.h"
 #include "scene/camera.h"
 #include "scene/constants.h"
@@ -287,6 +289,81 @@ namespace visutwin::canvas
                 .property("scale", &ScreenComponent::scale);
         }
 
+        void registerCameraControls(PropertyRegistry& registry)
+        {
+            const std::vector<EnumOption> buttons = {{static_cast<int>(CameraControls::MouseAction::ORBIT), "orbit"},
+                {static_cast<int>(CameraControls::MouseAction::PAN), "pan"},
+                {static_cast<int>(CameraControls::MouseAction::LOOK), "look"},
+                {static_cast<int>(CameraControls::MouseAction::NONE), "none"}};
+            auto type = registry.registerType<CameraControls>("cameraControls",
+                "Mouse, touch, keyboard and gamepad controls on a camera entity: orbit, pan, zoom and "
+                "fly. A script on the entity's script component; removing them removes that component.",
+                [](Entity& entity) -> CameraControls* {
+                    auto* scripts = entity.script();
+                    return scripts ? dynamic_cast<CameraControls*>(scripts->get(CameraControls::scriptName())) : nullptr;
+                });
+            type.component(
+                [](Entity& entity) {
+                    // They move the entity's camera: without one there is nothing to control.
+                    if (!entity.findComponent<CameraComponent>()) {
+                        return false;
+                    }
+                    if (!entity.script() && !entity.addComponent<ScriptComponent>()) {
+                        return false;
+                    }
+                    if (entity.script()->get(CameraControls::scriptName())) {
+                        return true;
+                    }
+                    auto* controls = entity.script()->create<CameraControls>();
+                    if (!controls) {
+                        return false;
+                    }
+                    // An orbit camera looking where it already looks, as the examples set it up.
+                    controls->setEnableFly(false);
+                    controls->storeResetState();
+                    return true;
+                },
+                [](Entity& entity) {
+                    if (!entity.script() || !entity.script()->get(CameraControls::scriptName())) {
+                        return false;
+                    }
+                    return entity.removeComponent<ScriptComponent>();
+                });
+            type.property("enabled", [](const CameraControls& c) { return c.enabled(); },
+                    [](CameraControls& c, const bool value) { c.setEnabled(value); })
+                .property("mode", &CameraControls::mode)
+                    .options({{static_cast<int>(CameraControls::Mode::ORBIT), "orbit"},
+                        {static_cast<int>(CameraControls::Mode::FLY), "fly"},
+                        {static_cast<int>(CameraControls::Mode::FOCUS), "focus"}})
+                    .describe("What the controls are doing; follows the input.")
+                .property("focusPoint", &CameraControls::focusPoint, &CameraControls::setFocusPoint)
+                    .describe("The point the camera orbits, keeping its position.")
+                .property("orbitDistance", &CameraControls::orbitDistance, &CameraControls::setOrbitDistance)
+                    .describe("The camera's distance from the focus point, along its view.")
+                .property("enableOrbit", &CameraControls::enableOrbit, &CameraControls::setEnableOrbit)
+                .property("enableFly", &CameraControls::enableFly, &CameraControls::setEnableFly)
+                    .describe("WASD and the mouse to fly (off by default here).")
+                .property("enablePan", &CameraControls::enablePan, &CameraControls::setEnablePan)
+                .property("groundPan", &CameraControls::groundPan, &CameraControls::setGroundPan)
+                    .describe("Panning slides the camera over the horizontal plane, keeping its height.")
+                .property("leftButton", &CameraControls::leftButton, &CameraControls::setLeftButton).options(buttons)
+                .property("middleButton", &CameraControls::middleButton, &CameraControls::setMiddleButton)
+                    .options(buttons)
+                .property("rightButton", &CameraControls::rightButton, &CameraControls::setRightButton).options(buttons)
+                .property("zoomRange", &CameraControls::zoomRange, &CameraControls::setZoomRange)
+                    .describe("The nearest and farthest orbit distance.")
+                .property("pitchRange", &CameraControls::pitchRange, &CameraControls::setPitchRange).unit("deg")
+                .property("yawRange", &CameraControls::yawRange, &CameraControls::setYawRange).unit("deg")
+                .property("rotateDamping", &CameraControls::rotateDamping, &CameraControls::setRotateDamping)
+                    .range(0, 0.999f, 0.01f)
+                .property("zoomDamping", &CameraControls::zoomDamping, &CameraControls::setZoomDamping)
+                    .range(0, 0.999f, 0.01f)
+                .property("moveDamping", &CameraControls::moveDamping, &CameraControls::setMoveDamping)
+                    .range(0, 0.999f, 0.01f)
+                .property("focusDamping", &CameraControls::focusDamping, &CameraControls::setFocusDamping)
+                    .range(0, 0.999f, 0.01f);
+        }
+
         void registerScene(PropertyRegistry& registry)
         {
             auto type = registry.registerType<Scene>("scene",
@@ -386,6 +463,7 @@ namespace visutwin::canvas
         registerRender(registry);
         registerElement(registry);
         registerScreen(registry);
+        registerCameraControls(registry);
         registerScene(registry);
         registerStandardMaterial(registry);
     }

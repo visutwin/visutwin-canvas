@@ -296,7 +296,9 @@ while (!quit) {
 vt_engine_destroy(engine);
 ```
 
-`capi/examples/hello.c` is the whole program. Materials, meshes and textures are made from the
+`capi/examples/hello.c` is the whole program. `vt_gltf_load` adds a glTF model to the scene,
+`vt_scene_set_environment` lights it with an environment atlas, and a camera given the
+`cameraControls` component orbits it with the mouse. Materials, meshes and textures are made from the
 caller's own arrays (`vt_material_create`, `vt_mesh_create`, `vt_texture_create`). A camera given
 an offscreen image (`vt_camera_set_offscreen`) renders into it, and `vt_camera_read_pixels`
 copies the frame into the caller's buffer: with `VT_ENGINE_HIDDEN` that is headless rendering,

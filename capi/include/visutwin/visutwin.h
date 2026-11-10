@@ -51,7 +51,7 @@ extern "C" {
 /* ---- Version and status --------------------------------------------------------------- */
 
 #define VT_API_VERSION_MAJOR 0
-#define VT_API_VERSION_MINOR 3
+#define VT_API_VERSION_MINOR 4
 
 /** The library's API version: (major << 16) | minor. A caller built against major M runs on
  *  a library of major M and any minor at least its own. */
@@ -215,14 +215,19 @@ VT_API vt_status vt_entity_set_parent(vt_engine* engine, vt_entity entity, vt_en
 VT_API vt_status vt_entity_children(vt_engine* engine, vt_entity entity, vt_entity* buffer, size_t capacity,
     size_t* count);
 
+/** The world-space box around everything the entity and its descendants draw (a box of half
+ *  size 0.5 at the entity when it draws nothing): what a viewer frames. */
+VT_API vt_status vt_entity_bounds(vt_engine* engine, vt_entity entity, vt_vec3* center, vt_vec3* half_extents);
+
 /** Every property of every type the entity carries, one "type.property = value" line each. */
 VT_API vt_status vt_entity_describe(vt_engine* engine, vt_entity entity, char* buffer, size_t capacity,
     size_t* length);
 
 /* ---- Components ------------------------------------------------------------------------- */
 
-/** Adds the component of a type ("light", "camera", "render", "element", "screen"); an entity
- *  that has one already keeps it. */
+/** Adds the component of a type ("light", "camera", "render", "element", "screen", or
+ *  "cameraControls": orbit, pan, zoom and fly from the mouse, touch, keyboard and gamepads, on an
+ *  entity with a camera); an entity that has one already keeps it. */
 VT_API vt_status vt_component_add(vt_engine* engine, vt_entity entity, const char* type);
 
 /** Removes it; VT_ERROR_NO_TARGET when the entity has none. */
@@ -368,7 +373,9 @@ enum
 {
     VT_TEXTURE_MIPMAPS = 1u << 0,   /* a mip chain, regenerated on every update */
     VT_TEXTURE_NEAREST = 1u << 1,   /* nearest filtering (linear otherwise) */
-    VT_TEXTURE_CLAMP = 1u << 2      /* clamp at the edges (repeat otherwise) */
+    VT_TEXTURE_CLAMP = 1u << 2,     /* clamp at the edges (repeat otherwise) */
+    VT_TEXTURE_ENV_ATLAS = 1u << 3  /* vt_texture_load: a prefiltered environment atlas (RGBP, the
+                                       engine's *-env-atlas.png), for vt_scene_set_environment */
 };
 
 typedef struct vt_texture_desc
@@ -384,6 +391,15 @@ typedef struct vt_texture_desc
 
 VT_API vt_status vt_texture_create(vt_engine* engine, const vt_texture_desc* desc, vt_resource* out);
 
+/** Loads an image file as a texture (PNG, JPEG, WebP, KTX2, DDS, HDR and the other formats the
+ *  engine's texture assets read); `flags` as for vt_texture_create, the format the file's own. */
+VT_API vt_status vt_texture_load(vt_engine* engine, const char* path, uint32_t flags, vt_resource* out);
+
+/** Lights the scene with an environment atlas (a texture loaded with VT_TEXTURE_ENV_ATLAS): the
+ *  ambient light and the reflections of every material, and the sky where a camera draws it;
+ *  0 removes it. The scene keeps the texture while it uses it. */
+VT_API vt_status vt_scene_set_environment(vt_engine* engine, vt_resource atlas);
+
 /** Replaces the texture's pixels (the same size and format, rows top first). */
 VT_API vt_status vt_texture_update(vt_engine* engine, vt_resource texture, const void* data, size_t data_size);
 
@@ -394,6 +410,16 @@ VT_API vt_status vt_material_set_texture(vt_engine* engine, vt_resource material
 
 /** Gives up the caller's reference; what the scene still uses stays alive until it does not. */
 VT_API vt_status vt_resource_release(vt_engine* engine, vt_resource resource);
+
+/* ---- Models ----------------------------------------------------------------------------- */
+
+/** Loads a glTF or GLB file (Draco, meshopt, KTX2 and WebP included) and adds its node hierarchy
+ *  below `parent` (0 for the root); *out is the model's root entity. Every node is an entity the
+ *  other calls reach (found by path below the root entity, by the file's node names). The file's
+ *  cameras and lights come DISABLED (camera.enabled / light.enabled turn them on); its lights are
+ *  photometric, so they shine as authored under scene.physicalUnits. The model's meshes, materials
+ *  and textures live as long as its entities. */
+VT_API vt_status vt_gltf_load(vt_engine* engine, const char* path, vt_entity parent, vt_entity* out);
 
 /* ---- What an entity draws -------------------------------------------------------------- */
 

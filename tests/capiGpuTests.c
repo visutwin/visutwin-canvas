@@ -141,6 +141,25 @@ int main(void)
         near(image, W, W / 2, H / 2, 255, 255, 0) && near(image, W, 0, 0, 255, 0, 0),
         "and the next frame shows it");
 
+    {
+        /* A glTF model in place of the quad, under a light: the middle shows it. */
+        char file[1024];
+        vt_entity model = 0, sun = 0;
+        vt_vec3 tilt = {45.0f, 30.0f, 0.0f};   /* shining away from the camera, onto the faces it sees */
+        const uint8_t* middle = image + (H / 2 * W + W / 2) * 4;
+        snprintf(file, sizeof(file), "%s/models/box_textured.glb", VT_TEST_ASSETS);
+        check(vt_entity_destroy(engine, quad) == VT_OK && vt_gltf_load(engine, file, 0, &model) == VT_OK &&
+            vt_entity_create(engine, 0, "Sun", &sun) == VT_OK && vt_component_add(engine, sun, "light") == VT_OK &&
+            vt_set_vec3(engine, sun, p("node.rotation"), tilt) == VT_OK, "a textured glTF box is loaded and lit");
+        for (i = 0; i < 3; ++i) {
+            vt_frame(engine, 1.0f / 60.0f, NULL);
+        }
+        check(vt_camera_read_pixels(engine, camera, image, sizeof(image), &w, &h) == VT_OK, "the frame is read back");
+        printf("        middle %d %d %d\n", middle[0], middle[1], middle[2]);
+        check(!near(image, W, W / 2, H / 2, 255, 0, 0) && (middle[0] + middle[1] + middle[2]) > 30 &&
+            near(image, W, 0, 0, 255, 0, 0), "the model covers the middle, lit, with the clear around it");
+    }
+
     check(vt_engine_destroy(engine) == VT_OK, "the engine is destroyed");
     printf("capi-gpu: %d passed, %d failed\n", checks - failures, failures);
     return failures == 0 ? 0 : 1;

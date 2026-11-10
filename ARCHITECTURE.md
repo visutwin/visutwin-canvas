@@ -2650,7 +2650,42 @@ headless GPU render with `VISUTWIN_TEST_GPU=1` (51). Examples: ports of `hello-w
 identical to the C++ port's frame under `VISUTWIN_FIXED_DT`, one frame later in the count) and
 `mesh-generation` (the grid rebuilt in Julia every frame; a checker in place of the logo, which
 the C API cannot load), and a headless capture writing a PPM. Not yet: glTF assets, callbacks
-from the engine (scripts) into Julia, a binary package (BinaryBuilder), Makie integration.
+from the engine (scripts) into Julia, a binary package (BinaryBuilder).
+
+**The viewer milestone (2026-11-10, C API 0.4).** `vt_gltf_load` (a CONTAINER asset instantiated
+below a parent, the asset dropped at once: the entities co-own their meshes and materials and the
+materials keep the container's textures; file checked first, NOT_FOUND / INVALID_ARGUMENT for a
+missing or unreadable one), `vt_texture_load` (a TEXTURE asset kept by the resource, as it owns the
+texture; `VT_TEXTURE_ENV_ATLAS` reads an RGBP environment atlas without mips),
+`vt_scene_set_environment` (`Scene::setEnvAtlas`, the engine record keeping the atlas alive) and
+`vt_entity_bounds` (the union of the subtree's mesh instance boxes, the examples harness's rule).
+The camera controls became a property type, `cameraControls`: the `CameraControls` script found
+on the entity's script component, added by name to an entity WITH a camera (refused otherwise, set
+up as the examples' orbit controls: fly off, the reset state stored) and removed with its script
+component, which `ScriptComponent` offers no finer way to do; 16 properties (focus point, orbit
+distance, the enables, the three buttons, the zoom / pitch / yaw ranges, the dampings; the mode is
+read-only, its setter being the script's own). 163 properties over 9 types. VisuTwin.jl:
+`loadmodel`, `texture(engine, path)`, `environment!`, `bounds`, `frameview!` (moves the camera along
+its view to fit the bounds' sphere in the vertical field of view with a margin, sets the clip
+planes and the controls' focus, distance and zoom range) and `examples/viewer.jl` (the antique
+camera under the studio atlas by default). `mesh_generation.jl` now wears the logo texture and
+matches the C++ port within one count. Tests: C 116 (a model's hierarchy with its camera and
+light disabled, Draco, the errors, an atlas kept past its release, the controls moving the camera)
+and the GPU test's textured glTF box lit and read back on both backends (12); Julia 62.
+
+**GLMakie beside the engine (checked 2026-11-10, GLMakie 0.13.17).** One Julia process, two
+windows, two windowing libraries pumping the one macOS event queue on the main thread (GLFW for
+Makie, SDL for the engine), each render loop a task there: no crash and no stall, under `-t 1` and
+`-t auto`. The engine renders 107 fps beside Makie against 116 alone (Metal, a 120 Hz display);
+Makie keeps its default 30 fps cap (27.9 alone, 27.1-27.4 beside); with Makie uncapped both settle
+at 111. Sliders drive engine properties through `on(observable)` with no lag (0 mismatches over
+4 s of driven slider moves), and a Makie plot fed from the engine's `onframe` updates live. Both
+closing orders end cleanly (VisuTwin.jl's `isrunning` came from this: a loop ended by its window
+closing used to look alive). Not automated: a person's mouse on the Makie panel while SDL pumps
+events (`examples/makie_panel.jl` in VisuTwin.jl is the manual check; run by hand 2026-11-10:
+the sliders drive the engine with a real mouse). So the "now" step of the
+Julia UI recommendation holds: Makie as the control and plotting side, the engine's own window
+for the 3D view; embedding the view in a Makie window waits for the host-view windowing work.
 
 **Open questions.** Windowing: an engine-owned SDL window, or rendering into a host's view (an
 `NSView` / `CAMetalLayer` or a Vulkan surface handed in), which a Julia GUI toolkit would want;
