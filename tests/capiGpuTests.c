@@ -158,6 +158,23 @@ int main(void)
         printf("        middle %d %d %d\n", middle[0], middle[1], middle[2]);
         check(!near(image, W, W / 2, H / 2, 255, 0, 0) && (middle[0] + middle[1] + middle[2]) > 30 &&
             near(image, W, 0, 0, 255, 0, 0), "the model covers the middle, lit, with the clear around it");
+        {
+            /* An id-buffer pick at the window's middle finds the model; a corner finds nothing. */
+            int32_t hit = 0;
+            vt_entity picked = 0, up = 0;
+            vt_vec3 at = {0.0f, 0.0f, 0.0f};
+            int inModel = 0;
+            check(vt_pick(engine, camera, 160.0f, 120.0f, &hit, &picked, &at) == VT_OK && hit == 1, "the middle picks something");
+            for (up = picked; up != 0; vt_entity_parent(engine, up, &up)) {
+                if (up == model) {
+                    inModel = 1;
+                    break;
+                }
+            }
+            printf("        picked entity %llu at %.3f %.3f %.3f\n", (unsigned long long)picked, at.x, at.y, at.z);
+            check(inModel && at.z > 0.0f && at.z < 5.0f, "an entity of the model, at a point on its front");
+            check(vt_pick(engine, camera, 3.0f, 3.0f, &hit, &picked, NULL) == VT_OK && hit == 0, "a corner picks nothing");
+        }
     }
 
     check(vt_engine_destroy(engine) == VT_OK, "the engine is destroyed");

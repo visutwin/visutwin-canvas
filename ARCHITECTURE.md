@@ -2673,6 +2673,28 @@ matches the C++ port within one count. Tests: C 116 (a model's hierarchy with it
 light disabled, Draco, the errors, an atlas kept past its release, the controls moving the camera)
 and the GPU test's textured glTF box lit and read back on both backends (12); Julia 62.
 
+**The inspector milestone (2026-11-10, C API 0.5).** `vt_pick` (the engine's id-buffer `Picker`,
+made on the first pick and kept by the engine record, sized to the window in points so a window
+point is its pixel, re-prepared on every call; the hit mesh instance's node, or the nearest entity
+above it, is the answer, with `getWorldPoint`; the null backend answers from bounds), `vt_input_get`
+(the window's mouse: position, held / pressed / released buttons, wheel, inside) and `vt_key_get`
+(held and pressed by SDL scancode). The input is recorded by `vt_poll_events` from the SDL events
+it already pumps, NOT read from the engine's devices: those end their press edges inside the
+update, so after `vt_frame` a click had already gone; a lost focus releases what was held.
+VisuTwin.jl: `pickentity`, `input`, `keydown` / `keypressed` (symbols for the US-layout positions),
+`textvalue` / `settext!` (any property as text), and the inspector as a package extension on Makie
+(`ext/VisuTwinMakieExt.jl`, a weak dependency, so the package itself still needs only Libdl): a
+callable run each frame that picks on a click (press and release within 4 points, so a drag still
+orbits), a type menu, one row per property with the widget of its value type (a slider for a float
+with a finite range, a toggle, a menu of options, text otherwise, a label when read-only), every
+edit through `settext!`, the rows refreshed four times a second from the engine so values the
+engine moves stay current (a guard keeps the refresh from writing back). Found on the way: Makie
+exports `pick`, `mesh` and `update!`, so VisuTwin.jl's are now `pickentity`, `trianglemesh` and
+`setvertices!` / `setpixels!`; and `run!` yields after every frame, or a Makie window beside it never
+redraws. Tests: C 122 (bounds picking, empty input, keys) and the GPU test's id-buffer pick of the
+glTF box on both backends (15); Julia 71; the inspector driven from code on Metal and Vulkan (pick,
+a toggle, an engine-side change reaching the panel, a slider, a vector text box).
+
 **GLMakie beside the engine (checked 2026-11-10, GLMakie 0.13.17).** One Julia process, two
 windows, two windowing libraries pumping the one macOS event queue on the main thread (GLFW for
 Makie, SDL for the engine), each render loop a task there: no crash and no stall, under `-t 1` and

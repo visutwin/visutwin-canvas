@@ -51,7 +51,7 @@ extern "C" {
 /* ---- Version and status --------------------------------------------------------------- */
 
 #define VT_API_VERSION_MAJOR 0
-#define VT_API_VERSION_MINOR 4
+#define VT_API_VERSION_MINOR 5
 
 /** The library's API version: (major << 16) | minor. A caller built against major M runs on
  *  a library of major M and any minor at least its own. */
@@ -157,6 +157,35 @@ VT_API vt_status vt_engine_start(vt_engine* engine);
 /** Delivers the pending window and input events to the engine; *quit (may be NULL) becomes 1
  *  once the window was asked to close. */
 VT_API vt_status vt_poll_events(vt_engine* engine, int32_t* quit);
+
+enum
+{
+    VT_MOUSE_LEFT = 1u << 0,
+    VT_MOUSE_MIDDLE = 1u << 1,
+    VT_MOUSE_RIGHT = 1u << 2
+};
+
+typedef struct vt_input_state
+{
+    uint32_t size;          /* sizeof(vt_input_state) */
+    float mouse_x;          /* the pointer over the engine's window, in window points from the top left */
+    float mouse_y;
+    uint32_t buttons;       /* held (VT_MOUSE_*) */
+    uint32_t pressed;       /* went down during the last vt_poll_events (or vt_frame) */
+    uint32_t released;      /* went up during it */
+    float wheel_x;          /* scrolled during it */
+    float wheel_y;
+    int32_t inside;         /* 1 while the pointer is over the window */
+} vt_input_state;
+
+/** The engine window's mouse as the last vt_poll_events (or vt_frame) left it: where the pointer
+ *  is, what is held, and what went down, up or scrolled during that poll. The engine's own users
+ *  (the camera controls) see the same events. */
+VT_API vt_status vt_input_get(vt_engine* engine, vt_input_state* out);
+
+/** A key by its SDL scancode (positional: 4 is the key labelled A on a US layout): held, and
+ *  pressed during the last poll (repeats not counted). */
+VT_API vt_status vt_key_get(vt_engine* engine, int32_t scancode, int32_t* down, int32_t* pressed);
 
 /** Waits until the next frame can be rendered (the display and the GPU); optional, but it
  *  makes the input a frame shows one display interval fresher. */
@@ -428,6 +457,16 @@ VT_API vt_status vt_render_set_mesh(vt_engine* engine, vt_entity entity, vt_reso
 
 /** The entity's render component draws with this material; 0 for the default. */
 VT_API vt_status vt_render_set_material(vt_engine* engine, vt_entity entity, vt_resource material);
+
+/* ---- Picking -------------------------------------------------------------------------- */
+
+/** What a camera sees at a point of the window (in window points from the top left, as
+ *  vt_input_state reports the pointer): *hit is 1 and *out the entity that draws it, or *hit 0
+ *  and *out 0 where the camera sees nothing. `point` (may be NULL) gets the world-space point hit.
+ *  Renders an id buffer of the camera's view on each call, so call it on a click, not every frame.
+ *  The null backend answers from the meshes' bounds. Hardware-instanced meshes are not picked. */
+VT_API vt_status vt_pick(vt_engine* engine, vt_entity camera, float x, float y, int32_t* hit, vt_entity* out,
+    vt_vec3* point);
 
 /* ---- Offscreen rendering and capture ---------------------------------------------------- */
 

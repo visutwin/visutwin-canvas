@@ -90,7 +90,10 @@ ctest --preset default
   where they take an entity id; the engine's resource table holds only the CALLER's reference,
   and anything the scene uses must be co-owned by what uses it (a mesh instance owns its mesh
   and material, a material retains its textures), so a release never frees what is still drawn.
-  Turning it on for Linux wants the PIC engine and the version script checked there first.
+  The window's input the C API reports (`vt_input_get`, `vt_key_get`) is recorded by
+  `vt_poll_events` from the SDL events, because the engine's input devices end their press edges
+  inside the update. Turning it on for Linux wants the PIC engine and the version script checked
+  there first.
 - **Test presets exclude the `vulkan`, `golden` and `gpu` labels.** `vulkan-validation-smoke`,
   `golden-images` and `gpu-instance-cull` need a GPU and a window, so `ctest --preset default`,
   `vulkan` and `sanitize` run the unit tests only, `ctest --preset vulkan-smoke` runs the smoke
@@ -2243,7 +2246,12 @@ present, but the rule below never depends on reading it.
   drawing; the cull cache would otherwise hand back last prepare's clones. A device
   that cannot read back (a test stub) falls back to bounds: projected boxes, and a ray
   from the NEAR plane out against bounding spheres (a ray from the far plane back makes
-  the nearest hit the FAR side). `tests/pickerTests.cpp` holds the fallback.
+  the nearest hit the FAR side). `tests/pickerTests.cpp` holds the fallback. The picker
+  follows its camera's entity (`DestroyWatch`): destroyed, the camera is forgotten while it still
+  exists, so neither a later pick nor the picker's destructor reads the freed component (a
+  heap-use-after-free the C API's picking found under the sanitizers). It empties its private
+  layer with `Layer::clearMeshInstances`; `removeMeshInstances` handed the layer's OWN list used
+  to erase from the vector it iterated, leaving freed clones listed.
 - **Primitive tangents are DERIVED from the UVs, never written by hand, and the
   bitangent `cross(n, t) * w` points toward DECREASING v** — the image's top row,
   where a normal map's green channel points. `calculateTangents`

@@ -29,6 +29,7 @@
 #include "core/math/matrix4.h"
 #include "core/math/vector3.h"
 #include "core/shape/boundingSphere.h"
+#include "framework/destroyWatch.h"
 
 namespace visutwin::canvas
 {
@@ -118,7 +119,13 @@ namespace visutwin::canvas
         std::optional<Vector3> boundsWorldPoint(int x, int y) const;
 
         Engine* _app = nullptr;
+        void dropCamera();
+        void forgetCamera();
+
         CameraComponent* _camera = nullptr;
+        // Follows the camera's entity: destroyed, the camera is forgotten (with the cached view
+        // of the pick layer it held), so neither the destructor nor a later read reaches it.
+        DestroyWatch _cameraWatch;
         Scene* _scene = nullptr;
         bool _depth = false;
         int _width = 1;

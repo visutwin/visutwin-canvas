@@ -457,6 +457,32 @@ int main(void)
             "its orbit distance moves the camera toward the focus point");
         check(vt_get_text(engine, viewer, property("cameraControls.mode"), text, sizeof(text), &length) == VT_OK,
             "its mode reads back");
+        {
+            /* Picking (the null backend answers from bounds) and the window's input (none here). */
+            vt_entity picked = 0, target = 0;
+            vt_vec3 at, far_ = {20.0f, 0.0f, 0.0f};   /* away from everything else in this scene */
+            int32_t hit = 0, down = 1, pressed = 1;
+            vt_input_state input;
+            check(vt_entity_create(engine, 0, "Target", &target) == VT_OK && vt_component_add(engine, target, "render") == VT_OK &&
+                vt_set_string(engine, target, property("render.type"), "box") == VT_OK, "a box to pick");
+            vt_set_vec3(engine, target, property("node.position"), far_);
+            position.x = 20.0f; position.y = 0.0f; position.z = 6.0f;
+            vt_set_vec3(engine, viewer, property("node.position"), position);
+            vt_set_vec3(engine, viewer, property("cameraControls.focusPoint"), far_);
+            vt_frame(engine, 1.0f / 60.0f, NULL);
+            check(vt_pick(engine, viewer, 160.0f, 100.0f, &hit, &picked, &at) == VT_OK && hit == 1 && picked == target,
+                "the middle of the view picks the box");
+            check(vt_pick(engine, viewer, 2.0f, 2.0f, &hit, &picked, NULL) == VT_OK && hit == 0 && picked == 0,
+                "a corner picks nothing");
+            check(vt_pick(engine, target, 160.0f, 100.0f, &hit, &picked, NULL) == VT_ERROR_NO_TARGET,
+                "an entity without a camera cannot pick");
+            input.size = sizeof(input);
+            check(vt_input_get(engine, &input) == VT_OK && input.buttons == 0 && input.pressed == 0 && input.inside == 0,
+                "a windowless engine has no input");
+            check(vt_key_get(engine, 4, &down, &pressed) == VT_OK && down == 0 && pressed == 0 &&
+                vt_key_get(engine, 100000, &down, &pressed) == VT_ERROR_INVALID_ARGUMENT, "nor keys");
+            vt_entity_destroy(engine, target);
+        }
         check(vt_component_remove(engine, viewer, "cameraControls") == VT_OK &&
             vt_component_has(engine, viewer, "cameraControls", &flag) == VT_OK && flag == 0 &&
             vt_frame(engine, 1.0f / 60.0f, NULL) == VT_OK, "and loses them again");

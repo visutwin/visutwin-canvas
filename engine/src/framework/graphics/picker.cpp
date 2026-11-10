@@ -70,6 +70,24 @@ namespace visutwin::canvas
         }
     }
 
+    void Picker::dropCamera()
+    {
+        // The cull cache keeps a set for (camera, pick layer); it goes while the camera exists.
+        if (_app && _app->renderer() && _pickLayer && _camera && _camera->camera()) {
+            _app->renderer()->invalidateCulledInstances(_camera->camera(), _pickLayer.get());
+        }
+        _camera = nullptr;
+        _candidates.clear();
+        _candidateIndex.clear();
+        _idBufferValid = false;
+    }
+
+    void Picker::forgetCamera()
+    {
+        dropCamera();
+        _cameraWatch.reset();
+    }
+
     void Picker::resize(const int width, const int height)
     {
         _width = std::max(1, width);
@@ -78,7 +96,14 @@ namespace visutwin::canvas
 
     void Picker::prepare(CameraComponent* camera, Scene* scene, const std::vector<int>& layers)
     {
-        _camera = camera;
+        if (camera != _camera) {
+            forgetCamera();
+            _camera = camera;
+            if (_camera && _camera->entity()) {
+                // dropCamera, not forgetCamera: a watch's callback must not reset the watch.
+                _cameraWatch.watch(_camera->entity(), [this] { dropCamera(); });
+            }
+        }
         _scene = scene;
         _layers = layers.empty() ? (_camera ? _camera->layers() : std::vector<int>{}) : layers;
         _candidates.clear();
@@ -277,7 +302,8 @@ namespace visutwin::canvas
         if (!_pickLayer) {
             _pickLayer = std::make_unique<Layer>("Picker", kPickLayerId);
         }
-        _pickLayer->removeMeshInstances(_pickLayer->meshInstances());
+        // Last prepare's clones are freed with their pick draws above: none may stay listed.
+        _pickLayer->clearMeshInstances();
         _pickLayer->addMeshInstances(clones);
         renderer->invalidateCulledInstances(camera, _pickLayer.get());
 

@@ -15,6 +15,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <array>
 #include <exception>
 #include <filesystem>
 #include <memory>
@@ -37,6 +38,7 @@
 #include "framework/engine.h"
 #include "framework/entity.h"
 #include "framework/assets/asset.h"
+#include "framework/graphics/picker.h"
 #include "framework/handlers/containerResource.h"
 #include "framework/input/elementInput.h"
 #include "framework/properties/propertyTable.h"
@@ -98,6 +100,15 @@ struct vt_engine
 
     // The environment atlas the scene lights with, which it holds by raw pointer.
     std::shared_ptr<void> environment;
+
+    // The window's mouse and keys as the SDL events of the last poll left them (the engine's
+    // input devices end their press edges inside the update, before a caller could read them).
+    vt_input_state input{sizeof(vt_input_state), 0.0f, 0.0f, 0u, 0u, 0u, 0.0f, 0.0f, 0};
+    std::array<uint8_t, SDL_SCANCODE_COUNT> keysDown{};
+    std::array<uint8_t, SDL_SCANCODE_COUNT> keysPressed{};
+
+    // Made on the first pick.
+    std::unique_ptr<visutwin::canvas::Picker> picker;
 };
 
 namespace
@@ -455,6 +466,8 @@ namespace
         const std::weak_ptr<GraphicsDevice> device = engine->device;
         // destroy() and not only the reset: the engine's script registry, element input and tick
         // hold the engine itself, so without it the last reference dropped here frees nothing.
+        // The picker draws through the engine: it goes first.
+        engine->picker.reset();
         if (engine->engine) {
             engine->engine->destroy();
         }
@@ -684,12 +697,70 @@ vt_status vt_poll_events(vt_engine* engine, int32_t* quit)
             return status;
         }
         bool closing = false;
+        vt_input_state& input = engine->input;
+        input.pressed = input.released = 0u;
+        input.wheel_x = input.wheel_y = 0.0f;
+        engine->keysPressed.fill(0);
         if (engine->window) {
+            const auto buttonBit = [](const uint8_t button) -> uint32_t {
+                return button == SDL_BUTTON_LEFT ? VT_MOUSE_LEFT : button == SDL_BUTTON_MIDDLE ? VT_MOUSE_MIDDLE
+                     : button == SDL_BUTTON_RIGHT ? VT_MOUSE_RIGHT : 0u;
+            };
             SDL_Event event;
             while (SDL_PollEvent(&event)) {
                 engine->engine->handleInputEvent(event);
-                if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
+                switch (event.type) {
+                case SDL_EVENT_QUIT:
+                case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
                     closing = true;
+                    break;
+                case SDL_EVENT_MOUSE_MOTION:
+                    input.mouse_x = event.motion.x;
+                    input.mouse_y = event.motion.y;
+                    break;
+                case SDL_EVENT_MOUSE_BUTTON_DOWN:
+                    input.mouse_x = event.button.x;
+                    input.mouse_y = event.button.y;
+                    input.buttons |= buttonBit(event.button.button);
+                    input.pressed |= buttonBit(event.button.button);
+                    break;
+                case SDL_EVENT_MOUSE_BUTTON_UP:
+                    input.mouse_x = event.button.x;
+                    input.mouse_y = event.button.y;
+                    input.buttons &= ~buttonBit(event.button.button);
+                    input.released |= buttonBit(event.button.button);
+                    break;
+                case SDL_EVENT_MOUSE_WHEEL:
+                    input.wheel_x += event.wheel.x;
+                    input.wheel_y += event.wheel.y;
+                    break;
+                case SDL_EVENT_WINDOW_MOUSE_ENTER:
+                    input.inside = 1;
+                    break;
+                case SDL_EVENT_WINDOW_MOUSE_LEAVE:
+                    input.inside = 0;
+                    break;
+                case SDL_EVENT_WINDOW_FOCUS_LOST:
+                    // A button or key held while focus moved away never sends its release.
+                    input.released |= input.buttons;
+                    input.buttons = 0u;
+                    engine->keysDown.fill(0);
+                    break;
+                case SDL_EVENT_KEY_DOWN:
+                    if (event.key.scancode < SDL_SCANCODE_COUNT) {
+                        if (!event.key.repeat) {
+                            engine->keysPressed[event.key.scancode] = 1;
+                        }
+                        engine->keysDown[event.key.scancode] = 1;
+                    }
+                    break;
+                case SDL_EVENT_KEY_UP:
+                    if (event.key.scancode < SDL_SCANCODE_COUNT) {
+                        engine->keysDown[event.key.scancode] = 0;
+                    }
+                    break;
+                default:
+                    break;
                 }
             }
         }
@@ -1880,6 +1951,92 @@ vt_status vt_entity_bounds(vt_engine* engine, const vt_entity id, vt_vec3* cente
         const Vector3 h = bounds.halfExtents();
         *center = vt_vec3{c.getX(), c.getY(), c.getZ()};
         *halfExtents = vt_vec3{h.getX(), h.getY(), h.getZ()};
+        return VT_OK;
+    });
+}
+
+// ---- Input and picking ----------------------------------------------------------------
+
+vt_status vt_input_get(vt_engine* engine, vt_input_state* out)
+{
+    return guarded([&]() -> vt_status {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        return fillSized(out, engine->input);
+    });
+}
+
+vt_status vt_key_get(vt_engine* engine, const int32_t scancode, int32_t* down, int32_t* pressed)
+{
+    return guarded([&]() -> vt_status {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        if (scancode < 0 || scancode >= SDL_SCANCODE_COUNT) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no scancode " + std::to_string(scancode));
+        }
+        if (down) {
+            *down = engine->keysDown[static_cast<size_t>(scancode)];
+        }
+        if (pressed) {
+            *pressed = engine->keysPressed[static_cast<size_t>(scancode)];
+        }
+        return VT_OK;
+    });
+}
+
+vt_status vt_pick(vt_engine* engine, const vt_entity cameraId, const float x, const float y, int32_t* hit,
+    vt_entity* out, vt_vec3* point)
+{
+    return guarded([&]() -> vt_status {
+        Entity* cameraEntity = nullptr;
+        if (const vt_status status = findEntity(engine, cameraId, cameraEntity); status != VT_OK) {
+            return status;
+        }
+        auto* camera = cameraEntity->findComponent<CameraComponent>();
+        if (!camera) {
+            return fail(VT_ERROR_NO_TARGET, "entity " + std::to_string(cameraId) + " has no camera");
+        }
+        if (!hit || !out) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no output");
+        }
+        *hit = 0;
+        *out = 0;
+        // The id buffer at the window's size in points, so a point of the window is its pixel.
+        const auto [width, height] = engine->engine->canvasSize();
+        const int w = std::max(1, width);
+        const int h = std::max(1, height);
+        if (!engine->picker) {
+            engine->picker = std::make_unique<Picker>(engine->engine.get(), w, h, true);
+        } else if (engine->picker->width() != w || engine->picker->height() != h) {
+            engine->picker->resize(w, h);
+        }
+        engine->picker->prepare(camera, engine->engine->scene().get());
+        const int px = static_cast<int>(std::floor(x));
+        const int py = static_cast<int>(std::floor(y));
+        if (px < 0 || py < 0 || px >= w || py >= h) {
+            return VT_OK;
+        }
+        MeshInstance* meshInstance = engine->picker->getSelectionSingle(px, py);
+        if (!meshInstance) {
+            return VT_OK;
+        }
+        // The entity whose render component drew it: the instance's node or the nearest entity above.
+        for (GraphNode* node = meshInstance->node(); node; node = node->parent()) {
+            if (auto* entity = dynamic_cast<Entity*>(node)) {
+                *out = entity->id().value;
+                *hit = 1;
+                break;
+            }
+        }
+        if (point && *hit) {
+            if (const auto world = engine->picker->getWorldPoint(px, py)) {
+                *point = vt_vec3{world->getX(), world->getY(), world->getZ()};
+            } else {
+                *point = vt_vec3{0.0f, 0.0f, 0.0f};
+            }
+        }
         return VT_OK;
     });
 }

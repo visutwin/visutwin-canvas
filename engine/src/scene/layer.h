@@ -42,15 +42,25 @@ namespace visutwin::canvas
             }
         }
 
+        /// Removes the listed instances. The list may be this layer's own (meshInstances()), which
+        /// empties it: erasing from the vector being iterated read past its end and left half of
+        /// it behind.
         void removeMeshInstances(const std::vector<MeshInstance*>& meshInstances)
         {
-            CullVersion::bump();
-            for (auto* meshInstance : meshInstances) {
-                if (!meshInstance) {
-                    continue;
-                }
-                _meshInstances.erase(std::remove(_meshInstances.begin(), _meshInstances.end(), meshInstance), _meshInstances.end());
+            if (&meshInstances == &_meshInstances) {
+                clearMeshInstances();
+                return;
             }
+            CullVersion::bump();
+            std::erase_if(_meshInstances, [&](MeshInstance* meshInstance) {
+                return std::find(meshInstances.begin(), meshInstances.end(), meshInstance) != meshInstances.end();
+            });
+        }
+
+        void clearMeshInstances()
+        {
+            CullVersion::bump();
+            _meshInstances.clear();
         }
 
         const std::vector<MeshInstance*>& meshInstances() const { return _meshInstances; }

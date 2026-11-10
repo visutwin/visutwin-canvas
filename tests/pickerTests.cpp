@@ -35,6 +35,7 @@
 #include "framework/entity.h"
 #include "framework/graphics/picker.h"
 #include "scene/camera.h"
+#include "scene/layer.h"
 #include "scene/materials/standardMaterial.h"
 #include "scene/meshInstance.h"
 #include "support/check.h"
@@ -128,6 +129,47 @@ int main()
             picker.prepare(camera, engine->scene().get());
             check(picker.getSelectionSingle(50, 50) == boxInstance, "setPick(true): picked again");
         }
+    }
+
+    // A picker outliving its camera: the camera's entity destroyed after a prepare left the
+    // picker holding a freed component, read by its destructor (AddressSanitizer's
+    // heap-use-after-free) and by any later pick.
+    {
+        Entity* doomed = addEntity(*engine);
+        doomed->setLocalPosition(0.0f, 0.0f, 10.0f);
+        auto* doomedCamera = static_cast<CameraComponent*>(doomed->addComponent<CameraComponent>());
+        auto shortLived = std::make_unique<Picker>(engine.get(), 100, 100, true);
+        shortLived->prepare(doomedCamera, engine->scene().get());
+        check(shortLived->getSelectionSingle(50, 50) != nullptr, "a picker sees the box through a camera");
+        doomed->destroy();
+        { auto freed = doomed->parent()->removeChild(doomed); }
+        check(shortLived->getSelectionSingle(50, 50) == nullptr && !shortLived->getWorldPoint(50, 50),
+            "after the camera's entity is destroyed it picks nothing");
+        shortLived.reset();
+        check(true, "and is freed without reaching the camera");
+    }
+
+    // The picker empties its private layer before each prepare. Handing a layer its own list to
+    // remove erased from the vector being iterated: past its end (AddressSanitizer's
+    // container-overflow), and half the old clones stayed listed after they were freed.
+    {
+        Layer layer("Pick", 1);
+        auto box = std::make_shared<StandardMaterial>();
+        std::vector<std::unique_ptr<MeshInstance>> instances;
+        std::vector<MeshInstance*> raw;
+        for (int i = 0; i < 6; ++i) {
+            instances.push_back(std::make_unique<MeshInstance>(static_cast<Mesh*>(nullptr), box.get()));
+            raw.push_back(instances.back().get());
+        }
+        layer.addMeshInstances(raw);
+        layer.removeMeshInstances(layer.meshInstances());
+        check(layer.meshInstances().empty(), "a layer told to remove its own list is empty");
+        layer.addMeshInstances(raw);
+        layer.removeMeshInstances({raw[1], raw[4]});
+        check(layer.meshInstances().size() == 4 && layer.meshInstances()[1] == raw[2] &&
+            layer.meshInstances()[3] == raw[5], "removing some keeps the rest in order");
+        layer.clearMeshInstances();
+        check(layer.meshInstances().empty(), "and clearing empties it");
     }
 
     return finish("picker");
