@@ -34,7 +34,7 @@ Vulkan 1.3.
 
 ```
 visutwin-canvas/
-  engine/          # Core 3D engine (381 .h + 273 .cpp + 1 .mm = 655 files)
+  engine/          # Core 3D engine (C++ only, no Objective-C++)
     src/core/      # Math (Vector2/3/4, Matrix4, Quaternion, SIMD multi-backend), shapes, events, tags
     src/platform/  # Graphics abstraction + Metal and Vulkan backends, input
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
@@ -180,6 +180,10 @@ ctest --preset default
   library: `libvulkan-dev` on Ubuntu (the runtime package ships only
   `libvulkan.so.1`), the Vulkan SDK's `libvulkan.dylib` on macOS. `slangc` comes from
   vcpkg's `shader-slang` port; `shaderc` only compiles CUSTOM GLSL at run time.
+  Until 2026-11-10 imgui's `vulkan-binding` feature also pulled in vcpkg's `vulkan` loader,
+  and a Vulkan tree configured then cached THAT library (`Vulkan_LIBRARY` under
+  `vcpkg_installed/`), which the next manifest install deletes ("libvulkan.dylib ...
+  missing and no known rule to make it"): reconfigure it with `cmake -U 'Vulkan_*' <dir>`.
 - **`ci.yml`'s `VCPKG_COMMIT` must equal `vcpkg.json`'s `builtin-baseline`.** CI checks
   vcpkg out at that commit and keys its binary cache on it; bump the two together. A
   local vcpkg must have that commit CHECKED OUT (or be newer): the baseline is read from
@@ -220,13 +224,21 @@ ctest --preset default
   (so the real compiler is recorded, not Xcode's shim, and a recorded shim is forgotten), and
   runs the shader bundle's xcrun steps with it (`VISUTWIN_METAL_TOOLCHAIN`). A tree whose
   configure failed before the fix recovers on the next configure.
-- `vcpkg.json` qualifies ImGui's `metal-binding` feature to `osx`. The port
-  declares it macOS-only, and an unqualified feature makes the whole manifest
-  unresolvable on Linux.
+- **The engine carries NO UI toolkit.** ImGui and ImPlot left the engine (2026-11-10):
+  its UI is the element system (screens, text, images, layout groups, scroll views), and an
+  application's own panels are its business (VisuTwin.jl's Makie inspector). The ImGui HUD
+  the sibling repositories draw is `visutwin::viz-overlay` in visutwin-viz
+  (`viz/overlay/imguiOverlay.h`), installed with viz and linked by robotics and geo. It
+  reaches the frame through two backend hooks the engine keeps for code outside it, which
+  must survive any refactor of the frame end: Metal's `openCommandBuffer()` with
+  `frameDrawable()`, and Vulkan's `beginOverlayRendering()` / `endOverlayRendering()`,
+  both used from the `postrender` event. A port qualified to one platform in a vcpkg
+  manifest (`"platform": "osx"`) is how a macOS-only feature stays out of the Linux
+  resolution.
 
 ## Dependencies (vcpkg)
 
-**Core:** SDL3 (3.4+), spdlog (1.17+, bundled fmt, `default-features: false`), tinyobjloader, tinygltf (header-only, use `find_path`), draco, meshoptimizer (glTF meshopt decoding only), libwebp (`default-features: false`, the decoder only: a glTF's `EXT_texture_webp` images), assimp, basisu (`basisu::basisu_encoder` — transcoder + encoder + CLI tool), boost-core, imgui (SDL3+Metal+docking), implot
+**Core:** SDL3 (3.4+), spdlog (1.17+, bundled fmt, `default-features: false`), tinyobjloader, tinygltf (header-only, use `find_path`), draco, meshoptimizer (glTF meshopt decoding only), libwebp (`default-features: false`, the decoder only: a glTF's `EXT_texture_webp` images), assimp, basisu (`basisu::basisu_encoder` — transcoder + encoder + CLI tool), boost-core
 
 **Vendored:** metal-cpp, stb
 
@@ -524,8 +536,7 @@ still be GLSL source, compiled at run time through shaderc.
 `vulkanGraphicsDevice{FrameSwapchain,Descriptors,Uploads,DrawBinding,Compute,ResourceInitialization}.cpp`
 — add new code to the matching component, not one monolith.
 
-**Metal-only today:** texture streaming, the ImGui/ImPlot overlay
-(`engine/src/overlay/`, uses `imgui_impl_metal`) and marching cubes. Volumetric fog
+**Metal-only today:** texture streaming and marching cubes. Volumetric fog
 (the `fog-march`, `fog-local` and `fog-combine` quad programs) and the spec-gloss map
 run on both backends.
 
@@ -3266,7 +3277,7 @@ present, but the rule below never depends on reading it.
   own runs AHEAD of everything still in the open buffer, so code that reads a result
   back or waits (`MetalTexture::read`, the staging blit of a private texture write, the
   waited GPU-cull path) calls `flushCommands()` first, and code that draws over the
-  frame (the ImGui overlay) encodes into the open buffer instead of committing its own,
+  frame (visutwin-viz's ImGui overlay) encodes into the open buffer instead of committing its own,
   or the frame is drawn over it. (2) Work encoded OUTSIDE a frame — a compute dispatch
   from `Engine::update`, where the particle systems simulate — stays in the open buffer
   until the next frame end, as Vulkan queues its dispatches; `copyRenderTarget`,
@@ -3471,7 +3482,7 @@ present, but the rule below never depends on reading it.
   store it). A pipeline drawn into the back buffer has to carry the sample count: Metal's
   back-buffer branch sets `rasterSampleCount`, Vulkan's draw takes `_activeRasterSamples`
   from the open pass (1 for the overlay, which draws single-sampled onto the resolved image,
-  as the Metal ImGui overlay does). A scene that antialiases a target of its own (a camera
+  as the Metal overlay does). A scene that antialiases a target of its own (a camera
   frame) or draws gaussian splats turns it off, as upstream's examples do
   (`ExampleOptions::antialias`). Check a change here with `VISUTWIN_ANTIALIAS=0/1` on a
   scene using both grabs (`VISUTWIN_SSR_FLOOR` on `clustered-lighting`: SSR moves ~5,000
@@ -3578,7 +3589,7 @@ present, but the rule below never depends on reading it.
   the surface's [min, max]: MoltenVK allows 1..16384 and scales, and where min = max = current
   (X11, Windows) the clamp falls back to the window. A SUBOPTIMAL present rebuilds the swapchain
   only when the target size changed (`swapchainExtentStale`), since a deliberately small swapchain
-  may be reported suboptimal on every present. ImGui's framebuffer scale follows the drawable.
+  may be reported suboptimal on every present.
   `vulkanSmoke` caps and uncaps mid-run under validation.
 - **Immediate lines last ONE frame and are uploaded once, after `prerender`.** `Engine::render`
   calls `Immediate::prepareFrame` after the `prerender` event and the UI sync, and `clear`

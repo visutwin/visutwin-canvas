@@ -26,7 +26,6 @@ visutwin-canvas/
 │   │   ├── platform/              # Graphics abstraction + Metal and Vulkan backends, input
 │   │   ├── scene/                 # Scene graph, renderer, materials, lighting, shader-lib
 │   │   ├── framework/             # Engine, Entity, components, assets, anim, gizmos, XR
-│   │   ├── viz/overlay/           # ImGui overlay for digital-twin HUD
 │   │   └── util/                  # General utilities
 │   ├── lib/                       # Vendored: metal-cpp, stb
 │   └── shaders/slang/             # Every engine shader, once, in Slang

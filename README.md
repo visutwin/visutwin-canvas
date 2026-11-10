@@ -96,7 +96,7 @@ overlap:
   classes, and assets load from glTF/GLB, OBJ, STL, PLY, KTX2 and DDS files
   directly.
 - **Built for instrumented scenes** — screen- and world-space UI, 3D-anchored
-  labels, an ImGui/ImPlot overlay and immediate-mode debug rendering are
+  labels and immediate-mode debug rendering are
   first-class, because digital twins are mostly data drawn on top of geometry.
 - **Deterministic time** — a fixed-timestep loop runs simulation substeps at a
   constant rate (`Script::fixedUpdate`), independent of the frame rate, and

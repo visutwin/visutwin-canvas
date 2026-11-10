@@ -31,8 +31,6 @@ find_dependency(meshoptimizer CONFIG)
 find_dependency(WebP          CONFIG)
 find_dependency(Boost         COMPONENTS core)
 find_dependency(assimp        CONFIG)
-find_dependency(imgui         CONFIG)
-find_dependency(implot        CONFIG)
 
 if(@VISUTWIN_KTX2_USE_LIBKTX@)
     find_dependency(Ktx CONFIG)

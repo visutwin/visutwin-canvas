@@ -17,8 +17,6 @@
     "meshoptimizer",
     "assimp",
     "boost-core",
-    { "name": "imgui", "features": ["sdl3-binding", { "name": "metal-binding", "platform": "osx" }, "docking-experimental"] },
-    "implot",
     "shader-slang",
     { "name": "vcpkg-cmake", "host": true },
     { "name": "vcpkg-cmake-config", "host": true }
@@ -36,7 +34,6 @@
     "vulkan": {
       "description": "Vulkan rendering backend",
       "dependencies": [
-        { "name": "imgui", "features": ["vulkan-binding"] },
         "vulkan-headers",
         "vulkan-memory-allocator",
         "vk-bootstrap",

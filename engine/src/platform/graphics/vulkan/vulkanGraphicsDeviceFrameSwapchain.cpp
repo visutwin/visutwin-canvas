@@ -907,7 +907,7 @@ namespace visutwin::canvas
 
         // The overlay bound a pipeline of its own, so what this device believes is
         // bound is no longer true. Clear it, or the next pass's first draw skips
-        // its bind as redundant and renders with ImGui's pipeline.
+        // its bind as redundant and renders with the overlay's pipeline.
         _currentPipeline = VK_NULL_HANDLE;
         _pushConstantsDirty = true;
         resetBoundDrawState();

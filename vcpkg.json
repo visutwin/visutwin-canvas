@@ -17,8 +17,6 @@
     { "name": "meshoptimizer"                         },
     { "name": "assimp"                                },
     { "name": "boost-core"                            },
-    { "name": "imgui",          "features": ["sdl3-binding", { "name": "metal-binding", "platform": "osx" }, "docking-experimental"] },
-    { "name": "implot"                               },
     { "name": "shader-slang"                         }
   ],
   "features": {
@@ -37,7 +35,6 @@
     "vulkan": {
       "description": "Vulkan rendering backend",
       "dependencies": [
-        { "name": "imgui", "features": ["vulkan-binding"] },
         { "name": "vulkan-headers"           },
         { "name": "vulkan-memory-allocator"  },
         { "name": "vk-bootstrap"             },

@@ -62,7 +62,7 @@ the [README](README.md).
 - **Texture arrays**: per-layer upload, `Texture::read` / `readAsync` / `copy` of one layer, and render targets over a layer (multisampled, with that layer's mips generated)
 - **Volume (3D) textures** on both backends: upload with mips generated in all three dimensions, sampled with their own W address mode, `Texture::read` / `readAsync` / `copy` of one depth slice or a run of them, and render targets over a depth slice (mips regenerated after rendering)
 - **KTX2/Basis compressed textures** transcoded on the loader thread to the best format the device supports (ASTC, BC7, DXT5, otherwise RGBA8)
-- **ImGui overlay** (Metal/SDL3 bindings) for digital-twin HUDs, **immediate-mode** debug rendering, **transform and overlay gizmos**, and an **outline renderer** + **view cube** (extras)
+- **Immediate-mode** debug rendering, **transform and overlay gizmos**, and an **outline renderer** + **view cube** (extras)
 
 ## Foundation
 - **Scene graph** with an entity-component system (18 component types), entity cloning that remaps references inside the cloned subtree, and a fixed-timestep `fixedUpdate` phase with a time scale and layer composition with render-action scheduling
@@ -106,11 +106,10 @@ Known Limitations, and `AGENTS.md` records the remaining parity items.
 | Framework / Gizmo | Upstream's transform gizmos: translate (arrows, plane handles, centre), rotate (half/full arc rings, view ring, orbit sphere, angle guides), scale (box-lines, planes, uniform centre); triangle picking, hover themes, snapping, drag modes, span guide lines, constant screen size; translucent outlined planes and glancing fades; overlay gizmos with draggable, snapping handles and value labels: a bounding box gizmo (corner brackets, dashed edges and face and corner handles resizing the selection), camera (frustum, clip planes, field of view), light (directional, omni, spot and area shapes, range, cone angles, area size) and shape gizmos (box, sphere, capsule, cone, cylinder), and an icon gizmo marking lights, cameras and other unseen entities; an anti-aliased reference grid (levels that follow the zoom, axes, distance fade, infinite or fixed, contrast and depth-write options) |
 | Framework / Assets | Async container/texture/font loading; GLB/glTF (+Draco, meshopt, quantised attributes, texture transform, node identity for unnamed nodes), OBJ/STL/Assimp; KTX2/Basis transcoding to ASTC or BC |
 | Framework / Lightmapper | CPU ray-traced baker and GPU UV-space baker |
-| Overlay | Metal-only ImGui/ImPlot HUD integration, input capture, digital-twin theme, 3D-anchored labels/panels |
 
 ## Known Limitations
 
-- Metal remains the primary graphics backend; Vulkan is functional and covers most rendering paths, but not yet at full parity. Metal-only today: texture streaming, the ImGui/ImPlot overlay, and the compute passes used by the sibling visualization project (marching cubes)
+- Metal remains the primary graphics backend; Vulkan is functional and covers most rendering paths, but not yet at full parity. Metal-only today: texture streaming and the compute passes used by the sibling visualization project (marching cubes)
 - No XR: `XrManager` is an empty placeholder
 - No audio subsystem; no sprite component (sprites are data an image element shows)
 - Gaussian splatting: WebP-packed SOG format and the unified octree/LOD streaming path are not ported

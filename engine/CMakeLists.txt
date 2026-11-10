@@ -110,9 +110,6 @@ else()
     set(VISUTWIN_KTX2_BACKEND_LIB basisu::basisu_encoder)
 endif()
 
-find_package(imgui          CONFIG REQUIRED)
-find_package(implot         CONFIG REQUIRED)
-
 find_path(TINYGLTF_INCLUDE_DIRS "tiny_gltf.h")
 find_path(NLOHMANN_JSON_INCLUDE_DIRS "nlohmann/json.hpp")
 
@@ -232,14 +229,6 @@ endif()
 file(GLOB_RECURSE VISUTWIN_CANVAS_SOURCES CONFIGURE_DEPENDS
     "${VISUTWIN_ROOT_DIR}/engine/src/*.cpp"
 )
-
-# Collect Objective-C++ sources (.mm) for Metal backend
-if(VISUTWIN_BACKEND_METAL)
-    file(GLOB_RECURSE VISUTWIN_CANVAS_MM_SOURCES CONFIGURE_DEPENDS
-        "${VISUTWIN_ROOT_DIR}/engine/src/*.mm"
-    )
-    list(APPEND VISUTWIN_CANVAS_SOURCES ${VISUTWIN_CANVAS_MM_SOURCES})
-endif()
 
 # ── The Slang binding declarations ───────────────────────────────────
 # bindings.slang is generated from the binding table (shaderBindings.h): one declaration
@@ -427,8 +416,6 @@ target_link_libraries(visutwin-canvas
         Boost::core
         assimp::assimp
         ${VISUTWIN_KTX2_BACKEND_LIB}
-        imgui::imgui
-        implot::implot
 )
 
 target_compile_definitions(visutwin-canvas PUBLIC

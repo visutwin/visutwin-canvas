@@ -216,7 +216,8 @@ namespace visutwin::canvas
 
         /**
          * Open a dynamic-rendering pass on this frame's swapchain image for an
-         * overlay drawn after the frame graph — the ImGui HUD is the one caller.
+         * overlay drawn after the frame graph by code outside the engine (visutwin-viz's
+         * ImGui HUD is the one caller).
          * The image is transitioned to COLOR_ATTACHMENT_OPTIMAL and LOADED, so the
          * scene underneath survives, and `_swapchainImageLayout` is updated: frameEnd
          * transitions to PRESENT_SRC from whatever that says, so an overlay that

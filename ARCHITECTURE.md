@@ -2521,7 +2521,7 @@ feature) or in the Julia layer (HTTP.jl over the C API) — whichever owns the p
 
 **6. Phases.** (1) the property table and `EntityId`, for the entity node and the core components
 (light, camera, render, element) and the standard material (LANDED, below; the overlay inspector it
-named was dropped: ImGui may leave the engine, and the inspector a Julia frontend wants is its own);
+named was dropped: ImGui left the engine on 2026-11-10, and the inspector a Julia frontend wants is its own);
 (2) the C API core: lifecycle and loop, entities, components, properties, schema, errors and the
 thread check, tested in C on a null device (LANDED, below); (3) bulk data and resources: meshes, textures,
 materials, assets, headless rendering and capture (LANDED but assets, below); (4) `VisuTwin.jl` over it, with a few scenes
