@@ -542,6 +542,31 @@ install(TARGETS visutwin-canvas
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     INCLUDES DESTINATION ${VISUTWIN_CANVAS_INSTALL_INCLUDE_DIR})
 
+# A shared engine loads Slang's compiler library at run time, and Slang its own modules from the
+# directory it lives in. They are installed beside the engine, so the prefix is complete: a
+# process that loads the engine (a frontend's C library, from Julia or Python) finds them
+# through the engine's rpath and needs no vcpkg tree. Left out: libslang-llvm (100+ MB, for CPU
+# targets this engine never compiles to) and the debug symbols.
+if(VISUTWIN_CANVAS_SHARED AND VISUTWIN_SHADER_SLANG AND NOT WIN32)
+    get_target_property(_slangLocation slang::slang IMPORTED_LOCATION_RELEASE)
+    if(NOT _slangLocation)
+        get_target_property(_slangLocation slang::slang IMPORTED_LOCATION)
+    endif()
+    if(_slangLocation)
+        get_filename_component(_slangDir "${_slangLocation}" DIRECTORY)
+        file(GLOB _slangRuntime LIST_DIRECTORIES false
+            "${_slangDir}/libslang${CMAKE_SHARED_LIBRARY_SUFFIX}*"
+            "${_slangDir}/libslang-compiler*"
+            "${_slangDir}/libslang-rt*"
+            "${_slangDir}/libslang-glsl-module*"
+            "${_slangDir}/libslang-glslang*")
+        list(FILTER _slangRuntime EXCLUDE REGEX "\\.dwarf$|\\.debug$")
+        install(FILES ${_slangRuntime} DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    else()
+        message(WARNING "visutwin-canvas: slang::slang has no imported location; its runtime is not installed")
+    endif()
+endif()
+
 install(DIRECTORY "${VISUTWIN_ROOT_DIR}/engine/src/"
     DESTINATION ${VISUTWIN_CANVAS_INSTALL_INCLUDE_DIR}
     FILES_MATCHING PATTERN "*.h" PATTERN "*.inl")

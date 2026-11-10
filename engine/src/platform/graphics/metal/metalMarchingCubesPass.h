@@ -113,6 +113,11 @@ namespace visutwin::canvas
         /// True once ensureResources() has succeeded.
         [[nodiscard]] bool isReady() const { return resourcesReady_; }
 
+        /// Waits until the GPU has written the vertices of the last extract() or extractBatch().
+        /// Those return as soon as the work is queued: drawing the buffers needs no wait (it
+        /// runs later on the same queue), reading them on the CPU (a test, an export) does.
+        void waitUntilCompleted();
+
     private:
         void ensureResources();
 
@@ -138,6 +143,10 @@ namespace visutwin::canvas
         MTL::SamplerState* fieldSampler_ = nullptr;
 
         bool resourcesReady_ = false;
+
+        // The last extraction's vertex-generation work, retained for waitUntilCompleted().
+        MTL::CommandBuffer* lastCommandBuffer_ = nullptr;
+        void keepLast(MTL::CommandBuffer* commandBuffer);
     };
 
 } // namespace visutwin::canvas

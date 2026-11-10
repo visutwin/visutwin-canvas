@@ -51,7 +51,7 @@ extern "C" {
 /* ---- Version and status --------------------------------------------------------------- */
 
 #define VT_API_VERSION_MAJOR 0
-#define VT_API_VERSION_MINOR 5
+#define VT_API_VERSION_MINOR 6
 
 /** The library's API version: (major << 16) | minor. A caller built against major M runs on
  *  a library of major M and any minor at least its own. */
@@ -479,6 +479,26 @@ VT_API vt_status vt_camera_set_offscreen(vt_engine* engine, vt_entity camera, ui
  *  finished the frame. VT_ERROR_UNSUPPORTED on the null backend, which has no pixels. */
 VT_API vt_status vt_camera_read_pixels(vt_engine* engine, vt_entity camera, uint8_t* buffer, size_t capacity,
     uint32_t* width, uint32_t* height);
+
+/* ---- Extensions ----------------------------------------------------------------------------
+ * For a library that adds its own functions over this one (visutwin-viz's C library, say). It
+ * must link the same SHARED engine this library does, so the two share one property table and
+ * the types it registers there are reached through the calls above like the engine's own. */
+
+/** The engine's C++ object (a visutwin::canvas::Engine*) behind a handle, after the checks every
+ *  call makes: the handle, and the thread that created it. */
+VT_API vt_status vt_engine_native(vt_engine* engine, void** out);
+
+/** Records `message` as the calling thread's last error, as a failing call of this library does,
+ *  and returns `status`; VT_OK clears it. An extension reports its own failures through it, so a
+ *  frontend reads one vt_last_error whichever library failed. */
+VT_API vt_status vt_set_error(vt_status status, const char* message);
+
+typedef void (*vt_engine_destroy_callback)(vt_engine* engine, void* user);
+
+/** Calls `callback(engine, user)` once, when the engine is destroyed and before anything in it
+ *  is: where an extension frees what it keeps per engine. Callbacks run in the order added. */
+VT_API vt_status vt_engine_on_destroy(vt_engine* engine, vt_engine_destroy_callback callback, void* user);
 
 #ifdef __cplusplus
 }

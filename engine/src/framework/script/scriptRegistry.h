@@ -69,6 +69,11 @@ namespace visutwin::canvas
 
         std::unique_ptr<Script> create(const std::string& name) const;
 
+        /// Whether a type of that name was registered here (registerType); the process-wide
+        /// ScriptFactories create() falls back to are not asked. registerType refuses a name it
+        /// has, so code that registers on demand asks first.
+        bool has(const std::string& name) const;
+
         template<typename T>
         void registerType() {
             registerType(T::scriptName(), [] { return Script::make<T>(); });

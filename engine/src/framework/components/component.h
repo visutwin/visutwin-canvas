@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <typeinfo>
 #include <unordered_map>
 #include <core/eventHandler.h>
 
@@ -26,14 +27,17 @@ namespace visutwin::canvas
     class ComponentInstanceList;
     class ComponentRegistry;
 
-    inline ComponentTypeID nextComponentTypeID() {
-        static ComponentTypeID lastID = 0;
-        return lastID++;
-    }
+    /// The id of the component type named `typeName` (its typeid name), handed out by the engine
+    /// library once per type: small consecutive integers, in the order types are first asked for.
+    /// Out of line on purpose. Every image that instantiates componentTypeID<T> (the engine, the
+    /// C library, an extension built against the shared engine) must get the same number for the
+    /// same type, and a counter in an inline function is a different counter in each image that
+    /// hides its inline symbols.
+    ComponentTypeID componentTypeIDByName(const char* typeName);
 
     template <typename T>
     ComponentTypeID componentTypeID() {
-        static ComponentTypeID id = nextComponentTypeID();
+        static const ComponentTypeID id = componentTypeIDByName(typeid(T).name());
         return id;
     }
 

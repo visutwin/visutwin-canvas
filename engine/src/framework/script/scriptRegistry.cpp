@@ -31,6 +31,10 @@ namespace visutwin::canvas
         }
     }
 
+    bool ScriptRegistry::has(const std::string& name) const {
+        return _types.contains(name);
+    }
+
     std::unique_ptr<Script> ScriptRegistry::create(const std::string& name) const {
         // First check local override, then fall back to global
         if (const auto it = _types.find(name); it != _types.end()) {

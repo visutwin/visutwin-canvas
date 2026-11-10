@@ -5,6 +5,9 @@
 //
 #include "component.h"
 
+#include <mutex>
+#include <string>
+
 #include "componentRegistry.h"
 #include "componentSystem.h"
 #include "framework/engine.h"
@@ -13,6 +16,15 @@
 
 namespace visutwin::canvas
 {
+    ComponentTypeID componentTypeIDByName(const char* typeName)
+    {
+        static std::mutex mutex;
+        static std::unordered_map<std::string, ComponentTypeID> ids;
+        const std::lock_guard lock(mutex);
+        const auto [it, added] = ids.try_emplace(typeName, ids.size());
+        return it->second;
+    }
+
     Component::Component(IComponentSystem* system, Entity* entity) : _entity(entity), _system(system)
     {
     }

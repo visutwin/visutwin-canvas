@@ -98,6 +98,26 @@ typedef struct ThreadProbe
     vt_status schemaCall;
 } ThreadProbe;
 
+/* An extension's destroy callback: counts its calls and checks it is handed its engine. */
+struct destroyProbe
+{
+    vt_engine* expected;
+    int calls;
+    int sawEngine;
+    int order;
+    int* sequence;
+};
+
+static void onDestroy(vt_engine* engine, void* user)
+{
+    struct destroyProbe* probe = (struct destroyProbe*)user;
+    void* native = NULL;
+    ++probe->calls;
+    probe->order = ++*probe->sequence;
+    /* The engine is still whole while the callbacks run. */
+    probe->sawEngine = engine == probe->expected && vt_engine_native(engine, &native) == VT_OK && native != NULL;
+}
+
 static void* probeThread(void* argument)
 {
     ThreadProbe* probe = (ThreadProbe*)argument;
@@ -512,6 +532,34 @@ int main(void)
     check(pthread_create(&thread, NULL, probeThread, &probe) == 0 && pthread_join(thread, NULL) == 0, "a second thread ran");
     check(probe.engineCall == VT_ERROR_WRONG_THREAD, "another thread may not drive the engine");
     check(probe.schemaCall == VT_OK, "but may read the schema");
+
+    /* ---- Extensions ---- */
+    {
+        void* native = NULL;
+        vt_engine* extended = NULL;
+        struct destroyProbe first = {NULL, 0, 0, 0, NULL};
+        struct destroyProbe second = {NULL, 0, 0, 0, NULL};
+        int sequence = 0;
+
+        check(vt_engine_native(engine, &native) == VT_OK && native != NULL, "vt_engine_native hands out the engine");
+        check(vt_engine_native(NULL, &native) == VT_ERROR_INVALID_ARGUMENT &&
+            vt_engine_native(engine, NULL) == VT_ERROR_INVALID_ARGUMENT, "and checks its arguments");
+
+        check(vt_set_error(VT_ERROR_NO_TARGET, "an extension failed") == VT_ERROR_NO_TARGET &&
+            strcmp(vt_last_error(), "an extension failed") == 0, "vt_set_error sets this thread's last error");
+        check(vt_set_error(VT_OK, "ignored") == VT_OK && vt_last_error()[0] == '\0', "and VT_OK clears it");
+
+        check(vt_engine_create(&desc, &extended) == VT_OK, "an engine an extension keeps state for");
+        first.expected = second.expected = extended;
+        first.sequence = second.sequence = &sequence;
+        check(vt_engine_on_destroy(extended, onDestroy, &first) == VT_OK &&
+            vt_engine_on_destroy(extended, onDestroy, &second) == VT_OK, "two destroy callbacks are added");
+        check(vt_engine_on_destroy(extended, NULL, NULL) == VT_ERROR_INVALID_ARGUMENT, "a NULL callback is refused");
+        check(vt_engine_destroy(extended) == VT_OK, "the engine is destroyed");
+        check(first.calls == 1 && second.calls == 1, "each callback ran once");
+        check(first.order == 1 && second.order == 2, "in the order they were added");
+        check(first.sawEngine && second.sawEngine, "while the engine was still whole");
+    }
 
     check(vt_engine_destroy(engine) == VT_OK && vt_engine_destroy(NULL) == VT_OK, "the engine is destroyed");
 

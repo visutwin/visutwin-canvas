@@ -312,7 +312,9 @@ kernel void generateVertices(
         int e1 = triTable[cubeIndex * 16 + i + 1];
         int e2 = triTable[cubeIndex * 16 + i + 2];
 
-        float3 positions[3] = { edgeVerts[e0], edgeVerts[e1], edgeVerts[e2] };
+        // The table winds toward higher values; the normals point toward lower ones unless
+        // flipped. Reversed to agree with them, so a triangle's front is the side it is lit on.
+        float3 positions[3] = { edgeVerts[e0], edgeVerts[doFlip ? e1 : e2], edgeVerts[doFlip ? e2 : e1] };
 
         for (int vi = 0; vi < 3; ++vi) {
             float3 pos = positions[vi];
@@ -654,6 +656,24 @@ kernel void generateVertices(
         if (counterBuffer_)    { counterBuffer_->release();    counterBuffer_ = nullptr; }
         if (uniformBuffer_)    { uniformBuffer_->release();    uniformBuffer_ = nullptr; }
         if (fieldSampler_)     { fieldSampler_->release();     fieldSampler_ = nullptr; }
+        if (lastCommandBuffer_) { lastCommandBuffer_->release(); lastCommandBuffer_ = nullptr; }
+    }
+
+    void MetalMarchingCubesPass::keepLast(MTL::CommandBuffer* commandBuffer)
+    {
+        if (lastCommandBuffer_) {
+            lastCommandBuffer_->release();
+        }
+        lastCommandBuffer_ = commandBuffer ? commandBuffer->retain() : nullptr;
+    }
+
+    void MetalMarchingCubesPass::waitUntilCompleted()
+    {
+        if (lastCommandBuffer_) {
+            lastCommandBuffer_->waitUntilCompleted();
+            lastCommandBuffer_->release();
+            lastCommandBuffer_ = nullptr;
+        }
     }
 
     // ─── Lazy Resource Creation ──────────────────────────────────────
@@ -937,6 +957,7 @@ kernel void generateVertices(
             encoder->popDebugGroup();
             encoder->endEncoding();
             commandBuffer->commit();
+            keepLast(commandBuffer);
         }
         // Command buffers retain encoded resources until completion.
         generationCounter->release();
@@ -1101,6 +1122,7 @@ kernel void generateVertices(
 
         generateEncoder->endEncoding();
         generateCommandBuffer->commit();
+        keepLast(generateCommandBuffer);
         releaseCounters();
 
         batchResult.success = true;

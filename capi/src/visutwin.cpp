@@ -109,6 +109,9 @@ struct vt_engine
 
     // Made on the first pick.
     std::unique_ptr<visutwin::canvas::Picker> picker;
+
+    // Extensions' callbacks, run when the engine is destroyed (vt_engine_on_destroy).
+    std::vector<std::pair<vt_engine_destroy_callback, void*>> onDestroy;
 };
 
 namespace
@@ -656,6 +659,11 @@ vt_status vt_engine_destroy(vt_engine* engine)
         if (std::this_thread::get_id() != engine->thread) {
             return fail(VT_ERROR_WRONG_THREAD, "an engine is destroyed on the thread that created it");
         }
+        // Extensions first, while everything they may hold on to still exists.
+        for (const auto& [callback, user] : engine->onDestroy) {
+            callback(engine, user);
+        }
+        engine->onDestroy.clear();
         teardown(engine);
         delete engine;
         return VT_OK;
@@ -2042,3 +2050,42 @@ vt_status vt_pick(vt_engine* engine, const vt_entity cameraId, const float x, co
 }
 
 } // extern "C"
+
+// ---- Extensions -------------------------------------------------------------------------
+
+vt_status vt_engine_native(vt_engine* engine, void** out)
+{
+    return guarded([&]() -> vt_status {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        if (!out) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no output");
+        }
+        *out = engine->engine.get();
+        return VT_OK;
+    });
+}
+
+vt_status vt_set_error(const vt_status status, const char* message)
+{
+    if (status == VT_OK) {
+        lastError.clear();
+        return VT_OK;
+    }
+    return fail(status, message ? message : "");
+}
+
+vt_status vt_engine_on_destroy(vt_engine* engine, const vt_engine_destroy_callback callback, void* user)
+{
+    return guarded([&]() -> vt_status {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        if (!callback) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no callback");
+        }
+        engine->onDestroy.emplace_back(callback, user);
+        return VT_OK;
+    });
+}
