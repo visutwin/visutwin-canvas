@@ -296,8 +296,11 @@ while (!quit) {
 vt_engine_destroy(engine);
 ```
 
-`capi/examples/hello.c` is the whole program. `VT_BACKEND_NULL` runs the engine with no window
-and no GPU, for tests and headless logic.
+`capi/examples/hello.c` is the whole program. Materials, meshes and textures are made from the
+caller's own arrays (`vt_material_create`, `vt_mesh_create`, `vt_texture_create`). A camera given
+an offscreen image (`vt_camera_set_offscreen`) renders into it, and `vt_camera_read_pixels`
+copies the frame into the caller's buffer: with `VT_ENGINE_HIDDEN` that is headless rendering,
+for notebooks and tests. `VT_BACKEND_NULL` runs the engine with no window and no GPU.
 
 ## Building and testing
 
@@ -382,6 +385,8 @@ Separate CMake projects built on this engine, to be published soon:
   functions, and the in-situ transport that couples a running simulation to the renderer
 - **visutwin-robotics** — URDF and MuJoCo pipelines for robot and biomechanics
   visualization
+- **VisuTwin.jl** — Julia bindings over the C API: scenes built and driven from the REPL, Julia
+  arrays as meshes and textures, headless rendering into Julia arrays
 
 ## Attribution
 

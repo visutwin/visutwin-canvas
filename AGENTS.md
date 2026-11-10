@@ -50,6 +50,8 @@ visutwin-canvas/
 Sibling repositories (separate CMake projects, same parent dir):
 - `visutwin-geo/` - Geospatial: WGS84 ellipsoid, 3D Tiles, terrain tiling, globe camera, atmosphere
 - `visutwin-viz/` - Scientific visualization: volume loading, marching cubes, streamlines, transfer functions
+- `VisuTwin.jl/` - Julia package over the C API (`capi/`): loads `libvisutwin_canvas_c` from a sibling
+  build or `VISUTWIN_LIB`; a change to the C header that removes or reorders anything breaks it
 
 ## Build
 
@@ -81,9 +83,14 @@ ctest --preset default
   turns on `CMAKE_POSITION_INDEPENDENT_CODE` for the tree. The library is its own binary, so it
   carries the metal-cpp implementation unit (`capi/src/metalCppImplementation.cpp`). The header
   is C99 and stays so (`tests/capiTests.c` compiles it as C99 and drives the API on the null
-  backend, ctest `capi`); a struct in it is only ever APPENDED to, since callers built against an
-  older header pass smaller ones (every struct begins with its `size`). Turning it on for Linux
-  wants the PIC engine and the version script checked there first.
+  backend, ctest `capi`; `capi-gpu`, label `gpu`, renders headless on the build's device and
+  reads the pixels back); a struct in it is only ever APPENDED to, since callers built against an
+  older header pass smaller ones (every struct begins with its `size`). A RESOURCE id (scene,
+  material, mesh, texture) has its top bit set (`VT_RESOURCE_BIT`), so the property calls take it
+  where they take an entity id; the engine's resource table holds only the CALLER's reference,
+  and anything the scene uses must be co-owned by what uses it (a mesh instance owns its mesh
+  and material, a material retains its textures), so a release never frees what is still drawn.
+  Turning it on for Linux wants the PIC engine and the version script checked there first.
 - **Test presets exclude the `vulkan`, `golden` and `gpu` labels.** `vulkan-validation-smoke`,
   `golden-images` and `gpu-instance-cull` need a GPU and a window, so `ctest --preset default`,
   `vulkan` and `sanitize` run the unit tests only, `ctest --preset vulkan-smoke` runs the smoke

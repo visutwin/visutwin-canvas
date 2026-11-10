@@ -2434,7 +2434,7 @@ visualisation moves arrays a socket would have to serialise, and a scene driven 
 calls, not messages. So the core is a property table and a C API in the same process, and a
 JSON-RPC protocol is one optional client of the same table, later. Design note (2026-11-09; first
 written around JSON-RPC the same day); phases 1 (the table and the ids) and 2 (the C API core)
-landed the same day (below).
+landed the same day, phase 3 (resources and headless capture) on 2026-11-10 (below).
 
 **Goals.** A stable, in-process C interface a Julia package wraps thinly (and Python, Rust or C#
 could use unchanged); generic access to every exposed property without per-property glue; bulk
@@ -2524,7 +2524,7 @@ feature) or in the Julia layer (HTTP.jl over the C API) — whichever owns the p
 named was dropped: ImGui may leave the engine, and the inspector a Julia frontend wants is its own);
 (2) the C API core: lifecycle and loop, entities, components, properties, schema, errors and the
 thread check, tested in C on a null device (LANDED, below); (3) bulk data and resources: meshes, textures,
-materials, assets, headless rendering and capture; (4) `VisuTwin.jl` over it, with a few scenes
+materials, assets, headless rendering and capture (LANDED but assets, below); (4) `VisuTwin.jl` over it, with a few scenes
 ported as its examples; (5) the remote protocol, only when a client needs it.
 
 **Phase 1 (landed 2026-11-09).** `framework/properties/propertyTable.h`: `ValueType`,
@@ -2580,6 +2580,77 @@ harness calls `destroy()` as well, and warns the same way. `tests/capiTests.c` (
 pthreads) and `tests/engineLifetimeTests.cpp` hold it. Not yet: Linux and Windows (the option is
 on only on macOS: the version script and the PIC engine want a check there), `ResourceId`s,
 materials, meshes, textures, headless GPU rendering and capture (phase 3).
+
+**Checked from Julia (2026-11-10, Julia 1.12.6, a throwaway `ccall` binding outside the
+repository).** Everything phase 2 offers works as designed: structs by value (`vt_vec3`,
+`vt_color`) and the size-versioned out-structs through `Ref`, two-call strings, statuses with
+messages, 200 entities created and destroyed across a `GC.gc()`. A Metal and a Vulkan window
+open from a Julia script and render identically (0 px over 8). The frame loop runs as an `@async`
+task (Metal: 120 fps, vsync-bound) while the main task edits the scene; a call from
+`Threads.@spawn` gets `VT_ERROR_WRONG_THREAD`. Under `-t 1`, `4` and `auto` both REPL evaluation
+(Julia 1.12 puts it in the interactive pool) and `@async` tasks run on thread 1, which is the
+macOS main thread (`pthread_main_np`), so the engine-owned window works from the REPL as well. A
+window nobody polls goes unresponsive, so the package keeps a loop task alive. Gaps it showed:
+no SCENE-level properties (ambient light, exposure, sky, fog), so a scene built from the API has
+black unlit faces, and a light's shadow bias needs setting by hand (the scene's settings came
+with phase 3).
+
+**Phase 3 (landed 2026-11-10).** Resources share the id space with entities through the TOP BIT
+(`VT_RESOURCE_BIT`): a resource id never equals an entity id, so the typed get / set calls take
+either, a resource only its own type's properties ("scene.*" on the scene, "standard.*" on a
+material; a mesh or texture has none). The engine's `Scene` is a property type of its own
+(`scene`: ambient light, exposure, tone mapping, physical units, skybox intensity and mip,
+clustered lighting, the fog's switch, type, colour, start, end and density; no resolver, the C
+API's `vt_engine_scene` names it), bringing the table to 144 properties over 8 types. Materials
+(`vt_material_create`: a `StandardMaterial`), meshes from caller arrays (`vt_mesh_create`:
+positions, optional normals, which are otherwise derived, optional UVs, from which tangents are
+derived, optional indices, all validated and copied, through `createMeshFromGeometry`) and
+textures (`vt_texture_create` / `vt_texture_update`: RGBA8, RGBA16F or RGBA32F, rows top first,
+mips, nearest and clamp flags) live in a per-engine table keyed by id, which holds the CALLER's
+reference only: `vt_resource_release` drops it, and whatever the scene still uses keeps the
+object alive (a mesh instance co-owns its mesh and material; a material keeps every texture it
+was given through `Material::retainResource`; the engine record keeps a render entity's
+material for a primitive rebuilt later, which takes it by raw pointer, and forgets it when the
+entity is destroyed). `vt_render_set_mesh` makes the render component an `asset` with one mesh
+instance; `vt_render_set_material` sets the component's material and every instance's (0, the
+device's default). `vt_material_set_texture` names the map ("diffuseMap", "normalMap",
+"emissiveMap", "metalnessMap", "glossMap", "opacityMap", "aoMap"). Capture:
+`vt_camera_set_offscreen` gives a camera an RGBA8 render target of its own (multisampled as the
+back buffer is, resolved), `vt_camera_read_pixels` reads its last frame back through
+`Texture::read` (blocking; RGBA8, rows top first), and `VT_ENGINE_HIDDEN` hides the window, which
+is headless rendering on a real GPU: Metal and Vulkan both render and read back under it. The
+null backend renders an offscreen camera and has no pixels (`VT_ERROR_UNSUPPORTED`). Teardown
+frees the offscreen targets, the kept materials and the resource table after the engine and
+before the device. Tests: `tests/capiTests.c` (97 checks, null backend: the scene, every
+resource, validation, what survives a release, the offscreen size and the refusal) and
+`tests/capiGpuTests.c` (label `gpu`: a hidden window, a red clear, an unlit quad with a texture
+on its emissive map read back, then a texture update reaching the next frame; both backends,
+the Vulkan one under validation; it fails with the update's upload removed). `hello.c` now uses
+an ambient light and a material. API version 0.2, 67 functions. Not yet: loading glTF and other
+assets, texture formats beyond the three, arrays mapped without a copy, and an asynchronous
+read-back for interactive capture.
+
+**Phase 4 (started 2026-11-10): `VisuTwin.jl`**, the sibling repository `../VisuTwin.jl`
+(Julia 1.10+, depends on Libdl only). The library is found in a sibling checkout's build or
+through `VISUTWIN_LIB`, opened with `Libdl.dlopen` and every function's address looked up once
+(`ccall` through the pointer: a JLL-style constant library name needs the library installed), and
+refused when its API major differs or its minor is older than 0.3. `Engine` (closed explicitly or
+by a do-block, never by a finalizer), `Entity` (the id) whose `getproperty` hands out a
+`TypeView` per type, so `e.light.intensity = 2` reads the schema once and calls the typed C
+function (enums as `Symbol`s, vectors as `Float32` tuples, colours with an optional alpha,
+entity references as `Entity`s; `propertynames` from the schema, so the REPL completes them);
+`Resource` for the scene, materials, meshes (from matrices or point vectors, 1-based indices) and
+textures (`4 x width x height` arrays, the same layout `capture` returns); `frame!`, `run!` (also
+in do-block form), `startloop!` / `stoploop!` (an `@async` task on the main thread, yielding
+between frames), `offscreen!` / `capture`. The loops honour `VISUTWIN_FIXED_DT`. Two C API
+additions came with it: `vt_mesh_update` (new vertices for the same triangles, swapped into the
+mesh as a new vertex buffer, the old one freed after the frames still using it) and the
+`node.quaternion` property (a rotation composed in Julia). Tests: 48 on the null backend, plus a
+headless GPU render with `VISUTWIN_TEST_GPU=1` (51). Examples: ports of `hello-world` (bit
+identical to the C++ port's frame under `VISUTWIN_FIXED_DT`, one frame later in the count) and
+`mesh-generation` (the grid rebuilt in Julia every frame; a checker in place of the logo, which
+the C API cannot load), and a headless capture writing a PPM. Not yet: glTF assets, callbacks
+from the engine (scripts) into Julia, a binary package (BinaryBuilder), Makie integration.
 
 **Open questions.** Windowing: an engine-owned SDL window, or rendering into a host's view (an
 `NSView` / `CAMetalLayer` or a Vulkan surface handed in), which a Julia GUI toolkit would want;

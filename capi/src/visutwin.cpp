@@ -20,10 +20,14 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include "framework/components/camera/cameraComponent.h"
 #include "framework/components/camera/cameraComponentSystem.h"
+#include "framework/components/render/primitiveGeometry.h"
+#include "framework/components/render/renderComponent.h"
 #include "framework/components/element/elementComponentSystem.h"
 #include "framework/components/light/lightComponentSystem.h"
 #include "framework/components/render/renderComponentSystem.h"
@@ -35,6 +39,13 @@
 #include "framework/properties/propertyTable.h"
 #include "platform/graphics/graphicsDeviceCreate.h"
 #include "platform/graphics/null/nullGraphicsDevice.h"
+#include "platform/graphics/renderTarget.h"
+#include "platform/graphics/texture.h"
+#include "scene/geometry/geometryUtils.h"
+#include "scene/materials/standardMaterial.h"
+#include "scene/mesh.h"
+#include "scene/meshInstance.h"
+#include "scene/scene.h"
 #include "spdlog/spdlog.h"
 
 using namespace visutwin::canvas;
@@ -52,6 +63,35 @@ struct vt_engine
     std::shared_ptr<Engine> engine;
     bool started = false;
     uint64_t frames = 0;
+
+    // Resources by id (VT_RESOURCE_BIT set). The record holds the caller's reference; whatever
+    // the scene still uses co-owns the object and keeps it alive past a release.
+    enum class ResourceKind { Scene, Material, Mesh, Texture };
+    struct Resource
+    {
+        ResourceKind kind;
+        const visutwin::canvas::TypeDesc* type = nullptr;   // its properties' type, or none
+        std::shared_ptr<void> owner;                        // null for the scene, which the engine owns
+        void* target = nullptr;
+        // A mesh's triangles, which an update of its vertices keeps.
+        std::vector<uint32_t> indices;
+        uint32_t vertexCount = 0;
+    };
+    std::unordered_map<uint64_t, Resource> resources;
+    uint64_t nextResource = 1;
+    uint64_t sceneResource = 0;
+
+    // Per render entity: the material it was given, which a primitive rebuilt later (a changed
+    // render.type) takes by raw pointer, so it must stay alive while the entity has it.
+    std::unordered_map<uint64_t, std::shared_ptr<visutwin::canvas::Material>> renderMaterials;
+
+    // Per offscreen camera: the image it renders into.
+    struct Offscreen
+    {
+        std::shared_ptr<visutwin::canvas::Texture> texture;
+        std::shared_ptr<visutwin::canvas::RenderTarget> target;
+    };
+    std::unordered_map<uint64_t, Offscreen> offscreen;
 };
 
 namespace
@@ -210,6 +250,29 @@ namespace
     vt_status resolveProperty(vt_engine* engine, const vt_entity id, const vt_property handle,
         const PropertyDesc*& property, void*& target, const TypeDesc** ownerOut = nullptr)
     {
+        if (id & VT_RESOURCE_BIT) {
+            if (const vt_status status = checkEngine(engine); status != VT_OK) {
+                return status;
+            }
+            const auto it = engine->resources.find(id);
+            if (it == engine->resources.end()) {
+                return fail(VT_ERROR_NOT_FOUND, "no resource " + std::to_string(id & ~VT_RESOURCE_BIT) +
+                    " in this engine");
+            }
+            const TypeDesc* owner = nullptr;
+            property = propertyOf(handle, &owner);
+            if (!property) {
+                return fail(VT_ERROR_NO_PROPERTY, "no property " + std::to_string(handle));
+            }
+            if (owner != it->second.type) {
+                return fail(VT_ERROR_NO_TARGET, "this resource has no " + owner->name + " properties");
+            }
+            target = it->second.target;
+            if (ownerOut) {
+                *ownerOut = owner;
+            }
+            return VT_OK;
+        }
         Entity* entity = nullptr;
         if (const vt_status status = findEntity(engine, id, entity); status != VT_OK) {
             return status;
@@ -302,6 +365,75 @@ namespace
 
     void countFrame(vt_engine* engine) { ++engine->frames; }
 
+    vt_resource addResource(vt_engine* engine, vt_engine::ResourceKind kind, const char* typeName,
+        std::shared_ptr<void> owner, void* target)
+    {
+        const vt_resource id = VT_RESOURCE_BIT | engine->nextResource++;
+        engine->resources[id] = {kind, typeName ? PropertyRegistry::instance().type(typeName) : nullptr,
+            std::move(owner), target};
+        return id;
+    }
+
+    // The resource of a kind, after the engine check, or a status.
+    vt_status findResource(vt_engine* engine, const vt_resource id, const vt_engine::ResourceKind kind,
+        const char* kindName, vt_engine::Resource*& out)
+    {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        const auto it = engine->resources.find(id);
+        if (!(id & VT_RESOURCE_BIT) || it == engine->resources.end()) {
+            return fail(VT_ERROR_NOT_FOUND, "no resource " + std::to_string(id & ~VT_RESOURCE_BIT) + " in this engine");
+        }
+        if (it->second.kind != kind) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, std::string("the resource is not a ") + kindName);
+        }
+        out = &it->second;
+        return VT_OK;
+    }
+
+    uint32_t bytesPerPixel(const vt_pixel_format format)
+    {
+        switch (format) {
+        case VT_PIXEL_RGBA8: return 4;
+        case VT_PIXEL_RGBA16F: return 8;
+        case VT_PIXEL_RGBA32F: return 16;
+        default: return 0;
+        }
+    }
+
+    // The vertices of a mesh desc over given triangles: normals derived when absent, tangents
+    // when there are uvs, zero uvs otherwise.
+    vt_status vertexGeometry(const vt_mesh_desc& d, const std::vector<uint32_t>& indices, PrimitiveGeometry& geometry)
+    {
+        const size_t n = d.vertex_count;
+        geometry.positions.assign(d.positions, d.positions + n * 3);
+        for (const float value : geometry.positions) {
+            if (!std::isfinite(value)) {
+                return fail(VT_ERROR_INVALID_ARGUMENT, "a position is not finite");
+            }
+        }
+        geometry.indices = indices;
+        geometry.normals = d.normals ? std::vector<float>(d.normals, d.normals + n * 3)
+                                     : calculateNormals(geometry.positions, geometry.indices);
+        if (d.uvs) {
+            geometry.uvs.assign(d.uvs, d.uvs + n * 2);
+            geometry.tangents = calculateTangents(geometry.positions, geometry.normals, geometry.uvs, geometry.indices);
+        } else {
+            geometry.uvs.assign(n * 2, 0.0f);
+        }
+        return VT_OK;
+    }
+
+    // Every entity id of a subtree, the root of it included.
+    void collectSubtree(GraphNode* node, std::vector<uint64_t>& ids)
+    {
+        if (const auto* entity = dynamic_cast<const Entity*>(node)) {
+            ids.push_back(entity->id().value);
+        }
+        node->forEachChild([&](GraphNode* child) { collectSubtree(child, ids); });
+    }
+
     void startIfNeeded(vt_engine* engine)
     {
         if (!engine->started) {
@@ -321,6 +453,10 @@ namespace
             engine->engine->destroy();
         }
         engine->engine.reset();
+        // The scene is gone with the engine; the caller's resources go before the device.
+        engine->offscreen.clear();
+        engine->renderMaterials.clear();
+        engine->resources.clear();
         engine->elementInput.reset();
         engine->device.reset();
         // Everything holding the device has let go by now; a device kept alive past this point
@@ -429,6 +565,9 @@ vt_status vt_engine_create(const vt_engine_desc* desc, vt_engine** out)
             // Without it SDL delivers no gamepad events; the engine runs on without them.
             engine->gamepadInitialized = SDL_InitSubSystem(SDL_INIT_GAMEPAD);
             SDL_WindowFlags flags = SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE;
+            if (d.flags & VT_ENGINE_HIDDEN) {
+                flags |= SDL_WINDOW_HIDDEN;
+            }
             flags |= backend == Backend::Vulkan ? SDL_WINDOW_VULKAN : SDL_WINDOW_METAL;
             engine->window = SDL_CreateWindow(d.title ? d.title : "VisuTwin", width, height, flags);
             if (!engine->window) {
@@ -481,6 +620,8 @@ vt_status vt_engine_create(const vt_engine_desc* desc, vt_engine** out)
             engine->engine->setCanvasFillMode(FillMode::FILLMODE_FILL_WINDOW);
             engine->engine->setCanvasResolution(ResolutionMode::RESOLUTION_AUTO);
         }
+        engine->sceneResource = addResource(engine.get(), vt_engine::ResourceKind::Scene, "scene", nullptr,
+            engine->engine->scene().get());
         *out = engine.release();
         return VT_OK;
     });
@@ -680,6 +821,12 @@ vt_status vt_entity_destroy(vt_engine* engine, const vt_entity id)
         }
         if (entity == engine->engine->root() || !entity->parent()) {
             return fail(VT_ERROR_INVALID_STATE, "the root cannot be destroyed");
+        }
+        std::vector<uint64_t> subtree;
+        collectSubtree(entity, subtree);
+        for (const uint64_t gone : subtree) {
+            engine->renderMaterials.erase(gone);
+            engine->offscreen.erase(gone);
         }
         entity->destroy();
         // The parent owned it; taking it back frees it and everything below it.
@@ -1175,6 +1322,414 @@ vt_status vt_set_text(vt_engine* engine, const vt_entity id, const vt_property h
                 valueTypeName(property->type) + " for " + qualifiedName(*owner, *property));
         }
         return fromPropertyStatus(PropertyRegistry::set(*property, target, value), qualifiedName(*owner, *property));
+    });
+}
+
+// ---- Resources ------------------------------------------------------------------------
+
+vt_status vt_engine_scene(vt_engine* engine, vt_resource* out)
+{
+    return guarded([&]() -> vt_status {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        if (!out) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no output");
+        }
+        *out = engine->sceneResource;
+        return VT_OK;
+    });
+}
+
+vt_status vt_material_create(vt_engine* engine, vt_resource* out)
+{
+    return guarded([&]() -> vt_status {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        if (!out) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no output");
+        }
+        auto material = std::make_shared<StandardMaterial>();
+        void* target = material.get();
+        *out = addResource(engine, vt_engine::ResourceKind::Material, "standard", std::move(material), target);
+        return VT_OK;
+    });
+}
+
+vt_status vt_mesh_create(vt_engine* engine, const vt_mesh_desc* desc, vt_resource* out)
+{
+    return guarded([&]() -> vt_status {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        if (!out || !desc || desc->size < sizeof(uint32_t)) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no desc, no output or vt_mesh_desc.size not set");
+        }
+        vt_mesh_desc d{};
+        std::memcpy(&d, desc, std::min<size_t>(desc->size, sizeof(vt_mesh_desc)));
+        if (!d.positions || d.vertex_count < 3) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "a mesh needs positions for at least 3 vertices");
+        }
+        const size_t n = d.vertex_count;
+        std::vector<uint32_t> indices;
+        if (d.index_count == 0) {
+            if (n % 3 != 0) {
+                return fail(VT_ERROR_INVALID_ARGUMENT, "without indices the vertex count must be a multiple of 3");
+            }
+            indices.resize(n);
+            for (size_t i = 0; i < n; ++i) {
+                indices[i] = static_cast<uint32_t>(i);
+            }
+        } else {
+            if (!d.indices || d.index_count % 3 != 0) {
+                return fail(VT_ERROR_INVALID_ARGUMENT, "the index count must be a multiple of 3, with indices given");
+            }
+            indices.assign(d.indices, d.indices + d.index_count);
+            for (const uint32_t index : indices) {
+                if (index >= n) {
+                    return fail(VT_ERROR_INVALID_ARGUMENT, "index " + std::to_string(index) + " is past the " +
+                        std::to_string(n) + " vertices");
+                }
+            }
+        }
+        PrimitiveGeometry geometry;
+        if (const vt_status status = vertexGeometry(d, indices, geometry); status != VT_OK) {
+            return status;
+        }
+        std::shared_ptr<Mesh> mesh = createMeshFromGeometry(engine->device, geometry);
+        if (!mesh) {
+            return fail(VT_ERROR_INTERNAL, "the mesh could not be built");
+        }
+        void* target = mesh.get();
+        *out = addResource(engine, vt_engine::ResourceKind::Mesh, nullptr, std::move(mesh), target);
+        vt_engine::Resource& record = engine->resources[*out];
+        record.indices = std::move(geometry.indices);
+        record.vertexCount = d.vertex_count;
+        return VT_OK;
+    });
+}
+
+vt_status vt_mesh_update(vt_engine* engine, const vt_resource id, const vt_mesh_desc* desc)
+{
+    return guarded([&]() -> vt_status {
+        vt_engine::Resource* resource = nullptr;
+        if (const vt_status status = findResource(engine, id, vt_engine::ResourceKind::Mesh, "mesh", resource);
+            status != VT_OK) {
+            return status;
+        }
+        if (!desc || desc->size < sizeof(uint32_t)) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no desc or vt_mesh_desc.size not set");
+        }
+        vt_mesh_desc d{};
+        std::memcpy(&d, desc, std::min<size_t>(desc->size, sizeof(vt_mesh_desc)));
+        if (!d.positions || d.vertex_count != resource->vertexCount) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "an update gives positions for the mesh's " +
+                std::to_string(resource->vertexCount) + " vertices");
+        }
+        PrimitiveGeometry geometry;
+        if (const vt_status status = vertexGeometry(d, resource->indices, geometry); status != VT_OK) {
+            return status;
+        }
+        const std::shared_ptr<Mesh> rebuilt = createMeshFromGeometry(engine->device, geometry);
+        if (!rebuilt) {
+            return fail(VT_ERROR_INTERNAL, "the mesh could not be rebuilt");
+        }
+        // A new vertex buffer into the same mesh, so every instance drawing it follows; the old
+        // buffer is freed once the frames still drawing it are done (both backends defer it).
+        auto* mesh = static_cast<Mesh*>(resource->target);
+        mesh->setVertexBuffer(rebuilt->getVertexBuffer());
+        mesh->setAabb(rebuilt->aabb());
+        return VT_OK;
+    });
+}
+
+vt_status vt_texture_create(vt_engine* engine, const vt_texture_desc* desc, vt_resource* out)
+{
+    return guarded([&]() -> vt_status {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        if (!out || !desc || desc->size < sizeof(uint32_t)) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no desc, no output or vt_texture_desc.size not set");
+        }
+        vt_texture_desc d{};
+        std::memcpy(&d, desc, std::min<size_t>(desc->size, sizeof(vt_texture_desc)));
+        const uint32_t pixelBytes = bytesPerPixel(d.format);
+        if (pixelBytes == 0) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "unknown pixel format " + std::to_string(d.format));
+        }
+        const auto maxSize = static_cast<uint32_t>(engine->device->maxTextureSize());
+        if (d.width == 0 || d.height == 0 || d.width > maxSize || d.height > maxSize) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "a texture is 1 to " + std::to_string(maxSize) + " pixels a side");
+        }
+        const size_t expected = size_t(d.width) * d.height * pixelBytes;
+        if (d.data && d.data_size != expected) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "the pixels are " + std::to_string(d.data_size) + " bytes, not " +
+                std::to_string(expected));
+        }
+        TextureOptions options;
+        options.width = d.width;
+        options.height = d.height;
+        options.format = d.format == VT_PIXEL_RGBA8 ? PixelFormat::PIXELFORMAT_RGBA8
+            : d.format == VT_PIXEL_RGBA16F ? PixelFormat::PIXELFORMAT_RGBA16F : PixelFormat::PIXELFORMAT_RGBA32F;
+        options.mipmaps = (d.flags & VT_TEXTURE_MIPMAPS) != 0;
+        const bool nearest = (d.flags & VT_TEXTURE_NEAREST) != 0;
+        options.magFilter = nearest ? FilterMode::FILTER_NEAREST : FilterMode::FILTER_LINEAR;
+        options.minFilter = options.mipmaps
+            ? (nearest ? FilterMode::FILTER_NEAREST_MIPMAP_NEAREST : FilterMode::FILTER_LINEAR_MIPMAP_LINEAR)
+            : (nearest ? FilterMode::FILTER_NEAREST : FilterMode::FILTER_LINEAR);
+        options.name = "vt_texture";
+        auto texture = std::make_shared<Texture>(engine->device.get(), options);
+        if (d.flags & VT_TEXTURE_CLAMP) {
+            texture->setAddressU(ADDRESS_CLAMP_TO_EDGE);
+            texture->setAddressV(ADDRESS_CLAMP_TO_EDGE);
+        }
+        if (d.data) {
+            texture->setLevelData(0, static_cast<const uint8_t*>(d.data), d.data_size);
+            texture->upload();
+        }
+        void* target = texture.get();
+        *out = addResource(engine, vt_engine::ResourceKind::Texture, nullptr, std::move(texture), target);
+        return VT_OK;
+    });
+}
+
+vt_status vt_texture_update(vt_engine* engine, const vt_resource id, const void* data, const size_t dataSize)
+{
+    return guarded([&]() -> vt_status {
+        vt_engine::Resource* resource = nullptr;
+        if (const vt_status status = findResource(engine, id, vt_engine::ResourceKind::Texture, "texture", resource);
+            status != VT_OK) {
+            return status;
+        }
+        auto* texture = static_cast<Texture*>(resource->target);
+        const size_t expected = size_t(texture->width()) * texture->height() * pixelFormatBytesPerPixel(texture->format());
+        if (!data || dataSize != expected) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "the pixels must be " + std::to_string(expected) + " bytes");
+        }
+        texture->setLevelData(0, static_cast<const uint8_t*>(data), dataSize);
+        texture->upload();
+        return VT_OK;
+    });
+}
+
+vt_status vt_material_set_texture(vt_engine* engine, const vt_resource materialId, const char* map,
+    const vt_resource textureId)
+{
+    return guarded([&]() -> vt_status {
+        vt_engine::Resource* materialResource = nullptr;
+        if (const vt_status status = findResource(engine, materialId, vt_engine::ResourceKind::Material, "material",
+                materialResource);
+            status != VT_OK) {
+            return status;
+        }
+        if (!map) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "no map name");
+        }
+        Texture* texture = nullptr;
+        if (textureId != 0) {
+            vt_engine::Resource* textureResource = nullptr;
+            if (const vt_status status = findResource(engine, textureId, vt_engine::ResourceKind::Texture, "texture",
+                    textureResource);
+                status != VT_OK) {
+                return status;
+            }
+            texture = static_cast<Texture*>(textureResource->target);
+            // The material holds its maps by raw pointer: it keeps the texture alive itself.
+            static_cast<Material*>(materialResource->target)->retainResource(textureResource->owner);
+        }
+        auto* material = static_cast<StandardMaterial*>(materialResource->target);
+        const std::string_view name(map);
+        if (name == "diffuseMap") {
+            material->setDiffuseMap(texture);
+        } else if (name == "normalMap") {
+            material->setNormalMap(texture);
+        } else if (name == "emissiveMap") {
+            material->setEmissiveMap(texture);
+        } else if (name == "metalnessMap") {
+            material->setMetalnessMap(texture);
+        } else if (name == "glossMap") {
+            material->setGlossMap(texture);
+        } else if (name == "opacityMap") {
+            material->setOpacityMap(texture);
+        } else if (name == "aoMap") {
+            material->setAoMap(texture);
+        } else {
+            return fail(VT_ERROR_INVALID_ARGUMENT, std::string("no map ") + map);
+        }
+        return VT_OK;
+    });
+}
+
+vt_status vt_resource_release(vt_engine* engine, const vt_resource id)
+{
+    return guarded([&]() -> vt_status {
+        if (const vt_status status = checkEngine(engine); status != VT_OK) {
+            return status;
+        }
+        if (id == engine->sceneResource) {
+            return fail(VT_ERROR_INVALID_STATE, "the scene is the engine's and cannot be released");
+        }
+        if (!(id & VT_RESOURCE_BIT) || engine->resources.erase(id) == 0) {
+            return fail(VT_ERROR_NOT_FOUND, "no resource " + std::to_string(id & ~VT_RESOURCE_BIT) + " in this engine");
+        }
+        return VT_OK;
+    });
+}
+
+// ---- What an entity draws -------------------------------------------------------------
+
+vt_status vt_render_set_mesh(vt_engine* engine, const vt_entity id, const vt_resource meshId)
+{
+    return guarded([&]() -> vt_status {
+        Entity* entity = nullptr;
+        if (const vt_status status = findEntity(engine, id, entity); status != VT_OK) {
+            return status;
+        }
+        auto* render = entity->findComponent<RenderComponent>();
+        if (!render) {
+            return fail(VT_ERROR_NO_TARGET, "entity " + std::to_string(id) + " has no render component");
+        }
+        vt_engine::Resource* resource = nullptr;
+        if (const vt_status status = findResource(engine, meshId, vt_engine::ResourceKind::Mesh, "mesh", resource);
+            status != VT_OK) {
+            return status;
+        }
+        std::shared_ptr<Material> material;
+        if (const auto it = engine->renderMaterials.find(id); it != engine->renderMaterials.end()) {
+            material = it->second;
+        } else {
+            material = getDefaultMaterial(engine->device);
+        }
+        // "asset": the component builds no primitive of its own and keeps what it is given.
+        render->setType("asset");
+        render->clearMeshInstances();
+        // The instance co-owns the mesh and the material, so releasing either resource is safe.
+        render->addMeshInstance(std::make_unique<MeshInstance>(std::static_pointer_cast<Mesh>(resource->owner),
+            material, entity));
+        return VT_OK;
+    });
+}
+
+vt_status vt_render_set_material(vt_engine* engine, const vt_entity id, const vt_resource materialId)
+{
+    return guarded([&]() -> vt_status {
+        Entity* entity = nullptr;
+        if (const vt_status status = findEntity(engine, id, entity); status != VT_OK) {
+            return status;
+        }
+        auto* render = entity->findComponent<RenderComponent>();
+        if (!render) {
+            return fail(VT_ERROR_NO_TARGET, "entity " + std::to_string(id) + " has no render component");
+        }
+        std::shared_ptr<Material> material;
+        if (materialId != 0) {
+            vt_engine::Resource* resource = nullptr;
+            if (const vt_status status = findResource(engine, materialId, vt_engine::ResourceKind::Material,
+                    "material", resource);
+                status != VT_OK) {
+                return status;
+            }
+            material = std::static_pointer_cast<Material>(resource->owner);
+            engine->renderMaterials[id] = material;
+        } else {
+            material = getDefaultMaterial(engine->device);
+            engine->renderMaterials.erase(id);
+        }
+        render->setMaterial(material.get());
+        for (MeshInstance* meshInstance : render->meshInstances()) {
+            if (meshInstance) {
+                meshInstance->setMaterial(material);
+            }
+        }
+        return VT_OK;
+    });
+}
+
+// ---- Offscreen rendering and capture ----------------------------------------------------
+
+vt_status vt_camera_set_offscreen(vt_engine* engine, const vt_entity id, const uint32_t width, const uint32_t height)
+{
+    return guarded([&]() -> vt_status {
+        Entity* entity = nullptr;
+        if (const vt_status status = findEntity(engine, id, entity); status != VT_OK) {
+            return status;
+        }
+        auto* camera = entity->findComponent<CameraComponent>();
+        if (!camera) {
+            return fail(VT_ERROR_NO_TARGET, "entity " + std::to_string(id) + " has no camera");
+        }
+        if (width == 0 || height == 0) {
+            camera->camera()->setRenderTarget(nullptr);
+            engine->offscreen.erase(id);
+            return VT_OK;
+        }
+        const auto maxSize = static_cast<uint32_t>(engine->device->maxTextureSize());
+        if (width > maxSize || height > maxSize) {
+            return fail(VT_ERROR_INVALID_ARGUMENT, "an offscreen image is at most " + std::to_string(maxSize) +
+                " pixels a side");
+        }
+        TextureOptions textureOptions;
+        textureOptions.width = width;
+        textureOptions.height = height;
+        textureOptions.format = PixelFormat::PIXELFORMAT_RGBA8;
+        textureOptions.mipmaps = false;
+        textureOptions.name = "vt_offscreen";
+        vt_engine::Offscreen offscreen;
+        offscreen.texture = std::make_shared<Texture>(engine->device.get(), textureOptions);
+        RenderTargetOptions targetOptions;
+        targetOptions.graphicsDevice = engine->device.get();
+        targetOptions.name = "vt_offscreen";
+        targetOptions.colorBuffer = offscreen.texture.get();
+        targetOptions.depth = true;
+        // Antialiased as the window's back buffer is.
+        targetOptions.samples = std::max(1, engine->device->samples());
+        offscreen.target = engine->device->createRenderTarget(targetOptions);
+        if (!offscreen.target) {
+            return fail(VT_ERROR_UNSUPPORTED, "this backend cannot render offscreen");
+        }
+        camera->camera()->setRenderTarget(offscreen.target);
+        engine->offscreen[id] = std::move(offscreen);
+        return VT_OK;
+    });
+}
+
+vt_status vt_camera_read_pixels(vt_engine* engine, const vt_entity id, uint8_t* buffer, const size_t capacity,
+    uint32_t* width, uint32_t* height)
+{
+    return guarded([&]() -> vt_status {
+        Entity* entity = nullptr;
+        if (const vt_status status = findEntity(engine, id, entity); status != VT_OK) {
+            return status;
+        }
+        const auto it = engine->offscreen.find(id);
+        if (it == engine->offscreen.end()) {
+            return fail(VT_ERROR_INVALID_STATE, "the camera does not render offscreen (vt_camera_set_offscreen)");
+        }
+        const Texture& texture = *it->second.texture;
+        if (width) {
+            *width = texture.width();
+        }
+        if (height) {
+            *height = texture.height();
+        }
+        const size_t bytes = size_t(texture.width()) * texture.height() * 4;
+        if (!buffer) {
+            return VT_OK;
+        }
+        if (capacity < bytes) {
+            return fail(VT_ERROR_BUFFER_TOO_SMALL, "the pixels need " + std::to_string(bytes) + " bytes");
+        }
+        if (engine->backend == VT_BACKEND_NULL) {
+            return fail(VT_ERROR_UNSUPPORTED, "the null backend has no pixels to read");
+        }
+        std::vector<uint8_t> pixels;
+        if (!it->second.texture->read(pixels) || pixels.size() < bytes) {
+            return fail(VT_ERROR_INTERNAL, "the offscreen image could not be read back");
+        }
+        std::memcpy(buffer, pixels.data(), bytes);
+        return VT_OK;
     });
 }
 

@@ -8,7 +8,9 @@
  * and every call a frontend makes must answer as documented. Lifecycle and the loop, entities
  * and their hierarchy, components by type name, the schema (including a caller whose structs
  * are OLDER than the library's), typed and text property access with every error status, the
- * two-call buffers, a destroyed entity's id, two engines, and the thread check.
+ * two-call buffers, a destroyed entity's id, two engines, and the thread check; then the
+ * resources: the scene's settings, materials, meshes and textures from arrays, what releasing
+ * them leaves alive, and the offscreen camera, whose pixels the null backend cannot read.
  */
 #define _POSIX_C_SOURCE 200809L
 
@@ -260,6 +262,119 @@ int main(void)
     stats.size = sizeof(stats);
     check(vt_frame_stats_get(engine, &stats) == VT_OK && stats.frames == 3 && stats.cameras == 1 &&
         stats.draw_calls >= 1 && stats.triangles >= 12, "three frames rendered, the box drawn by the camera");
+
+    /* ---- Resources ---- */
+    {
+        vt_resource scene = 0, material = 0, mesh = 0, texture = 0, other_material = 0;
+        vt_mesh_desc meshDesc;
+        vt_texture_desc textureDesc;
+        const float positions[] = {-1, 0, 0, 1, 0, 0, 0, 1, 0, 0, -1, 0};
+        const uint32_t indices[] = {0, 1, 2, 1, 0, 3};
+        const uint32_t badIndices[] = {0, 1, 2, 1, 0, 7};
+        uint8_t pixels[2 * 2 * 4];
+        uint8_t image[64];
+        uint32_t w = 0, h = 0;
+        vt_entity quad = 0, offscreenCamera = 0;
+        vt_color diffuse;
+        int stage;
+
+        memset(pixels, 200, sizeof(pixels));
+        check(vt_engine_scene(engine, &scene) == VT_OK && (scene & VT_RESOURCE_BIT) != 0, "the scene is a resource id");
+        color.r = 0.25f; color.g = 0.5f; color.b = 0.75f; color.a = 1.0f;
+        check(vt_set_color(engine, scene, property("scene.ambientLight"), color) == VT_OK &&
+            vt_get_text(engine, scene, property("scene.ambientLight"), text, sizeof(text), &length) == VT_OK &&
+            strcmp(text, "0.25, 0.5, 0.75, 1") == 0, "the scene's ambient light is set through the property calls");
+        check(vt_set_text(engine, scene, property("scene.fogType"), "exp2") == VT_OK &&
+            vt_set_float(engine, scene, property("scene.fogDensity"), 0.05f) == VT_OK &&
+            vt_set_bool(engine, scene, property("scene.fogEnabled"), 1) == VT_OK, "and its fog");
+        check(vt_set_float(engine, scene, property("light.intensity"), 1.0f) == VT_ERROR_NO_TARGET,
+            "a resource takes only its own type's properties");
+        check(vt_resource_release(engine, scene) == VT_ERROR_INVALID_STATE, "the scene cannot be released");
+
+        check(vt_material_create(engine, &material) == VT_OK && (material & VT_RESOURCE_BIT) != 0 &&
+            material != scene, "a material is created");
+        diffuse.r = 0.1f; diffuse.g = 0.8f; diffuse.b = 0.2f; diffuse.a = 1.0f;
+        check(vt_set_color(engine, material, property("standard.diffuse"), diffuse) == VT_OK &&
+            vt_set_bool(engine, material, property("standard.useMetalness"), 1) == VT_OK,
+            "its properties are set like an entity's");
+
+        memset(&meshDesc, 0, sizeof(meshDesc));
+        meshDesc.size = sizeof(meshDesc);
+        meshDesc.vertex_count = 4;
+        meshDesc.positions = positions;
+        meshDesc.index_count = 6;
+        meshDesc.indices = badIndices;
+        check(vt_mesh_create(engine, &meshDesc, &mesh) == VT_ERROR_INVALID_ARGUMENT, "an index past the vertices is refused");
+        meshDesc.indices = indices;
+        meshDesc.index_count = 5;
+        check(vt_mesh_create(engine, &meshDesc, &mesh) == VT_ERROR_INVALID_ARGUMENT, "so is an index count not a multiple of 3");
+        meshDesc.index_count = 6;
+        check(vt_mesh_create(engine, &meshDesc, &mesh) == VT_OK, "a mesh is built from arrays, its normals derived");
+        {
+            const float raised[] = {-1, 0, 1, 1, 0, 1, 0, 1, 1, 0, -1, 1};
+            vt_mesh_desc update = meshDesc;
+            update.positions = raised;
+            update.vertex_count = 3;
+            check(vt_mesh_update(engine, mesh, &update) == VT_ERROR_INVALID_ARGUMENT,
+                "an update with another vertex count is refused");
+            update.vertex_count = 4;
+            check(vt_mesh_update(engine, mesh, &update) == VT_OK, "the mesh's vertices are replaced");
+        }
+        check(vt_get_float(engine, mesh, property("standard.gloss"), &value) == VT_ERROR_NO_TARGET,
+            "a mesh has no properties");
+
+        memset(&textureDesc, 0, sizeof(textureDesc));
+        textureDesc.size = sizeof(textureDesc);
+        textureDesc.width = 2;
+        textureDesc.height = 2;
+        textureDesc.format = VT_PIXEL_RGBA8;
+        textureDesc.data = pixels;
+        textureDesc.data_size = sizeof(pixels) - 1;
+        check(vt_texture_create(engine, &textureDesc, &texture) == VT_ERROR_INVALID_ARGUMENT,
+            "pixels of the wrong size are refused");
+        textureDesc.data_size = sizeof(pixels);
+        check(vt_texture_create(engine, &textureDesc, &texture) == VT_OK &&
+            vt_texture_update(engine, texture, pixels, sizeof(pixels)) == VT_OK, "a texture is created and updated");
+        check(vt_material_set_texture(engine, material, "diffuseMap", texture) == VT_OK &&
+            vt_material_set_texture(engine, material, "sheenMap", texture) == VT_ERROR_INVALID_ARGUMENT &&
+            vt_material_set_texture(engine, mesh, "diffuseMap", texture) == VT_ERROR_INVALID_ARGUMENT,
+            "it goes on a named map of a material, and nowhere else");
+
+        check(vt_entity_create(engine, 0, "Quad", &quad) == VT_OK && vt_component_add(engine, quad, "render") == VT_OK &&
+            vt_render_set_material(engine, quad, material) == VT_OK && vt_render_set_mesh(engine, quad, mesh) == VT_OK &&
+            vt_get_int(engine, quad, property("render.meshInstanceCount"), &number) == VT_OK && number == 1,
+            "an entity draws the mesh with the material");
+        check(vt_entity_describe(engine, quad, text, sizeof(text), &length) != VT_ERROR_INVALID_ARGUMENT &&
+            vt_render_set_mesh(engine, lamp, mesh) == VT_ERROR_NO_TARGET, "an entity without a render component cannot");
+
+        /* Released, the mesh, material and texture stay alive for the entity that uses them. */
+        check(vt_resource_release(engine, mesh) == VT_OK && vt_resource_release(engine, material) == VT_OK &&
+            vt_resource_release(engine, texture) == VT_OK, "the resources are released");
+        check(vt_set_color(engine, material, property("standard.diffuse"), diffuse) == VT_ERROR_NOT_FOUND &&
+            vt_resource_release(engine, material) == VT_ERROR_NOT_FOUND, "a released id finds nothing");
+        stats.size = sizeof(stats);
+        stage = vt_frame(engine, 1.0f / 60.0f, NULL) == VT_OK && vt_frame_stats_get(engine, &stats) == VT_OK;
+        check(stage && stats.triangles >= 2, "and the entity still draws what they made");
+        check(vt_material_create(engine, &other_material) == VT_OK && vt_render_set_material(engine, quad, other_material) == VT_OK &&
+            vt_render_set_material(engine, quad, 0) == VT_OK && vt_frame(engine, 1.0f / 60.0f, NULL) == VT_OK,
+            "the material is swapped, then reset to the default");
+        check(vt_entity_destroy(engine, quad) == VT_OK && vt_frame(engine, 1.0f / 60.0f, NULL) == VT_OK,
+            "the entity is destroyed with the last reference to the released resources");
+
+        check(vt_entity_create(engine, 0, "Offscreen", &offscreenCamera) == VT_OK &&
+            vt_component_add(engine, offscreenCamera, "camera") == VT_OK &&
+            vt_camera_read_pixels(engine, offscreenCamera, NULL, 0, &w, &h) == VT_ERROR_INVALID_STATE,
+            "a camera that renders to the window has no pixels to read");
+        check(vt_camera_set_offscreen(engine, offscreenCamera, 4, 3) == VT_OK &&
+            vt_camera_read_pixels(engine, offscreenCamera, NULL, 0, &w, &h) == VT_OK && w == 4 && h == 3,
+            "an offscreen camera reports its size");
+        check(vt_camera_read_pixels(engine, offscreenCamera, image, 8, &w, &h) == VT_ERROR_BUFFER_TOO_SMALL &&
+            vt_frame(engine, 1.0f / 60.0f, NULL) == VT_OK &&
+            vt_camera_read_pixels(engine, offscreenCamera, image, sizeof(image), &w, &h) == VT_ERROR_UNSUPPORTED,
+            "the null backend renders it but has no pixels to give");
+        check(vt_camera_set_offscreen(engine, offscreenCamera, 0, 0) == VT_OK &&
+            vt_entity_destroy(engine, offscreenCamera) == VT_OK, "and it goes back to the window");
+    }
 
     /* ---- Destruction ---- */
     check(vt_entity_destroy(engine, car) == VT_OK, "an entity is destroyed");

@@ -13,7 +13,9 @@
  *     failure of the calling thread. Results come back through out-parameters.
  *   - Entities are named by vt_entity ids, never pointers: an id is unique in the process and
  *     never reused, so a call naming an entity that is gone fails with VT_ERROR_NOT_FOUND
- *     instead of touching freed memory. 0 names no entity.
+ *     instead of touching freed memory. 0 names no entity. Resources (the scene, materials,
+ *     meshes, textures) are named the same way by vt_resource ids, which have their top bit
+ *     set, so the property calls take either kind of id.
  *   - Every struct the caller passes or fills begins with its `size` (set it to sizeof the
  *     struct): fields are only ever appended, and a library newer than the caller's header
  *     reads and writes only the fields that caller knows.
@@ -49,7 +51,7 @@ extern "C" {
 /* ---- Version and status --------------------------------------------------------------- */
 
 #define VT_API_VERSION_MAJOR 0
-#define VT_API_VERSION_MINOR 1
+#define VT_API_VERSION_MINOR 3
 
 /** The library's API version: (major << 16) | minor. A caller built against major M runs on
  *  a library of major M and any minor at least its own. */
@@ -125,7 +127,8 @@ enum
 enum
 {
     VT_ENGINE_NO_ANTIALIAS = 1u << 0,   /* a single-sampled back buffer (4x MSAA otherwise) */
-    VT_ENGINE_NO_VSYNC = 1u << 1        /* Metal: present as fast as frames complete */
+    VT_ENGINE_NO_VSYNC = 1u << 1,       /* Metal: present as fast as frames complete */
+    VT_ENGINE_HIDDEN = 1u << 2          /* the window is not shown: render offscreen and read back */
 };
 
 typedef struct vt_engine_desc
@@ -283,10 +286,11 @@ VT_API vt_status vt_property_get_info(vt_property property, vt_property_info* ou
 /** An enum's option at an index: its value and its name (valid for the process). */
 VT_API vt_status vt_property_option(vt_property property, uint32_t index, int32_t* value, const char** name);
 
-/* ---- Property values on an entity --------------------------------------------------------
+/* ---- Property values on an entity or a resource -------------------------------------------
  * Each pair reads and writes a property of its value type (vt_get_int / vt_set_int serve INT
- * and ENUM); another value type is VT_ERROR_TYPE_MISMATCH. The property's type must be on the
- * entity (VT_ERROR_NO_TARGET otherwise). */
+ * and ENUM); another value type is VT_ERROR_TYPE_MISMATCH. The `entity` argument takes an
+ * entity id or a resource id: the property's type must be on the entity, or be the resource's
+ * own type ("scene.*" on the scene, "standard.*" on a material); VT_ERROR_NO_TARGET otherwise. */
 
 VT_API vt_status vt_get_bool(vt_engine* engine, vt_entity entity, vt_property property, int32_t* out);
 VT_API vt_status vt_set_bool(vt_engine* engine, vt_entity entity, vt_property property, int32_t value);
@@ -315,6 +319,101 @@ VT_API vt_status vt_set_string(vt_engine* engine, vt_entity entity, vt_property 
 VT_API vt_status vt_get_text(vt_engine* engine, vt_entity entity, vt_property property, char* buffer,
     size_t capacity, size_t* length);
 VT_API vt_status vt_set_text(vt_engine* engine, vt_entity entity, vt_property property, const char* text);
+
+/* ---- Resources: the scene, materials, meshes and textures --------------------------------
+ * A resource lives until vt_resource_release and, after that, for as long as something in the
+ * scene still uses it (an entity drawing a mesh, a material using a texture). Arrays handed in
+ * are read and copied during the call. */
+
+typedef uint64_t vt_resource;
+#define VT_RESOURCE_BIT (UINT64_C(1) << 63)
+
+/** The engine's scene: ambient light, exposure, tone mapping, sky and fog ("scene.*"). It is
+ *  the engine's and cannot be released. */
+VT_API vt_status vt_engine_scene(vt_engine* engine, vt_resource* out);
+
+/** A new standard material ("standard.*"): white, rough, lit, in the specular workflow with no
+ *  specular until standard.useMetalness (or a specular colour) says otherwise. */
+VT_API vt_status vt_material_create(vt_engine* engine, vt_resource* out);
+
+typedef struct vt_mesh_desc
+{
+    uint32_t size;              /* sizeof(vt_mesh_desc) */
+    uint32_t vertex_count;
+    const float* positions;     /* xyz per vertex; required */
+    const float* normals;       /* xyz per vertex; NULL: derived from the triangles */
+    const float* uvs;           /* uv per vertex, v = 0 at the image's top row; NULL: zeros */
+    uint32_t index_count;       /* a multiple of 3; 0: the vertices taken three at a time */
+    const uint32_t* indices;    /* a triangle list, counter-clockwise seen from the front */
+} vt_mesh_desc;
+
+/** A triangle mesh from arrays (copied during the call). */
+VT_API vt_status vt_mesh_create(vt_engine* engine, const vt_mesh_desc* desc, vt_resource* out);
+
+/** Replaces a mesh's vertices, keeping its triangles: the same vertex count, positions required,
+ *  normals and uvs as in vt_mesh_create (the index fields are ignored). Every entity drawing the
+ *  mesh shows the new vertices from the next frame; the frames still drawing the old ones finish
+ *  with them. */
+VT_API vt_status vt_mesh_update(vt_engine* engine, vt_resource mesh, const vt_mesh_desc* desc);
+
+typedef int32_t vt_pixel_format;
+enum
+{
+    VT_PIXEL_RGBA8 = 1,     /* 4 bytes; a colour map is read as sRGB */
+    VT_PIXEL_RGBA16F = 2,   /* 8 bytes, half floats, linear */
+    VT_PIXEL_RGBA32F = 3    /* 16 bytes, floats, linear */
+};
+
+enum
+{
+    VT_TEXTURE_MIPMAPS = 1u << 0,   /* a mip chain, regenerated on every update */
+    VT_TEXTURE_NEAREST = 1u << 1,   /* nearest filtering (linear otherwise) */
+    VT_TEXTURE_CLAMP = 1u << 2      /* clamp at the edges (repeat otherwise) */
+};
+
+typedef struct vt_texture_desc
+{
+    uint32_t size;              /* sizeof(vt_texture_desc) */
+    uint32_t width;
+    uint32_t height;
+    vt_pixel_format format;
+    uint32_t flags;             /* VT_TEXTURE_* */
+    const void* data;           /* rows top first, tightly packed; NULL: left uninitialised */
+    size_t data_size;           /* width * height * the format's size */
+} vt_texture_desc;
+
+VT_API vt_status vt_texture_create(vt_engine* engine, const vt_texture_desc* desc, vt_resource* out);
+
+/** Replaces the texture's pixels (the same size and format, rows top first). */
+VT_API vt_status vt_texture_update(vt_engine* engine, vt_resource texture, const void* data, size_t data_size);
+
+/** Puts a texture on one of a material's maps: "diffuseMap", "normalMap", "emissiveMap",
+ *  "metalnessMap", "glossMap", "opacityMap" or "aoMap"; texture 0 clears the map. */
+VT_API vt_status vt_material_set_texture(vt_engine* engine, vt_resource material, const char* map,
+    vt_resource texture);
+
+/** Gives up the caller's reference; what the scene still uses stays alive until it does not. */
+VT_API vt_status vt_resource_release(vt_engine* engine, vt_resource resource);
+
+/* ---- What an entity draws -------------------------------------------------------------- */
+
+/** The entity's render component draws this mesh (with its material, or the default). */
+VT_API vt_status vt_render_set_mesh(vt_engine* engine, vt_entity entity, vt_resource mesh);
+
+/** The entity's render component draws with this material; 0 for the default. */
+VT_API vt_status vt_render_set_material(vt_engine* engine, vt_entity entity, vt_resource material);
+
+/* ---- Offscreen rendering and capture ---------------------------------------------------- */
+
+/** The camera renders into an offscreen image of width x height pixels instead of the window
+ *  (0 x 0: back to the window). With VT_ENGINE_HIDDEN this is headless rendering. */
+VT_API vt_status vt_camera_set_offscreen(vt_engine* engine, vt_entity camera, uint32_t width, uint32_t height);
+
+/** The offscreen camera's last rendered frame as RGBA8, rows top first, into `buffer`
+ *  (width * height * 4 bytes; a NULL buffer only reports the size). Blocks until the GPU has
+ *  finished the frame. VT_ERROR_UNSUPPORTED on the null backend, which has no pixels. */
+VT_API vt_status vt_camera_read_pixels(vt_engine* engine, vt_entity camera, uint8_t* buffer, size_t capacity,
+    uint32_t* width, uint32_t* height);
 
 #ifdef __cplusplus
 }

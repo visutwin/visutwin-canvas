@@ -4,9 +4,10 @@
  *
  * Created by Arnis Lektauers on 09.11.2026
  *
- * The C API from a C program: a window, a grey ground, a box turning on it, a directional
- * light casting its shadow and a camera, all built through property names, then the caller's
- * own loop until the window closes (or for the number of frames given as the first argument).
+ * The C API from a C program: a window, a grey ground, an orange box turning on it under an
+ * ambient light, a directional light casting its shadow and a camera, all built through
+ * property names and a material resource, then the caller's own loop until the window closes
+ * (or for the number of frames given as the first argument).
  * VISUTWIN_BACKEND=metal|vulkan picks the backend, VISUTWIN_SCREENSHOT=<png> captures a frame.
  */
 #include <stdio.h>
@@ -47,7 +48,10 @@ int main(int argc, char** argv)
     vt_engine_desc desc = {0};
     vt_engine* engine = NULL;
     vt_entity ground, box, light, camera;
+    vt_resource scene, orange;
     vt_color clear = {0.55f, 0.65f, 0.8f, 1.0f};
+    vt_color ambient = {0.35f, 0.38f, 0.45f, 1.0f};
+    vt_color orangeColor = {0.9f, 0.45f, 0.1f, 1.0f};
     int32_t quit = 0;
     long frame = 0;
     float angle = 0.0f;
@@ -57,6 +61,14 @@ int main(int argc, char** argv)
     desc.width = 900;
     desc.height = 700;
     CHECK(vt_engine_create(&desc, &engine));
+    CHECK(vt_engine_scene(engine, &scene));
+    CHECK(vt_set_color(engine, scene, p("scene.ambientLight"), ambient));
+
+    CHECK(vt_material_create(engine, &orange));
+    CHECK(vt_set_color(engine, orange, p("standard.diffuse"), orangeColor));
+    CHECK(vt_set_bool(engine, orange, p("standard.useMetalness"), 1));
+    CHECK(vt_set_float(engine, orange, p("standard.metalness"), 0.0f));
+    CHECK(vt_set_float(engine, orange, p("standard.gloss"), 0.6f));
 
     CHECK(vt_entity_create(engine, 0, "Ground", &ground));
     CHECK(vt_component_add(engine, ground, "render"));
@@ -69,6 +81,8 @@ int main(int argc, char** argv)
     CHECK(vt_set_string(engine, box, p("render.type"), "box"));
     CHECK(vt_set_vec3(engine, box, p("node.position"), v3(0.0f, 0.75f, 0.0f)));
     CHECK(vt_set_vec3(engine, box, p("node.scale"), v3(1.5f, 1.5f, 1.5f)));
+    CHECK(vt_render_set_material(engine, box, orange));
+    CHECK(vt_resource_release(engine, orange)); /* the box keeps it */
 
     CHECK(vt_entity_create(engine, 0, "Sun", &light));
     CHECK(vt_component_add(engine, light, "light"));
@@ -77,6 +91,7 @@ int main(int argc, char** argv)
     CHECK(vt_set_float(engine, light, p("light.intensity"), 1.2f));
     CHECK(vt_set_bool(engine, light, p("light.castShadows"), 1));
     CHECK(vt_set_float(engine, light, p("light.shadowDistance"), 20.0f));
+    CHECK(vt_set_float(engine, light, p("light.shadowNormalBias"), 0.05f));
 
     CHECK(vt_entity_create(engine, 0, "Camera", &camera));
     CHECK(vt_component_add(engine, camera, "camera"));

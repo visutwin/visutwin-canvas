@@ -4,7 +4,7 @@
 // Created by Arnis Lektauers on 09.11.2026
 //
 // The engine's own property types: the entity node, the light, camera, render, element and
-// screen components, and the standard material. A property is named after the getter it reads,
+// screen components, the scene and the standard material. A property is named after the getter it reads,
 // so a frontend's name and the C++ one agree.
 //
 #include "propertyTable.h"
@@ -19,6 +19,7 @@
 #include "scene/camera.h"
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"
+#include "scene/scene.h"
 
 namespace visutwin::canvas
 {
@@ -70,6 +71,9 @@ namespace visutwin::canvas
                         e.setLocalEulerAngles(value.getX(), value.getY(), value.getZ());
                     })
                     .unit("deg").describe("Euler angles relative to the parent.")
+                .property("quaternion", [](const Entity& e) { return e.localRotation(); },
+                    [](Entity& e, const Quaternion& value) { e.setLocalRotation(value); })
+                    .describe("The same rotation as a unit quaternion (x, y, z, w).")
                 .property("scale", [](const Entity& e) { return e.localScale(); },
                     [](Entity& e, const Vector3& value) { e.setLocalScale(value); })
                 .property("worldPosition", [](const Entity& e) { return const_cast<Entity&>(e).position(); });
@@ -283,6 +287,45 @@ namespace visutwin::canvas
                 .property("scale", &ScreenComponent::scale);
         }
 
+        void registerScene(PropertyRegistry& registry)
+        {
+            auto type = registry.registerType<Scene>("scene",
+                "The scene's own settings: ambient light, exposure, tone mapping, sky and fog. Carried "
+                "by no entity; the C API names it with vt_engine_scene.");
+            type.property("ambientLight", &Scene::ambientLight,
+                    [](Scene& s, const Color& c) { s.setAmbientLight(c.r, c.g, c.b); })
+                    .describe("Authored in gamma space; the flat ambient when no environment lights the scene.")
+                .property("exposure", &Scene::exposure, &Scene::setExposure).range(0, 10, 0.05f)
+                .property("toneMapping", [](const Scene& s) { return static_cast<Tonemap>(s.toneMapping()); },
+                    [](Scene& s, const Tonemap value) { s.setToneMapping(value); })
+                    .options({{TONEMAP_LINEAR, "linear"}, {TONEMAP_FILMIC, "filmic"}, {TONEMAP_HEJL, "hejl"},
+                        {TONEMAP_ACES, "aces"}, {TONEMAP_ACES2, "aces2"}, {TONEMAP_NEUTRAL, "neutral"},
+                        {TONEMAP_NONE, "none"}, {TONEMAP_AGX, "agx"}, {TONEMAP_AGX_PUNCHY, "agxPunchy"}})
+                .property("physicalUnits", &Scene::physicalUnits, &Scene::setPhysicalUnits)
+                    .describe("Lights shine with their luminance and cameras expose by aperture, shutter and ISO.")
+                .property("skyboxIntensity", &Scene::skyboxIntensity, &Scene::setSkyboxIntensity).range(0, 10, 0.05f)
+                .property("skyboxMip", &Scene::skyboxMip, &Scene::setSkyboxMip).range(0, 5, 1)
+                .property("clusteredLighting", &Scene::clusteredLightingEnabled, &Scene::setClusteredLightingEnabled)
+                    .describe("Spot and omni lights through the cluster grid (off: at most eight, two shadowed).")
+                .property("fogEnabled", [](const Scene& s) { return s.fog().enabled; },
+                    [](Scene& s, const bool value) { s.setFogEnabled(value); })
+                .property("fogType", [](const Scene& s) { return s.fog().type; },
+                    [](Scene& s, const FogType value) { s.setFogType(value); })
+                    .options({{static_cast<int>(FogType::FOG_NONE), "none"},
+                        {static_cast<int>(FogType::FOG_LINEAR), "linear"},
+                        {static_cast<int>(FogType::FOG_EXP), "exp"}, {static_cast<int>(FogType::FOG_EXP2), "exp2"}})
+                .property("fogColor", [](const Scene& s) { return s.fog().color; },
+                    [](Scene& s, const Color& value) { s.setFogColor(value); })
+                .property("fogStart", [](const Scene& s) { return s.fog().start; },
+                    [](Scene& s, const float value) { s.setFogLinear(value, s.fog().end); })
+                    .describe("Linear fog: the view depth it starts at.")
+                .property("fogEnd", [](const Scene& s) { return s.fog().end; },
+                    [](Scene& s, const float value) { s.setFogLinear(s.fog().start, value); })
+                .property("fogDensity", [](const Scene& s) { return s.fog().density; },
+                    [](Scene& s, const float value) { s.setFogDensity(value); }).range(0, 1, 0.001f)
+                    .describe("Exponential fog.");
+        }
+
         void registerStandardMaterial(PropertyRegistry& registry)
         {
             auto type = registry.registerType<StandardMaterial>("standard",
@@ -343,6 +386,7 @@ namespace visutwin::canvas
         registerRender(registry);
         registerElement(registry);
         registerScreen(registry);
+        registerScene(registry);
         registerStandardMaterial(registry);
     }
 }

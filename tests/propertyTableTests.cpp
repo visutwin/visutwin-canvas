@@ -30,6 +30,7 @@
 #include "framework/entity.h"
 #include "framework/properties/propertyTable.h"
 #include "scene/materials/standardMaterial.h"
+#include "scene/scene.h"
 #include "support/check.h"
 #include "support/stubDevice.h"
 #include "support/testEngine.h"
@@ -192,12 +193,14 @@ int main()
         void* target = type->resolve ? type->resolve(*rig) : nullptr;
         if (type->name == "standard") {
             target = material.get();
+        } else if (type->name == "scene") {
+            target = engine->scene().get();
         }
         if (check(target != nullptr, type->name + " has an object on the test entity")) {
             sweep(*type, target);
         }
     }
-    for (const char* name : {"node", "light", "camera", "render", "element", "screen", "standard"}) {
+    for (const char* name : {"node", "light", "camera", "render", "element", "screen", "scene", "standard"}) {
         check(registry.type(name) != nullptr, std::string("the built-in type ") + name + " is registered");
     }
 
