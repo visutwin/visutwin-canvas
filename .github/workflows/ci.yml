@@ -17,9 +17,10 @@
 #                  bugs rarely change a test's result — a freed joint or batch
 #                  source read back still looks plausible — so this is what
 #                  catches them.
-#   linux-vulkan   The vulkan preset on Linux: engine build plus every unit test.
-#                  The Vulkan validation smoke test needs a GPU and a window, so
-#                  the test presets exclude its label everywhere in CI.
+#   linux-vulkan   The vulkan preset on Linux: engine and C API build, warnings as
+#                  errors, plus every unit test. The Vulkan validation smoke test
+#                  needs a GPU and a window, so the test presets exclude its label
+#                  everywhere in CI.
 #
 # linux-vulkan was verified before it was enabled as a gate: the same presets,
 # compiler and package list built clean and passed every unit test on an
@@ -195,12 +196,13 @@ jobs:
           path: ${{ github.workspace }}/vcpkg-binary-cache
           key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
-      # Warnings are on but NOT errors here: GCC warns about things clang does not
-      # (-Wmaybe-uninitialized, -Wclass-memaccess), and the tree has been brought to
-      # zero warnings under Apple clang only. Clear this job's log first, then add
-      # -DVISUTWIN_WARNINGS_AS_ERRORS=ON.
+      # Warnings are errors here too: GCC warns about things clang does not (an enum
+      # beside an unsigned in a conditional, -Wmaybe-uninitialized), and the tree was
+      # brought to zero warnings under GCC 14 on an Ubuntu 24.04-based machine before
+      # this was turned on. The C API library is on by default here, and its test
+      # (capi, on the null backend) runs with the unit tests.
       - name: Configure
-        run: cmake --preset vulkan
+        run: cmake --preset vulkan -DVISUTWIN_WARNINGS_AS_ERRORS=ON
       - name: Build
         run: cmake --build --preset vulkan
       - name: Unit tests

@@ -77,7 +77,7 @@ cmake --build --preset default
 ctest --preset default
 ```
 
-- **`VISUTWIN_BUILD_C_API` (ON on macOS, OFF elsewhere for now) builds `capi/`**: the shared
+- **`VISUTWIN_BUILD_C_API` (ON on macOS and Linux, OFF on Windows) builds `capi/`**: the shared
   library `visutwin_canvas_c` over the static engine, exporting ONLY the `vt_*` functions of
   `capi/include/visutwin/visutwin.h` (`capi/exports.txt` for ld64, `exports.map` for GNU ld), and
   turns on `CMAKE_POSITION_INDEPENDENT_CODE` for the tree. The library is its own binary, so it
@@ -92,8 +92,12 @@ ctest --preset default
   and material, a material retains its textures), so a release never frees what is still drawn.
   The window's input the C API reports (`vt_input_get`, `vt_key_get`) is recorded by
   `vt_poll_events` from the SDL events, because the engine's input devices end their press edges
-  inside the update. Turning it on for Linux wants the PIC engine and the version script checked
-  there first.
+  inside the update. On Linux (checked 2026-11-11, GCC 14, x86-64, the `linux-vulkan` CI job)
+  the version script exports the same 78 `vt_*` symbols as the macOS list and nothing else
+  (`nm -D --defined-only`); a Debug `.so` is ~500 MB because ELF keeps its DWARF in the
+  library (Release: 45 MB). `capi-gpu` runs on a headless Linux box under `xvfb-run` (SDL's
+  `offscreen` video driver cannot make a Vulkan surface) and needs a RELEASE build there unless
+  the Vulkan validation layer is installed: a Debug device asks for it and fails without it.
 - **Test presets exclude the `vulkan`, `golden` and `gpu` labels.** `vulkan-validation-smoke`,
   `golden-images` and `gpu-instance-cull` need a GPU and a window, so `ctest --preset default`,
   `vulkan` and `sanitize` run the unit tests only, `ctest --preset vulkan-smoke` runs the smoke
@@ -117,9 +121,10 @@ ctest --preset default
   catches the rest.
 - **The tree builds with ZERO warnings under `-Wall -Wextra`** (`VISUTWIN_WARNINGS`, on
   by default; `-Wmissing-field-initializers` is off because `Desc{name}` partial
-  aggregate init is an idiom here). The macOS CI jobs add
-  `-DVISUTWIN_WARNINGS_AS_ERRORS=ON`, so a new warning fails the build; the Linux GCC
-  job does not yet, because GCC's extra checks have not been cleared there. Keep a
+  aggregate init is an idiom here). Every CI job that builds the tree adds
+  `-DVISUTWIN_WARNINGS_AS_ERRORS=ON` (the Linux GCC 14 one since 2026-11-11), so a new
+  warning fails the build. GCC warns where Apple clang does not: `cond ? ENUM_VALUE : 0u`
+  mixes an enum and an unsigned (`-Wextra`), so cast the enumerator (`uint32_t{VT_X}`). Keep a
   parameter a virtual default ignores by commenting its NAME out, not by `(void)`; a
   variable only an `assert` reads needs `[[maybe_unused]]` or an `#ifndef NDEBUG`,
   because Release drops the assert and a Release build warns where Debug does not.
@@ -201,6 +206,10 @@ ctest --preset default
   (`std::extent_v<decltype(T::member)>`). GCC 14 on the Linux job accepts it too, so only
   the macOS jobs catch it, and since the build stops at the first error, a broken CI run
   hides whatever comes after it.
+- **Linux stamps files from a COARSE clock** (one kernel tick, a few milliseconds), so two
+  files written in quick succession can share a modification time; APFS's are fine-grained. A
+  test that finds "the file just written" as the newest one passes on macOS and fails on Linux
+  by directory order (`shaderDiskCacheTests.cpp` did): diff the listing instead.
 - **Apple's libc++ hides missing standard includes; GCC's libstdc++ does not.**
   libc++ pulls `<cmath>`, `<cstdint>` and `<array>` in transitively, so a header
   that uses `std::sqrt`, `uint32_t` or `std::array` without including them builds
@@ -3185,7 +3194,9 @@ present, but the rule below never depends on reading it.
   false for the `NullGraphicsDevice` in `platform/graphics/null/`), and the empty optional entry
   points then log nothing (`VT_DEVICE_FEATURE_UNSUPPORTED` asks first). The null device keeps
   buffer bytes on the CPU, counts draws and builds targets without frame buffers: the engine runs
-  in full with nothing drawn (the C API's `VT_BACKEND_NULL`). The test stub (`tests/support/
+  in full with nothing drawn (the C API's `VT_BACKEND_NULL`). Its `shaderLanguage()` is the one
+  this build's bundle carries (MSL where Metal is built, otherwise GLSL / SPIR-V); claiming MSL in
+  a Vulkan-only build compiled every program from the source tree at run time. The test stub (`tests/support/
   stubDevice.h`) stays the configurable device for tests of the null paths.
 - **`ResourceLoader::shutdown` delivers every undelivered completion as an ERROR, and a
   `load()` after it fails at once** — otherwise an `Asset` stays `_loading` forever and a

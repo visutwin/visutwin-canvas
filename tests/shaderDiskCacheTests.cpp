@@ -10,6 +10,7 @@
 // byte for byte, so a stale file, a damaged one, or two keys with one hash are all
 // misses. A wrong hit here would run another shader's code with nothing to show why.
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -152,20 +153,20 @@ int main()
         const ShaderDiskCache cache(directory);
         const auto now = std::filesystem::file_time_type::clock::now();
         const auto pathOf = [&](const std::string& kind, const std::string& entryKey) {
+            // The file the store just wrote: the one that was not there before it. Not the newest
+            // by time: Linux stamps files from a coarse clock, so two stores a few milliseconds
+            // apart share a time and the newest is whichever the directory lists last.
+            const auto before = filesIn(directory);
             cache.store(kind, entryKey, payload);
-            // The file the store just wrote: the newest one of the kind.
-            std::filesystem::path newest;
-            auto newestTime = std::filesystem::file_time_type::min();
+            std::filesystem::path written;
             for (const auto& file : filesIn(directory)) {
-                if (file.filename().string().starts_with(kind + "-")) {
-                    const auto time = std::filesystem::last_write_time(file);
-                    if (newest.empty() || time >= newestTime) {
-                        newest = file;
-                        newestTime = time;
-                    }
+                if (file.filename().string().starts_with(kind + "-") &&
+                    std::find(before.begin(), before.end(), file) == before.end()) {
+                    check(written.empty(), "one store writes one file");
+                    written = file;
                 }
             }
-            return newest;
+            return written;
         };
         const auto fresh = pathOf("spirv", "fresh");
         const auto old = pathOf("spirv", "old");

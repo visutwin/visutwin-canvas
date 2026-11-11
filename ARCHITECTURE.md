@@ -2577,8 +2577,8 @@ sits in a static per-device cache keyed on it); the C API calls `Engine::destroy
 releases the device's program library and default material (`releaseProgramLibrary`,
 `releaseDefaultMaterial`), and a device that still outlives its engine is logged. The examples
 harness calls `destroy()` as well, and warns the same way. `tests/capiTests.c` (C99, 72 checks, threads through
-pthreads) and `tests/engineLifetimeTests.cpp` hold it. Not yet: Linux and Windows (the option is
-on only on macOS: the version script and the PIC engine want a check there), `ResourceId`s,
+pthreads) and `tests/engineLifetimeTests.cpp` hold it. Not yet: Linux (done 2026-11-11, below)
+and Windows, `ResourceId`s,
 materials, meshes, textures, headless GPU rendering and capture (phase 3).
 
 **Checked from Julia (2026-11-10, Julia 1.12.6, a throwaway `ccall` binding outside the
@@ -2708,6 +2708,18 @@ events (`examples/makie_panel.jl` in VisuTwin.jl is the manual check; run by han
 the sliders drive the engine with a real mouse). So the "now" step of the
 Julia UI recommendation holds: Makie as the control and plotting side, the engine's own window
 for the 3D view; embedding the view in a Makie window waits for the host-view windowing work.
+
+**Linux (2026-11-11).** `VISUTWIN_BUILD_C_API` is on by default on Linux as on macOS, built and
+tested by the `linux-vulkan` CI job (GCC 14, which now also takes warnings as errors). Checked on
+an Ubuntu 24.04-based x86-64 machine: the PIC engine links into the `.so`, `exports.map` leaves the
+78 `vt_*` symbols and nothing else (the macOS list exports the same 78), the library needs only
+the Vulkan loader, the Slang compiler and the C/C++ runtimes, every unit test passes, `capi-gpu`
+passes on an RTX 4070 SUPER under `xvfb-run` (offscreen render and read-back, a lit glTF, picking),
+and VisuTwin.jl's tests pass on Julia 1.12 against the `.so` (`VISUTWIN_LIB`). Two things it
+found: the null device claimed MSL in a Vulkan-only build and compiled every program from source
+(it now reports the bundle's language), and a cache test that took the newest file by time, which
+Linux's coarse timestamps tie. Still open: Windows (an export list), aarch64 Linux (the Orin), and
+a binary package.
 
 **Open questions.** Windowing: an engine-owned SDL window, or rendering into a host's view (an
 `NSView` / `CAMetalLayer` or a Vulkan surface handed in), which a Julia GUI toolkit would want;

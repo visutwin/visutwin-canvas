@@ -42,6 +42,18 @@ namespace visutwin::canvas
         /// It draws nothing by design, so a missing feature is not worth a warning.
         bool reportsUnsupportedFeatures() const override { return false; }
 
+        // The language whose code this build's shader bundle carries, so a program takes the
+        // bundle's code rather than compiling its source at run time: a Vulkan-only build has
+        // no Metal code, and claiming MSL there compiled every program from the source tree.
+        ShaderLanguage shaderLanguage() const override
+        {
+#if defined(VISUTWIN_HAS_METAL)
+            return ShaderLanguage::Msl;
+#else
+            return ShaderLanguage::Glsl;
+#endif
+        }
+
     private:
         std::pair<int, int> _size;
     };

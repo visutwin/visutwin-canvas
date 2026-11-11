@@ -711,8 +711,9 @@ vt_status vt_poll_events(vt_engine* engine, int32_t* quit)
         engine->keysPressed.fill(0);
         if (engine->window) {
             const auto buttonBit = [](const uint8_t button) -> uint32_t {
-                return button == SDL_BUTTON_LEFT ? VT_MOUSE_LEFT : button == SDL_BUTTON_MIDDLE ? VT_MOUSE_MIDDLE
-                     : button == SDL_BUTTON_RIGHT ? VT_MOUSE_RIGHT : 0u;
+                return button == SDL_BUTTON_LEFT ? uint32_t{VT_MOUSE_LEFT}
+                     : button == SDL_BUTTON_MIDDLE ? uint32_t{VT_MOUSE_MIDDLE}
+                     : button == SDL_BUTTON_RIGHT ? uint32_t{VT_MOUSE_RIGHT} : 0u;
             };
             SDL_Event event;
             while (SDL_PollEvent(&event)) {
@@ -1164,7 +1165,8 @@ vt_status vt_type_get_info(const vt_type handle, vt_type_info* out)
         info.name = type->name.c_str();
         info.description = type->description.c_str();
         info.property_count = static_cast<uint32_t>(type->properties.size());
-        info.flags = (type->resolve ? VT_TYPE_ON_ENTITY : 0u) | (type->isComponent() ? VT_TYPE_COMPONENT : 0u);
+        info.flags = (type->resolve ? uint32_t{VT_TYPE_ON_ENTITY} : 0u) |
+            (type->isComponent() ? uint32_t{VT_TYPE_COMPONENT} : 0u);
         return fillSized(out, info);
     });
 }
@@ -1219,7 +1221,7 @@ vt_status vt_property_get_info(const vt_property handle, vt_property_info* out)
         info.description = property->description.c_str();
         info.unit = property->unit.c_str();
         info.value_type = valueTypeOf(property->type);
-        info.flags = property->readOnly() ? VT_PROPERTY_READ_ONLY : 0u;
+        info.flags = property->readOnly() ? uint32_t{VT_PROPERTY_READ_ONLY} : 0u;
         info.min = property->min;
         info.max = property->max;
         info.step = property->step;

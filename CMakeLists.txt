@@ -10,9 +10,10 @@ set(VISUTWIN_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
 option(VISUTWIN_BUILD_EXAMPLES "Build the VisuTwin Canvas example applications" OFF)
 
-# The C API shared library (capi/): on by default where it has been built and tested (macOS);
-# elsewhere it waits for a check of the PIC engine and the version script on that platform.
-if(APPLE)
+# The C API shared library (capi/): on by default where it has been built and tested (macOS,
+# and Linux with GCC 14: the PIC engine and the version script were checked there, x86-64);
+# Windows waits for an export list of its own.
+if(APPLE OR (UNIX AND NOT ANDROID))
     set(_visutwin_c_api_default ON)
 else()
     set(_visutwin_c_api_default OFF)
