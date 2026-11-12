@@ -140,7 +140,9 @@ ctest --preset default
   example harness logs. The examples render the SAME frame on both (one pixel per point,
   the same MSAA), so the two sets hold the same images; they stay separate so that a change
   that does depend on density is caught. The display is the one the window opens on (an
-  external 1x monitor, or a sleeping display that comes back at 1x). The script strips
+  external 1x monitor, or a sleeping display that comes back at 1x); `VISUTWIN_DISPLAY=<n>`
+  opens the examples on display n instead (SDL's order, logged with each display's density),
+  so both sets are captured on one machine without rearranging its displays. The script strips
   `VISUTWIN_ANTIALIAS` and `VISUTWIN_MAX_PIXEL_RATIO` from the examples' environment. A density with no set
   SKIPS its cases. There is NO `examples` BUILD preset: `ctest --preset golden` only runs the
   script, so build the tree first with `cmake --build build-examples` (the shaders are
@@ -4218,6 +4220,9 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
     requires). Use a Release build, `VISUTWIN_FIXED_DT` for a repeatable frame, and a path
     under the gitignored `docs/`: a capture is hundreds of MB (anti-aliasing: 459 MB), and the
     file must not exist yet.
+20. `VISUTWIN_DISPLAY=<n>` opens the window centred on display n instead of the main one, and
+    logs every display with its pixel density: the golden 2x set on a Retina display while the
+    main display is a 1x monitor, or the reverse.
 
 Animated examples cannot be screenshot-diffed across shader changes unless they run
 under `VISUTWIN_FIXED_DT`.

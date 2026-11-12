@@ -786,10 +786,38 @@ namespace visutwin::canvas
         SDL_WindowFlags flags = SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE;
         flags |= (_backend == Backend::Vulkan) ? SDL_WINDOW_VULKAN : SDL_WINDOW_METAL;
 
-        _window = SDL_CreateWindow(title().c_str(), _options.width, _options.height, flags);
+        // VISUTWIN_DISPLAY=n opens the window centred on display n (SDL's order, logged with each
+        // display's pixel density) instead of the main one: a golden-image set per density is
+        // captured on a display of that density without rearranging the displays.
+        SDL_WindowFlags createFlags = flags;
+        int displayIndex = -1;
+        if (const char* value = std::getenv("VISUTWIN_DISPLAY"); value && *value) {
+            displayIndex = std::atoi(value);
+            createFlags |= SDL_WINDOW_HIDDEN;
+        }
+        _window = SDL_CreateWindow(title().c_str(), _options.width, _options.height, createFlags);
         if (!_window) {
             spdlog::error("SDL_CreateWindow failed: {}", SDL_GetError());
             return false;
+        }
+        if (displayIndex >= 0) {
+            int count = 0;
+            SDL_DisplayID* displays = SDL_GetDisplays(&count);
+            for (int i = 0; i < count; ++i) {
+                const SDL_DisplayMode* mode = SDL_GetDesktopDisplayMode(displays[i]);
+                spdlog::info("Display {}: {} (pixel density {})", i, SDL_GetDisplayName(displays[i]),
+                    mode ? mode->pixel_density : 0.0f);
+            }
+            if (displayIndex < count) {
+                const int centred = static_cast<int>(SDL_WINDOWPOS_CENTERED_DISPLAY(displays[displayIndex]));
+                SDL_SetWindowPosition(_window, centred, centred);
+            } else {
+                spdlog::warn("VISUTWIN_DISPLAY={}: there are {} displays; the window opens on the main one",
+                    displayIndex, count);
+            }
+            SDL_free(displays);
+            SDL_ShowWindow(_window);
+            SDL_SyncWindow(_window);
         }
 
         // The SDL renderer exists only to hand back a CAMetalLayer — the Vulkan
