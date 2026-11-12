@@ -212,7 +212,10 @@ namespace visutwin::canvas
         case PixelFormat::PIXELFORMAT_DXT5:         return VK_FORMAT_BC3_UNORM_BLOCK;
         case PixelFormat::PIXELFORMAT_RGBA16F:      return VK_FORMAT_R16G16B16A16_SFLOAT;
         case PixelFormat::PIXELFORMAT_RGBA32F:      return VK_FORMAT_R32G32B32A32_SFLOAT;
-        case PixelFormat::PIXELFORMAT_R32F:         return VK_FORMAT_R32_SFLOAT;
+        // Vulkan names the packed format from its low bits up: R in bits 0-10, as Metal's
+        // RG11B10Float.
+        case PixelFormat::PIXELFORMAT_RG11B10F:     return VK_FORMAT_B10G11R11_UFLOAT_PACK32;
+        case PixelFormat::PIXELFORMAT_R32F:       return VK_FORMAT_R32_SFLOAT;
         case PixelFormat::PIXELFORMAT_RG32F:        return VK_FORMAT_R32G32_SFLOAT;
         case PixelFormat::PIXELFORMAT_DEPTH:        return VK_FORMAT_D32_SFLOAT;
         case PixelFormat::PIXELFORMAT_DEPTH16:      return VK_FORMAT_D16_UNORM;

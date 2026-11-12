@@ -879,6 +879,15 @@ namespace visutwin::canvas
         };
         setTextureHalfFloatRenderable(colorRenderable(VK_FORMAT_R16G16B16A16_SFLOAT));
         setTextureFloatRenderable(colorRenderable(VK_FORMAT_R32G32B32A32_SFLOAT));
+        // RG11B10F is a camera frame's first choice of scene format, which is blended into
+        // and filtered, so it counts only with both.
+        {
+            VkFormatProperties formatProps{};
+            vkGetPhysicalDeviceFormatProperties(_physicalDevice, VK_FORMAT_B10G11R11_UFLOAT_PACK32, &formatProps);
+            constexpr VkFormatFeatureFlags required = VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT |
+                VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+            setTextureRG11B10Renderable((formatProps.optimalTilingFeatures & required) == required);
+        }
 
         // Highest MSAA sample count a color+depth render target can use here.
         // Left at the base-class default of 1 the RenderTarget clamp silently
@@ -914,9 +923,9 @@ namespace visutwin::canvas
                 : VK_RESOLVE_MODE_NONE;
         spdlog::info("Vulkan MSAA: max {} samples, depth resolve {}", maxSamples(),
             _depthResolveMode == VK_RESOLVE_MODE_NONE ? "unsupported" : "sample-zero");
-        spdlog::info("Vulkan limits: texture {}, cube {}, float renderable 16F={} 32F={}",
+        spdlog::info("Vulkan limits: texture {}, cube {}, float renderable 16F={} 32F={} RG11B10F={}",
             maxTextureSize(), maxCubeMapSize(),
-            textureHalfFloatRenderable(), textureFloatRenderable());
+            textureHalfFloatRenderable(), textureFloatRenderable(), textureRG11B10Renderable());
 
         // Dynamic UBO offsets must be a multiple of this (256 on MoltenVK).
         _uboOffsetAlignment = std::max(

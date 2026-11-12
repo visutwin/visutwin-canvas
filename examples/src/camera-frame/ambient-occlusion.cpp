@@ -187,8 +187,9 @@ protected:
             _cameraComp->setSsao(ssao);
 
             // tone mapping, and 4x MSAA on the scene target. The camera
-            // frame's target is already RGBA16F.
+            // frame's scene target is RGBA16F, as upstream asks.
             auto rendering = _cameraComp->rendering();
+            rendering.renderFormats = {PixelFormat::PIXELFORMAT_RGBA16F};
             rendering.samples = 4;
             _cameraComp->setRendering(rendering);
         }

@@ -244,6 +244,9 @@ visutwin_add_unit_test(visutwin-bindless-residency-tests bindless-residency bind
 visutwin_add_unit_test(visutwin-resources-outlive-device-tests resources-outlive-device resourcesOutliveDeviceTests.cpp)
 visutwin_add_unit_test(visutwin-sky-material-tests sky-material skyMaterialTests.cpp)
 visutwin_add_unit_test(visutwin-clip-planes-tests clip-planes clipPlanesTests.cpp)
+# A layer with no clustered light draws without the cluster loop
+# (tests/clusterVariantTests.cpp).
+visutwin_add_unit_test(visutwin-cluster-variant-tests cluster-variant clusterVariantTests.cpp)
 visutwin_add_unit_test(visutwin-visibility-range-tests visibility-range visibilityRangeTests.cpp)
 visutwin_add_unit_test(visutwin-webp-decoder-tests webp-decoder webpDecoderTests.cpp DEFINITIONS VISUTWIN_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets")
 visutwin_add_unit_test(visutwin-directional-shadow-bounds-tests directional-shadow-bounds directionalShadowBoundsTests.cpp)

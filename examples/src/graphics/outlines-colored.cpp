@@ -246,6 +246,7 @@ private:
         // With neither effect enabled, the camera renders the scene directly: the frame's 4x
         // MSAA scene target would otherwise keep the camera frame alive on its own
         auto rendering = _cameraComponent->rendering();
+        rendering.renderFormats = {PixelFormat::PIXELFORMAT_RGBA16F};
         rendering.samples = (_ssao || _volumetricFog) ? 4 : 1;
         _cameraComponent->setRendering(rendering);
     }

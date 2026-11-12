@@ -1093,6 +1093,9 @@ namespace visutwin::canvas
          */
         bool textureHalfFloatRenderable() const { return _textureHalfFloatRenderable; }
         bool textureFloatRenderable() const { return _textureFloatRenderable; }
+        /// Whether RG11B10F can be a render target that is filtered and blended (false by
+        /// default, as the two above).
+        bool textureRG11B10Renderable() const { return _textureRG11B10Renderable; }
 
         /**
          * Whether the device can timestamp GPU work. Answered by the profiler
@@ -1241,6 +1244,12 @@ namespace visutwin::canvas
         /// then uncompressed RGBA8 as the last resort.
         PixelFormat preferredCompressedRgbaFormat() const;
 
+        /// The first of `formats` this device can render to, filter and blend, for an HDR
+        /// colour target such as a camera frame's scene: RG11B10F, RGBA16F and RGBA32F are
+        /// asked of their capability (textureRG11B10Renderable, textureHalfFloatRenderable,
+        /// textureFloatRenderable), RGBA8 is always renderable. RGBA8 when none of them is.
+        PixelFormat renderableHdrFormat(std::span<const PixelFormat> formats) const;
+
         /// True when createInstanceCuller() returns a culler: on every backend that runs
         /// compute, since the culler (ComputeInstanceCuller) is written once over Compute.
         /// MeshInstance::enableGpuInstanceCulling() asks before allocating its resources.
@@ -1345,6 +1354,7 @@ namespace visutwin::canvas
         /** Float colour-attachment support; see textureHalfFloatRenderable(). */
         void setTextureHalfFloatRenderable(const bool value) { _textureHalfFloatRenderable = value; }
         void setTextureFloatRenderable(const bool value) { _textureFloatRenderable = value; }
+        void setTextureRG11B10Renderable(const bool value) { _textureRG11B10Renderable = value; }
         void recordDrawCall(int count = 1) { _drawCallsPerFrame += count; }
         /// One compute pass recording `dispatches` dispatches, counted into the frame
         /// statistics (stats.frame.computeDispatches / computePasses). Each backend's
@@ -1549,6 +1559,7 @@ namespace visutwin::canvas
         uint32_t _maxComputeWorkgroupsPerDimension = 65535u;
         bool _textureHalfFloatRenderable = false;
         bool _textureFloatRenderable = false;
+        bool _textureRG11B10Renderable = false;
 
         // Every texture, render target and buffer created on this device and not yet
         // destroyed, so teardown can detach those that outlive it (a resource held by a

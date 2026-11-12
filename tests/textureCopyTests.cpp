@@ -34,6 +34,7 @@
 #endif
 
 #include <array>
+#include <cmath>
 #include <cstdlib>
 #include <cstddef>
 #include <cstdint>
@@ -685,6 +686,53 @@ int main()
                 uploadedMips += uploaded->read(actual, 0, 0, 0, 0, level, 0, 0) && close(actual, expectedMip(level));
             }
             check(uploadedMips == 3, "upload mips: mips 1-3 generated from the uploaded level");
+        }
+
+        // ── RG11B10F ────────────────────────────────────────────────────────
+        // A camera frame's default scene format: renderable here, cleared through a render target
+        // to HDR values above 1, and read back as one packed word a texel (red in bits 0-10,
+        // green 11-21, blue 22-31: unsigned floats with a 5-bit exponent), the same on Metal's
+        // RG11B10Float and Vulkan's B10G11R11_UFLOAT_PACK32. The values are exact in the format.
+        {
+            check(device->textureRG11B10Renderable(), "RG11B10F is renderable on this device");
+            const std::shared_ptr<GraphicsDevice> shared(device.get(), [](GraphicsDevice*) {});
+            constexpr uint32_t kPacked = 16;
+            auto packed = makeTexture(device.get(), "rg11b10f", kPacked, false, false, PixelFormat::PIXELFORMAT_RG11B10F);
+            RenderTargetOptions targetOptions;
+            targetOptions.graphicsDevice = device.get();
+            targetOptions.colorBuffer = packed.get();
+            targetOptions.depth = false;
+            targetOptions.name = "rg11b10f-target";
+            const auto target = device->createRenderTarget(targetOptions);
+            auto pass = std::make_shared<RenderPass>(shared);
+            pass->init(target);
+            const Color value(1.5f, 0.25f, 4.0f, 0.5f);
+            pass->setClearColor(&value);
+            device->frameStart();
+            pass->render();
+            device->frameEnd();
+
+            // An unsigned float of `mantissaBits` with a 5-bit exponent (bias 15), normal or zero.
+            const auto decode = [](const uint32_t bits, const int mantissaBits) {
+                const uint32_t exponent = bits >> mantissaBits;
+                const uint32_t mantissa = bits & ((1u << mantissaBits) - 1u);
+                if (exponent == 0) {
+                    return std::ldexp(static_cast<float>(mantissa), -14 - mantissaBits);
+                }
+                return std::ldexp(1.0f + static_cast<float>(mantissa) / static_cast<float>(1u << mantissaBits),
+                    static_cast<int>(exponent) - 15);
+            };
+            std::vector<uint8_t> actual;
+            const bool read = packed->read(actual) && actual.size() == kPacked * kPacked * 4;
+            check(read, "RG11B10F reads back four bytes a texel");
+            int exact = 0;
+            for (size_t i = 0; read && i < kPacked * kPacked; ++i) {
+                uint32_t word = 0;
+                std::memcpy(&word, actual.data() + i * 4, 4);
+                exact += decode(word & 0x7FFu, 6) == 1.5f && decode((word >> 11) & 0x7FFu, 6) == 0.25f &&
+                    decode(word >> 22, 5) == 4.0f;
+            }
+            check(exact == static_cast<int>(kPacked * kPacked), "RG11B10F: a clear to (1.5, 0.25, 4) reads back exactly");
         }
 
         // ── Refusals ─────────────────────────────────────────────────────────

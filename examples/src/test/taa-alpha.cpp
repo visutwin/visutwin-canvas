@@ -22,8 +22,6 @@
 //   - / =  the camera frame's resolution scale, 0.2 to 1
 //
 // DEVIATIONS:
-// - The camera frame renders its scene into RGBA16F (the engine's only camera-frame scene
-//   format) where upstream asks for RGBA8; both keep alpha.
 // - The previews and the composite are one Slang ShaderMaterial on plane primitives placed in
 //   clip space, standing in for upstream's TextureRenderer and its composite shader; the RGB
 //   preview writes the texture's bytes as they are (upstream decodes them from gamma and
@@ -359,6 +357,7 @@ private:
 
         auto rendering = _sceneCameraComponent->rendering();
         rendering.renderTargetScale = _scale;
+        rendering.renderFormats = {PixelFormat::PIXELFORMAT_RGBA8};
         rendering.samples = 1;
         rendering.bloomIntensity = 0.0f;
         // Sharpened while TAA is on; the camera frame stays active when it is off.

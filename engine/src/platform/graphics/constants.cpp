@@ -27,6 +27,7 @@ namespace visutwin::canvas
         { PixelFormat::PIXELFORMAT_RGBA8, { .size = 4 } },
         { PixelFormat::PIXELFORMAT_RGBA16F, { .size = 8 } },
         { PixelFormat::PIXELFORMAT_RGBA32F, { .size = 16 } },
+        { PixelFormat::PIXELFORMAT_RG11B10F, { .size = 4 } },
         { PixelFormat::PIXELFORMAT_DEPTHSTENCIL, {} },
         { PixelFormat::PIXELFORMAT_DEPTH, { .size = 4 } },
         { PixelFormat::PIXELFORMAT_R8, { .size = 1 } },
@@ -95,7 +96,7 @@ namespace visutwin::canvas
     {
         return format == PixelFormat::PIXELFORMAT_RGBA16F || format == PixelFormat::PIXELFORMAT_RGBA32F ||
             format == PixelFormat::PIXELFORMAT_R32F || format == PixelFormat::PIXELFORMAT_RG32F ||
-            format == PixelFormat::PIXELFORMAT_BC6H;
+            format == PixelFormat::PIXELFORMAT_RG11B10F || format == PixelFormat::PIXELFORMAT_BC6H;
     }
 
     uint32_t pixelFormatBytesPerPixel(const PixelFormat format)

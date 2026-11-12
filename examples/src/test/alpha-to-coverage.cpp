@@ -20,13 +20,13 @@
 //   1  alpha to coverage on the top row on / off (on to begin with)
 //   2  render through a camera frame (into a texture) instead of the back buffer (off)
 //   3  MSAA on / off (on): the camera frame's sample count, 4 or 1
+//   4  the camera frame's scene format: RGBA8, RGBA16F (to begin with) or RG11B10F (no alpha)
 //
 // DEVIATIONS:
 // - The back buffer's sample count is fixed when the device is created (4x here, as upstream
 //   starts), and nothing changes it at run time: the MSAA key acts on the camera frame alone, so
 //   with the back buffer it does nothing. Upstream switches the back buffer by poking its
 //   device's internal state. VISUTWIN_ANTIALIAS=0 starts with a single-sampled back buffer.
-// - No Format control: the camera frame chooses its scene format itself.
 // - ElementComponent::setFontSize takes an int, so the labels are laid out at 64 and scaled
 //   down to upstream's 0.32 units.
 // - One pixel per point (upstream allows a pixel ratio of up to 2).
@@ -130,6 +130,8 @@ protected:
             _cameraFrame = !_cameraFrame;
         } else if (keyboard->wasPressed(Key::Digit3)) {
             _msaa = !_msaa;
+        } else if (keyboard->wasPressed(Key::Digit4)) {
+            _formatIndex = (_formatIndex + 1) % kFormats.size();
         } else {
             return;
         }
@@ -197,11 +199,13 @@ private:
         // asks for 1.
         auto rendering = _camera->rendering();
         rendering.useCameraFrame = _cameraFrame;
+        rendering.renderFormats = {kFormats[_formatIndex]};
         rendering.samples = _cameraFrame && _msaa ? 4 : 1;
         _camera->setRendering(rendering);
 
-        spdlog::info("Alpha to coverage {}, rendering to {}, MSAA {}", _alphaToCoverage ? "on" : "off",
-            _cameraFrame ? "texture" : "back buffer", _cameraFrame ? (_msaa ? "4x" : "off") : "back buffer's");
+        spdlog::info("Alpha to coverage {}, rendering to {}, MSAA {}, format {}", _alphaToCoverage ? "on" : "off",
+            _cameraFrame ? "texture" : "back buffer", _cameraFrame ? (_msaa ? "4x" : "off") : "back buffer's",
+            kFormatNames[_formatIndex]);
     }
 
     std::unique_ptr<Asset> _checkerboardAsset;
@@ -214,6 +218,10 @@ private:
     bool _alphaToCoverage = true;
     bool _cameraFrame = false;
     bool _msaa = true;
+    static constexpr std::array<PixelFormat, 3> kFormats = {
+        PixelFormat::PIXELFORMAT_RGBA8, PixelFormat::PIXELFORMAT_RGBA16F, PixelFormat::PIXELFORMAT_RG11B10F};
+    static constexpr std::array<const char*, 3> kFormatNames = {"RGBA8", "RGBA16F", "RG11B10F (no alpha)"};
+    size_t _formatIndex = 1;
 };
 
 VISUTWIN_EXAMPLE_MAIN(AlphaToCoverageExample)

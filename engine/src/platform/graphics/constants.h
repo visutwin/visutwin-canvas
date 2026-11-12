@@ -54,6 +54,9 @@ namespace visutwin::canvas
         PIXELFORMAT_RGBA16F = 12,       // 16-bit floating point RGBA (16-bit float for each red, green, blue and alpha channel)
         PIXELFORMAT_RGBA32F = 14,       // 32-bit floating point RGBA (32-bit float for each red, green, blue and alpha channel)
         PIXELFORMAT_R32F = 15,          // 32-bit floating point single channel format
+        PIXELFORMAT_RG11B10F = 18,      // Packed 32-bit unsigned float RGB: 11-bit red and green, 10-bit
+                                        // blue, no alpha (reads as 1) and no negative values. Half the
+                                        // bytes of RGBA16F for an HDR colour that needs neither.
         PIXELFORMAT_RG32F = 89,         // 32-bit floating point red and green. DEVIATION: upstream's
                                         // value (70) is BGRA8 here
         PIXELFORMAT_DEPTHSTENCIL = 19,  // A readable depth/stencil buffer format

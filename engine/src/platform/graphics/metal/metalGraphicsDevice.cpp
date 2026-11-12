@@ -187,9 +187,11 @@ namespace visutwin::canvas
         setMaxComputeWorkgroupsPerDimension(1u << 30);
 
         // Half- and full-float colour attachments are renderable on every Metal
-        // GPU this engine runs on; VSM shadows (RGBA16F moments) key on the first.
+        // GPU this engine runs on; VSM shadows (RGBA16F moments) key on the first. So is
+        // RG11B10Float, filtered, blended and multisampled, on every Apple GPU.
         setTextureHalfFloatRenderable(true);
         setTextureFloatRenderable(true);
+        setTextureRG11B10Renderable(true);
 
         spdlog::info("Metal limits: {} samples, texture {}, cube {}, anisotropy {}",
             maxSamples(), maxTextureSize(), maxCubeMapSize(), maxAnisotropy());

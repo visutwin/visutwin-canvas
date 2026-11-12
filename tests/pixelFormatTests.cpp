@@ -14,11 +14,28 @@
 #include <utility>
 #include <vector>
 
+#include "framework/components/camera/cameraComponent.h"
 #include "platform/graphics/constants.h"
 #include "support/check.h"
+#include "support/stubDevice.h"
 
 using namespace visutwin::canvas;
 using namespace visutwin::canvas::test;
+
+namespace
+{
+    // A device that renders to the float formats a test says.
+    class FloatDevice final : public StubGraphicsDevice
+    {
+    public:
+        FloatDevice(const bool rg11b10, const bool half, const bool full)
+        {
+            setTextureRG11B10Renderable(rg11b10);
+            setTextureHalfFloatRenderable(half);
+            setTextureFloatRenderable(full);
+        }
+    };
+}
 
 int main()
 {
@@ -33,6 +50,7 @@ int main()
         {PixelFormat::PIXELFORMAT_DXT5, "DXT5"},
         {PixelFormat::PIXELFORMAT_RGBA16F, "RGBA16F"},
         {PixelFormat::PIXELFORMAT_RGBA32F, "RGBA32F"},
+        {PixelFormat::PIXELFORMAT_RG11B10F, "RG11B10F"},
         {PixelFormat::PIXELFORMAT_R32F, "R32F"},
         {PixelFormat::PIXELFORMAT_RG32F, "RG32F"},
         {PixelFormat::PIXELFORMAT_DEPTH, "DEPTH"},
@@ -103,6 +121,28 @@ int main()
             text + (integer && text.back() == 'U' ? " is" : " is not") + " unsigned");
         check(!integer || !isFloatPixelFormat(format), text + " is not a float format");
     }
+
+    // RG11B10F: a 4-byte float format with no integer channels.
+    expect(PixelFormat::PIXELFORMAT_RG11B10F, 4, "RG11B10F");
+    check(isFloatPixelFormat(PixelFormat::PIXELFORMAT_RG11B10F), "RG11B10F is a float format");
+
+    // A camera frame's scene format: the first preferred format the device renders to, RGBA8
+    // when it renders to none.
+    const std::vector<PixelFormat> preferred = defaultCameraFrameRenderFormats();
+    check(preferred.front() == PixelFormat::PIXELFORMAT_RG11B10F, "a camera frame prefers RG11B10F");
+    check(FloatDevice(true, true, true).renderableHdrFormat(preferred) == PixelFormat::PIXELFORMAT_RG11B10F,
+        "every format renderable: RG11B10F");
+    check(FloatDevice(false, true, true).renderableHdrFormat(preferred) == PixelFormat::PIXELFORMAT_RGBA16F,
+        "no RG11B10F: RGBA16F");
+    check(FloatDevice(false, false, true).renderableHdrFormat(preferred) == PixelFormat::PIXELFORMAT_RGBA32F,
+        "neither smaller float: RGBA32F");
+    check(FloatDevice(false, false, false).renderableHdrFormat(preferred) == PixelFormat::PIXELFORMAT_RGBA8,
+        "no float format: RGBA8");
+    const std::vector<PixelFormat> halfOnly = {PixelFormat::PIXELFORMAT_RGBA16F};
+    check(FloatDevice(true, true, true).renderableHdrFormat(halfOnly) == PixelFormat::PIXELFORMAT_RGBA16F,
+        "a list naming RGBA16F alone gets RGBA16F");
+    check(FloatDevice(true, true, true).renderableHdrFormat({}) == PixelFormat::PIXELFORMAT_RGBA8,
+        "an empty list gets RGBA8");
 
     return finish("pixel format table");
 }

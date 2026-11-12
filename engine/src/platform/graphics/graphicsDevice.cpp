@@ -36,6 +36,34 @@ namespace visutwin::canvas
         return PixelFormat::PIXELFORMAT_RGBA8;
     }
 
+    PixelFormat GraphicsDevice::renderableHdrFormat(const std::span<const PixelFormat> formats) const
+    {
+        for (const PixelFormat format : formats) {
+            switch (format) {
+            case PixelFormat::PIXELFORMAT_RG11B10F:
+                if (textureRG11B10Renderable()) {
+                    return format;
+                }
+                break;
+            case PixelFormat::PIXELFORMAT_RGBA16F:
+                if (textureHalfFloatRenderable()) {
+                    return format;
+                }
+                break;
+            case PixelFormat::PIXELFORMAT_RGBA32F:
+                if (textureFloatRenderable()) {
+                    return format;
+                }
+                break;
+            case PixelFormat::PIXELFORMAT_RGBA8:
+                return format;
+            default:
+                break;
+            }
+        }
+        return PixelFormat::PIXELFORMAT_RGBA8;
+    }
+
     void logUnsupportedDeviceFeature(const char* name)
     {
         spdlog::warn("GraphicsDevice::{} is not implemented by the active backend — "

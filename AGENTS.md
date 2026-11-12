@@ -1486,7 +1486,12 @@ present, but the rule below never depends on reading it.
   the one its mesh mask selects (`clusterParams2.y`: dynamic if the mesh has it, otherwise
   lightmapped). Clustered lighting is ON by default, as upstream,
   so a scene that needs the non-clustered path (PCSS local shadows) has to say
-  `setClusteredLightingEnabled(false)`. Which area-light SHAPES clustered lighting supports is
+  `setClusteredLightingEnabled(false)`. A LAYER whose clustered light list is empty draws without
+  the cluster loop: `renderForwardLayer` sets the `VT_FEATURE_LIGHT_CLUSTERING` frame switch from
+  that list after building it (the shader preparation guesses it from any active spot or omni light
+  rendering the layer), since the loop compiled in costs every fragment its registers with no light
+  to find (`anti-aliasing`'s forward pass 0.41 -> 0.376 ms, frames bit-identical;
+  `tests/clusterVariantTests.cpp`). Which area-light SHAPES clustered lighting supports is
   `LightingParams::areaLightRectEnabled` / `DiskEnabled` / `SphereEnabled` (all on): a light of a
   disabled shape is packed as PUNCTUAL (`buildClusterLightInput`, from `areaLightShapes()`), and the
   forward variants leave that shape's code out of the cluster loop (`VT_FEATURE_CLUSTER_AREA_*`,
@@ -3765,6 +3770,20 @@ present, but the rule below never depends on reading it.
   BUFFER, and its texture was never written. Compose writes the scene's alpha after the scene
   slot, so a texture cleared transparent stays transparent where nothing drew; nothing reads
   the back buffer's alpha (the swapchain composites opaque, screenshots write 255).
+- **A camera frame's scene is RG11B10F by default, which has NO ALPHA and NO NEGATIVES.**
+  `RenderingSettings::renderFormats` (`[RG11B10F, RGBA16F, RGBA32F]`, upstream's default) is
+  tried in order through `GraphicsDevice::renderableHdrFormat` (each asked of its capability:
+  `textureRG11B10Renderable` and the two float flags; RGBA8, which turns bloom off, when none
+  answers). Until 2026-11-12 the scene was always RGBA16F. So a frame whose ALPHA matters (a
+  camera rendering into a transparent texture) lists RGBA16F or RGBA8 (`taa-alpha`: RGBA8, as
+  upstream; linear and clamped to [0, 1], with no bloom), and one that needs precision or
+  negative values RGBA16F, as upstream's ports do (`ambient-occlusion`, `procedural-sky`,
+  `outlines-colored`, `wide-lines-dynamic`; `alpha-to-coverage` and `scene-maps` switch formats
+  by key 4); the sampled alpha is 1 everywhere otherwise. The format rounds toward zero with 6-bit (red,
+  green) and 5-bit (blue) mantissas: `anti-aliasing` comes out 1.4 / 1.4 / 2.75 counts darker
+  on average than through RGBA16F, which is the format, not a bug (upstream renders the same
+  Metal format). It halves the scene's bytes; on `anti-aliasing`'s TAA upscale the bloom chain
+  took 0.017 ms less and the forward pass nothing measurable (its cost is ALU, not stores).
 - **A camera frame is BUILT as the engine update begins** (`ForwardRenderer::
   createMissingCameraFrames`, from `Engine::update`, and again in the graph build for a camera
   that began rendering since), with its effects applied once (`update()`), as an application's

@@ -136,6 +136,7 @@ protected:
         // The camera frame: an RGBA16F scene target, multisampled, with bloom; tone mapping
         // is the camera's ACES
         RenderingSettings rendering = cameraComponent->rendering();
+        rendering.renderFormats = {PixelFormat::PIXELFORMAT_RGBA16F};
         rendering.samples = 4;
         rendering.bloomIntensity = 0.035f;
         rendering.bloomBlurLevel = 8;

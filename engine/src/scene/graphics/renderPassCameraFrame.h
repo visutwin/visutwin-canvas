@@ -42,7 +42,7 @@ namespace visutwin::canvas
     // RenderingSettings as one block and handed to the compose pass as one block.
     struct CameraFrameOptions : ComposeColorSettings
     {
-        std::vector<PixelFormat> formats;
+        std::vector<PixelFormat> formats = defaultCameraFrameRenderFormats();
         bool stencil = false;
         int samples = 1;
         bool sceneColorMap = false;

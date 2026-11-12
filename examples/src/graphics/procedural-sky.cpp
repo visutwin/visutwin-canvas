@@ -262,6 +262,8 @@ protected:
             _cameraComponent->setSsao(ssao);
 
             auto rendering = _cameraComponent->rendering();
+            // A half-float scene target, so the bright sun blooms and SSAO keeps its precision.
+            rendering.renderFormats = {PixelFormat::PIXELFORMAT_RGBA16F};
             rendering.bloomIntensity = 0.0f;   // driven by the sun elevation below
             rendering.bloomBlurLevel = 16;
             _cameraComponent->setRendering(rendering);

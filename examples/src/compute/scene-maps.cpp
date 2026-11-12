@@ -25,6 +25,7 @@
 //   1          renderer: forward / camera frame
 //   2          depth (camera frame): prepass / scene pass (TAA)
 //   3          MSAA (camera frame)
+//   4          scene format (camera frame): RG11B10F / RGBA16F / RGBA32F (RGBA16F)
 //   Up / Down  scanner speed (10 - 150)
 //   [ / ]      band width (0.5 - 10)
 //   , / .      grid size (1 - 16)
@@ -37,8 +38,7 @@
 //   (getOrCreateSlangShaderFromSource); it imports the engine's `vtscenemaps` module where
 //   upstream's WGSL includes the sceneDepthCS and sceneColorCS chunks. Its uniforms are one
 //   block (Compute::setUniformBlock), as this port binds compute resources by name order.
-// - The control panel is the keys above, and upstream's scene format choice (RG11B10F,
-//   RGBA16F, RGBA32F) is left out: the camera frame's scene target is always RGBA16F.
+// - The control panel is the keys above.
 // - Upstream's camera frame is enabled with nothing else on; here that is
 //   RenderingSettings::useCameraFrame, and the frame's scene maps come from the camera's
 //   requests (requestSceneColorMap / requestSceneDepthMap), as everything else's do.
@@ -46,6 +46,7 @@
 //   ratio at 2.
 //
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <memory>
 #include <numbers>
@@ -454,6 +455,9 @@ protected:
         case SDLK_3:
             _msaa = !_msaa;
             break;
+        case SDLK_4:
+            _formatIndex = (_formatIndex + 1) % kSceneFormats.size();
+            break;
         case SDLK_UP:
             _speed = std::min(_speed + 10.0f, 150.0f);
             break;
@@ -476,9 +480,9 @@ protected:
             return false;
         }
         applyRendering();
-        spdlog::info("scene-maps: renderer {}, depth {}, MSAA {}, speed {}, band width {}, grid size {}",
+        spdlog::info("scene-maps: renderer {}, depth {}, MSAA {}, format {}, speed {}, band width {}, grid size {}",
             _forward ? "forward" : "camera frame", _scenePassDepth ? "scene pass (TAA)" : "prepass",
-            _msaa ? "on" : "off", _speed, _bandWidth, _gridSize);
+            _msaa ? "on" : "off", kSceneFormatNames[_formatIndex], _speed, _bandWidth, _gridSize);
         return true;
     }
 
@@ -582,6 +586,7 @@ private:
         auto rendering = _camera->rendering();
         rendering.useCameraFrame = !_forward;
         rendering.samples = !_forward && _msaa ? 4 : 1;
+        rendering.renderFormats = {kSceneFormats[_formatIndex]};
         _camera->setRendering(rendering);
         _camera->setTaaEnabled(!_forward && _scenePassDepth);
     }
@@ -607,6 +612,10 @@ private:
     bool _forward = true;
     bool _scenePassDepth = false;
     bool _msaa = true;
+    static constexpr std::array<PixelFormat, 3> kSceneFormats = {
+        PixelFormat::PIXELFORMAT_RG11B10F, PixelFormat::PIXELFORMAT_RGBA16F, PixelFormat::PIXELFORMAT_RGBA32F};
+    static constexpr std::array<const char*, 3> kSceneFormatNames = {"RG11B10F", "RGBA16F", "RGBA32F"};
+    size_t _formatIndex = 1;
     bool _depthMapRequested = false;
     float _speed = 60.0f;
     float _bandWidth = 3.0f;

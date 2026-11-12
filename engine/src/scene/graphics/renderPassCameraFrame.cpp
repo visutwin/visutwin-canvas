@@ -195,6 +195,7 @@ namespace visutwin::canvas
 
         options.samples = std::max(rendering.samples, 1);
         options.stencil = rendering.stencil;
+        options.formats = rendering.renderFormats;
         // Clamped rather than trusted: the scene target is quadratic in this value,
         // so a stray 8.0 would ask for 64x the pixels of a native-resolution frame.
         options.renderTargetScale = std::clamp(rendering.renderTargetScale, 0.25f, 4.0f);
@@ -477,7 +478,9 @@ namespace visutwin::canvas
             return;
         }
 
-        _hdrFormat = PixelFormat::PIXELFORMAT_RGBA16F;
+        // The first of the preferred formats the device renders to, filters and blends;
+        // RGBA8, which turns bloom off, when it renders none of them.
+        _hdrFormat = gd->renderableHdrFormat(options.formats);
         _bloomEnabled = options.bloomEnabled && _hdrFormat != PixelFormat::PIXELFORMAT_RGBA8;
         // A high-quality bloom reads the full-resolution scene, so only DOF wants the copy then.
         _sceneHalfEnabled = (_bloomEnabled && !options.bloomHighQuality) || options.dofEnabled ||

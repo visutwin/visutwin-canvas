@@ -1534,6 +1534,23 @@ The cross-cutting traps stay in `AGENTS.md`.
   the phase wants; switching a light on or off by hand between a `bake()` and the
   `update()` that completes it is overwritten by the next phase.
 
+### Camera frame scene format
+
+The camera frame renders its scene into the first of `RenderingSettings::renderFormats` the
+device renders to, filters and blends (`GraphicsDevice::renderableHdrFormat`): RG11B10F, then
+RGBA16F, then RGBA32F by default, upstream's `renderFormats`; RGBA8, which turns bloom off, when
+none of them is. RG11B10F (`PIXELFORMAT_RG11B10F`, Metal `RG11B10Float`, Vulkan
+`B10G11R11_UFLOAT_PACK32`, renderable when the format has colour-attachment, blend and linear
+filter support: `textureRG11B10Renderable`) has no alpha and stores no negative values, so a
+frame whose alpha is read, or that needs the precision, lists RGBA16F. The half-resolution
+scene copy, the bloom chain, the DOF far target and SMAA's output take the scene's format; the
+TAA history stays at least RGBA16F. Changing the list rebuilds the frame's targets
+(`CameraFrameOptions::formats`). RGBA8 may be listed too: the scene is then written linear and
+clamped to [0, 1], keeps its alpha, and has no bloom (`test/taa-alpha`, as upstream).
+`compute/scene-maps` and `test/alpha-to-coverage` switch formats (key 4);
+`tests/pixelFormatTests.cpp` holds the choice and `tests/textureCopyTests.cpp` (`gpu`) an exact
+RG11B10F round trip on the device.
+
 ### Camera frame effects
 
 `CameraFrameEffect` (`scene/graphics/cameraFrameEffect.h`) is an application's extension

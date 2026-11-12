@@ -132,6 +132,12 @@ namespace visutwin::canvas
         int localSteps = 12;
     };
 
+    // The scene formats a camera frame tries by default (RenderingSettings::renderFormats).
+    inline std::vector<PixelFormat> defaultCameraFrameRenderFormats()
+    {
+        return {PixelFormat::PIXELFORMAT_RG11B10F, PixelFormat::PIXELFORMAT_RGBA16F, PixelFormat::PIXELFORMAT_RGBA32F};
+    }
+
     // Rendering settings. The compose pass's colour settings (vignette, fringing, grading,
     // colour enhance, LUTs) come from ComposeColorSettings.
     struct RenderingSettings : ComposeColorSettings
@@ -152,6 +158,14 @@ namespace visutwin::canvas
         // Whether the offscreen scene target's depth carries STENCIL, for materials that test
         // or write it (a portal); changing it rebuilds the camera frame's render targets.
         bool stencil = false;
+
+        // The scene target's colour formats in order of preference: the first the device
+        // renders to, filters and blends is used (GraphicsDevice::renderableHdrFormat), RGBA8
+        // (which turns bloom off) when none is. RG11B10F first, at half the bytes of RGBA16F:
+        // it has NO ALPHA and stores no negative values, so a frame whose alpha matters (a
+        // camera rendering into a transparent texture) or that needs more precision asks for
+        // RGBA16F. Changing it rebuilds the camera frame's render targets.
+        std::vector<PixelFormat> renderFormats = defaultCameraFrameRenderFormats();
 
         // Number of downsample levels in the bloom chain. Fewer levels = tighter, sharper glow; the chain also stops early
         // once a mip would go below 2 px.
