@@ -9,6 +9,7 @@
 #include "platform/graphics/renderTarget.h"
 #include "scene/camera.h"
 #include "sceneGrab.h"
+#include "spdlog/spdlog.h"
 
 namespace visutwin::canvas
 {
@@ -32,11 +33,12 @@ namespace visutwin::canvas
         if (!device) {
             return;
         }
+        // The back buffer's depth only for a camera that renders to it: a camera with a
+        // target of its own whose depth is no texture has no depth to publish, and the
+        // window's would be another image.
         const auto sourceTarget = _camera->renderTarget();
-        Texture* sceneDepth = sourceTarget ? sourceTarget->depthBuffer() : nullptr;
-        if (!sceneDepth) {
-            sceneDepth = device->backBuffer() ? device->backBuffer()->depthBuffer() : nullptr;
-        }
+        Texture* sceneDepth = sourceTarget ? sourceTarget->depthBuffer()
+            : (device->backBuffer() ? device->backBuffer()->depthBuffer() : nullptr);
         device->setSceneDepthMap(sceneDepth);
     }
 
@@ -53,9 +55,16 @@ namespace visutwin::canvas
         }
         const std::shared_ptr<RenderTarget> sourceTarget = _source
             ? _source : (_camera ? _camera->renderTarget() : nullptr);
-        if (_source && !sourceTarget->depthBuffer()) {
-            // A multisampled scene target keeps its depth in an internal buffer no
-            // copy can reach; the frame publishes its prepass depth instead.
+        if (sourceTarget && sourceTarget != device->backBuffer() && !sourceTarget->depthBuffer()) {
+            // A target whose depth is an internal buffer (a multisampled scene target, or
+            // one made with RenderTargetOptions::depth alone) has none a copy can reach;
+            // inside a camera frame the frame publishes its prepass depth instead. Copying
+            // would take the back buffer's depth, another image.
+            if (!_source && !_warnedNoDepthTexture) {
+                spdlog::warn("RenderPassDepthGrab: camera target '{}' has no depth texture, so no scene depth "
+                    "map; give it RenderTargetOptions::depthBuffer", sourceTarget->name());
+                _warnedNoDepthTexture = true;
+            }
             return;
         }
         if (Texture* destination = ensureGrabTexture(device.get(), sourceTarget.get(),

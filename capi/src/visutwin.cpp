@@ -94,6 +94,7 @@ struct vt_engine
     struct Offscreen
     {
         std::shared_ptr<visutwin::canvas::Texture> texture;
+        std::shared_ptr<visutwin::canvas::Texture> depth;   // sampleable: the scene depth map reads it
         std::shared_ptr<visutwin::canvas::RenderTarget> target;
     };
     std::unordered_map<uint64_t, Offscreen> offscreen;
@@ -1767,11 +1768,23 @@ vt_status vt_camera_set_offscreen(vt_engine* engine, const vt_entity id, const u
         textureOptions.name = "vt_offscreen";
         vt_engine::Offscreen offscreen;
         offscreen.texture = std::make_shared<Texture>(engine->device.get(), textureOptions);
+        // A depth TEXTURE, not an internal buffer: the camera's scene depth map (what a
+        // volume raymarch or soft particles stop at) is copied from it after the opaque
+        // layers. An internal buffer is neither stored between the passes nor reachable by
+        // that copy, which then took the window's back-buffer depth: another image, of
+        // another size. Under MSAA the pass resolves into it.
+        TextureOptions depthOptions;
+        depthOptions.width = width;
+        depthOptions.height = height;
+        depthOptions.format = PixelFormat::PIXELFORMAT_DEPTH;
+        depthOptions.mipmaps = false;
+        depthOptions.name = "vt_offscreen_depth";
+        offscreen.depth = std::make_shared<Texture>(engine->device.get(), depthOptions);
         RenderTargetOptions targetOptions;
         targetOptions.graphicsDevice = engine->device.get();
         targetOptions.name = "vt_offscreen";
         targetOptions.colorBuffer = offscreen.texture.get();
-        targetOptions.depth = true;
+        targetOptions.depthBuffer = offscreen.depth.get();
         // Antialiased as the window's back buffer is.
         targetOptions.samples = std::max(1, engine->device->samples());
         offscreen.target = engine->device->createRenderTarget(targetOptions);

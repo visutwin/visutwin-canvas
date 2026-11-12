@@ -49,5 +49,6 @@ namespace visutwin::canvas
 
         // The copy destination, resized with the source (see RenderPassColorGrab).
         std::shared_ptr<Texture> _grabTexture;
+        bool _warnedNoDepthTexture = false;
     };
 }

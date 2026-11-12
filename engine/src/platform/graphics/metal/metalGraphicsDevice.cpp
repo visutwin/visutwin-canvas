@@ -1559,6 +1559,11 @@ namespace visutwin::canvas
                     return hw->raw();
                 }
             }
+            // A target of its own with no depth texture has nothing to copy: the back
+            // buffer's depth is another image (an offscreen camera got the window's).
+            if (source && source != backBuffer().get()) {
+                return nullptr;
+            }
             // Under MSAA the attachment is multisampled, which no blit can read; the
             // passes resolve it here whenever they store it.
             return _backBufferDepthResolve ? _backBufferDepthResolve : _backBufferDepthTexture;
