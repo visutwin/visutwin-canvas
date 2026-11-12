@@ -183,7 +183,6 @@ Mirrored from the upstream examples (for visual parity):
   (sheen is factors-only here). Used by `light-physical-units`.
 - `terrain.glb` — Low-poly terrain, Sketchfab (**CC-BY 4.0**, see .txt)
 - `robot-arm.glb` — Black Honey Robotic Arm, Sketchfab (**CC-BY 4.0**, Draco, see .txt)
-- `glass-table.glb` — Low-poly glass table, Sketchfab (**CC-BY 4.0**, see .txt)
 - `pbr-house.glb` — House 03 PBR, Sketchfab (**CC-BY 4.0**, see .txt)
 - `house.glb` — House scene w/ generated UV1 for lightmapping, Sketchfab (**CC-BY 4.0**, see .txt)
 - `SunglassesKhronos.glb` — **PROVENANCE UNCONFIRMED** (see .txt). The Khronos

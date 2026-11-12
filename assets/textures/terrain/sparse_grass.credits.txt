@@ -1,0 +1,9 @@
+Sparse Grass Textures
+=====================
+
+The ground textures of the crowd example - a scanned material from Poly Haven, released into the
+public domain (CC0 1.0 Universal, https://creativecommons.org/publicdomain/zero/1.0/). Each is the
+1k JPG of the diffuse color and of the OpenGL normal map, unchanged.
+
+sparse_grass_diff_1k.jpg, sparse_grass_nor_1k.jpg
+    "Sparse Grass" by Amal Kumar - https://polyhaven.com/a/sparse_grass

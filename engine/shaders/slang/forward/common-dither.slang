@@ -46,9 +46,11 @@ static const uint kBlueNoise32[256] = { 0x1FCF4CE3u, 0x008047C0u, 0x17873EEDu, 0
 
 // Dither threshold for a screen position.
 // `jitter` is the blue-noise jitter xy, zero unless the camera
-// jitters for TAA.
-float ditherThreshold(uint ditherMode, float2 screenPos, float2 jitter) {
-    float2 p = screenPos + jitter;
+// jitters for TAA, and `id` the mesh's offset of the pattern (forwardDitherId), applied along
+// (1, golden ratio) so neighbouring ids do not slide the pattern onto itself.
+float ditherThreshold(uint ditherMode, float2 screenPos, float2 jitter, float id) {
+    const float2 offset = float2(id, id * 1.6180339);
+    float2 p = screenPos + jitter + offset;
     float noise;
     if (ditherMode == VT_DITHER_BAYER2) {
         noise = bayer2(floor(glslMod(p, 2.0))) / 4.0;
@@ -58,7 +60,7 @@ float ditherThreshold(uint ditherMode, float2 screenPos, float2 jitter) {
         noise = bayer16(floor(glslMod(p, 16.0))) / 256.0;
     } else if (ditherMode == VT_DITHER_BLUENOISE) {
         // blueNoiseTex32 sampled nearest with repeat: the texel under frac(uv).
-        float2 uv = frac(screenPos / 32.0 + jitter);
+        float2 uv = frac(screenPos / 32.0 + jitter + offset);
         uint2 texel = min(uint2(uv * 32.0), uint2(31u));
         uint index = texel.y * 32u + texel.x;
         noise = float((kBlueNoise32[index >> 2u] >> ((index & 3u) * 8u)) & 0xFFu) / 255.0;
@@ -74,14 +76,14 @@ float ditherThreshold(uint ditherMode, float2 screenPos, float2 jitter) {
 }
 
 // True when the fragment loses the dither test and must be discarded.
-bool ditherDiscards(uint ditherMode, float2 screenPos, float alpha, float2 jitter) {
+bool ditherDiscards(uint ditherMode, float2 screenPos, float alpha, float2 jitter, float id) {
     if (alpha <= 0.0) return true;
     if (alpha >= 1.0) return false;
-    return alpha < ditherThreshold(ditherMode, screenPos, jitter);
+    return alpha < ditherThreshold(ditherMode, screenPos, jitter, id);
 }
 
 // The unjittered test (shadow passes).
-bool ditherDiscards(uint ditherMode, float2 screenPos, float alpha) {
-    return ditherDiscards(ditherMode, screenPos, alpha, float2(0.0));
+bool ditherDiscards(uint ditherMode, float2 screenPos, float alpha, float id) {
+    return ditherDiscards(ditherMode, screenPos, alpha, float2(0.0), id);
 }
 

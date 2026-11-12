@@ -56,7 +56,7 @@ void applyShadowOpacity(ForwardVertexOut input)
     if (shadowDither && shadowDitherMode != 0u) {
         const float ditherStrength = material.dispersionParams.y;
         const float ditherAlpha = ditherStrength >= 0.0 ? ditherStrength : alpha;
-        if (ditherDiscards(shadowDitherMode, input.position.xy, ditherAlpha)) {
+        if (ditherDiscards(shadowDitherMode, input.position.xy, ditherAlpha, input.ditherId)) {
             discard;
         }
     }

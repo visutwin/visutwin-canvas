@@ -466,14 +466,19 @@ namespace visutwin::canvas
             const bool additive = !_normalizeWeights &&
                 _layers[layer]->blendType() == AnimLayerBlendType::ADDITIVE;
             const AnimTransform& v = target.layers[layer].value;
+            // A fully weighted overwrite replaces whatever the layers beneath it composed: the
+            // layer's value as is, with no blend to round it.
+            const bool replaces = !additive && w >= 1.0f;
             if (v.hasPosition) {
-                value.position = additive
+                value.position = replaces ? v.position : additive
                     ? value.position + (v.position - base.position) * w
                     : Vector3::lerp(value.position, v.position, w);
                 value.hasPosition = true;
             }
             if (v.hasRotation) {
-                if (additive) {
+                if (replaces) {
+                    value.rotation = v.rotation;
+                } else if (additive) {
                     // Offset from the rest rotation, scaled toward identity, applied on top.
                     const Quaternion offset = base.rotation.conjugate() * v.rotation;
                     value.rotation = value.rotation * Quaternion::slerp(identityQuat(), offset, w);
@@ -483,7 +488,7 @@ namespace visutwin::canvas
                 value.hasRotation = true;
             }
             if (v.hasScale) {
-                value.scale = additive
+                value.scale = replaces ? v.scale : additive
                     ? value.scale + (v.scale - base.scale) * w
                     : Vector3::lerp(value.scale, v.scale, w);
                 value.hasScale = true;
@@ -492,7 +497,7 @@ namespace visutwin::canvas
                 if (value.weights.size() < v.weights.size()) value.weights.resize(v.weights.size(), 0.0f);
                 for (size_t i = 0; i < v.weights.size(); ++i) {
                     const float b = i < base.weights.size() ? base.weights[i] : 0.0f;
-                    value.weights[i] = additive
+                    value.weights[i] = replaces ? v.weights[i] : additive
                         ? value.weights[i] + (v.weights[i] - b) * w
                         : value.weights[i] + (v.weights[i] - value.weights[i]) * w;
                 }

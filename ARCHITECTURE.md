@@ -43,6 +43,13 @@ cascade fit see every instance rather than the base mesh at the node transform;
 an app-supplied `setCustomAabb` wins, and a buffer with no CPU-side copy is
 skipped. DEVIATION: upstream leaves that AABB to the app.
 
+A box in the NODE's space may replace whatever bounds an instance derives (the mesh's, a
+morph's reach, a skin's bone-driven box): `MeshInstance::setLocalCustomAabb(&box)`, cleared with
+null, or `RenderComponent::setCustomAabb(box)` for every mesh instance the component has and gets
+(upstream's `customAabb`; a clone copies it). A skinned crowd uses it to skip walking the bones
+every frame (`crowd`). It follows the node; `setCustomAabb` (a WORLD box that freezes the bounds)
+still wins over it, and clearing it hands an instanced mesh back its own instance-cloud box.
+
 The instanced shader variant follows **the draw, not the material**: the renderer
 derives `instancing`/`instancingColor` from the mesh instance's instancing data
 and its buffer format, and passes them to `ProgramLibrary::bindMaterial`. The
@@ -82,11 +89,13 @@ falling back to the geometric normal).
 ### Opacity Dither
 `VT_FEATURE_OPACITY_DITHER` (upstream `opacity-dither.js`, BAYER8 variant): `StandardMaterial::setOpacityDither(true)` renders partial opacity in the OPAQUE pass by discarding fragments against a screen-space 8×8 Bayer threshold (pow-2.2-linearized) — no sorting artifacts, correct depth writes. Keep the material non-transparent; alpha comes from `setOpacity`/texture alpha. DEVIATIONS: no blue-noise/IGN variants, no per-frame jitter (static pattern). Bayer helpers live in the `common-dither` chunk (`ditherThreshold` / `ditherDiscards`, shared by the forward and shadow chunks); the forward discard block sits after the alpha-test block.
 
-**Decoupled strength — `alphaDither`** (upstream `StandardMaterial.alphaDither`): opacity normally drives BOTH the alpha blend and the dither density. `setAlphaDither(v)` splits them so opacity drives only the blend and `v` only the dither; `clearAlphaDither()` restores the coupled default. It rides in `MaterialUniforms::dispersionParams.y`, where NEGATIVE means unset. Whether alpha survives the dither depends on the PASS, not on that sign: an opaque material writes alpha 1 (nothing blends on it), a blended one keeps its opacity to drive the blend, coupled or decoupled alike (`dithered-transparency`'s two tables look the same at start, as upstream's do).
+**Decoupled strength — `alphaDither`** (upstream `StandardMaterial.alphaDither`): opacity normally drives BOTH the alpha blend and the dither density. `setAlphaDither(v)` splits them so opacity drives only the blend and `v` only the dither; `clearAlphaDither()` restores the coupled default. It rides in `MaterialUniforms::dispersionParams.y`, where NEGATIVE means unset. Whether alpha survives the dither depends on the PASS, not on that sign: an opaque material writes alpha 1 (nothing blends on it), a blended one keeps its opacity to drive the blend, coupled or decoupled alike.
+
+**Per-mesh pattern offset**: every dithered draw offsets its pattern by `ditherId` in [0, 64), a hash of its model translation (`forwardDitherId` in the vertex stage, per instance for an instanced draw and per member for a dynamic batch, a flat varying at location 11), along (1, golden ratio). Two overlapping dithered meshes, or their shadows, then discard different pixels, and a second layer adds coverage instead of repeating the first. It is computed only in a variant that dithers (0 otherwise, which is the former pattern exactly). DEVIATION: an integer (PCG) hash of the translation's bits, where upstream hashes it with `fract(sin(x) * 43758.5453)`, whose rounding differs between the backends.
 
 **Shadow dither — `opacityShadowDither`** (flags bits 29-31, independent of the forward mode in bits 25-27): a partially-opaque caster discards the same Bayer pattern in the shadow pass and so throws a THINNED shadow. Two things make it fire, and both are easy to miss: the shadow pass otherwise **bypasses materials entirely** (the device hands the shader a default-constructed `MaterialUniforms`), so `renderPassShadowDirectional` binds the caster's real material — but ONLY for casters that opted in, leaving every other caster's draw untouched; and `shadowCasterFiltering` lets blended materials cast (it never consults blending: a blended caster with neither alpha test nor shadow dither writes SOLID depth, and one that should cast nothing turns `castShadows` off), or the very casters this feature targets would never reach the pass. It runs in `forward/shadow-fragment.slang`, shared by `shadowOpacityFragment` (the PCF caster stage; on Vulkan attached only to an alpha-tested or dithered caster) and `shadowVsmFragment`, so both shadow types dither on both backends.
 
-Example: `pcss-dither-example.cpp` (port of upstream `graphics/dithered-transparency`).
+Example: `dithered-transparency-example.cpp` (port of upstream `graphics/dithered-transparency`).
 
 ### Clustered lighting and the shadow atlas
 Clustered lighting is ON by default, as upstream (`Scene::setClusteredLightingEnabled`):
@@ -739,7 +748,7 @@ scaled up by the system, the density upstream's examples get in a browser by def
 back buffer is multisampled 4x on every display (`GraphicsDeviceOptions::antialias`, on by
 default as upstream's device), and an example whose upstream counterpart creates its device
 with `antialias: false` says `ExampleOptions::antialias = false`: `gsplat`, `depth-of-field`,
-`post-processing`, `taa` and `pcss-dither` (splats, or a camera frame that antialiases its own
+`post-processing`, `taa` and `dithered-transparency` (splats, or a camera frame that antialiases its own
 scene target). A camera frame's `rendering.samples` and a render target's `samples` are as
 upstream sets them. `VISUTWIN_MAX_PIXEL_RATIO` raises the density and `VISUTWIN_ANTIALIAS=0/1`
 overrides the back buffer's MSAA. The log names both ("Back buffer pixel ratio", "Display
@@ -2718,8 +2727,12 @@ passes on an RTX 4070 SUPER under `xvfb-run` (offscreen render and read-back, a 
 and VisuTwin.jl's tests pass on Julia 1.12 against the `.so` (`VISUTWIN_LIB`). Two things it
 found: the null device claimed MSL in a Vulkan-only build and compiled every program from source
 (it now reports the bundle's language), and a cache test that took the newest file by time, which
-Linux's coarse timestamps tie. Still open: Windows (an export list), aarch64 Linux (the Orin), and
-a binary package.
+Linux's coarse timestamps tie. aarch64 Linux checked the same day, in an Ubuntu 24.04 arm64
+container on Apple silicon (the Orin's architecture): the same package list and preset, warnings as
+errors, 130/130 unit tests with the SIMD maths and both kernels on NEON
+(`VISUTWIN_EXPECT_SIMD_BACKEND` / `_KERNEL_BACKEND=neon`), the same 78 exports, and VisuTwin.jl's
+tests on Julia 1.12.7; the GPU test was not run there (no GPU in the container). Still open:
+Windows (an export list), an aarch64 CI job, and a binary package.
 
 **Open questions.** Windowing: an engine-owned SDL window, or rendering into a host's view (an
 `NSView` / `CAMetalLayer` or a Vulkan surface handed in), which a Julia GUI toolkit would want;

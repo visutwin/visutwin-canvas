@@ -92,12 +92,15 @@ ctest --preset default
   and material, a material retains its textures), so a release never frees what is still drawn.
   The window's input the C API reports (`vt_input_get`, `vt_key_get`) is recorded by
   `vt_poll_events` from the SDL events, because the engine's input devices end their press edges
-  inside the update. On Linux (checked 2026-11-11, GCC 14, x86-64, the `linux-vulkan` CI job)
+  inside the update. On Linux (checked 2026-11-11, GCC 14, x86-64 in the `linux-vulkan` CI job
+  and aarch64 in an arm64 Ubuntu container, where the whole suite runs on the NEON maths)
   the version script exports the same 78 `vt_*` symbols as the macOS list and nothing else
   (`nm -D --defined-only`); a Debug `.so` is ~500 MB because ELF keeps its DWARF in the
   library (Release: 45 MB). `capi-gpu` runs on a headless Linux box under `xvfb-run` (SDL's
   `offscreen` video driver cannot make a Vulkan surface) and needs a RELEASE build there unless
   the Vulkan validation layer is installed: a Debug device asks for it and fails without it.
+  Every test executable links the whole static Debug engine: six links at once were killed by
+  the out-of-memory killer in 8 GB (an arm64 Docker VM; an 8 GB Orin is the same), `-j2` links.
 - **Test presets exclude the `vulkan`, `golden` and `gpu` labels.** `vulkan-validation-smoke`,
   `golden-images` and `gpu-instance-cull` need a GPU and a window, so `ctest --preset default`,
   `vulkan` and `sanitize` run the unit tests only, `ctest --preset vulkan-smoke` runs the smoke
@@ -452,6 +455,11 @@ bindings like a program of the tree, so it needs the source tree at run time. Wh
   shadow pipeline has an output its fragment does not read. A shadow fragment that needs
   another varying adds it there, at its forward location. Together these took the Slang shadow
   pass on `post-processing` from 35% over the hand-written MSL to level.
+- **A forward vertex entry hands on `ditherId` (location 11, flat) beside `lodFade`**: the
+  per-mesh offset of the opacity dither, computed in `forwardFinish` from the model it is given,
+  only under the dither features. An entry whose per-draw model is not that argument (instanced:
+  instance x node; dynamic batch: the palette entry) sets it again from its own matrix, or every
+  instance dithers the same pixels. The shadow program's `ForwardVertexOut` carries it too.
 - **A path gated only by a RUNTIME value is paid for by every draw of the variant, even when
   it never runs.** A uniform branch is cheap; the registers the dead path keeps live are not
   (lower occupancy, more ALU over more time). Where upstream compiles a path under a define,

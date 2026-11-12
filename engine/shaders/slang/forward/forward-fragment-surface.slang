@@ -207,7 +207,7 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
         float ditherAlpha = hasAlphaDither ? ditherStrength : albedo.a;
 
         if (ditherDiscards((material.flags >> 25) & 0x7u, vtFragCoord.xy, ditherAlpha,
-                lighting.ditherJitter.xy)) {
+                lighting.ditherJitter.xy, input.ditherId)) {
             discard;
         }
 

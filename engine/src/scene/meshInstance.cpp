@@ -171,6 +171,9 @@ namespace visutwin::canvas
         clone->_meshOwned = _meshOwned;
         clone->_materialOwned = _materialOwned;
         clone->_castShadows = _castShadows;
+        if (_hasLocalCustomAabb) {
+            clone->setLocalCustomAabb(&_localCustomAabb);
+        }
         clone->_renderStyle = _renderStyle;
         clone->_receiveShadows = _receiveShadows;
         clone->_cull = _cull;
@@ -203,6 +206,24 @@ namespace visutwin::canvas
             clone->_cull = _cull;   // setSkinInstance re-derives it; keep the source's
         }
         return clone;
+    }
+
+    void MeshInstance::setLocalCustomAabb(const BoundingBox* aabb)
+    {
+        if (aabb) {
+            _localCustomAabb = *aabb;
+            _hasLocalCustomAabb = true;
+            _customAabb = &_localCustomAabb;
+        } else {
+            _hasLocalCustomAabb = false;
+            if (_customAabb == &_localCustomAabb) {
+                _customAabb = nullptr;
+            }
+            // Instancing derives its own box once nothing overrides it.
+            updateInstancingAabb();
+        }
+        _aabbVer = -1;
+        CullVersion::bump();
     }
 
     void MeshInstance::updateInstancingAabb()

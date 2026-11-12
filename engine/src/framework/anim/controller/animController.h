@@ -120,6 +120,10 @@ namespace visutwin::canvas
         const std::vector<AnimTransition*>& findTransitionsBetweenStates(
             const std::string& sourceStateName, const std::string& destinationStateName);
         bool transitionHasConditionsMet(const AnimTransition& transition) const;
+        bool isTransitionValid(const AnimTransition& transition) const;
+        AnimTransition* firstValidTransition(const std::vector<AnimTransition*>& transitions) const;
+        AnimTransition* firstValidTransitionFrom(const std::string* a, const std::string* b,
+            const std::string* c = nullptr);
         AnimTransition* findTransition(const std::string& from, const std::string& to = {});
         void updateStateFromTransition(const AnimTransition& transition);
         void transitionToState(const std::string& newStateName);

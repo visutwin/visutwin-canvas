@@ -9,6 +9,7 @@
   "dependencies": [
     { "name": "spdlog", "default-features": false, "features": ["tz-offset"] },
     { "name": "sdl3", "features": ["vulkan"] },
+    { "name": "dbus", "default-features": false, "platform": "linux" },
     "stb",
     "ktx",
     "tinyobjloader",

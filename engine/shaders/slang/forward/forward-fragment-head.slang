@@ -374,6 +374,9 @@ struct ForwardVarying
     // A hardware-instanced draw's per-instance visibility-range fade (VT_FEATURE_LOD_FADE_INSTANCED,
     // forwardInstanced), 1 everywhere else.
     [[vk::location(10)]] nointerpolation float lodFade : TEXCOORD9;
+    // The mesh's offset of the opacity dither pattern, so overlapping meshes do not all discard
+    // the same pixels (forwardDitherId); 0 unless the variant dithers.
+    [[vk::location(11)]] nointerpolation float ditherId : TEXCOORD10;
 };
 
 // What a vertex entry hands on. In the shadow program that is only what a shadow fragment
@@ -388,6 +391,7 @@ struct ForwardVertexOut
     [[vk::location(2)]] float2 uv0 : TEXCOORD2;
     [[vk::location(3)]] float2 uv1 : TEXCOORD3;
     [[vk::location(10)]] nointerpolation float lodFade : TEXCOORD9;
+    [[vk::location(11)]] nointerpolation float ditherId : TEXCOORD10;
 };
 ForwardVertexOut forwardVertexOut(ForwardVarying v)
 {
@@ -397,6 +401,7 @@ ForwardVertexOut forwardVertexOut(ForwardVarying v)
     o.uv0 = v.uv0;
     o.uv1 = v.uv1;
     o.lodFade = v.lodFade;
+    o.ditherId = v.ditherId;
     return o;
 }
 #else

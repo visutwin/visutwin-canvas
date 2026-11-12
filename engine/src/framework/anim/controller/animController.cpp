@@ -218,37 +218,82 @@ namespace visutwin::canvas
         return true;
     }
 
+    bool AnimController::isTransitionValid(const AnimTransition& transition) const
+    {
+        // if the transition is moving to the already active state, ignore it
+        if (transition.to() == _activeStateName) {
+            return false;
+        }
+        // when an exit time is present, only exit if it falls within the frame's delta time.
+        // A transition out of a state without a timeline (START, END: they play nothing)
+        // ignores its exit time, which could never be met.
+        if (transition.hasExitTime() && !isAnimControlState(transition.from())) {
+            float progressBefore = getActiveStateProgressForTime(_timeInStateBefore);
+            float progress = getActiveStateProgressForTime(_timeInState);
+            // exit times < 1 on looping states are checked every loop
+            const AnimState* state = activeState();
+            if (transition.exitTime() < 1.0f && state && state->loop()) {
+                progressBefore -= std::floor(progressBefore);
+                progress -= std::floor(progress);
+            }
+            if (progress == progressBefore) {
+                if (progress != transition.exitTime()) {
+                    return false;
+                }
+            } else if (!(transition.exitTime() > progressBefore && transition.exitTime() <= progress)) {
+                return false;
+            }
+        }
+        return transitionHasConditionsMet(transition);
+    }
+
+    AnimTransition* AnimController::firstValidTransition(const std::vector<AnimTransition*>& transitions) const
+    {
+        for (auto* transition : transitions) {
+            if (isTransitionValid(*transition)) {
+                return transition;
+            }
+        }
+        return nullptr;
+    }
+
+    AnimTransition* AnimController::firstValidTransitionFrom(const std::string* a, const std::string* b,
+        const std::string* c)
+    {
+        // The states' lists in the order given, each in priority order: the first valid one wins.
+        // This runs every frame, so it allocates nothing once the lists are cached.
+        for (const std::string* state : {a, b, c}) {
+            if (state) {
+                if (AnimTransition* transition = firstValidTransition(findTransitionsFromState(*state))) {
+                    return transition;
+                }
+            }
+        }
+        return nullptr;
+    }
+
     AnimTransition* AnimController::findTransition(const std::string& from, const std::string& to)
     {
-        std::vector<AnimTransition*> transitions;
-        const auto append = [&transitions](const std::vector<AnimTransition*>& source) {
-            transitions.insert(transitions.end(), source.begin(), source.end());
-        };
+        AnimTransition* transition = nullptr;
+        const std::string* previous = _previousStateName ? &*_previousStateName : nullptr;
 
         if (!from.empty() && !to.empty()) {
-            append(findTransitionsBetweenStates(from, to));
+            transition = firstValidTransition(findTransitionsBetweenStates(from, to));
         } else if (!_isTransitioning) {
-            append(findTransitionsFromState(_activeStateName));
-            append(findTransitionsFromState(ANIM_STATE_ANY));
+            transition = firstValidTransitionFrom(&_activeStateName, &ANIM_STATE_ANY);
         } else {
             switch (_transitionInterruptionSource) {
                 case AnimInterruption::PREV:
-                    if (_previousStateName) append(findTransitionsFromState(*_previousStateName));
-                    append(findTransitionsFromState(ANIM_STATE_ANY));
+                    transition = firstValidTransitionFrom(previous, &ANIM_STATE_ANY);
                     break;
                 case AnimInterruption::NEXT:
-                    append(findTransitionsFromState(_activeStateName));
-                    append(findTransitionsFromState(ANIM_STATE_ANY));
+                    transition = firstValidTransitionFrom(&_activeStateName, &ANIM_STATE_ANY);
                     break;
                 case AnimInterruption::PREV_NEXT:
-                    if (_previousStateName) append(findTransitionsFromState(*_previousStateName));
-                    append(findTransitionsFromState(_activeStateName));
-                    append(findTransitionsFromState(ANIM_STATE_ANY));
+                    transition = firstValidTransitionFrom(previous, &_activeStateName, &ANIM_STATE_ANY);
                     break;
                 case AnimInterruption::NEXT_PREV:
-                    append(findTransitionsFromState(_activeStateName));
-                    if (_previousStateName) append(findTransitionsFromState(*_previousStateName));
-                    append(findTransitionsFromState(ANIM_STATE_ANY));
+                    transition = firstValidTransitionFrom(&_activeStateName, previous, &ANIM_STATE_ANY);
                     break;
                 case AnimInterruption::NONE:
                 default:
@@ -256,49 +301,13 @@ namespace visutwin::canvas
             }
         }
 
-        // Filter to transitions whose exit time and conditions are met.
-        std::vector<AnimTransition*> valid;
-        for (auto* transition : transitions) {
-            // if the transition is moving to the already active state, ignore it
-            if (transition->to() == _activeStateName) {
-                continue;
-            }
-            // when an exit time is present, only exit if it falls within the frame's delta time.
-            // A transition out of a state without a timeline (START, END: they play nothing)
-            // ignores its exit time, which could never be met.
-            if (transition->hasExitTime() && !isAnimControlState(transition->from())) {
-                float progressBefore = getActiveStateProgressForTime(_timeInStateBefore);
-                float progress = getActiveStateProgressForTime(_timeInState);
-                // exit times < 1 on looping states are checked every loop
-                const AnimState* state = activeState();
-                if (transition->exitTime() < 1.0f && state && state->loop()) {
-                    progressBefore -= std::floor(progressBefore);
-                    progress -= std::floor(progress);
-                }
-                if (progress == progressBefore) {
-                    if (progress != transition->exitTime()) {
-                        continue;
-                    }
-                } else if (!(transition->exitTime() > progressBefore && transition->exitTime() <= progress)) {
-                    continue;
-                }
-            }
-            if (transitionHasConditionsMet(*transition)) {
-                valid.push_back(transition);
+        if (transition && transition->to() == ANIM_STATE_END) {
+            const auto& startTransitions = findTransitionsFromState(ANIM_STATE_START);
+            if (!startTransitions.empty()) {
+                transition->setTo(startTransitions[0]->to());
             }
         }
-
-        if (!valid.empty()) {
-            AnimTransition* transition = valid[0];
-            if (transition->to() == ANIM_STATE_END) {
-                const auto& startTransitions = findTransitionsFromState(ANIM_STATE_START);
-                if (!startTransitions.empty()) {
-                    transition->setTo(startTransitions[0]->to());
-                }
-            }
-            return transition;
-        }
-        return nullptr;
+        return transition;
     }
 
     void AnimController::updateStateFromTransition(const AnimTransition& transition)

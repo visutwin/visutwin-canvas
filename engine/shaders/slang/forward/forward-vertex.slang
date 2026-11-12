@@ -148,6 +148,30 @@ float4 forwardVertexColor(float4 color)
         ? float4(srgbToLinear(color.rgb), color.a) : color;
 }
 
+// The per-mesh offset of the opacity dither pattern, in [0, 64): a hash of the model's
+// translation, so two overlapping dithered meshes (or their shadows) discard different pixels and
+// a second layer adds coverage instead of repeating the first. Computed only in a variant that
+// dithers. DEVIATION: an integer hash of the translation's bits, where upstream hashes it with
+// fract(sin(x) * 43758.5453), whose rounding differs between the two backends.
+float forwardDitherId(float4x4 model)
+{
+#if defined(VT_SHADOW_PROGRAM)
+    const bool dithers = vtFeatureEnabled(VT_FEATURE_SHADOW_DITHER_BIT);
+#else
+    const bool dithers = vtFeatureEnabled(VT_FEATURE_OPACITY_DITHER_BIT);
+#endif
+    if (!dithers) {
+        return 0.0;
+    }
+    const uint3 bits = asuint(model[3].xyz);
+    uint h = bits.x * 0x9E3779B1u ^ bits.y * 0x85EBCA77u ^ bits.z * 0xC2B2AE3Du;
+    // PCG output permutation.
+    h = h * 747796405u + 2891336453u;
+    h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
+    h = (h >> 22u) ^ h;
+    return 64.0 * float(h >> 8u) / 16777216.0;
+}
+
 // Everything after the world position: clip, depth, normal frame, UVs and the defaults.
 ForwardVarying forwardFinish(float4 world, float4 clip, float3x3 normalMatrix, float3 normal, float4 tangent,
     float2 uv0, float2 uv1, float4x4 model)
@@ -161,6 +185,7 @@ ForwardVarying forwardFinish(float4 world, float4 clip, float3x3 normalMatrix, f
     o.viewDepth = clip.w;
     o.color = float4(1.0, 1.0, 1.0, 1.0);
     o.lodFade = 1.0;
+    o.ditherId = forwardDitherId(model);
 #if defined(VT_SHADOW_PROGRAM)
     // A shadow fragment reads the position, the world position and the UVs alone; constants
     // here let the compiler drop the normal frame (and a skinned draw's normal blend), which
@@ -313,6 +338,8 @@ ForwardVertexOut forwardDynamicBatchVertex(ForwardDynamicBatchVertexIn input)
     const float3x3 normalMatrix = float3x3(model[0].xyz, model[1].xyz, model[2].xyz);
     ForwardVarying o = forwardFinish(world, forwardClip(world), normalMatrix, input.normal, input.tangent,
         input.uv0, input.uv1, drawModel());
+    // Each member of the batch dithers as its own mesh.
+    o.ditherId = forwardDitherId(model);
     return forwardVertexOut(o);
 }
 
@@ -373,6 +400,8 @@ ForwardVarying forwardInstanced(ForwardVertexIn input, float4x4 instance)
     const float3x3 normalMatrix = float3x3(model[0].xyz, model[1].xyz, model[2].xyz);
     ForwardVarying o = forwardFinish(world, forwardClip(world), normalMatrix, normal, tangent, input.uv0,
         input.uv1, drawModel());
+    // Each instance dithers as its own mesh.
+    o.ditherId = forwardDitherId(model);
     // A per-instance visibility range: the instance's own fade, from its origin's distance to the
     // pass's viewer; an instance it hides is moved out of the clip volume whole, so it costs no
     // fragments (every vertex of it lands at the same point outside).

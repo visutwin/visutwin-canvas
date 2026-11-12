@@ -567,6 +567,15 @@ namespace visutwin::canvas
         const SortDistanceCallback& calculateSortDistance() const { return _calculateSortDistance; }
         void setCalculateSortDistance(SortDistanceCallback callback) { _calculateSortDistance = std::move(callback); CullVersion::bump(); }
 
+        /**
+         * A bounding box in the NODE's space that replaces the bounds the instance would derive
+         * (the mesh's, a morph's reach, a skin's bone-driven box); it follows the node, and null
+         * clears it. A skinned crowd sets one to skip walking the bones every frame. A world box
+         * given to setCustomAabb still wins over it.
+         */
+        void setLocalCustomAabb(const BoundingBox* aabb);
+        const BoundingBox* localCustomAabb() const { return _hasLocalCustomAabb ? &_localCustomAabb : nullptr; }
+
         /** Override the computed AABB with a custom value (used by dynamic batch AABB updates). */
         void setCustomAabb(const BoundingBox& aabb) {
             bumpCullVersionIf(_updateAabb || !aabb.sameAs(_aabb));
@@ -611,6 +620,9 @@ namespace visutwin::canvas
         std::vector<std::pair<const Camera*, std::unique_ptr<DrawCommands>>> _drawCommands;
 
         BoundingBox* _customAabb = nullptr;
+        // setLocalCustomAabb's box, which _customAabb points at while it is set.
+        BoundingBox _localCustomAabb;
+        bool _hasLocalCustomAabb = false;
         // The union of the instances' bounds in the NODE's space, which _customAabb
         // points at while instancing sets the bounds (aabb() carries it to world).
         BoundingBox _instancingLocalAabb;

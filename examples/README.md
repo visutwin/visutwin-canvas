@@ -142,7 +142,7 @@ The second column is the upstream example each one ports, as
 | shadow-soft | lights-and-shadows/shadow-soft | PCSS soft directional shadows over a terrain with drifting clouds |
 | shadow-bounds | lights-and-shadows/shadow-bounds | A directional shadow fitted to a box around a bouncing sphere, against one fitted to the camera frustum |
 | lights-baked | lights-and-shadows/lights-baked | Baked omni, spot and directional lights over a grid of primitives |
-| pcss-dither | graphics/dithered-transparency | Blend and dither strengths decoupled, dithered shadows |
+| dithered-transparency | graphics/dithered-transparency | Glass panels blended and dithered with alphaDither; overlapping meshes offset the pattern, so their dithered shadows add up |
 | pcss-local | test/contact-hardening-shadows | PCSS contact-hardening shadows from local lights |
 | lightmap-bake | lights-and-shadows/lights-baked-a-o | CPU-baked lightmaps with shadows and AO |
 | lightmap-sources | test/lightmap-sources | A material lightmap vs a mesh instance's own bake, and which wins |
@@ -199,6 +199,7 @@ The second column is the upstream example each one ports, as
 | blend-trees-1d | animation/blend-trees-1d | 1D animation blend tree between idle and a dance |
 | blend-trees-2d | animation/blend-trees-2d-cartesian | 2D-cartesian animation blend tree |
 | layer-masks | animation/layer-masks | An additive upper-body layer masked to a subtree, the skeleton coloured by layer |
+| crowd | animation/crowd | 20 to 500 wandering, independently animated characters, a CPU profiling scene for skinned animation |
 | mesh-morph | graphics/mesh-morph | Procedural morph targets driven by sine weights |
 | instancing-basic | graphics/instancing-basic | 1000 hardware-instanced cylinders |
 | instancing-glb | graphics/instancing-glb | A glTF using EXT_mesh_gpu_instancing |

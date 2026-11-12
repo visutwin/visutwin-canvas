@@ -862,6 +862,9 @@ namespace visutwin::canvas
         // The component's clipping replaces the instance's own, also when there is none.
         meshInstanceRaw->setClipping(_clip);
         meshInstanceRaw->setRenderStyle(_renderStyle);
+        if (_customAabb) {
+            meshInstanceRaw->setLocalCustomAabb(&*_customAabb);
+        }
         _meshInstances.push_back(std::move(meshInstance));
         _meshInstanceViewDirty = true;
         CullVersion::bump();
@@ -998,6 +1001,16 @@ namespace visutwin::canvas
         }
     }
 
+    void RenderComponent::setCustomAabb(const std::optional<BoundingBox>& aabb)
+    {
+        _customAabb = aabb;
+        for (const auto& mi : _meshInstances) {
+            if (mi) {
+                mi->setLocalCustomAabb(_customAabb ? &*_customAabb : nullptr);
+            }
+        }
+    }
+
     void RenderComponent::setRenderStyle(const int style)
     {
         _renderStyle = style;
@@ -1055,6 +1068,7 @@ namespace visutwin::canvas
         _receiveShadows = src->_receiveShadows;
         _castShadows = src->_castShadows;
         _renderStyle = src->_renderStyle;
+        _customAabb = src->_customAabb;
         _batchGroupId = src->_batchGroupId;
         _clip = src->_clip;
         setEnabled(src->enabled());

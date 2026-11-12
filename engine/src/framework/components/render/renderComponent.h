@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -68,6 +69,13 @@ namespace visutwin::canvas
         bool castShadows() const { return _castShadows; }
         void setCastShadows(bool value);
 
+        /// A bounding box in each mesh instance's node space that replaces the bounds the
+        /// instances derive (MeshInstance::setLocalCustomAabb), for every mesh instance the
+        /// component has and gets; empty clears it. A skinned character given one is culled by
+        /// the box instead of its bones. A clone copies it.
+        const std::optional<BoundingBox>& customAabb() const { return _customAabb; }
+        void setCustomAabb(const std::optional<BoundingBox>& aabb);
+
         /// The render style (RenderStyle) of every mesh instance the component has and gets: a
         /// mesh instance added later takes it too (MeshInstance::setRenderStyle). A clone copies it.
         int renderStyle() const { return _renderStyle; }
@@ -123,6 +131,7 @@ namespace visutwin::canvas
 
         bool _receiveShadows = true;
         bool _castShadows = true;
+        std::optional<BoundingBox> _customAabb;
         int _renderStyle = 0;  // RENDERSTYLE_SOLID
         int _batchGroupId = -1;  // BatchGroup::NOID
         ClipPlanes _clip;
