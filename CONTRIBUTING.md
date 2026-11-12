@@ -90,7 +90,7 @@ this gives a reproducible way to capture what a change actually renders:
 
 ```bash
 VISUTWIN_SCREENSHOT=shot.png python3 tools/run_example.py \
-    build-examples/examples/visutwin-anisotropy.app/Contents/MacOS/visutwin-anisotropy run.log 20
+    build-examples/examples/materials/material-anisotropic.app/Contents/MacOS/material-anisotropic run.log 20
 ```
 
 The script prints `DIED(<code>)` if the example exited on its own, or `ALIVE` if

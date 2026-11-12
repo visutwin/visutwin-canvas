@@ -40,7 +40,7 @@ namespace visutwin::canvas
     class TransformGizmoExample : public ExampleApp
     {
     protected:
-        explicit TransformGizmoExample(std::string title): ExampleApp({.title = std::move(title)}) {}
+        TransformGizmoExample(): ExampleApp({}) {}
 
         void configure(AppOptions& options) override
         {

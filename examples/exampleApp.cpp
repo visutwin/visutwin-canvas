@@ -25,6 +25,7 @@
 #include <utility>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <array>
@@ -87,13 +88,14 @@ namespace visutwin::canvas
             log::set_level_debug();
         }
 
+        spdlog::info("Example {} ({})", title(), exampleId());
         if (!initWindow() || !initEngine()) {
             shutdown();
             return -1;
         }
 
         if (!create()) {
-            spdlog::error("{}: create() failed", _options.title);
+            spdlog::error("{}: create() failed", exampleId());
             // Whatever create() managed to build before it gave up still has to be
             // released while the engine is alive, so the failure path runs destroy()
             // too — hooks must therefore tolerate a partially built scene.
@@ -749,7 +751,7 @@ namespace visutwin::canvas
         SDL_WindowFlags flags = SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE;
         flags |= (_backend == Backend::Vulkan) ? SDL_WINDOW_VULKAN : SDL_WINDOW_METAL;
 
-        _window = SDL_CreateWindow(_options.title.c_str(), _options.width, _options.height, flags);
+        _window = SDL_CreateWindow(title().c_str(), _options.width, _options.height, flags);
         if (!_window) {
             spdlog::error("SDL_CreateWindow failed: {}", SDL_GetError());
             return false;
@@ -770,12 +772,71 @@ namespace visutwin::canvas
         return true;
     }
 
+    std::string ExampleApp::exampleId()
+    {
+        return std::string(VISUTWIN_EXAMPLE_CATEGORY) + "/" + VISUTWIN_EXAMPLE_NAME;
+    }
+
+    std::string ExampleApp::title()
+    {
+        return displayName(VISUTWIN_EXAMPLE_CATEGORY) + " \u203a " + displayName(VISUTWIN_EXAMPLE_NAME);
+    }
+
+    std::string ExampleApp::displayName(std::string_view kebab)
+    {
+        // The rule of upstream's example browser (toDisplayName), word lists included.
+        static constexpr std::array<std::string_view, 20> acronyms = {
+            "ao", "ar", "esm", "gl", "glb", "hdr", "html", "lod", "lut", "msaa", "obj", "sh", "spz", "taa",
+            "ui", "usdz", "uv", "vat", "vr", "xr"};
+        static constexpr std::array<std::string_view, 5> minorWords = {"and", "of", "on", "to", "without"};
+        static constexpr std::array<std::pair<std::string_view, std::string_view>, 2> spellings = {{
+            {"gltf", "glTF"}, {"gsplat", "GSplat"}}};
+
+        std::vector<std::string> parts;
+        for (size_t start = 0; start <= kebab.size();) {
+            const size_t dash = std::min(kebab.find('-', start), kebab.size());
+            parts.emplace_back(kebab.substr(start, dash - start));
+            start = dash + 1;
+        }
+        // A run of single letters is one acronym split apart ("lights-baked-a-o").
+        const auto singleLetter = [](const std::string& part) {
+            return part.size() == 1 && part[0] >= 'a' && part[0] <= 'z';
+        };
+        std::vector<std::string> words;
+        for (size_t i = 0; i < parts.size(); ++i) {
+            if (i > 0 && singleLetter(parts[i]) && singleLetter(parts[i - 1])) {
+                words.back() += parts[i];
+            } else {
+                words.push_back(parts[i]);
+            }
+        }
+
+        std::string result;
+        for (size_t i = 0; i < words.size(); ++i) {
+            std::string word = words[i];
+            if (const auto it = std::ranges::find_if(spellings, [&](const auto& s) { return s.first == word; });
+                it != spellings.end()) {
+                word = it->second;
+            } else if (std::ranges::find(acronyms, word) != acronyms.end() ||
+                       std::ranges::any_of(word, [](char c) { return std::isdigit(static_cast<unsigned char>(c)); })) {
+                std::ranges::transform(word, word.begin(), [](char c) { return static_cast<char>(std::toupper(static_cast<unsigned char>(c))); });
+            } else if (!(i > 0 && std::ranges::find(minorWords, word) != minorWords.end()) && !word.empty()) {
+                word[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(word[0])));
+            }
+            result += (i ? " " : "") + word;
+        }
+        return result;
+    }
+
     bool ExampleApp::initEngine()
     {
         GraphicsDeviceOptions deviceOptions;
         deviceOptions.backend = _backend;
         deviceOptions.window = _window;
         deviceOptions.antialias = _options.antialias;
+        // One Vulkan pipeline cache per example, named by category as well: two categories
+        // may hold examples of the same name (test/text-markup, user-interface/text-markup).
+        deviceOptions.pipelineCacheName = std::string(VISUTWIN_EXAMPLE_CATEGORY) + "-" + VISUTWIN_EXAMPLE_NAME;
         // VISUTWIN_ANTIALIAS=0/1 overrides the example's choice: the same scene with and
         // without the multisampled back buffer, for a parity or cost comparison.
         if (const char* env = std::getenv("VISUTWIN_ANTIALIAS"); env && *env) {
@@ -965,7 +1026,7 @@ namespace visutwin::canvas
         _engine.reset();
         _device.reset();
         if (const auto survivor = device.lock()) {
-            spdlog::warn("{}: the graphics device outlived the engine ({} references)", _options.title,
+            spdlog::warn("{}: the graphics device outlived the engine ({} references)", exampleId(),
                 survivor.use_count() - 1);
         }
 

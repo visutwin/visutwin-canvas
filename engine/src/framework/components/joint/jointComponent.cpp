@@ -141,7 +141,7 @@ namespace visutwin::canvas
     {
         _motorSpeed = value;
         // Live, so a scene can reverse a motor without rebuilding the constraint —
-        // which is what the physics-joints example's patrolling slider does every few seconds.
+        // which is what the physics/joints example's patrolling slider does every few seconds.
         if (_joint != nullptr) {
             _joint->setMotorSpeed(_type == PhysicsJointType::Hinge ? value * kDegToRad : value);
         }

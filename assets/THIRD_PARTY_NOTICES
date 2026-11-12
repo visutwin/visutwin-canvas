@@ -110,7 +110,7 @@ models/jet-fighter.glb
   Source:   https://sketchfab.com/3d-models/mitsubishi-f-2-fighter-jet-free-d3d7244554974f499b106e6c11fe3aaf
   License:  CC-BY 4.0
   Mirrored byte-for-byte from the upstream example set, which converted it to a
-  Draco-compressed glb. Used by examples/src/annotations-example.cpp.
+  Draco-compressed glb. Used by examples/src/misc/annotations.cpp.
 
 models/SunglassesKhronos.glb
   PROVENANCE UNCONFIRMED — do not rely on the filename. The Khronos
@@ -119,7 +119,7 @@ models/SunglassesKhronos.glb
   unknown. Mirrored
   byte-for-byte from the upstream example set, which documents none either.
   Establish its licence or replace the model before a public release.
-  Used by examples/src/reflection-planar-blurred-example.cpp.
+  Used by examples/src/graphics/reflection-planar-blurred.cpp.
 
 models/ClearCoatTest.glb
   Original: ClearCoatTest (Khronos glTF sample asset)
@@ -184,8 +184,8 @@ models/apartment.glb
             their own licences and are not covered by the Apache-2.0 grant on the
             engine, and the engine library itself embeds none of them. Anyone
             redistributing this assets directory commercially must remove it.
-            Used by examples/src/depth-of-field-example.cpp and
-            examples/src/layers-example.cpp.
+            Used by examples/src/camera-frame/depth-of-field.cpp and
+            examples/src/graphics-advanced/layers.cpp.
 
 models/love.glb
   Original: Love neon sign 02

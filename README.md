@@ -9,7 +9,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
 [![Backends](https://img.shields.io/badge/backends-Metal%20%7C%20Vulkan-orange.svg)](FEATURES.md)
-[![Examples](https://img.shields.io/badge/examples-196-purple.svg)](examples/README.md)
+[![Examples](https://img.shields.io/badge/examples-197-purple.svg)](examples/README.md)
 [![Home](https://img.shields.io/badge/home-canvas.visutwin.com-green.svg)](https://canvas.visutwin.com/?utm_source=github&utm_medium=readme)
 
 **A native C++23 port of the [PlayCanvas](https://github.com/playcanvas/engine)
@@ -41,7 +41,7 @@ PlayCanvas equivalent.
 git clone https://github.com/visutwin/visutwin-canvas.git && cd visutwin-canvas
 export VCPKG_ROOT=/path/to/vcpkg          # dependencies come from vcpkg
 cmake --preset examples && cmake --build build-examples
-open build-examples/examples/visutwin-post-processing.app
+open build-examples/examples/camera-frame/post-processing.app
 ```
 
 The first configure builds the dependencies through vcpkg, so it takes a while.
@@ -61,14 +61,14 @@ macOS, `libvulkan-dev` on Ubuntu.
 
 ## Examples
 
-A few of the 196 examples, each a small self-contained program
+A few of the 197 examples, each a small self-contained program
 ([the full list](examples/README.md)):
 
 | | | | |
 |:---:|:---:|:---:|:---:|
-| <img src="media/examples/post-processing.jpg" width="200"><br>`post-processing` | <img src="media/examples/depth-of-field.jpg" width="200"><br>`depth-of-field` | <img src="media/examples/gsplat-spherical-harmonics.jpg" width="200"><br>`gsplat-spherical-harmonics` | <img src="media/examples/reflection-planar-blurred.jpg" width="200"><br>`reflection-planar-blurred` |
-| <img src="media/examples/refraction.jpg" width="200"><br>`refraction` | <img src="media/examples/volumetric-fog-local-lights.jpg" width="200"><br>`volumetric-fog-local-lights` | <img src="media/examples/clustered-lighting.jpg" width="200"><br>`clustered-lighting` | <img src="media/examples/lightmap-bake.jpg" width="200"><br>`lightmap-bake` |
-| <img src="media/examples/clearcoat.jpg" width="200"><br>`clearcoat` | <img src="media/examples/shadow-cascades.jpg" width="200"><br>`shadow-cascades` | <img src="media/examples/area-light.jpg" width="200"><br>`area-light` | <img src="media/examples/volumetric-fog-shafts.jpg" width="200"><br>`volumetric-fog-shafts` |
+| <img src="media/examples/camera-frame/post-processing.jpg" width="200"><br>`camera-frame/post-processing` | <img src="media/examples/camera-frame/depth-of-field.jpg" width="200"><br>`camera-frame/depth-of-field` | <img src="media/examples/gaussian-splatting/simple-sh.jpg" width="200"><br>`gaussian-splatting/simple-sh` | <img src="media/examples/graphics/reflection-planar-blurred.jpg" width="200"><br>`graphics/reflection-planar-blurred` |
+| <img src="media/examples/materials/material-refraction.jpg" width="200"><br>`materials/material-refraction` | <img src="media/examples/camera-frame/volumetric-fog-local-lights.jpg" width="200"><br>`camera-frame/volumetric-fog-local-lights` | <img src="media/examples/lights-and-shadows/clustered-lighting.jpg" width="200"><br>`lights-and-shadows/clustered-lighting` | <img src="media/examples/lights-and-shadows/lights-baked-a-o.jpg" width="200"><br>`lights-and-shadows/lights-baked-a-o` |
+| <img src="media/examples/materials/clear-coat.jpg" width="200"><br>`materials/clear-coat` | <img src="media/examples/lights-and-shadows/shadow-cascades.jpg" width="200"><br>`lights-and-shadows/shadow-cascades` | <img src="media/examples/lights-and-shadows/area-lights.jpg" width="200"><br>`lights-and-shadows/area-lights` | <img src="media/examples/camera-frame/volumetric-fog-shafts.jpg" width="200"><br>`camera-frame/volumetric-fog-shafts` |
 
 ## Built on VisuTwin Canvas
 

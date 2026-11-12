@@ -30,7 +30,7 @@ namespace visutwin::canvas
     class OverlayGizmoExample : public ExampleApp
     {
     protected:
-        explicit OverlayGizmoExample(std::string title) : ExampleApp({.title = std::move(title)}) {}
+        OverlayGizmoExample() : ExampleApp({}) {}
 
         void configure(AppOptions& options) override
         {

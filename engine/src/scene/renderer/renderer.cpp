@@ -1656,7 +1656,7 @@ namespace visutwin::canvas
                 // A shaped DIRECTIONAL light's LTC source sits at this camera's far clip,
                 // back along its direction, with its extents scaled by the same distance:
                 // it subtends the angle its entity's size gives, wherever the entity is.
-                // Taken at the entity, a 0.2-unit disk held 5000 units out (area-light's
+                // Taken at the entity, a 0.2-unit disk held 5000 units out (lights-and-shadows/area-lights'
                 // sky disk) gives a reflection a hundred times too faint.
                 if (lightData.type == GpuLightType::Directional && lightData.shape != 0u && camera) {
                     const float far = camera->farClip();

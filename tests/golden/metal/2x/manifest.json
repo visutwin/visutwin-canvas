@@ -1,65 +1,65 @@
 {
-  "ambient-occlusion": {
+  "camera-frame/ambient-occlusion": {
     "capture_size": [
       900,
       700
     ],
     "frame": 90
   },
-  "clearcoat": {
-    "capture_size": [
-      900,
-      700
-    ],
-    "frame": 60
-  },
-  "clustered-lighting": {
-    "capture_size": [
-      1100,
-      750
-    ],
-    "frame": 90
-  },
-  "clustered-spot-shadows": {
-    "capture_size": [
-      900,
-      700
-    ],
-    "frame": 60
-  },
-  "depth-of-field": {
+  "camera-frame/depth-of-field": {
     "capture_size": [
       1024,
       768
     ],
     "frame": 90
   },
-  "dynamic-batching": {
-    "capture_size": [
-      900,
-      700
-    ],
-    "frame": 150
-  },
-  "gsplat": {
+  "gaussian-splatting/simple": {
     "capture_size": [
       1200,
       800
     ],
     "frame": 90
   },
-  "lightmap-sources": {
+  "graphics/batching-dynamic": {
     "capture_size": [
       900,
       700
     ],
-    "frame": 120
+    "frame": 150
   },
-  "shadow-cascades": {
+  "lights-and-shadows/clustered-lighting": {
     "capture_size": [
       1100,
       750
     ],
     "frame": 90
+  },
+  "lights-and-shadows/clustered-spot-shadows": {
+    "capture_size": [
+      900,
+      700
+    ],
+    "frame": 60
+  },
+  "lights-and-shadows/shadow-cascades": {
+    "capture_size": [
+      1100,
+      750
+    ],
+    "frame": 90
+  },
+  "materials/clear-coat": {
+    "capture_size": [
+      900,
+      700
+    ],
+    "frame": 60
+  },
+  "test/lightmap-sources": {
+    "capture_size": [
+      900,
+      700
+    ],
+    "frame": 120
   }
 }

@@ -22,10 +22,10 @@ body:
       label: How to reproduce
       description: |
         The example and steps, or a minimal program or asset. If an example shows it,
-        name it (e.g. `visutwin-clustered-lighting`) and any environment variables used.
+        name it (e.g. `lights-and-shadows/clustered-lighting`) and any environment variables used.
       placeholder: |
         1. cmake --preset examples && cmake --build build-examples
-        2. VISUTWIN_BACKEND=vulkan open build-examples/examples/visutwin-....app
+        2. VISUTWIN_BACKEND=vulkan open build-examples/examples/<category>/<name>.app
         3. ...
     validations:
       required: true

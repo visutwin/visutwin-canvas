@@ -15,7 +15,7 @@
 //     class MyExample final: public ExampleApp
 //     {
 //     public:
-//         MyExample(): ExampleApp({.title = "My Example"}) {}
+//         MyExample(): ExampleApp({.width = 1280}) {}   // or ExampleApp({}) for the defaults
 //
 //     protected:
 //         bool create() override { ...build the scene...; return true; }
@@ -75,11 +75,10 @@ namespace visutwin::canvas
 
     /// Window and host configuration, passed up from the derived example's
     /// constructor. Designated initialisers keep the call site readable:
-    /// `ExampleApp({.title = "Clear Coat", .width = 1280})`.
+    /// `ExampleApp({.width = 1280})`. There is no title: an example's window title is its
+    /// upstream category and name (ExampleApp::title), which the build defines.
     struct ExampleOptions
     {
-        std::string title = "VisuTwin Canvas";
-
         int width = 900;
         int height = 700;
 
@@ -196,6 +195,18 @@ namespace visutwin::canvas
         /// Seconds since the first frame — saves an example keeping its own
         /// accumulator when an animation phase can read straight off it.
         [[nodiscard]] float elapsedTime() const { return _elapsed; }
+
+        /// The example's id as upstream's tree names it, "<category>/<name>"
+        /// (VISUTWIN_EXAMPLE_CATEGORY / VISUTWIN_EXAMPLE_NAME, defined by the build).
+        [[nodiscard]] static std::string exampleId();
+
+        /// The window title, "<Category> › <Name>" with each kebab-case part spelled as
+        /// upstream's example browser shows it ("Lights and Shadows › Lights Baked AO").
+        [[nodiscard]] static std::string title();
+
+        /// A kebab-case name as upstream's example browser shows it: title case, minor words
+        /// lower case, acronyms upper case, single-letter runs joined ("a-o" -> "AO").
+        [[nodiscard]] static std::string displayName(std::string_view kebab);
 
         /// Ends the frame loop after the current frame.
         void quit() { _running = false; }

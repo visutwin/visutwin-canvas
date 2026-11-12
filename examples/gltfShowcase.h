@@ -30,7 +30,6 @@ namespace visutwin::canvas
 {
     struct GltfShowcaseOptions
     {
-        std::string title;
         std::string model;                         // under assets/
         std::string envAtlas = "cubemaps/helipad-env-atlas.png";
         float skyboxIntensity = 1.0f;
@@ -65,7 +64,7 @@ namespace visutwin::canvas
     {
     public:
         explicit GltfShowcaseExample(GltfShowcaseOptions options)
-            : ExampleApp({.title = options.title}), _options(std::move(options)) {}
+            : ExampleApp({}), _options(std::move(options)) {}
 
     protected:
         bool create() override
@@ -91,7 +90,7 @@ namespace visutwin::canvas
 
             auto* container = _modelAsset->resourceAs<ContainerResource>();
             if (!container) {
-                spdlog::error("{} needs {}", o.title, o.model);
+                spdlog::error("{} needs {}", exampleId(), o.model);
                 return false;
             }
             _model = container->instantiateRenderEntity();

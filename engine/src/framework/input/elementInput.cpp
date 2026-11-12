@@ -388,7 +388,7 @@ namespace visutwin::canvas
         /// scaled by -width/height. Text with markup tags uses the same offset (its
         /// per-symbol styles only choose WHICH offset). It is NOT sign-flipped for this
         /// engine's v-down glyph UVs, although upstream writes its glyph UVs v-up:
-        /// measured on upstream's own ui-text thumbnail, a (0.25, -0.25) shadow sits right
+        /// measured on upstream's own user-interface/text thumbnail, a (0.25, -0.25) shadow sits right
         /// of and BELOW the glyphs (rim below 23 : above 6), and the flipped value drew it
         /// above.
         Vector2 msdfShadowUvOffset(const Vector2& offset, const Texture* page)

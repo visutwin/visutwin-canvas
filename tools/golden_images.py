@@ -3,12 +3,12 @@
 
 Renders a fixed set of deterministic examples with one backend, downscales each
 frame 4x (box average) and compares it with the reference committed under
-tests/golden/<backend>/<density>x/, the set for the display's pixel density. LOCAL ONLY: it needs a GPU and a window, so no CI preset
+tests/golden/<backend>/<density>x/<category>/<name>.png, the set for the display's pixel density. LOCAL ONLY: it needs a GPU and a window, so no CI preset
 runs it; ctest runs it through the `golden` label (see the `golden` test presets).
 
     tools/golden_images.py --examples-dir build-examples/examples --backend metal
     tools/golden_images.py --examples-dir build-examples/examples --backend metal --update
-    tools/golden_images.py ... --only clearcoat,gsplat
+    tools/golden_images.py ... --only materials/clear-coat,gaussian-splatting/simple
 
 Every case runs under VISUTWIN_FIXED_DT, so an animated example reaches the same
 state at the same frame in every run. There is one reference set PER DISPLAY
@@ -53,19 +53,19 @@ GOLDEN_DIR = ROOT / "tests" / "golden"
 # baked lightmaps and text, splats, SSAO and clustered omni shadows, dynamic batching,
 # clustered local lights.
 CASES = [
-    {"example": "shadow-cascades", "frame": 90},
-    {"example": "clearcoat", "frame": 60},
-    {"example": "depth-of-field", "frame": 90},
-    {"example": "lightmap-sources", "frame": 120},
-    {"example": "gsplat", "frame": 90},
-    {"example": "ambient-occlusion", "frame": 90},
-    {"example": "dynamic-batching", "frame": 150},
-    {"example": "clustered-lighting", "frame": 90},
+    {"example": "lights-and-shadows/shadow-cascades", "frame": 90},
+    {"example": "materials/clear-coat", "frame": 60},
+    {"example": "camera-frame/depth-of-field", "frame": 90},
+    {"example": "test/lightmap-sources", "frame": 120},
+    {"example": "gaussian-splatting/simple", "frame": 90},
+    {"example": "camera-frame/ambient-occlusion", "frame": 90},
+    {"example": "graphics/batching-dynamic", "frame": 150},
+    {"example": "lights-and-shadows/clustered-lighting", "frame": 90},
     # Moving spot lights over the clustered shadow atlas: the one case that catches
     # a per-rect atlas clear that stops clearing (shadows from every past light
     # position accumulate — Vulkan's depth-only pipelines forced LessEqual until
     # 2026-09-24). Every static scene renders the atlas the same either way.
-    {"example": "clustered-spot-shadows", "frame": 60},
+    {"example": "lights-and-shadows/clustered-spot-shadows", "frame": 60},
 ]
 
 DOWNSCALE = 4
@@ -87,9 +87,11 @@ SKIP_EXIT_CODE = 77
 
 
 def example_binary(examples_dir: pathlib.Path, example: str) -> pathlib.Path:
-    name = f"visutwin-{example}"
-    bundle = examples_dir / f"{name}.app" / "Contents" / "MacOS" / name
-    return bundle if bundle.exists() else examples_dir / name
+    """An example is named "<category>/<name>", as upstream's tree names it, and is built
+    into <examples-dir>/<category>/<name>.app (macOS) or <examples-dir>/<category>/<name>."""
+    category, name = example.split("/")
+    bundle = examples_dir / category / f"{name}.app" / "Contents" / "MacOS" / name
+    return bundle if bundle.exists() else examples_dir / category / name
 
 
 def capture(binary: pathlib.Path, backend: str, frame: int, out_png: pathlib.Path,
@@ -157,10 +159,10 @@ def compare(capture_img: Image.Image, reference_img: Image.Image):
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--examples-dir", required=True, type=pathlib.Path,
-                        help="the build's examples directory (holds the visutwin-<name>.app bundles)")
+                        help="the build's examples directory (holds <category>/<name>.app)")
     parser.add_argument("--backend", required=True, choices=["metal", "vulkan"])
     parser.add_argument("--update", action="store_true", help="capture and store new references")
-    parser.add_argument("--only", default="", help="comma-separated example names")
+    parser.add_argument("--only", default="", help="comma-separated example ids, <category>/<name>")
     parser.add_argument("--out", type=pathlib.Path, default=None,
                         help="where failing captures go (default: <examples-dir>/golden-failures)")
     parser.add_argument("--timeout", type=float, default=90.0, help="seconds per example")
@@ -188,8 +190,9 @@ def main() -> int:
             if not binary.exists():
                 failures.append(f"{example}: no binary at {binary}")
                 continue
-            shot = scratch / f"{example}.png"
-            log = scratch / f"{example}.log"
+            flat = example.replace("/", "_")
+            shot = scratch / f"{flat}.png"
+            log = scratch / f"{flat}.log"
             if not capture(binary, args.backend, case["frame"], shot, log, args.timeout):
                 failures.append(f"{example}: no screenshot within {args.timeout:.0f} s (log below)\n"
                                 + log.read_text(errors="replace")[-2000:])
@@ -204,7 +207,7 @@ def main() -> int:
                 if label == "unknown":
                     failures.append(f"{example}: the log names no pixel ratio, so no reference set to store in")
                     continue
-                reference_dir.mkdir(parents=True, exist_ok=True)
+                (reference_dir / example).parent.mkdir(parents=True, exist_ok=True)
                 small.save(reference_dir / f"{example}.png", optimize=True)
                 manifest[example] = {"capture_size": [full.width, full.height], "frame": case["frame"]}
                 print(f"  stored  {label}/{example}  ({full.width}x{full.height} -> {small.width}x{small.height})")
@@ -230,9 +233,9 @@ def main() -> int:
                 passed.append(line)
             else:
                 out_dir.mkdir(parents=True, exist_ok=True)
-                small.save(out_dir / f"{example}-capture.png")
-                shutil.copy(reference_path, out_dir / f"{example}-reference.png")
-                heat.save(out_dir / f"{example}-difference.png")
+                small.save(out_dir / f"{flat}-capture.png")
+                shutil.copy(reference_path, out_dir / f"{flat}-reference.png")
+                heat.save(out_dir / f"{flat}-difference.png")
                 failures.append(f"{line}  (limits {MAX_DIFFERING_FRACTION * 100:.1f}% / {MAX_MEAN_DIFFERENCE}); "
                                 f"images in {out_dir}")
 

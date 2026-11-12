@@ -1,0 +1,383 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025-2026 Arnis Lektauers
+//
+// Created by Arnis Lektauers on 01.05.2026
+//
+// Mesh decals demo — port of upstream graphics/mesh-decals.
+//
+// There is no dedicated decal subsystem; "mesh decals" is a *technique*
+// using StandardMaterial primitives:
+//   • dynamic flat-quad mesh built incrementally as decals are stamped
+//   • additive-alpha blend so overlapping stamps brighten
+//   • depthBias / slopeDepthBias polygon offset to avoid z-fighting with the host surface
+//   • depthWrite disabled (the host surface owns depth)
+//   • per-vertex color tinting + diffuse texture cutout (heart silhouette)
+//
+// The bouncing ball drops one decal each time it crosses the ground plane; older decals
+// gradually fade as their vertex colors are scaled toward zero.
+//
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <memory>
+#include <random>
+#include <vector>
+
+#include "exampleApp.h"
+#include "framework/assets/asset.h"
+#include "platform/graphics/blendState.h"
+#include "platform/graphics/depthState.h"
+#include "platform/graphics/indexBuffer.h"
+#include "platform/graphics/vertexBuffer.h"
+#include "platform/graphics/vertexFormat.h"
+#include "scene/constants.h"
+#include "scene/materials/standardMaterial.h"
+#include "scene/mesh.h"
+#include "scene/meshInstance.h"
+
+using namespace visutwin::canvas;
+
+// 500 decals × 4 verts/quad. Position+normal+uv0+tangent+uv1+color = 18 floats = 72 bytes
+// (matches the STRIDE_WITH_COLOR layout in metalRenderPipeline.cpp).
+constexpr int NUM_DECALS = 500;
+constexpr int VERTS_PER_DECAL = 4;
+constexpr int FLOATS_PER_VERTEX = 18;
+constexpr int VERTEX_STRIDE_BYTES = FLOATS_PER_VERTEX * static_cast<int>(sizeof(float));
+constexpr int TOTAL_VERTS = NUM_DECALS * VERTS_PER_DECAL;
+constexpr int INDICES_PER_DECAL = 6;
+constexpr int TOTAL_INDICES = NUM_DECALS * INDICES_PER_DECAL;
+
+namespace
+{
+    // Layout of one vertex (matches the engine's STRIDE_WITH_COLOR=72 pipeline path):
+    //   [0..2]   position    (float3)
+    //   [3..5]   normal      (float3)   — points up for ground decals
+    //   [6..7]   uv0         (float2)
+    //   [8..11]  tangent     (float4)   — unused by unlit path; filled with sane defaults
+    //   [12..13] uv1         (float2)   — unused; mirrored from uv0
+    //   [14..17] color       (float4)   — per-vertex tint, alpha = 1
+    constexpr int OFF_POS = 0;
+    constexpr int OFF_NORMAL = 3;
+    constexpr int OFF_UV0 = 6;
+    constexpr int OFF_TANGENT = 8;
+    constexpr int OFF_UV1 = 12;
+    constexpr int OFF_COLOR = 14;
+
+    struct DecalQuad
+    {
+        Vector3 center;     // world position on ground (y=0 by construction)
+        float angleRad = 0; // rotation around +Y
+        float size = 1.0f;
+        float r = 1, g = 1, b = 1, a = 1;
+    };
+
+    // Write the 4 corner vertices for decal `i` into the interleaved float buffer.
+    // Quad is laid flat on the y=0 plane, oriented by `angleRad`, scaled by `size`.
+    void writeDecal(std::vector<float>& vertices, int decalIndex, const DecalQuad& d)
+    {
+        // 4 corners, rotated 90° apart:
+        // start at angleRad and step π/2 between each corner; uv pattern is (0,0)(0,1)(1,1)(1,0).
+        constexpr float kQuarter = 1.5707963267948966f;
+        const float uvs[4][2] = {{0, 0}, {0, 1}, {1, 1}, {1, 0}};
+
+        for (int corner = 0; corner < 4; ++corner) {
+            const float a = d.angleRad + static_cast<float>(corner) * kQuarter;
+            const float px = d.center.getX() + d.size * std::sin(a);
+            const float py = d.center.getY();    // already on ground
+            const float pz = d.center.getZ() + d.size * std::cos(a);
+
+            float* v = &vertices[(decalIndex * VERTS_PER_DECAL + corner) * FLOATS_PER_VERTEX];
+
+            v[OFF_POS + 0] = px;
+            v[OFF_POS + 1] = py;
+            v[OFF_POS + 2] = pz;
+
+            v[OFF_NORMAL + 0] = 0.0f;
+            v[OFF_NORMAL + 1] = 1.0f;
+            v[OFF_NORMAL + 2] = 0.0f;
+
+            v[OFF_UV0 + 0] = uvs[corner][0];
+            v[OFF_UV0 + 1] = uvs[corner][1];
+
+            // Tangent: harmless default along +X, w = 1 (handedness).
+            v[OFF_TANGENT + 0] = 1.0f;
+            v[OFF_TANGENT + 1] = 0.0f;
+            v[OFF_TANGENT + 2] = 0.0f;
+            v[OFF_TANGENT + 3] = 1.0f;
+
+            v[OFF_UV1 + 0] = uvs[corner][0];
+            v[OFF_UV1 + 1] = uvs[corner][1];
+
+            v[OFF_COLOR + 0] = d.r;
+            v[OFF_COLOR + 1] = d.g;
+            v[OFF_COLOR + 2] = d.b;
+            // Alpha must be 1 in this engine: VT_FEATURE_VERTEX_COLORS multiplies the
+            // running fragment alpha by saturate(vertexColor.a), even when the colour
+            // tints only the emissive.
+            v[OFF_COLOR + 3] = d.a;
+        }
+    }
+}
+
+class MeshDecalsExample final: public ExampleApp
+{
+public:
+    MeshDecalsExample(): ExampleApp({}) {}
+
+protected:
+    bool create() override
+    {
+        spdlog::info("*** Mesh-Decals Example ***");
+
+        // Ambient plus one dim omni (below) and nothing else; the near-black ground is
+        // what makes the emissive decals read as glowing.
+        scene()->setAmbientLight(0.2f, 0.2f, 0.2f);
+
+        _heart = std::make_unique<Asset>(
+            "heart", AssetType::TEXTURE, assetPath("textures/heart.png"));
+
+        Texture* heartTexture = _heart->resourceAs<Texture>();
+        if (!heartTexture) {
+            spdlog::error("heart.png missing at {}", assetPath("textures/heart.png"));
+            return false;
+        }
+
+        // ── Ground plane ────────────────────────────────────────────────────
+        _planeMaterial = std::make_shared<StandardMaterial>();
+        _planeMaterial->setGloss(0.6f);
+        _planeMaterial->setMetalness(0.5f);
+        _planeMaterial->setUseMetalness(true);
+        _planeMaterial->setDiffuse(Color(1.0f, 1.0f, 1.0f, 1.0f));
+        createPrimitive("plane", _planeMaterial.get(), Vector3(0.0f, 0.0f, 0.0f),
+            Vector3(20.0f, 1.0f, 20.0f));
+
+        // ── Bouncing ball ───────────────────────────────────────────────────
+        _ballMaterial = std::make_shared<StandardMaterial>();
+        _ballMaterial->setDiffuse(Color(1.0f, 1.0f, 1.0f, 1.0f));
+        _ball = createPrimitive("sphere", _ballMaterial.get());
+
+        // ── Omni light to make the ball pop a little ────────────────────────
+        auto* light = new Entity();
+        light->setEngine(engine());
+        if (auto* lc = static_cast<LightComponent*>(light->addComponent<LightComponent>())) {
+            lc->setType(LightType::LIGHTTYPE_OMNI);
+            lc->setColor(Color(0.2f, 0.2f, 0.2f, 1.0f));
+            lc->setIntensity(2.5f);
+            lc->setRange(30.0f);
+            lc->setCastShadows(true);
+            lc->setShadowBias(0.1f);
+            lc->setShadowNormalBias(0.2f);
+        }
+        light->setLocalPosition(0.0f, 8.0f, 0.0f);
+        root()->addChild(light);
+
+        // ── Decal mesh: dynamic vertex buffer + static index buffer ─────────
+        // Build CPU-side storage; we re-upload positions/colors via setData() each frame
+        // a decal is added or fades. Static indices never change after init.
+        _decalVertices.assign(static_cast<size_t>(TOTAL_VERTS) * FLOATS_PER_VERTEX, 0.0f);
+
+        // Indices: two triangles per quad (0,1,2)(2,3,0).
+        std::vector<uint16_t> decalIndices(TOTAL_INDICES);
+        for (int i = 0; i < NUM_DECALS; ++i) {
+            const uint16_t base = static_cast<uint16_t>(i * VERTS_PER_DECAL);
+            decalIndices[i * 6 + 0] = base + 0;
+            decalIndices[i * 6 + 1] = base + 1;
+            decalIndices[i * 6 + 2] = base + 2;
+            decalIndices[i * 6 + 3] = base + 2;
+            decalIndices[i * 6 + 4] = base + 3;
+            decalIndices[i * 6 + 5] = base + 0;
+        }
+
+        auto decalElements = VertexFormat::standardElements();
+        decalElements.push_back(
+            {VertexSemantic::SEMANTIC_COLOR, VertexDataType::TYPE_FLOAT32, 4, 56});
+        auto vertexFormat = std::make_shared<VertexFormat>(
+            VERTEX_STRIDE_BYTES, std::move(decalElements), true, false);
+
+        VertexBufferOptions vbOpts;
+        vbOpts.usage = BUFFER_DYNAMIC;
+        vbOpts.data.resize(_decalVertices.size() * sizeof(float));
+        std::memcpy(vbOpts.data.data(), _decalVertices.data(), vbOpts.data.size());
+        _decalVertexBuffer = device()->createVertexBuffer(vertexFormat, TOTAL_VERTS, vbOpts);
+
+        std::vector<uint8_t> indexBytes(decalIndices.size() * sizeof(uint16_t));
+        std::memcpy(indexBytes.data(), decalIndices.data(), indexBytes.size());
+        auto decalIndexBuffer = device()->createIndexBuffer(INDEXFORMAT_UINT16, TOTAL_INDICES, indexBytes);
+
+        _decalMesh = std::make_shared<Mesh>();
+        _decalMesh->setVertexBuffer(_decalVertexBuffer);
+        _decalMesh->setIndexBuffer(decalIndexBuffer);
+        Primitive prim;
+        prim.type = PRIMITIVE_TRIANGLES;
+        prim.indexed = true;
+        prim.base = 0;
+        prim.count = TOTAL_INDICES;
+        _decalMesh->setPrimitive(prim);
+        // Loose AABB covering the 20×20 plane area; decals stay within.
+        _decalMesh->setAabb(BoundingBox(Vector3(0, 0.05f, 0), Vector3(12, 0.5f, 12)));
+
+        // ── Decal material ──────────────────────────────────────────────────
+        // Black diffuse plus a bright emissive heart, tinted per vertex — the decals
+        // are pure emission, which is what makes them glow against the dark ground.
+        // The cutout is the heart's alpha, through the opacity map.
+        _decalMaterial = std::make_shared<StandardMaterial>();
+        _decalMaterial->setUseLighting(false);                  // no lights; black diffuse takes no ambient
+        _decalMaterial->setDiffuse(Color(0.0f, 0.0f, 0.0f, 1.0f));
+        _decalMaterial->setOpacityMap(heartTexture);            // alpha channel = cutout
+        _decalMaterial->setEmissive(Color(1.0f, 1.0f, 1.0f, 1.0f));
+        _decalMaterial->setEmissiveMap(heartTexture);
+        _decalMaterial->setEmissiveIntensity(10.0f);            // bright enough to bloom on HDR displays
+        _decalMaterial->setDiffuseVertexColor(false);
+        _decalMaterial->setEmissiveVertexColor(true);
+        // DEVIATION: the random decal colours are decoded as gamma, as this port has
+        // always drawn them; upstream reads the same values as linear.
+        _decalMaterial->setVertexColorGamma(true);
+        _decalMaterial->setTransparent(true);                   // route through transparent sublayer
+
+        auto blend = std::make_shared<BlendState>(BlendState::additiveBlend());  // BLEND_ADDITIVEALPHA
+        _decalMaterial->setBlendState(blend);
+
+        auto decalDepth = std::make_shared<DepthState>();
+        decalDepth->setDepthTest(true);
+        decalDepth->setDepthWrite(false);  // host plane already wrote depth; don't double-up
+        // Polygon offset to keep decals visually on top of the plane. With standard [0,1]
+        // depth and a LESS_EQUAL test, a negative bias pulls fragments toward the camera.
+        decalDepth->setDepthBias(-0.1f);
+        decalDepth->setSlopeDepthBias(-0.1f);
+        _decalMaterial->setDepthState(decalDepth);
+
+        // Wrap the dynamic mesh in a MeshInstance hosted by an empty entity.
+        auto* decalEntity = new Entity();
+        decalEntity->setEngine(engine());
+
+        auto decalMeshInstance = std::make_unique<MeshInstance>(
+            _decalMesh.get(), _decalMaterial.get(), decalEntity);
+        decalMeshInstance->setCastShadows(false);
+        decalMeshInstance->setReceiveShadows(false);
+
+        if (auto* rc = static_cast<RenderComponent*>(decalEntity->addComponent<RenderComponent>())) {
+            rc->setMaterial(_decalMaterial.get());
+            rc->setCastShadows(false);
+            rc->setReceiveShadows(false);
+            rc->addMeshInstance(std::move(decalMeshInstance));
+        }
+        root()->addChild(decalEntity);
+
+        // ── Camera ──────────────────────────────────────────────────────────
+        _camera = createCamera(Vector3(20.0f, 10.0f, 20.0f));
+        if (auto* cc = _camera->findComponent<CameraComponent>()) {
+            if (cc->camera()) {
+                cc->camera()->setClearColor(Color(0.2f, 0.2f, 0.2f, 1.0f));
+            }
+            cc->setToneMapping(TONEMAP_ACES);
+        }
+
+        _decals.resize(NUM_DECALS);
+
+        spdlog::info("Mesh-Decals: bouncing ball stamps colored hearts on the ground plane. ESC to exit.");
+        return true;
+    }
+
+    void update(const float dt) override
+    {
+        const float prevT = _t;
+        _t += dt;
+        const float t = _t;
+
+        // Bouncing ball: orbit with varying radius, sin-vertical bounce.
+        const float radius = std::abs(std::sin(t * 0.55f) * 9.0f);
+        const float prevElev = 2.0f * std::cos(prevT * 7.0f);
+        const float elev = 2.0f * std::cos(t * 7.0f);
+        _ball->setLocalPosition(
+            radius * std::sin(t),
+            0.5f + std::abs(elev),
+            radius * std::cos(t));
+
+        // Stamp a decal each time the ball crosses y=0 (sign change of elev).
+        bool dirty = false;
+        if ((prevElev < 0.0f && elev >= 0.0f) || (elev < 0.0f && prevElev >= 0.0f)) {
+            stampDecal(_decalSlot, _ball->localPosition());
+            _decalSlot = (_decalSlot + 1) % NUM_DECALS;
+            dirty = true;
+        }
+
+        // Fade all existing decals once per second by reducing vertex color magnitude.
+        // A byte colour stepped by 2 each second (out of 255) is a normalized
+        // 2/255 ≈ 0.0078 step on float colors.
+        _fadeAccumulator += dt;
+        if (_fadeAccumulator >= 1.0f) {
+            _fadeAccumulator -= 1.0f;
+            constexpr float kFadeStep = 2.0f / 255.0f;
+            for (int i = 0; i < NUM_DECALS; ++i) {
+                auto& d = _decals[i];
+                d.r = std::max(0.0f, d.r - kFadeStep);
+                d.g = std::max(0.0f, d.g - kFadeStep);
+                d.b = std::max(0.0f, d.b - kFadeStep);
+                writeDecal(_decalVertices, i, d);
+            }
+            dirty = true;
+        }
+
+        if (dirty) {
+            uploadVertexBuffer();
+        }
+
+        // Orbit camera around the origin, on the same clock as the ball.
+        _camera->setLocalPosition(
+            20.0f * std::sin(t * 0.3f),
+            10.0f,
+            20.0f * std::cos(t * 0.3f));
+        _camera->lookAt(Vector3(0.0f, 0.0f, 0.0f));
+    }
+
+    void destroy() override
+    {
+        spdlog::info("*** Mesh-Decals Example Finished ***");
+    }
+
+private:
+    void stampDecal(const int slot, const Vector3& at)
+    {
+        DecalQuad d;
+        d.center = Vector3(at.getX(), 0.0f, at.getZ());
+        d.size = 0.5f + _rand01(_rng);
+        d.angleRad = _rand01(_rng) * 3.14159265f;
+        d.r = _rand01(_rng);
+        d.g = _rand01(_rng);
+        d.b = _rand01(_rng);
+        d.a = 1.0f;
+        _decals[slot] = d;
+        writeDecal(_decalVertices, slot, d);
+    }
+
+    void uploadVertexBuffer() const
+    {
+        std::vector<uint8_t> bytes(_decalVertices.size() * sizeof(float));
+        std::memcpy(bytes.data(), _decalVertices.data(), bytes.size());
+        _decalVertexBuffer->setData(bytes);
+        _decalVertexBuffer->unlock();
+    }
+
+    std::unique_ptr<Asset> _heart;
+    std::shared_ptr<StandardMaterial> _planeMaterial;
+    std::shared_ptr<StandardMaterial> _ballMaterial;
+    std::shared_ptr<StandardMaterial> _decalMaterial;
+    std::shared_ptr<Mesh> _decalMesh;
+    std::shared_ptr<VertexBuffer> _decalVertexBuffer;
+
+    std::vector<float> _decalVertices;
+    std::vector<DecalQuad> _decals;
+
+    Entity* _ball = nullptr;
+    Entity* _camera = nullptr;
+
+    std::mt19937 _rng{2026u};
+    std::uniform_real_distribution<float> _rand01{0.0f, 1.0f};
+
+    float _t = 0.0f;
+    int _decalSlot = 0;
+    float _fadeAccumulator = 0.0f;
+};
+
+VISUTWIN_EXAMPLE_MAIN(MeshDecalsExample)

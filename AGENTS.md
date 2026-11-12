@@ -41,7 +41,7 @@ visutwin-canvas/
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
   capi/            # The C API: include/visutwin/visutwin.h (C99), the visutwin_canvas_c shared library, a C example
-  examples/        # 196 example applications derived from ExampleApp: upstream ports + three original scenes (ambient-occlusion-davinci, order-independent-transparency, visibility-range)
+  examples/        # 197 example applications derived from ExampleApp, in src/<category>/<name>.cpp named as upstream's: upstream ports + three original scenes (camera-frame/ambient-occlusion-davinci, graphics/order-independent-transparency, graphics/visibility-range)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -807,7 +807,7 @@ systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
 - **With no world supplied nothing simulates and nothing breaks.** The rigid-body
   component holds its settings, and `raycastFirst`/`raycastAll` fall back to the
   CPU sweep over collision bounds that predates the seam. Every physics example
-  (`falling-shapes`, `physics-joints`, `raycast`) supplies the Jolt world, as
+  (`falling-shapes`, `physics/joints`, `raycast`) supplies the Jolt world, as
   upstream's use a real physics engine, so only a test reaches the fallback.
 - `RigidBodyComponentSystem` resolves the world on its first update, not in its
   constructor. Component systems are built from `AppOptions` before the engine has
@@ -1011,7 +1011,7 @@ frame's compose uses too. There is no separate camera-frame tone mapping: the
 **The forward tail tone-maps the lit colour UNCLAMPED on both backends**; only the gamma
 encode clamps at 0. A channel driven negative (an albedo above 1 under metalness: the
 ambient is scaled by 1 - F0) comes back from ACES through its own formula and clamp, as
-upstream's does; clamping before the curve turned it black on one backend (`refraction`'s
+upstream's does; clamping before the curve turned it black on one backend (`materials/material-refraction`'s
 blue ring objects were yellow on Metal).
 
 **Tone mapping NONE applies NEITHER curve NOR exposure**, as upstream's
@@ -1147,7 +1147,7 @@ spelling.
 a bake is written once over QuadRender. The two backends differ deliberately:
 Metal encodes the bake into its open command buffer like any other pass and never
 WAITS (inside a frame it is submitted with the frame, outside one it is committed
-when the scope ends; `reflection-probe-dynamic` re-bakes every frame, where a stall
+when the scope ends; `graphics/reflection-cubemap` re-bakes every frame, where a stall
 would serialise CPU and GPU); Vulkan records into a one-shot buffer and WAITS, because that is what
 makes reusing the frame-scoped uniform ring and descriptor pools safe. A bake must
 also set its own blend, depth and cull state — nothing outside the frame graph
@@ -1182,6 +1182,18 @@ read the `.mjs` and match its scene, poses, materials and parameters, then recor
 any DEVIATION in the file header where the port could not follow. Only where
 upstream genuinely has no counterpart is a new scene the right answer, and that
 should be said out loud in the header.
+
+**An example is named exactly as upstream's tree names it: `<category>/<name>`.** The source
+is `examples/src/<category>/<name>.cpp`, registered as `visutwin_add_example(<category> <name>)`,
+built to `<build>/examples/<category>/<name>(.app)` (target `visutwin-<category>-<name>`), and
+the window title is derived from the two in upstream's example-browser spelling
+(`ExampleApp::title`, "Lights and Shadows › Lights Baked AO"), so an example sets no title of
+its own. When upstream moves or renames an example, move ours with it (the golden references
+under `tests/golden/<backend>/<density>x/<category>/<name>.png` and their manifests follow the
+same ids). An original scene goes in the category nearest to what it shows. Two categories may
+hold the same name (`test/text-markup`, `user-interface/text-markup`), so anything keyed on an
+example — the Vulkan pipeline cache, the bundle id `com.visutwin.<category>.<name>` — carries the
+category too.
 
 ## Live gotchas
 
@@ -1273,7 +1285,7 @@ present, but the rule below never depends on reading it.
   write at a NEGATIVE offset: a SIGBUS in `MetalUniformRingBuffer::allocate` from inside
   `generateAtlas`), and `endOfflineWork` WAITS for that work and starts the region over
   (`resetBeforeFirstFrame`), because frame 0 reuses it. Load time only: once frames run, an
-  offline scope outside a frame is committed and not waited on (`reflection-probe-dynamic`
+  offline scope outside a frame is committed and not waited on (`graphics/reflection-cubemap`
   re-bakes every frame in `postRender`). Both backends bake an atlas before the first frame
   byte-identically to one baked five frames later (`annotations`, read back with
   `Texture::read`); test a change here the same way.
@@ -1373,7 +1385,7 @@ present, but the rule below never depends on reading it.
   while its pane is active; drive it with `app.tick(performance.now())` on a timer. Two traps in
   the measurement itself: `xctrace record --launch` leaves a SECOND instance of the example
   running after its time limit (start the binary yourself and record `--all-processes`;
-  `pgrep -fl visutwin-ambient` before every recording), and a browser's frames must be
+  `pgrep -fl build-examples/examples` before every recording), and a browser's frames must be
   grouped by command buffer with 5+ encoders, not by Metal's `frame-number`. Upstream can be
   ABLATED the same way ours is, in the page: a chunk set per MATERIAL
   (`material.getShaderChunks(pc.SHADERLANGUAGE_WGSL).set(name, src)`, `shaderChunksVersion`,
@@ -1411,7 +1423,7 @@ present, but the rule below never depends on reading it.
   encoder. A browser running upstream's example shows one seven-encoder buffer per frame
   as well, so the process name is the only thing that tells the two apart. Encoder labels and debug groups set on the encoder do NOT
   reach the export's labels; only Xcode's own capture shows them. Before recording,
-  `pgrep -fl visutwin` — a stray instance of the example inflates every duration in
+  `pgrep -fl build-examples/examples` — a stray instance of the example inflates every duration in
   the trace with its overlapping passes.
 - **An unbound Metal texture reports nonzero `get_width()` but samples zero** on
   Apple GPUs. Every optional texture sample must be gated on its flags bit or its
@@ -1527,7 +1539,7 @@ present, but the rule below never depends on reading it.
   pass and `drawLocalShadowFace` set; the uniform is read only by PCSS (and VSM has its own).
   What the shader applies is the receiver NORMAL offset (`ClusterLightData::shadowNormalBias`
   on the clustered path). With the uniform subtracted as well, `lights-non-clustered`' statue
-  cast no spot shadow at all; `pcss-local` matched throughout, being PCSS.
+  cast no spot shadow at all; `test/contact-hardening-shadows` matched throughout, being PCSS.
 - **A spot COOKIE is an image, so its UV is NOT the shadow map's.** A shadow map is rendered
   top-origin and every spot shadow projection flips Y (`viewportProjectionBias`); a cookie
   sampled directly takes `LightCamera::evalSpotCookieTextureMatrix`, which undoes the flip, for
@@ -1842,7 +1854,7 @@ present, but the rule below never depends on reading it.
   texture breaks parity through any channel the shader READS, not just albedo: gloss
   picks the environment-atlas MIP — `level = (1 - gloss) * 5` — so a gloss map that
   averages 0.51 where upstream's averages 0.75 reads a heavily prefiltered level and
-  turns `refraction`'s capsules into a flat opaque wash. Settle it by setting a
+  turns `materials/material-refraction`'s capsules into a flat opaque wash. Settle it by setting a
   CONSTANT value on both sides. `textures/checkboard.png` and the whole seaside-rocks01
   set (`seaside-rocks01-gloss.jpg` included) are upstream's exact bytes.
 - **On macOS a wait for the display or the GPU must keep the main run loop serviced**
@@ -2126,7 +2138,7 @@ present, but the rule below never depends on reading it.
   leaf; a walk of `left` and `left + 1` skips most of the tree and answers rays that
   should hit as misses (no shadows, no AO). `LightmapperBvh` stores both children,
   and `tests/lightmapperBvhTests.cpp` checks any-hit against brute force over every
-  triangle — the only oracle that cannot share a tree bug. `lightmap-bake` starts
+  triangle — the only oracle that cannot share a tree bug. `lights-and-shadows/lights-baked-a-o` starts
   with the GPU bake; the CPU bake runs only when C is pressed, so a default
   screenshot proves nothing about the CPU path.
 - **A glTF attribute is not always float, and refusing a quantised one drops the
@@ -2306,7 +2318,7 @@ present, but the rule below never depends on reading it.
   `tests/glbVertexAttributeTests.cpp` holds both.
   Anisotropy does NOT use this frame on a material without a normal, clearcoat-normal,
   height or anisotropy map: like upstream it takes an OBJECT-SPACE frame, B = N x objectUp,
-  T = N x B (the `objectUp` varying, the normal matrix's +Y). On a UV frame the `anisotropy`
+  T = N x B (the `objectUp` varying, the normal matrix's +Y). On a UV frame the `materials/material-anisotropic`
   spheres stretch their reflections 90 degrees off upstream's. The exception is a mesh with
   tangents of its OWN, which upstream lays anisotropy on whenever the vertex format has them:
   a glTF primitive with `TANGENT` marks its StandardMaterial `setMeshTangents(true)`
@@ -2317,7 +2329,7 @@ present, but the rule below never depends on reading it.
 - **Only `StandardMaterial::twoSidedLighting` flips a back face's normal toward the viewer**
   (`VT_FEATURE_DOUBLE_SIDED`), as upstream; culling nothing (`CULLFACE_NONE`) alone draws a
   back face with its own normal, so a plane seen from behind takes its ambient from the
-  side facing away (`light-physical-units`' and `area-light`'s markers, `opacity`). The
+  side facing away (`light-physical-units`' and `lights-and-shadows/area-lights`'s markers, `opacity`). The
   glTF and Assimp parsers set BOTH for a double-sided material. A material that wants
   lit back faces says `setTwoSidedLighting(true)`; `tests/shaderCompositionTests.cpp` and
   `tests/glbMaterialPathsTests.cpp` hold both halves.
@@ -2370,7 +2382,7 @@ present, but the rule below never depends on reading it.
   material through `createGltfMaterial`, so white, metallic 1, roughness 1 (a rough
   white metal reflecting the environment), as upstream's `createDefaultMaterial`. It is
   never the file's first material, which an invalid index used to fall back to
-  (`glb-loader`'s cube took the plane's material; `instancing-glb`'s boxes were a grey
+  (`loaders/glb`'s cube took the plane's material; `instancing-glb`'s boxes were a grey
   dielectric). Point clouds keep their own fallback. `tests/glbMaterialPathsTests.cpp`.
 - **glTF cameras and `KHR_lights_punctual` lights are imported DISABLED**, as upstream's
   `createCamera` / `createLight` build them; an app enables the ones it wants
@@ -2436,7 +2448,7 @@ present, but the rule below never depends on reading it.
   `setUseMetalnessSpecularColor(true)` (KHR_materials_specular sets it). A frame
   differs from a literal 0.04 wherever a metallic-rough material carries
   `KHR_materials_ior` or a black specular colour: `procedural-sky`'s sand
-  (`specularColorFactor [0,0,0]` — no specular at all, as upstream), `refraction`
+  (`specularColorFactor [0,0,0]` — no specular at all, as upstream), `materials/material-refraction`
   (IOR 1.33) and, until its removal on 2026-11-04 with the old `post-processing` scene, the
   mosquito amber (1.55).
 - **Anisotropy has a DIRECTION** (`StandardMaterial::setAnisotropyRotation`, degrees,
@@ -2632,7 +2644,7 @@ present, but the rule below never depends on reading it.
   upstream's (a 0.5 grey at about 0.73). The kernel's randomness is an INTEGER hash (PCG of the particle
   index and a step counter), one source for both backends, and ONE random vector per life
   both places a particle and picks its point between each graph and its graph2 (upstream's
-  `rndFactor`): drawn independently, `particles-mesh`' cloud loses its central column; `fract(sin(x) * 43758)` is not
+  `rndFactor`): drawn independently, `particles/mesh`' cloud loses its central column; `fract(sin(x) * 43758)` is not
   uniform on the GPU (a spark fountain 10% narrower than upstream) and not the same on
   the two backends. An unset graph is a CurveSet whose curves have NO KEYS — a default
   `CurveSet` still holds one empty curve, and treating that as a zero graph2 halves
@@ -3075,7 +3087,7 @@ present, but the rule below never depends on reading it.
   the image stays put. Under ortho the footprint's Jacobian is also evaluated at view
   position (0, 0, 1), and splat fog takes the view depth `-view.z`, not `clip.w` (1 for
   every splat under ortho).
-  Only `gsplat-spherical-harmonics` (the skull, three SH bands) has view-dependent colour,
+  Only `gaussian-splatting/simple-sh` (the skull, three SH bands) has view-dependent colour,
   and it uses a perspective camera, so the ortho rule is still shown by no render.
 - **A splat's clip z is CLAMPED to the depth range, and that only works because
   its screen-space kernel is clamped too.** A gaussian splat is a quad built around
@@ -3227,7 +3239,7 @@ present, but the rule below never depends on reading it.
   colour (`ShaderCode::depthOnlyFragment`, which every Slang shader now takes from its own
   SPIR-V, `spirvFragmentWritesNoOutput`), so without it every splat cast its whole quad. Prove
   a change here with the alpha clip as the stimulus (0.0001 against 0.9 must move the same
-  pixels on both backends); `gsplat-shadow-orientation` and `gsplat-spherical-harmonics`
+  pixels on both backends); `gsplat-shadow-orientation` and `gaussian-splatting/simple-sh`
   compare with upstream.
 - **A mesh instance's parameter overrides are a COPY of its material's block, keyed on
   itself.** `MeshInstance::setParameter` takes the material's names and conventions
@@ -3361,7 +3373,7 @@ present, but the rule below never depends on reading it.
   calls it from `execute()` too; one that creates a shader in `execute()` alone still
   renders, and waits alone for its compile the first time. An override must cost nothing
   once its shaders exist. Measure a change here COLD: move
-  `$(getconf DARWIN_USER_CACHE_DIR)/com.visutwin.<example>` aside for the run and put
+  `$(getconf DARWIN_USER_CACHE_DIR)/com.visutwin.<category>.<name>` aside for the run and put
   it back (a warm first frame is ~40 ms whatever the code does).
 - **Vulkan keeps its compiled shaders between runs itself** (`ShaderDiskCache`, in
   `~/Library/Caches/visutwin-canvas` or `$XDG_CACHE_HOME/visutwin-canvas`;
@@ -3833,7 +3845,7 @@ present, but the rule below never depends on reading it.
   engine's render components misses them. A directional FIT and PASS with their own
   sweeps disagree about exactly that: the fit sizes the shadow map's depth range to the
   unbatched scene while the pass draws batches into it, so a batch outside that range
-  is clipped out of the map and its shadow is simply absent (`dynamic-batching` shows
+  is clipped out of the map and its shadow is simply absent (`graphics/batching-dynamic` shows
   it). The camera argument filters components by layer, and a caller that fits or
   draws for one camera must pass it. Two sweeps of the same thing drift; use the
   collector.
@@ -3901,7 +3913,7 @@ present, but the rule below never depends on reading it.
   upstream's kernels, shared by the directional, local and clustered-atlas paths. Until
   2026-10-06 Vulkan compared 9 or 25 texels with uniform weights: every shadow edge a
   staircase of whole texels, invisible at small texels and plain where a texel covers
-  several pixels (`dynamic-batching`'s 150 m shadow distance: 14k pixels off by up to 107
+  several pixels (`graphics/batching-dynamic`'s 150 m shadow distance: 14k pixels off by up to 107
   counts; now none above 6, and every golden case agrees across backends to a few
   counts). Gather at the shared CORNER, not at the tap point: there the hardware's
   sub-texel rounding cannot pick a different 2x2 block from the one the weights assume.
@@ -4017,7 +4029,7 @@ present, but the rule below never depends on reading it.
   directional shadow; other cameras fit only REALTIME lights that light one of their
   layers, because a one-shot or static shadow is rendered once and every camera must
   sample the fit it was rendered with. With one fit for all, every camera but one
-  sampled the map with another camera's matrices: `reflection-probe-dynamic`'s six
+  sampled the map with another camera's matrices: `graphics/reflection-cubemap`'s six
   capture faces saw the whole floor in shadow.
 - **The default is ONE shadow cascade, as upstream.** A one-shot directional shadow
   is unusable with more than one: the receiver picks its cascade by VIEW depth, so
@@ -4031,7 +4043,7 @@ present, but the rule below never depends on reading it.
   spans the camera frustum out to the shadow distance, so the ortho radius is about
   the distance and the texel is `2 * radius / resolution`: 100 m at 2048 is a 10 cm
   texel, and a 1.8 m character's legs are one texel wide and pop as it moves.
-  `anim-stategraph` follows upstream's `locomotion` at 16; max(radius * 4, 100) makes
+  `animation/locomotion` follows upstream's `locomotion` at 16; max(radius * 4, 100) makes
   its shadow a faint smear. Ablate before blaming the engine — that scene's big white
   zigzag survives a receive-only floor, a 16 m distance and a maximal bias, because it
   is the logo in `playcanvas-grey.png` stretched over the floor exactly as upstream
@@ -4041,7 +4053,7 @@ present, but the rule below never depends on reading it.
   A second cascade is not a free sharpening: the atlas splits into 2x2 quadrants,
   so every cascade renders at HALF the resolution, and the subject has to fall in
   the near one to gain anything: two cascades at distribution 0.5 split
-  `anim-stategraph` at 4 m and put its 5 m character in the far cascade, with a softer
+  `animation/locomotion` at 4 m and put its 5 m character in the far cascade, with a softer
   shadow (3 cm texel vs 1.7). Reach for a cascade when the far one must cover far
   more floor than the subject needs, not to fix the subject.
 - **A directional receiver's shadow depth is SATURATED, never range-tested.** The
@@ -4120,7 +4132,7 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
 12. `VISUTWIN_SHADOW_TYPE=n` sets `ShadowType` n on every shadow-casting directional
     light (0 PCF3, 2 VSM, 4 PCF5, 5 PCF1, 6 PCSS). `shadow-cascades` otherwise reaches VSM and
     PCSS only through a key press. `VISUTWIN_LOCAL_SHADOW_TYPE=n` does the same for every
-    shadowed spot and omni light (`pcss-local` with 2 drives the spot VSM path, which no
+    shadowed spot and omni light (`test/contact-hardening-shadows` with 2 drives the spot VSM path, which no
     upstream example uses).
 13. `VISUTWIN_DEBUG_PASS=n` renders every camera with `DebugShaderPass` n (1 ALBEDO,
     2 WORLDNORMAL, 9 LIGHTING). Step 1 above without editing an example: frames that
@@ -4277,11 +4289,11 @@ What stays HERE is only what bites during UNRELATED work.
   re-measure on the new scene.
 - **UI not ported yet**: right-to-left text, XR select events and grapheme clusters (emoji
   sequences are several symbols). The twenty-two UI examples
-  (`ui-text`, `ui-text-markup`, `world-to-screen`, `ui-buttons`, `world-ui`, `input-events`,
-  `screen-scaling`, `ui-panel`, `text-justify`, `text-typewriter`, `masking`, `layout-group`,
+  (`user-interface/text`, `user-interface/text-markup`, `world-to-screen`, `user-interface/buttons`, `world-ui`, `input-events`,
+  `screen-scaling`, `user-interface/panel`, `text-justify`, `text-typewriter`, `masking`, `layout-group`,
   `scroll-view`, `common-widgets`, `anchors`, `image-fit`, `drag-and-drop`, `render-to-image`,
-  `text-auto-font-size`, `ui-custom-shader` — upstream's user-interface/custom-shader — and
-  `ui-particle-system` — user-interface/particle-system — and `text-localization`) port
+  `text-auto-font-size`, `user-interface/custom-shader` — upstream's user-interface/custom-shader — and
+  `user-interface/particle-system` — user-interface/particle-system — and `text-localization`) port
   upstream's CURRENT versions; `text-emojis` is not ported yet (it draws with upstream's
   `CanvasFont`, a system-font rasteriser this port does not have).
 - **Example coverage gaps.** Nothing exercises: SH light probes (drive them with
@@ -4298,9 +4310,9 @@ What stays HERE is only what bites during UNRELATED work.
   `ccNormalW` and the gloss-mapped `ccAlpha2`, not the base normal and the
   material's flat coat roughness. `ccNormalW` is the FACE normal (or the coat's own
   normal map in the geometric frame), never the base normal map: the coat is a layer of
-  its own, so a coat over a bumpy base reflects smoothly (`clearcoat`'s "Base normal
+  its own, so a coat over a bumpy base reflects smoothly (`materials/clear-coat`'s "Base normal
   map" row). Check with `VISUTWIN_LOCAL_LIGHT=6,2,1,3,15` on
-  `clearcoat`: the light's contribution matches between backends to 0.00 counts on
+  `materials/clear-coat`: the light's contribution matches between backends to 0.00 counts on
   average. Sheen, iridescence and Oren-Nayar
   under a local light are ported line for line from the main loop but no example drives
   them. When a term lands in one light loop, add it to the other (main, cluster). An area
@@ -4314,7 +4326,7 @@ What stays HERE is only what bites during UNRELATED work.
   image read through a shared sampler must be filtered EXACTLY as the per-texture
   sampler would filter it — check anisotropy, not just filter and wrap — or every
   oblique surface diverges by backend (a smooth map such as the parallax height map
-  hides it; a ribbed coat normal map shows it). Reference: `clearcoat` on Vulkan reads
+  hides it; a ribbed coat normal map shows it). Reference: `materials/clear-coat` on Vulkan reads
   a mean absolute difference of 0.002 counts against Metal on the whole 900x700 frame,
   with 12 pixels above 8 counts — isolated specular glints.
 - **Parity gaps porting met, deferred:** (1) a UI image or sprite whose texture is NOT

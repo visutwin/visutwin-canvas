@@ -24,8 +24,8 @@ for details.
   LICENCE TO CONFIRM. The pixels must stay as they are: gloss drives the
   environment-atlas refraction lookup's mip (`level = (1 - gloss) * 5`), and a
   substitute averaging 0.51 instead of this set's 0.75 sampled a prefiltered level,
-  rendering `refraction`'s capsules a flat opaque wash instead of glass. Used by
-  `refraction` and `area-light`.
+  rendering `materials/material-refraction`'s capsules a flat opaque wash instead of glass. Used by
+  `materials/material-refraction` and `lights-and-shadows/area-lights`.
 - `seaside-rocks01-color.ktx2`, `-gloss.ktx2`, `-normal.ktx2` — ETC1S KTX2 (11 mips) encoded
   here with the basisu CLI from the three JPEGs above, in the layout of upstream's `.basis` set
   (sRGB colour, linear gloss, the normal map packed with y in green and x in alpha), which this
@@ -42,7 +42,7 @@ for details.
   says so); WebP, read through the shared libwebp decoder. Used by `impact-effects`.
 - `particles-coins.png` (4x6 coin sprite sheet) and `particles-bonus.png` (4x2 bonus icons) —
   byte-identical to upstream's example sprites, which record no licence. LICENCE TO CONFIRM.
-  Used by `particles-random-sprites`.
+  Used by `particles/random-sprites`.
 - `normal-map.png` — tiling normal map (CC-0)
 - `sample-video-still.jpg` — 640x360 still (at 2 s) of upstream's example video
   `SampleVideo_1280x720_1mb.mp4`, a clip of Big Buck Bunny (**CC-BY 3.0**, © Blender
@@ -66,8 +66,8 @@ for details.
   Roboto (#9577) and the ports followed. (`courier.*` was removed the same day: it has no
   licensor — see THIRD_PARTY_NOTICES.)
 - `roboto-regular.json` + `roboto-regular.png` + `roboto-regular1.png` — the same for Roboto
-  Regular, same licence. Used by `ui-text`, `ui-text-markup`, `post-processing`, `raycast`,
-  `anisotropy` and `lightmap-sources`.
+  Regular, same licence. Used by `user-interface/text`, `user-interface/text-markup`, `post-processing`, `raycast`,
+  `materials/material-anisotropic` and `lightmap-sources`.
 - `roboto-bold.json` + `roboto-bold.png` + `roboto-bold1.png` — upstream's two-page MSDF
   atlas of Roboto Bold 2.138 (Basic Latin through Latin Extended-A), byte-identical to
   upstream's example asset. Roboto is **Apache-2.0**; the notice and licence are in
@@ -173,7 +173,7 @@ Mirrored from the upstream examples (for visual parity):
   test asset (no recorded licence). Used by `two-sided-lighting`.
 - `skull.compressed.ply` — a compressed gaussian splat with spherical harmonics,
   byte-identical to upstream's `splats/skull.compressed.ply` (no recorded licence). Used
-  by `gsplat-spherical-harmonics`.
+  by `gaussian-splatting/simple-sh`.
 - `Lights.glb` — four `KHR_lights_punctual` lights and a mesh, byte-identical to
   upstream's example asset (exported from Blender with the physically based light units
   work); upstream records no separate licence — see THIRD_PARTY_NOTICES. Used by
@@ -199,7 +199,7 @@ Mirrored from the upstream examples (for visual parity):
   Draco, byte-identical to upstream's, see .txt). Used by `annotations`.
 - `cat.glb` — Egyptian Cat Statue by Ankledot, Sketchfab (**CC-BY 4.0**, webp textures re-encoded to png, see .txt)
 - `tamiya-dt03.compressed.ply` — Tamiya DT-03 by Simon Bethke, SuperSplat
-  (**CC-BY 4.0**, see .txt). Used by `gsplat-example` and `gsplat-shadows`. Downloaded as a 154 MB
+  (**CC-BY 4.0**, see .txt). Used by `gaussian-splatting/simple` and `gaussian-splatting-fx/shadows`. Downloaded as a 154 MB
   uncompressed 3DGS PLY and converted with `tools/ply_to_compressed_ply.py`
   (thinned to 500k splats, SH dropped) — rerun that script to regenerate.
 - `sh_sphere.ply`, `compressed_rings.ply`, `torus_splats.ply` — procedurally

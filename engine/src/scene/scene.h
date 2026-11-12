@@ -221,7 +221,7 @@ namespace visutwin::canvas
         // grid and their shadows packed into one LightTextureAtlas. Off, every
         // shadow-casting local owns its own map (a cubemap for an omni light) and
         // at most two of them light through the main array — the path PCSS local
-        // shadows and cookies still need (see pcss-local and lights).
+        // shadows and cookies still need (see test/contact-hardening-shadows and lights).
         bool _clusteredLightingEnabled = true;
 
         LightingParams _lighting;

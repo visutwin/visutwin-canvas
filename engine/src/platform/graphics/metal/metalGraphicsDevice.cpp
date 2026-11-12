@@ -1138,7 +1138,7 @@ namespace visutwin::canvas
         // The work is in the open command buffer. Inside a frame it is committed with
         // the frame, in order; outside one it is committed here. NOT waited on either
         // way: in-engine callers only sample the result from later GPU work on the
-        // same queue, which is already ordered, and reflection-probe-dynamic re-bakes
+        // same queue, which is already ordered, and graphics/reflection-cubemap re-bakes
         // every frame — a stall there would serialise CPU and GPU for nothing.
         // Vulkan's side waits because it must, to reuse frame-scoped resources safely,
         // not because callers need completion.
