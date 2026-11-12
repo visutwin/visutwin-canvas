@@ -592,6 +592,20 @@ namespace visutwin::canvas
                 cpuStatsFirst = cpuStatsLast = -1;
             }
         }
+        // VISUTWIN_GPU_CAPTURE=<file.gputrace> writes ONE frame's GPU work, frame
+        // VISUTWIN_GPU_CAPTURE_FRAME (60 by default; with VISUTWIN_FIXED_DT the same state every
+        // run), to a GPU trace document Xcode opens: its shader profiler times each pipeline and
+        // each line of its shaders, which no command-line tool reports. Metal only; the file
+        // must not exist yet. The run carries on after the capture.
+        const char* gpuCapturePath = std::getenv("VISUTWIN_GPU_CAPTURE");
+        int gpuCaptureFrame = -1;
+        if (gpuCapturePath && *gpuCapturePath) {
+            gpuCaptureFrame = 60;
+            if (const char* value = std::getenv("VISUTWIN_GPU_CAPTURE_FRAME"); value && *value) {
+                gpuCaptureFrame = std::max(std::atoi(value), 0);
+            }
+        }
+        bool gpuCapturing = false;
         std::vector<std::array<double, 12>> cpuSamples;
         // Per-pass GPU times of the same frames, by pass name in first-seen order.
         std::vector<std::pair<std::string, std::vector<double>>> gpuPassSamples;
@@ -641,6 +655,16 @@ namespace visutwin::canvas
                 _cameraControls->setInputBlocked(_miniStats && _miniStats->capturesPointer());
             }
 
+            // The capture spans this frame's update (compute dispatches are encoded there) and
+            // its render, which commits the frame.
+            if (frameIndex == gpuCaptureFrame) {
+                gpuCapturing = _engine->graphicsDevice()->beginGpuCapture(gpuCapturePath);
+                if (!gpuCapturing) {
+                    spdlog::warn("VISUTWIN_GPU_CAPTURE: frame {} not captured (a GPU trace document is "
+                        "written on Metal only)", frameIndex);
+                }
+            }
+
             update(frameDt);
             const auto updateStart = std::chrono::steady_clock::now();
             _engine->update(dt);
@@ -650,6 +674,11 @@ namespace visutwin::canvas
             syncUiCamera();
             _engine->render();
             postRender();
+            if (gpuCapturing) {
+                _engine->graphicsDevice()->endGpuCapture();
+                gpuCapturing = false;
+                spdlog::info("Frame {} captured to {}: open it in Xcode, then Profile", frameIndex, gpuCapturePath);
+            }
 
             if (cpuStatsFirst >= 0 && frameIndex >= cpuStatsFirst && frameIndex <= cpuStatsLast) {
                 const auto& stats = _engine->stats();
@@ -736,6 +765,12 @@ namespace visutwin::canvas
 
         if (_backend == Backend::Metal) {
             SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
+            // VISUTWIN_GPU_CAPTURE (see run()): Metal writes a GPU trace document only when
+            // MTL_CAPTURE_ENABLED is set before the FIRST Metal device exists, which is SDL's
+            // renderer's, created below.
+            if (const char* capture = std::getenv("VISUTWIN_GPU_CAPTURE"); capture && *capture) {
+                setenv("MTL_CAPTURE_ENABLED", "1", 0);
+            }
         }
 
         if (!SDL_Init(SDL_INIT_VIDEO)) {

@@ -1422,7 +1422,8 @@ present, but the rule below never depends on reading it.
   rows (depth 1, 2) when another process's work preempts it, so SUM the rows per
   encoder. A browser running upstream's example shows one seven-encoder buffer per frame
   as well, so the process name is the only thing that tells the two apart. Encoder labels and debug groups set on the encoder do NOT
-  reach the export's labels; only Xcode's own capture shows them. Before recording,
+  reach the export's labels; only Xcode's own capture shows them (`VISUTWIN_GPU_CAPTURE` writes
+  one, with per-line shader costs). Before recording,
   `pgrep -fl build-examples/examples` — a stray instance of the example inflates every duration in
   the trace with its overlapping passes.
 - **An unbound Metal texture reports nonzero `get_width()` but samples zero** on
@@ -4208,6 +4209,15 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
     `VISUTWIN_DUMP_PROPERTIES=1` (or a path, for one subtree) logs every entity's properties
     after it: the way to find an example's entity names and to change a value without editing
     the example.
+19. `VISUTWIN_GPU_CAPTURE=<file.gputrace>` writes ONE frame's GPU work, frame
+    `VISUTWIN_GPU_CAPTURE_FRAME` (60 by default), to a GPU trace document for Xcode, whose
+    shader profiler times every pipeline and every line of its shaders: the per-line cost
+    no command-line tool reports (`xctrace` stops at encoders and limiters). Metal only
+    (`GraphicsDevice::beginGpuCapture` / `endGpuCapture`; the harness sets
+    `MTL_CAPTURE_ENABLED=1` before SDL's renderer makes the first Metal device, which Metal
+    requires). Use a Release build, `VISUTWIN_FIXED_DT` for a repeatable frame, and a path
+    under the gitignored `docs/`: a capture is hundreds of MB (anti-aliasing: 459 MB), and the
+    file must not exist yet.
 
 Animated examples cannot be screenshot-diffed across shader changes unless they run
 under `VISUTWIN_FIXED_DT`.
@@ -4379,7 +4389,14 @@ What stays HERE is only what bites during UNRELATED work.
   for its comparator sort) is SLOWER here: draws arrive in creation order, nearly grouped,
   where `std::stable_sort` takes 0.025 ms at 5,461 draws (0.6% of render) and a radix sort
   about 6x that; it wins only on shuffled lists. Revisit them only with a scene that shows
-  them in a profile.
+  them in a profile. GPU, measured and dropped on `anti-aliasing`'s forward pass (2026-11-12,
+  alternated runs, whose noise is about +/-0.02 ms): reading a material map through the
+  bindless table against binding it directly (no difference); reading a glTF ORM texture once
+  for occlusion and metal-rough instead of through two lanes (no difference: the second read
+  is a cache hit); compiling out the runtime-gated fog, non-directional light code, second
+  directional shadow slot, tone-mapping tail and in-shader sRGB decode (under 0.02 ms
+  together). The 16x anisotropy costs about 0.02-0.03 ms over upstream's 1x. What is left of
+  the gap to upstream's forward pass (~0.07 ms there) is spread thinly over the shader.
 - **The ambient diffuse is scaled by `(1 - specularity)` on both backends**, right
   where upstream's `litForwardBackend` does it after `addAmbient`: per channel, F0 in
   either workflow, only when the material renders specular, and only on the ambient

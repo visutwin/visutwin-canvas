@@ -183,6 +183,8 @@ namespace visutwin::canvas
         bool supportsDualSourceBlending() const override { return true; }
         // So is a blend state per colour attachment.
         bool supportsIndependentBlending() const override { return true; }
+        bool beginGpuCapture(const std::string& path) override;
+        void endGpuCapture() override;
 
         /// ASTC on the Apple GPU families, BC where the device reports it (every Mac,
         /// Apple silicon included); nothing else is block-compressed here.
@@ -358,6 +360,7 @@ namespace visutwin::canvas
 
         MTL::Device* _device;
         bool _ownsDevice = false;
+        bool _gpuCaptureActive = false;   // beginGpuCapture started a capture endGpuCapture ends
         MTL::CommandQueue* _commandQueue;
 
         CA::MetalLayer* _metalLayer;

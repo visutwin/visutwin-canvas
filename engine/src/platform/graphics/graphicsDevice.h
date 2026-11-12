@@ -1233,6 +1233,16 @@ namespace visutwin::canvas
         /// per sub-draw, with the state bound once.
         virtual bool supportsMultiDrawIndirect() const { return false; }
 
+        /// Captures the device's GPU work from now until endGpuCapture into a GPU trace document
+        /// at `path` (Metal: a .gputrace, which Xcode opens with its shader profiler, per-line
+        /// costs included). Metal writes one only when MTL_CAPTURE_ENABLED=1 was in the
+        /// environment before the device was created, and refuses a path that exists. False
+        /// when nothing is captured: the reason is logged, and a backend without a capture
+        /// says so.
+        virtual bool beginGpuCapture(const std::string& /*path*/) { return false; }
+        /// Ends the capture beginGpuCapture started, with the work encoded since submitted into it.
+        virtual void endGpuCapture() {}
+
         /// True when textures of this block-compressed format can be created and sampled
         /// on this device. ASTC is native to Apple GPUs, BC to desktop GPUs, and neither is
         /// universal: a transcoder must ask before choosing its target, or the image

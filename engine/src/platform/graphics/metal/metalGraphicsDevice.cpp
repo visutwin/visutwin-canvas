@@ -1971,6 +1971,47 @@ namespace visutwin::canvas
         return uniforms;
     }
 
+    bool MetalGraphicsDevice::beginGpuCapture(const std::string& path)
+    {
+        if (!_device || _gpuCaptureActive) {
+            return false;
+        }
+        auto* manager = MTL::CaptureManager::sharedCaptureManager();
+        if (!manager->supportsDestination(MTL::CaptureDestinationGPUTraceDocument)) {
+            spdlog::error("GPU capture: Metal writes no GPU trace document; set MTL_CAPTURE_ENABLED=1 before "
+                "the device is created");
+            return false;
+        }
+        // Work encoded before the capture belongs to another frame: submitted now, it stays out.
+        flushCommands();
+        auto* descriptor = MTL::CaptureDescriptor::alloc()->init();
+        descriptor->setCaptureObject(_device);
+        descriptor->setDestination(MTL::CaptureDestinationGPUTraceDocument);
+        descriptor->setOutputURL(NS::URL::fileURLWithPath(NS::String::string(path.c_str(), NS::UTF8StringEncoding)));
+        NS::Error* error = nullptr;
+        _gpuCaptureActive = manager->startCapture(descriptor, &error);
+        descriptor->release();
+        if (!_gpuCaptureActive) {
+            spdlog::error("GPU capture to '{}' failed: {}", path,
+                error && error->localizedDescription() ? error->localizedDescription()->utf8String() : "unknown");
+            return false;
+        }
+        spdlog::info("GPU capture started: {}", path);
+        return true;
+    }
+
+    void MetalGraphicsDevice::endGpuCapture()
+    {
+        if (!_gpuCaptureActive) {
+            return;
+        }
+        // The frame's work still in the open command buffer belongs in the capture.
+        flushCommands();
+        MTL::CaptureManager::sharedCaptureManager()->stopCapture();
+        _gpuCaptureActive = false;
+        spdlog::info("GPU capture finished");
+    }
+
     void MetalGraphicsDevice::bindMapLanes(MTL::RenderCommandEncoder* passEncoder)
     {
         // The draw's map lanes (materialMapLanes.h), 112 bytes at buffer 14 on both stages;
