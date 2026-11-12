@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 31.10.2026
 //
-// Port of upstream graphics/multi-draw-instanced.
+// Port of upstream graphics-advanced/multi-draw-instanced.
 //
 // Sub-draws of one instanced mesh, each with its own instance range. A sphere (radius 0.5, 24 x 24
 // bands), a unit box and a cylinder (radius 0.5, height 1, 32 cap segments) go into one mesh, and

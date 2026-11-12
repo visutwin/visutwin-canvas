@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 31.10.2026
 //
-// Port of upstream graphics/multi-draw.
+// Port of upstream graphics-advanced/multi-draw.
 //
 // One mesh drawn as many sub-draws (MeshInstance::setMultiDraw). A 120 x 120 terrain is built as a
 // grid of 40 x 40 patches, each a 32 x 32-segment plane displaced by the canyon heightmap's red

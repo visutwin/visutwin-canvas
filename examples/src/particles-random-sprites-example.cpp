@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 13.10.2026
 //
-// Port of upstream graphics/particles-random-sprites.
+// Port of upstream particles/random-sprites.
 //
 // Two particle systems, each picking a random animation from its sprite sheet for every
 // particle. The left one plays the coin sheet (4x6 tiles: four animations of six frames, a coin

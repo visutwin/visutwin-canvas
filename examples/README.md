@@ -1,6 +1,6 @@
 # VisuTwin Canvas Examples
 
-197 example applications, each a small self-contained program built on the
+196 example applications, each a small self-contained program built on the
 engine. All but three are ports of [PlayCanvas](https://playcanvas.com/) engine
 examples, so they can be compared side by side with upstream: the file header names
 the upstream example and lists every place the port could not follow it. The
@@ -187,7 +187,6 @@ The second column is the upstream example each one ports, as
 | histogram | compute/histogram | Luminance histogram of the grabbed scene colour, built by a compute pass in the camera's after-passes |
 | scene-maps | compute/scene-maps | A compute scanner pulse reading the camera's scene depth and colour maps after it renders |
 | outlines-colored | graphics/outlines-colored | Coloured outlines on laboratory objects under SSAO |
-| model-outline | graphics/model-outline | An outline around one of four primitives |
 | taa-alpha | test/taa-alpha | A camera frame with TAA keeping the alpha of its own render target |
 | ground-fog | shaders/ground-fog | A soft fog plane over a terrain, faded against the scene depth |
 
@@ -220,12 +219,12 @@ The second column is the upstream example each one ports, as
 | Example | Upstream | Description |
 |---------|----------|-------------|
 | gsplat | gaussian-splatting/simple | Gaussian splat on a shadow-receiving ground |
-| gsplat-spherical-harmonics | gaussian-splatting/spherical-harmonics | A splat with view-dependent colour from SH bands, casting its shadow |
-| gsplat-shadows | gaussian-splatting/shadows | Two splat models casting onto a shadow catcher under turning lights |
+| gsplat-spherical-harmonics | gaussian-splatting/simple-sh | A splat with view-dependent colour from SH bands, casting its shadow |
+| gsplat-shadows | gaussian-splatting-fx/shadows | Two splat models casting onto a shadow catcher under turning lights |
 | gsplat-shadow-orientation | test/gsplat-shadow-orientation | Thin splats whose shadows must lie parallel to them |
 | particles | compute/particles | 1M compute-simulated particles colliding with spheres |
-| particles-anim-index | graphics/particles-anim-index | Sprite-sheet animation rows selected by animIndex |
-| particles-random-sprites | graphics/particles-random-sprites | Coin and bonus sprite sheets, each particle picking a random animation |
+| particles-anim-index | particles/anim-index | Sprite-sheet animation rows selected by animIndex |
+| particles-random-sprites | particles/random-sprites | Coin and bonus sprite sheets, each particle picking a random animation |
 | impact-effects | particles/impact-effects | Bullet hits, explosions and magic bursts of one-shot emitters, lights and decals, raycast against the reflecting room |
 
 ### Scene, camera & loading
@@ -243,7 +242,7 @@ The second column is the upstream example each one ports, as
 | glb-loader | loaders/glb | A GLB carrying meshes, lights and cameras |
 | draco-glb | loaders/draco-glb | A Draco-compressed glTF |
 | obj-loader | loaders/obj | An OBJ file through the OBJ parser |
-| layers | graphics/layers | X-ray, character and front layers |
+| layers | graphics-advanced/layers | X-ray, character and front layers |
 | multi-view | graphics/multi-view | One board through three cameras and viewports |
 | render-to-texture | render-targets/render-to-texture | A camera rendering into a texture shown in the scene |
 | texture-array-impostors | render-targets/texture-array-impostors | A statue baked from 64 directions into texture-array layers, drawn as thousands of instanced impostors |

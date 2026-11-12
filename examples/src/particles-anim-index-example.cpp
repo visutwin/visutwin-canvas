@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 05.09.2026
 //
-// Port of upstream graphics/particles-anim-index.
+// Port of upstream particles/anim-index.
 //
 // Four particle systems at the corners of the view, all sharing one 4x4 sprite
 // sheet of numbered tiles. Each declares four frames per animation and a different

@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 31.10.2026
 //
-// Port of upstream graphics/portal.
+// Port of upstream graphics-advanced/portal.
 //
 // A portal made with the stencil buffer. A plane filling the inside of a portal frame renders
 // first, in a layer of its own ahead of the world layer, writing no colour and no depth: every

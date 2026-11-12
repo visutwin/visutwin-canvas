@@ -41,7 +41,7 @@ visutwin-canvas/
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
   capi/            # The C API: include/visutwin/visutwin.h (C99), the visutwin_canvas_c shared library, a C example
-  examples/        # 197 example applications derived from ExampleApp: upstream ports + three original scenes (ambient-occlusion-davinci, order-independent-transparency, visibility-range)
+  examples/        # 196 example applications derived from ExampleApp: upstream ports + three original scenes (ambient-occlusion-davinci, order-independent-transparency, visibility-range)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts

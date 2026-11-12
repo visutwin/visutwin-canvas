@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 21.03.2026
 //
-// Port of upstream's graphics/layers: composes the frame from multiple layers.
+// Port of upstream's graphics-advanced/layers: composes the frame from multiple layers.
 // An X-Ray layer draws a character silhouette through walls using a greater depth
 // test, a Character layer renders the walking character on top of it, and a Front
 // layer with depth clearing keeps a held item from clipping into the scene.

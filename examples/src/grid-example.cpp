@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 24.10.2026
 //
-// Port of upstream graphics/grid.
+// Port of upstream debug/grid.
 //
 // A reference grid with every setting of the Grid. A box, a sphere, a dark plane and a capsule
 // stand half through it on a 2 x 2 layout, lit by a default directional light at euler

@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 30.09.2026
 //
-// Port of upstream graphics/particles-spark.
+// Port of upstream particles/spark.
 //
 // A fountain of sparks: each spark flies out in a random direction between two local velocity
 // curves, is pulled down by a world velocity curve that turns into increasing gravity, spins at

@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 14.10.2026
 //
-// Port of upstream gaussian-splatting/shadows.
+// Port of upstream gaussian-splatting-fx/shadows.
 //
 // Gaussian splats casting shadows onto a shadow catcher. Two splat models cast as opaque
 // footprints clipped at alpha 0.4 onto a 10 x 10 shadow-catcher plane, under the St Peter's

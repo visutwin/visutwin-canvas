@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 10.10.2026
 //
-// Port of upstream gaussian-splatting/spherical-harmonics.
+// Port of upstream gaussian-splatting/simple-sh.
 //
 // A captured skull splat whose colour changes with the view direction: the compressed
 // PLY carries spherical-harmonics bands beyond the base colour, which the splat shader
