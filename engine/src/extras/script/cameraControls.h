@@ -244,6 +244,8 @@ namespace visutwin::canvas
         } _state;
 
         bool _hasResetState = false;
+
+        bool _storeResetOnSetup = false;
         Vector3 _resetFocus = Vector3(0.0f);
         Vector3 _resetPosition = Vector3(0.0f);
 

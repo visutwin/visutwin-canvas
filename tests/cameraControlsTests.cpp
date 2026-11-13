@@ -28,6 +28,7 @@
 #include "framework/components/script/scriptComponentSystem.h"
 #include "framework/engine.h"
 #include "framework/entity.h"
+#include "framework/properties/propertyTable.h"
 #include "platform/input/mouse.h"
 #include "scene/camera.h"
 #include "support/check.h"
@@ -73,6 +74,8 @@ namespace
         rig.entity = newEntity(engine.get(), "camera");
         rig.entity->setLocalPosition(kStart.getX(), kStart.getY(), kStart.getZ());
         engine->root()->addChild(std::unique_ptr<GraphNode>(rig.entity));
+        // Aimed at the origin: the controls keep the direction a camera is given.
+        rig.entity->lookAt(Vector3(0.0f, 0.0f, 0.0f));
         rig.camera = static_cast<CameraComponent*>(rig.entity->addComponent<CameraComponent>());
         rig.camera->camera()->setAspectRatio(2.0f);
         rig.entity->addComponent<ScriptComponent>();
@@ -218,6 +221,52 @@ int main()
         check(!near(forwardOf(rig.entity), forward1, eps), "a middle drag mapped to LOOK turns the view");
 
         destroyRig(rig);
+    }
+
+    std::cout << "the view the camera was given\n";
+    {
+        // Added at the origin, then placed and turned before the first frame (as a scene is
+        // built): the first update must keep that view, not undo it.
+        Entity* e = newEntity(engine.get(), "placed");
+        engine->root()->addChild(std::unique_ptr<GraphNode>(e));
+        e->addComponent<CameraComponent>();
+        e->addComponent<ScriptComponent>();
+        CameraControls* controls = e->script()->create<CameraControls>();
+        e->setLocalPosition(3.0f, 4.0f, 5.0f);
+        e->lookAt(Vector3(3.0f, 0.0f, 0.0f));   // down and ahead, not at the origin
+        const Vector3 forward0 = forwardOf(e);
+        frame();
+        check(near(e->position(), Vector3(3.0f, 4.0f, 5.0f), eps), "the first frame keeps where it was placed");
+        check(near(forwardOf(e), forward0, eps), "and the way it was turned");
+        const Vector3 focus = controls->focusPoint();
+        const Vector3 toFocus = (focus - e->position()).normalized();
+        check(near(toFocus, forward0, eps), "the focus point lies straight ahead");
+        check(near((focus - e->position()).length(), Vector3(3.0f, 4.0f, 5.0f).length(), eps),
+            "at the origin's distance");
+        e->destroy();
+        [[maybe_unused]] auto freed = engine->root()->removeChild(e);
+    }
+
+    {
+        // The same through the property table's add, which stores the reset state as it adds
+        // them (as the C API and its frontends add them, by name): that must not take the pose.
+        auto& registry = PropertyRegistry::instance();
+        if (!registry.type("cameraControls")) {
+            registerBuiltinProperties(registry);
+        }
+        Entity* e = newEntity(engine.get(), "added by name");
+        engine->root()->addChild(std::unique_ptr<GraphNode>(e));
+        e->addComponent<CameraComponent>();
+        const TypeDesc* type = registry.type("cameraControls");
+        check(type && type->addTo(*e), "controls added by name through the property table");
+        e->setLocalPosition(-2.0f, 3.0f, 6.0f);
+        e->lookAt(Vector3(0.0f, 1.0f, -4.0f));
+        const Vector3 forward0 = forwardOf(e);
+        frame();
+        check(near(e->position(), Vector3(-2.0f, 3.0f, 6.0f), eps) && near(forwardOf(e), forward0, eps),
+            "keep the view set after adding them");
+        e->destroy();
+        [[maybe_unused]] auto freed = engine->root()->removeChild(e);
     }
 
     std::cout << "ground pan\n";

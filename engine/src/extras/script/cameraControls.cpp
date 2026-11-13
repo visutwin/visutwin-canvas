@@ -149,14 +149,26 @@ namespace visutwin::canvas
         }
         _ready = true;
 
-        _pose.look(owner->position(), Vector3(0.0f));
+        // DEVIATION: upstream starts from the entity's position looking at the world origin,
+        // which throws away the direction the camera was given (and, from the origin itself,
+        // levels it). The camera's own direction is kept: the focus is the point straight ahead
+        // at the origin's distance, the origin itself for a camera already aimed at it.
+        const Vector3 position = owner->position();
+        const float distance = position.length() > 1.0e-4f ? position.length() : 1.0f;
+        _pose.look(position, position + cameraForward() * distance);
         setMode(Mode::ORBIT);
+        if (_storeResetOnSetup) {
+            _storeResetOnSetup = false;
+            storeResetState();
+        }
         return true;
     }
 
     void CameraControls::initialize()
     {
-        ensureSetup();
+        // The pose is taken at the first update (or the first call that needs it), not here:
+        // a script initializes as it is added, before the camera has been placed, and the pose
+        // taken then would undo the placing on the first frame.
     }
 
     void CameraControls::setMode(Mode mode)
@@ -317,7 +329,10 @@ namespace visutwin::canvas
 
     void CameraControls::storeResetState()
     {
-        if (!ensureSetup()) {
+        // Before setup (the controls just added, the camera not yet placed) the state to store is
+        // the one setup will take: stored then.
+        if (!_ready) {
+            _storeResetOnSetup = true;
             return;
         }
         _resetFocus = _pose.getFocus();
