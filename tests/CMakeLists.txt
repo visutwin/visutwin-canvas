@@ -136,6 +136,8 @@ visutwin_add_unit_test(visutwin-component-registry-tests component-registry comp
 visutwin_add_unit_test(visutwin-component-instance-list-tests component-instance-list componentInstanceListTests.cpp)
 visutwin_add_unit_test(visutwin-primitive-mesh-sharing-tests primitive-mesh-sharing primitiveMeshSharingTests.cpp)
 visutwin_add_unit_test(visutwin-custom-aabb-tests custom-aabb customAabbTests.cpp)
+# A mesh's fixed dither pattern offset (tests/ditherIdTests.cpp).
+visutwin_add_unit_test(visutwin-dither-id-tests dither-id ditherIdTests.cpp)
 visutwin_add_unit_test(visutwin-render-style-tests render-style renderStyleTests.cpp)
 visutwin_add_unit_test(visutwin-local-shadow-caster-tests local-shadow-casters localShadowCasterTests.cpp)
 add_test(NAME local-shadow-casters-non-clustered COMMAND visutwin-local-shadow-caster-tests --non-clustered)
