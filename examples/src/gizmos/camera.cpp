@@ -105,11 +105,11 @@ private:
         }
         const Vector4 anchor(kRect.getX(), kRect.getY(), kRect.getX() + kRect.getZ(), kRect.getY() + kRect.getW());
         ElementComponent* frame = createElement(engine(), _screen->entity(), {.type = ElementType::Group,
-            .anchor = anchor, .pivot = Vector2(0.0f, 0.0f), .margin = Vector4(0.0f)});
+            .anchor = anchor, .pivot = Vector2(0.0f, 0.0f), .margin = Vector4(0.0f, 0.0f, 0.0f, 0.0f)});
         const Color border(1.0f, 1.0f, 1.0f, 1.0f);
         const auto edge = [&](const Vector4& edgeAnchor, const Vector2& pivot, const float width, const float height) {
             createElement(engine(), frame->entity(), {.type = ElementType::Image, .color = border, .opacity = 0.6f,
-                .anchor = edgeAnchor, .pivot = pivot, .margin = Vector4(0.0f), .width = width, .height = height});
+                .anchor = edgeAnchor, .pivot = pivot, .margin = Vector4(0.0f, 0.0f, 0.0f, 0.0f), .width = width, .height = height});
         };
         edge(Vector4(0.0f, 1.0f, 1.0f, 1.0f), Vector2(0.5f, 1.0f), 0.0f, 1.0f);
         edge(Vector4(0.0f, 0.0f, 1.0f, 0.0f), Vector2(0.5f, 0.0f), 0.0f, 1.0f);
