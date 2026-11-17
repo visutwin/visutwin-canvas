@@ -10,6 +10,8 @@
 #include "scene/clipPlanes.h"
 #include <algorithm>
 #include <array>
+#include <future>
+#include <memory>
 #include <unordered_map>
 #include <string>
 #include <vector>
@@ -17,6 +19,7 @@
 #include "core/hash.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/lightingBlock.h"
+#include "platform/graphics/pipelineCompileQueue.h"
 #include "scene/materials/material.h"
 #include "scene/materials/standardMaterial.h"
 #include "scene/shader-lib/slangShaders.h"
@@ -36,6 +39,22 @@ namespace visutwin::canvas
     {
     public:
         explicit ProgramLibrary(const std::shared_ptr<GraphicsDevice>& device);
+        ~ProgramLibrary();
+
+        /**
+         * Starts compiling, on compile threads, the Slang programs the forward variants of
+         * `material` (and the shadow variants a `shadowCaster` of it draws with: its own
+         * overrides only when shadowNeedsMaterial, the registry's otherwise) are built from, where they
+         * come from SOURCE: a material or registry with chunk overrides, or every program under
+         * VISUTWIN_SLANG_RUNTIME. A bundled program needs nothing. Returns how many compiles it
+         * started; a program already built or compiling is not started again. A variant
+         * resolved later waits for its program if it is still compiling rather than compiling
+         * it again (Engine::precompile requests a scene's programs this way, so they compile
+         * side by side instead of one by one on the render thread).
+         */
+        int requestSlangPrograms(const Material* material, bool shadowCaster);
+        /// Programs requestSlangPrograms started that are still compiling.
+        [[nodiscard]] int pendingSlangPrograms() const { return _programQueue ? _programQueue->pending() : 0; }
 
         /// The forward chunk registry: an override (Slang source) replaces a chunk file of
         /// the forward and shadow programs and compiles them at run time; affected variants
@@ -434,6 +453,14 @@ namespace visutwin::canvas
         std::unordered_map<VariantKey, std::shared_ptr<Shader>, VariantKeyHash> _forwardShaderCache;
         /// Slang program builds by program name and override fingerprint.
         std::unordered_map<std::string, std::shared_ptr<SlangProgramBuild>> _slangPrograms;
+        /// The builds requestSlangPrograms started, until slangProgram takes them over.
+        std::unordered_map<std::string, std::shared_future<std::shared_ptr<SlangProgramBuild>>> _pendingSlangPrograms;
+        /// The threads those compile on, made with the first request; joined first on destruction.
+        std::unique_ptr<PipelineCompileQueue> _programQueue;
+        /// The key of a program build: the program name and its overrides' fingerprint.
+        static std::string slangProgramKey(const std::string& program, const SlangFileOverrides& overrides);
+        /// Asks for `program` under `overrides` on the compile threads; true when it started one.
+        bool requestSlangProgram(const std::string& program, const SlangFileOverrides& overrides);
         /// What each build was compiled from, and its sources' fingerprint (watcher only).
         struct SlangProgramSources
         {

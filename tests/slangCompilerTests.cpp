@@ -14,11 +14,13 @@
 //   - a broken module fails with a diagnostic, not a crash, and the entry points of a
 //     good one come back in request order.
 // Compile times are printed for the record (phase 0 of the migration measures them).
+#include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -107,6 +109,36 @@ float4 psMain(VSOut i) : SV_Target0
         r.entryPoints = {"vsMain", "psMain"};
         r.target = target;
         return r;
+    }
+}
+
+namespace
+{
+    // The std::regex passes SlangCompiler's scanners replaced (they took seconds on a whole
+    // program): the oracle the scanners must match on any input.
+    std::string constReadOnlyBuffersRegex(std::string msl, const std::vector<std::string>& readOnly)
+    {
+        for (const auto& name : readOnly) {
+            std::string escaped;
+            for (const char c : name) {
+                if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_') {
+                    escaped += '\\';
+                }
+                escaped += c;
+            }
+            const std::string declared = escaped + "_\\d+\\b";
+            msl = std::regex_replace(msl, std::regex("\\bdevice\\*(\\s+" + declared + ")"), "const device*$1");
+            msl = std::regex_replace(msl,
+                std::regex("\\bdevice\\*(\\s+\\w+\\s*=\\s*(?:\\(&?\\w+\\)->|\\w+->)?" + declared + ")"),
+                "const device*$1");
+        }
+        return msl;
+    }
+
+    std::string dualSourceOutputsRegex(const std::string& msl)
+    {
+        static const std::regex secondary("(\\bdualSourceSecondary_\\d+\\s*)\\[\\[color\\(1\\)\\]\\]");
+        return std::regex_replace(msl, secondary, "$1[[color(0), index(1)]]");
     }
 }
 
@@ -233,6 +265,50 @@ float4 bufferFragment(float4 pos : SV_Position) : SV_Target0 { written[uint(pos.
         check(contains(done, "float4 device* out_0;") && contains(done, "float4 device* _S3 = out_1"),
             "another buffer, and pointers copied from it, are left alone");
         check(contains(done, "float4 device* data_10x"), "a longer name that only starts the same is left alone");
+    }
+
+    // The scanners against the regular expressions they replaced, on the edges of each pattern.
+    {
+        std::cout << "\nthe MSL scanners match the expressions they replaced\n";
+        const std::vector<std::pair<std::string, std::vector<std::string>>> cases = {
+            {"device* data_0;\ndevice*\tdata_3 [[buffer(1)]];\ndevice*\n  data_7;\n", {"data"}},
+            {"constdevice* data_0; xdevice* data_0; device*data_0; device* data_; device* data_12abc;", {"data"}},
+            {"device* _S1 =data_0; device* _S2 = obj->data_0; device* _S3 = (obj)->data_0;\n"
+             "device* _S4 = (&obj)->data_0+i; device* _S5 = data_0->x; device* _S6 == data_0;\n"
+             "device* _S7 = b->c->data_0; device* _S8 = (&)->data_0; device* = data_0;", {"data"}},
+            {"device* buffer_0; device* buf_1; device* bufx_2; device* _S1 = c->buffer_3;", {"buf", "buffer"}},
+            {"device* a_0; device* b_0; device* _S1 = k->b_0; device* c_0;", {"a", "b"}},
+            {"no pointers here; device", {"data"}},
+            {"device* data_0", {}},
+        };
+        bool same = true;
+        for (const auto& [text, names] : cases) {
+            const std::string scanned = SlangCompiler::constReadOnlyBuffers(text, names);
+            const std::string reference = constReadOnlyBuffersRegex(text, names);
+            if (scanned != reference) {
+                same = false;
+                std::cout << "    differs on: " << text << "\n      scanner: " << scanned
+                          << "\n      regex:   " << reference << "\n";
+            }
+        }
+        check(same, "constReadOnlyBuffers gives what the regular expressions gave");
+
+        const std::vector<std::string> dual = {
+            "float4 dualSourceSecondary_0[[color(1)]];",
+            "float4 dualSourceSecondary_12\n    [[color(1)]];",
+            "xdualSourceSecondary_0 [[color(1)]]; dualSourceSecondary_ [[color(1)]];",
+            "dualSourceSecondary_1 [[color(2)]]; dualSourceSecondary_1a [[color(1)]];",
+            "a dualSourceSecondary_3 [[color(1)]] b dualSourceSecondary_4 [[color(1)]] c",
+            "nothing to change",
+        };
+        bool dualSame = true;
+        for (const auto& text : dual) {
+            if (SlangCompiler::dualSourceOutputs(text) != dualSourceOutputsRegex(text)) {
+                dualSame = false;
+                std::cout << "    differs on: " << text << "\n";
+            }
+        }
+        check(dualSame, "dualSourceOutputs gives what the regular expression gave");
     }
 
     // A dual-source output is at colour 0, index 1 in the MSL: Slang emits it as colour 1.

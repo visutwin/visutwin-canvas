@@ -65,6 +65,51 @@ namespace visutwin::canvas
             std::string keyMaterial;
         };
 
+        /// The files a source `#include`s, in order: `^[ \t]*#[ \t]*include[ \t]+"([^"]+)"` with
+        /// `^` at each line start, run only from the starts of lines that contain "include"
+        /// (the pattern cannot cross a newline before it).
+        std::vector<std::string> includedFiles(const std::string& text)
+        {
+            static const std::regex include(R"re([ \t]*#[ \t]*include[ \t]+"([^"]+)")re");
+            std::vector<std::string> files;
+            size_t lineStart = 0;
+            while (lineStart < text.size()) {
+                size_t lineEnd = text.find('\n', lineStart);
+                lineEnd = lineEnd == std::string::npos ? text.size() : lineEnd;
+                if (text.find("include", lineStart) < lineEnd) {
+                    std::smatch match;
+                    if (std::regex_search(text.cbegin() + static_cast<std::ptrdiff_t>(lineStart), text.cend(), match,
+                            include, std::regex_constants::match_continuous)) {
+                        files.push_back(match[1]);
+                    }
+                }
+                lineStart = lineEnd + 1;
+            }
+            return files;
+        }
+
+        /// A source's entry points (stage, name), in order: the pattern below, which begins with
+        /// the literal `[shader("`, run anchored at each occurrence of it outside a match
+        /// already found.
+        std::vector<std::pair<std::string, std::string>> shaderEntries(const std::string& text)
+        {
+            // A delimited raw string: the pattern itself contains `)"`.
+            static const std::regex entry(R"re(\[shader\("(vertex|fragment|compute)"\)\]\s*(?:\[[^\]]*\]\s*)*[\w<>:]+\s+(\w+)\s*\()re");
+            std::vector<std::pair<std::string, std::string>> entries;
+            size_t from = 0;
+            for (size_t at = text.find("[shader(\""); at != std::string::npos; at = text.find("[shader(\"", from)) {
+                std::smatch match;
+                if (std::regex_search(text.cbegin() + static_cast<std::ptrdiff_t>(at), text.cend(), match, entry,
+                        std::regex_constants::match_continuous)) {
+                    entries.emplace_back(match[1], match[2]);
+                    from = at + static_cast<size_t>(match.length(0));
+                } else {
+                    from = at + 1;
+                }
+            }
+            return entries;
+        }
+
         void scanSource(const std::filesystem::path& path, const std::filesystem::path& dir,
             const SlangFileOverrides& overrides, std::vector<std::filesystem::path>& seen, SourceScan& scan,
             const bool isProgram)
@@ -84,9 +129,9 @@ namespace visutwin::canvas
             }
             scan.keyMaterial += "file " + fileName + "\n" + text + "\n";
 
-            static const std::regex include(R"re(^[ \t]*#[ \t]*include[ \t]+"([^"]+)")re", std::regex::multiline);
-            for (auto it = std::sregex_iterator(text.begin(), text.end(), include); it != std::sregex_iterator(); ++it) {
-                const std::string name = (*it)[1];
+            // The expressions run only where they can match, anchored there: std::regex over
+            // whole files cost most of a run-time program's scan.
+            for (const std::string& name : includedFiles(text)) {
                 for (const auto& base : {path.parent_path(), dir, dir / "modules"}) {
                     if (std::filesystem::exists(base / name)) {
                         scanSource(base / name, dir, overrides, seen, scan, false);
@@ -94,10 +139,8 @@ namespace visutwin::canvas
                     }
                 }
             }
-            // A delimited raw string: the pattern itself contains `)"`.
-            static const std::regex entry(R"re(\[shader\("(vertex|fragment|compute)"\)\]\s*(?:\[[^\]]*\]\s*)*[\w<>:]+\s+(\w+)\s*\()re");
-            for (auto it = std::sregex_iterator(text.begin(), text.end(), entry); it != std::sregex_iterator(); ++it) {
-                scan.entries.emplace_back((*it)[1], (*it)[2]);
+            for (auto& entry : shaderEntries(text)) {
+                scan.entries.push_back(std::move(entry));
             }
         }
 
@@ -385,6 +428,11 @@ namespace visutwin::canvas
             code.computeThreadGroupSize = compute->threadGroupSize;
         }
         return true;
+    }
+
+    bool slangRuntimeCompileWanted()
+    {
+        return wantsRuntimeCompile();
     }
 
     bool loadSlangProgram(GraphicsDevice* device, const std::string_view program, const std::string_view variant,

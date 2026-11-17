@@ -41,7 +41,7 @@ visutwin-canvas/
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
   capi/            # The C API: include/visutwin/visutwin.h (C99), the visutwin_canvas_c shared library, a C example
-  examples/        # 197 example applications derived from ExampleApp, in src/<category>/<name>.cpp named as upstream's: upstream ports + three original scenes (camera-frame/ambient-occlusion-davinci, graphics/order-independent-transparency, graphics/visibility-range)
+  examples/        # 198 example applications derived from ExampleApp, in src/<category>/<name>.cpp named as upstream's: upstream ports + three original scenes (camera-frame/ambient-occlusion-davinci, graphics/order-independent-transparency, graphics/visibility-range)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -348,11 +348,28 @@ bindings like a program of the tree, so it needs the source tree at run time. Wh
   JSON) and the run-time compile (`SlangCompiler::constReadOnlyBuffers`, names from the linked
   layout) const-qualify each read-only buffer's declarations (`name_N`) and the local pointers
   Slang copies it into: two twins of one rule, change both; `tests/slangCompilerTests.cpp`
-  holds the C++ one. The C++ twin runs its expressions only on the lines holding `device*` and
-  the buffer's name (Slang writes each declaration on one line): `std::regex` over a whole
-  program, some 440 KB of MSL for the forward program, took 1.5 s a pass in a Debug build, 5 of
-  `car-showcase`'s 8 s first frame. A RW buffer stays `device`, so a program whose vertex entry
-  sees one still warns.
+  holds the C++ one. The C++ twins of both MSL passes (this one and `dualSourceOutputs`) are
+  hand-written SCANNERS, not `std::regex`: a regex over a whole program, some 440 KB of MSL for
+  the forward program, took 1.5 s a pass in a Debug build (5 of `car-showcase`'s 8 s first
+  frame), and running it per candidate line still cost most of a second. They match exactly
+  what the expressions matched (ECMAScript `\s`, `\w`, `\b`), which `tests/slangCompilerTests.cpp`
+  holds against the expressions themselves, kept there as the oracle; the 81 run-time compiles
+  of 13 examples came out byte-identical when they replaced them. Do not reintroduce `std::regex`
+  over generated code or whole source files on a compile path: `scanSource` (slangShaders.cpp)
+  runs its include and entry expressions anchored only where they can match (a line holding
+  "include", each `[shader("`) for the same reason. A RW buffer stays `device`, so a program
+  whose vertex entry sees one still warns.
+- **Slang compiles may run on several threads at once, each on a global session of its own.**
+  Slang documents a global session, and the sessions made from it, as unsafe to share between
+  threads, so `SlangCompiler` keeps a POOL of global sessions: a compile borrows a free one for
+  its whole duration (`GlobalSessionLease`, declared before the session so the session goes
+  first) and another is created only while every one is in use. Serial use holds one, as
+  before. Nothing else in a compile may be shared mutable state: the source scan's regexes are
+  `const` statics, `ShaderDiskCache::store` writes unique temporaries. `tests/slangConcurrencyTests.cpp`
+  compiles distinct modules 144 times at once per target and requires the serial bytes. On
+  Metal, shaders with the SAME MSL share one library compile (`MetalShader::Compile`, found in a
+  process-wide table by device and exact source): every variant of a run-time program is the
+  program's whole MSL, its features bound later as function constants.
 - **`VT_TARGET_METAL` is defined for the Metal targets** (`SlangCompiler` adds it, the bundle
   passes it), and `bindings.slang` declares some inputs per target under it. Prefer
   `__target_switch` inside a function; use the define only where the DECLARATIONS must differ.
@@ -3402,12 +3419,23 @@ present, but the rule below never depends on reading it.
   reads nothing the render thread may change: Metal's attachment formats are captured first
   (`MetalPipelineTargetFormats`), Vulkan's states are copied into the job, `MetalShader::
   getLibrary` is locked, and `replaceShaderCode` and Vulkan's pipeline-cache save wait for the
-  queue (`waitPrecompileIdle`). A `get()` of an entry still building waits for it. It does NOT
-  parallelise SHADER creation: a forward variant with a chunk override compiles Slang on the
-  render thread inside the precompile frame (`car-showcase`: 3 s in Debug). Measured cold
-  first frames (Metal Debug / Vulkan Release): `post-processing` 648 -> 214 ms and 2200 -> 191
-  ms, `clear-coat` 649 -> 61 ms on Metal; a static scene renders bit-identically with it.
-  `tests/precompileTests.cpp` holds the frame flow; `VISUTWIN_PRECOMPILE=1` drives any example.
+  queue (`waitPrecompileIdle`). A `get()` of an entry still building waits for it. The
+  frame-graph phase is preceded by a PROGRAM phase: the first frame asks the program library for
+  the run-time Slang programs the scene's materials need (`ProgramLibrary::requestSlangPrograms`:
+  a material with chunk overrides, its shadow program only when `shadowNeedsMaterial`, every
+  program under `VISUTWIN_SLANG_RUNTIME`), which compile on the library's own compile threads,
+  and the frame graph is built in the first frame none is compiling; `slangProgram()` waits for
+  a program still compiling rather than compiling it again. A new path that resolves forward or
+  shadow variants with a material's overrides owes the same choice in `requestSlangPrograms`, or
+  its programs compile serially in the frame-graph phase. Measured cold first frames (Metal
+  Debug / Vulkan Release): `post-processing` 648 -> 214 ms and 2200 -> 191 ms, `clear-coat` 649
+  -> 61 ms on Metal; `car-showcase` with the program phase against without it (medians of three
+  alternated runs): Metal warm 3098 -> 1870 ms, cold 5244 -> 3841 ms, Vulkan cold 5431 -> 3367
+  ms; with the MSL scanners too, Metal warm 1040 -> 680 ms and Vulkan cold 5270 -> 3380 ms.
+  `graphics/shader-precompile` makes every shader new each run, so its 3.5-6.5 s is the GPU
+  compiler's, not the engine's. A static scene renders bit-identically with it. `tests/precompileTests.cpp` holds the frame
+  flow, `tests/slangConcurrencyTests.cpp` the concurrent compiles; `VISUTWIN_PRECOMPILE=1` drives
+  any example.
 - **A shader is CREATED before the frame's first pass draws, and on Metal creating it is
   what starts its compile.** `MetalShader` compiles its library asynchronously from its
   constructor and `getLibrary` waits for it. Compiling MSL source is the whole cost of a
@@ -4273,7 +4301,11 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
     the first frame that renders, the cold-start figure (CPU_STATS frame 0 misses the frame
     `start()` renders, and with a precompile the frames that only build). Cold on Metal means
     the example's `$(getconf DARWIN_USER_CACHE_DIR)com.visutwin.<category>.<name>` moved aside
-    for the run; on Vulkan, `VISUTWIN_SHADER_CACHE=0`.
+    for the run; on Vulkan, `VISUTWIN_SHADER_CACHE=0`. `VISUTWIN_PRECOMPILE_PROGRAMS=0` turns the
+    precompile's program phase off (the programs then compile serially in the frame-graph
+    phase): the A/B of it in one binary. Compare frames of the two with a near-zero step
+    (`VISUTWIN_FIXED_DT=1e-12`): the program phase runs hundreds of update frames, and at 1e-7 s
+    those still move a settling camera by a few counts.
 
 Animated examples cannot be screenshot-diffed across shader changes unless they run
 under `VISUTWIN_FIXED_DT`.

@@ -1242,6 +1242,15 @@ Upstream's `ScreenComponent` and `ElementComponent` layout
 - A material remembers its resolved forward shader (`Material::ForwardShaderMemo`),
   keyed on its `uniformsVersion()`, the draw's flags, the library's frame switches and
   the chunk registry.
+- On Metal a shader made from MSL source joins a compile of the same source already running
+  or held by another shader (`MetalShader::Compile`, a process-wide table by `MTL::Device` and
+  exact text, held weakly; each shader retains the library it takes). Every variant of a
+  run-time Slang program is the whole program's MSL with its features as function constants,
+  so `graphics/shader-precompile`'s 49 forward variants are one compile, not 49.
+- Run-time Slang compiles may run on several threads (`ProgramLibrary::requestSlangPrograms`,
+  the precompile's program phase): `SlangCompiler` lends each a global session from a pool, and
+  its MSL passes are hand-written scanners, as is the narrowing of `scanSource`'s expressions
+  (see AGENTS.md, the Slang section).
 - The engine's programs are precompiled in the Slang bundle (a metallib, SPIR-V). Metal
   relies on the system's shader cache for the rest between runs; Vulkan keeps its own in
   `ShaderDiskCache`: run-time Slang and custom-GLSL SPIR-V and the device's pipeline cache
@@ -1251,7 +1260,11 @@ Upstream's `ScreenComponent` and `ElementComponent` layout
 
 ### Precompile (`Engine::precompile`)
 
-`engine->precompile(options, onDone)` makes the next `render()` a PRECOMPILE frame: the frame is
+`engine->precompile(options, onDone)` makes the next `render()` a PRECOMPILE frame, in two
+phases. The PROGRAM phase asks the program library for the run-time Slang programs the scene's
+mesh instances need (render components' and layers' own; `ProgramLibrary::requestSlangPrograms`),
+which compile side by side on the library's compile threads while frames render nothing. The
+FRAME-GRAPH phase starts in the first frame none is compiling: the frame is
 built and culled as usual (with `Renderer::setPrecompileFrame`: everything in the cameras' layers,
 off screen too, unless `PrecompileOptions::frustumCulling`), then `FrameGraph::precompile` runs
 each executing pass's `precompile()` instead of rendering it. No device frame begins; the frames
@@ -1278,13 +1291,26 @@ serviced) until the device reports nothing building, and then the frame renders 
   draws). The fog passes let a precompile through without the scene depth map, and the local fog
   draws one quad for the first light that takes part. Not covered: the colour grab's Gaussian
   chain, SSAO's and the other effect passes that are not quad passes, compute.
-- **What it does not do:** create SHADERS in parallel. A forward variant is still resolved on the
-  render thread in the precompile frame's `prepareShaders`, and one with a chunk override compiles
-  Slang there; upstream's browsers compile shaders on their own threads, which is the gap.
+- **Programs.** A program build is keyed by name and override fingerprint
+  (`slangProgramKey`); a requested one waits in `_pendingSlangPrograms` (a shared future) until
+  `slangProgram()` takes it over, waiting if it is still compiling. Only programs that come from
+  source are requested: a material's chunk overrides (merged over the registry's), its shadow
+  program only when the shadow draw uses its material (`shadowNeedsMaterial`; other casters draw
+  the material-less variants, under the registry's overrides), or all under
+  `VISUTWIN_SLANG_RUNTIME`. Bundled programs need nothing. The compiles share no Slang state:
+  `SlangCompiler` lends each a global session from a pool. The Metal library of a source program
+  is still compiled from its MSL when the shader is created (asynchronously, `MetalShader`).
+  `VISUTWIN_PRECOMPILE_PROGRAMS=0` skips the phase.
 - **Measured** (first frame, wall time from `start()`, "First frame rendered" in the log): Metal
   Debug `post-processing` 648 -> 68-214 ms, `clear-coat` 649 -> 61 ms; Vulkan Release
-  `post-processing` cold 2200 -> 191 ms, warm 201 -> 34 ms. `car-showcase` gains little: its
-  first frame is the run-time Slang compile of its chunk overrides.
+  `post-processing` cold 2200 -> 191 ms, warm 201 -> 34 ms. `car-showcase` (two chunk-override
+  programs), program phase off -> on, medians of three alternated runs: Metal warm 3098 -> 1870
+  ms, cold 5244 -> 3841 ms; Vulkan cold 5431 -> 3367 ms, warm 101-139 ms (its SPIR-V cached).
+  With the MSL scanners: Metal warm 1040 -> 680 ms, Vulkan cold 5270 -> 3380 ms.
+  `graphics/shader-precompile` (the port of upstream's example: 48 spheres of feature mixes, every
+  shader new each run through a run-unique chunk override) spends its 3.5 s (Metal) / 6.5 s
+  (Vulkan) in the GPU compilers, with or without the program phase; its P key turns the
+  precompile off for the next ring added (A), and I logs the stalls that then show.
 
 ### Render pass types
 

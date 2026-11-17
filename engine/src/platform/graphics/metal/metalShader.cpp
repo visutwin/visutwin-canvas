@@ -16,6 +16,40 @@
 
 namespace visutwin::canvas
 {
+    MetalShader::Compile::~Compile()
+    {
+        if (library) {
+            library->release();
+        }
+    }
+
+    namespace
+    {
+        // The compiles of MSL sources, running or held by a shader, by source hash: a shader
+        // whose source is already compiling on its device joins that compile. Held weakly, so a
+        // compile no shader holds and whose completion has run is gone, and with it its library.
+        struct CompileTable
+        {
+            std::mutex mutex;
+            std::unordered_map<uint64_t, std::vector<std::weak_ptr<MetalShader::Compile>>> compiles;
+        };
+
+        CompileTable& compileTable()
+        {
+            static CompileTable table;
+            return table;
+        }
+
+        uint64_t sourceHash(const std::string& source)
+        {
+            uint64_t hash = 14695981039346656037ull;
+            for (const unsigned char c : source) {
+                hash = (hash ^ c) * 1099511628211ull;
+            }
+            return hash;
+        }
+    }
+
     MetalShader::MetalShader(GraphicsDevice* graphicsDevice, const ShaderDefinition& definition, std::string sourceCode)
         : Shader(graphicsDevice, definition), _sourceCode(std::move(sourceCode))
     {
@@ -41,16 +75,35 @@ namespace visutwin::canvas
         }
 
         _compileDevice = device;
-        _compile = std::make_shared<Compile>();
+
+        // A compile of the same source on this device, running or held by another shader, is
+        // joined rather than started again.
+        const uint64_t hash = sourceHash(_sourceCode);
+        {
+            CompileTable& table = compileTable();
+            const std::lock_guard lock(table.mutex);
+            auto& bucket = table.compiles[hash];
+            std::erase_if(bucket, [](const std::weak_ptr<Compile>& entry) { return entry.expired(); });
+            for (const auto& entry : bucket) {
+                if (auto compile = entry.lock(); compile && compile->device == device && compile->source == _sourceCode) {
+                    _compile = std::move(compile);
+                    return;
+                }
+            }
+            _compile = std::make_shared<Compile>();
+            _compile->device = device;
+            _compile->source = _sourceCode;
+            bucket.push_back(_compile);
+        }
+
         auto* compileOptions = newCompileOptions();
         device->newLibrary(NS::String::string(_sourceCode.c_str(), NS::UTF8StringEncoding), compileOptions,
             [state = _compile](MTL::Library* library, NS::Error* error) {
                 const std::lock_guard lock(state->mutex);
-                if (library && !state->abandoned) {
+                if (library) {
                     library->retain();
                     state->library = library;
-                }
-                if (!library) {
+                } else {
                     state->error = (error && error->localizedDescription())
                         ? error->localizedDescription()->utf8String() : "unknown error";
                 }
@@ -87,15 +140,9 @@ namespace visutwin::canvas
 
     MetalShader::~MetalShader()
     {
-        if (_compile) {
-            const std::lock_guard lock(_compile->mutex);
-            // Still compiling: the handler drops the library when it arrives.
-            _compile->abandoned = true;
-            if (_compile->library) {
-                _compile->library->release();
-                _compile->library = nullptr;
-            }
-        }
+        // A compile still running is kept by its completion handler, a finished one by any other
+        // shader of the same source; the last owner releases its library.
+        _compile.reset();
         for (const auto& [_, library] : _libraries) {
             if (library) {
                 library->release();
@@ -181,8 +228,11 @@ namespace visutwin::canvas
             {
                 std::unique_lock lock(_compile->mutex);
                 _compile->done.wait(lock, [this] { return _compile->finished; });
+                // This shader's own reference: the compile keeps its own for the shaders after.
                 library = _compile->library;
-                _compile->library = nullptr;
+                if (library) {
+                    library->retain();
+                }
                 failure = _compile->error;
             }
             _compile.reset();

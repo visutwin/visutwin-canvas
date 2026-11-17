@@ -6,14 +6,15 @@
 #include "slangCompiler.h"
 
 #include <cctype>
+#include <cstdlib>
 #include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
-#include <regex>
 #include <string_view>
 #include <sstream>
+#include <vector>
 
 #include "spdlog/spdlog.h"
 
@@ -40,20 +41,75 @@ namespace visutwin::canvas
 #ifdef VISUTWIN_HAS_SLANG
     namespace
     {
-        // The global session holds the core module and is shared by every compile; it
-        // is created once. Sessions made from it are per call: Slang documents them as
-        // not safe to use concurrently.
-        slang::IGlobalSession* globalSession()
+        // A global session holds the core module; sessions made from it are per call. Slang
+        // documents neither as safe to use from two threads at once, so the global sessions
+        // are a POOL: a compile borrows a free one and gives it back, and another is created
+        // only when every one is in use, by compiles running at once on several threads
+        // (ProgramLibrary::requestSlangProgram). Used from one thread, the pool holds one.
+        class GlobalSessionPool
         {
-            static Slang::ComPtr<slang::IGlobalSession> session = [] {
+        public:
+            /// A free global session, created if none is; null if Slang cannot create one.
+            Slang::ComPtr<slang::IGlobalSession> acquire()
+            {
+                {
+                    const std::lock_guard lock(_mutex);
+                    if (!_free.empty()) {
+                        Slang::ComPtr<slang::IGlobalSession> session = _free.back();
+                        _free.pop_back();
+                        return session;
+                    }
+                    if (_failed) {
+                        return {};
+                    }
+                }
+                // Created outside the lock: it loads the core module, which takes a while,
+                // and another thread may give a session back meanwhile.
                 Slang::ComPtr<slang::IGlobalSession> created;
-                if (SLANG_FAILED(slang::createGlobalSession(created.writeRef()))) {
-                    spdlog::error("SlangCompiler: the Slang global session could not be created");
+                if (SLANG_FAILED(slang::createGlobalSession(created.writeRef())) || !created) {
+                    const std::lock_guard lock(_mutex);
+                    if (!_failed) {
+                        spdlog::error("SlangCompiler: the Slang global session could not be created");
+                    }
+                    _failed = true;
+                    return {};
                 }
                 return created;
-            }();
-            return session.get();
+            }
+
+            void release(Slang::ComPtr<slang::IGlobalSession> session)
+            {
+                if (session) {
+                    const std::lock_guard lock(_mutex);
+                    _free.push_back(std::move(session));
+                }
+            }
+
+        private:
+            std::mutex _mutex;
+            std::vector<Slang::ComPtr<slang::IGlobalSession>> _free;
+            bool _failed = false;
+        };
+
+        GlobalSessionPool& globalSessions()
+        {
+            static GlobalSessionPool pool;
+            return pool;
         }
+
+        /// A global session borrowed for one compile, given back when it goes.
+        class GlobalSessionLease
+        {
+        public:
+            GlobalSessionLease() : _session(globalSessions().acquire()) {}
+            ~GlobalSessionLease() { globalSessions().release(std::move(_session)); }
+            GlobalSessionLease(const GlobalSessionLease&) = delete;
+            GlobalSessionLease& operator=(const GlobalSessionLease&) = delete;
+            slang::IGlobalSession* get() const { return _session.get(); }
+
+        private:
+            Slang::ComPtr<slang::IGlobalSession> _session;
+        };
 
         std::string blobText(slang::IBlob* blob)
         {
@@ -161,7 +217,8 @@ namespace visutwin::canvas
 
     bool SlangCompiler::available()
     {
-        return globalSession() != nullptr;
+        const GlobalSessionLease lease;
+        return lease.get() != nullptr;
     }
 
     const char* SlangCompiler::version()
@@ -178,7 +235,10 @@ namespace visutwin::canvas
             return result;
         };
 
-        auto* global = globalSession();
+        // Held to the end of the compile: the session made from it, and everything made from
+        // that, belong to it.
+        const GlobalSessionLease lease;
+        auto* global = lease.get();
         if (!global) {
             result.diagnostics = "the Slang global session is unavailable";
             return finish();
@@ -365,64 +425,163 @@ namespace visutwin::canvas
     }
 #endif
 
+    namespace
+    {
+        // The character classes of the ECMAScript expressions these passes replaced.
+        bool isWordChar(const char c)
+        {
+            return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+        }
+        bool isSpaceChar(const char c)
+        {
+            return c == ' ' || c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r';
+        }
+        bool isDigitChar(const char c)
+        {
+            return c >= '0' && c <= '9';
+        }
+
+        // At `pos`, one of `names` followed by `_`, digits and a word boundary (Slang's
+        // `name_N`): the end of it, or npos.
+        size_t matchBufferName(const std::string& text, const size_t pos, const std::vector<std::string>& names)
+        {
+            for (const auto& name : names) {
+                if (name.empty() || text.compare(pos, name.size(), name) != 0) {
+                    continue;
+                }
+                size_t at = pos + name.size();
+                if (at >= text.size() || text[at] != '_') {
+                    continue;
+                }
+                const size_t digits = ++at;
+                while (at < text.size() && isDigitChar(text[at])) {
+                    ++at;
+                }
+                if (at > digits && (at == text.size() || !isWordChar(text[at]))) {
+                    return at;
+                }
+            }
+            return std::string::npos;
+        }
+
+        size_t skipSpaces(const std::string& text, size_t at)
+        {
+            while (at < text.size() && isSpaceChar(text[at])) {
+                ++at;
+            }
+            return at;
+        }
+
+        size_t skipWord(const std::string& text, size_t at)
+        {
+            while (at < text.size() && isWordChar(text[at])) {
+                ++at;
+            }
+            return at;
+        }
+
+        // After a `device*` ending at `at`: a declaration of one of the read-only buffers
+        // (`device* name_N`), or a local pointer Slang copies one into
+        // (`device* _S1 = context->name_N`, `= (&x)->name_N`, `= name_N`).
+        bool readsReadOnlyBuffer(const std::string& text, const size_t at, const std::vector<std::string>& names)
+        {
+            const size_t afterSpaces = skipSpaces(text, at);
+            if (afterSpaces == at) {
+                return false;   // `\s+`
+            }
+            if (matchBufferName(text, afterSpaces, names) != std::string::npos) {
+                return true;
+            }
+            // `\w+\s*=\s*`, then an optional `(&?\w+)->` or `\w+->`, then the name.
+            const size_t localEnd = skipWord(text, afterSpaces);
+            if (localEnd == afterSpaces) {
+                return false;
+            }
+            size_t cursor = skipSpaces(text, localEnd);
+            if (cursor >= text.size() || text[cursor] != '=') {
+                return false;
+            }
+            cursor = skipSpaces(text, cursor + 1);
+            size_t prefixed = std::string::npos;
+            if (cursor < text.size() && text[cursor] == '(') {
+                size_t p = cursor + 1;
+                if (p < text.size() && text[p] == '&') {
+                    ++p;
+                }
+                const size_t wordEnd = skipWord(text, p);
+                if (wordEnd > p && text.compare(wordEnd, 3, ")->") == 0) {
+                    prefixed = wordEnd + 3;
+                }
+            } else {
+                const size_t wordEnd = skipWord(text, cursor);
+                if (wordEnd > cursor && text.compare(wordEnd, 2, "->") == 0) {
+                    prefixed = wordEnd + 2;
+                }
+            }
+            if (prefixed != std::string::npos && matchBufferName(text, prefixed, names) != std::string::npos) {
+                return true;
+            }
+            return matchBufferName(text, cursor, names) != std::string::npos;
+        }
+    }
+
     std::string SlangCompiler::constReadOnlyBuffers(std::string msl, const std::vector<std::string>& readOnly)
     {
         if (readOnly.empty()) {
             return msl;
         }
-        struct Pattern
-        {
-            std::string marker;     // the name as it appears, `name_`
-            std::regex declaration;
-            std::regex local;
-        };
-        std::vector<Pattern> patterns;
-        patterns.reserve(readOnly.size());
-        for (const auto& name : readOnly) {
-            std::string escaped;
-            for (const char c : name) {
-                if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_') {
-                    escaped += '\\';
-                }
-                escaped += c;
-            }
-            const std::string declared = escaped + "_\\d+\\b";
-            // Its declarations, and the local pointers Slang copies it into
-            // (`T device* _S1 = context->name_0 + i;`).
-            patterns.push_back({name + "_", std::regex("\\bdevice\\*(\\s+" + declared + ")"),
-                std::regex("\\bdevice\\*(\\s+\\w+\\s*=\\s*(?:\\(&?\\w+\\)->|\\w+->)?" + declared + ")")});
-        }
-
-        // Only a line holding `device*` and the buffer's name can match, and Slang writes each
-        // declaration on one line, so the expressions run on those lines alone: std::regex over
-        // the whole program (some 440 KB for the forward program) took seconds per compile.
+        // Every `device*` (at a word boundary) that declares a read-only buffer, or a local
+        // pointer copied from one, becomes `const device*`. Scanned by hand: std::regex over a
+        // whole program (some 440 KB of MSL for the forward program) took seconds per compile.
+        static constexpr std::string_view kDevice = "device*";
         std::string out;
-        out.reserve(msl.size() + 64);
-        size_t pos = 0;
-        while (pos < msl.size()) {
-            size_t end = msl.find('\n', pos);
-            end = end == std::string::npos ? msl.size() : end + 1;
-            const std::string_view line(msl.data() + pos, end - pos);
-            if (line.find("device*") == std::string_view::npos) {
-                out.append(line);
-            } else {
-                std::string edited(line);
-                for (const Pattern& pattern : patterns) {
-                    if (edited.find(pattern.marker) != std::string::npos) {
-                        edited = std::regex_replace(edited, pattern.declaration, "const device*$1");
-                        edited = std::regex_replace(edited, pattern.local, "const device*$1");
-                    }
-                }
-                out += edited;
+        out.reserve(msl.size() + 256);
+        size_t copied = 0;
+        for (size_t at = msl.find(kDevice); at != std::string::npos; at = msl.find(kDevice, at + kDevice.size())) {
+            if (at > 0 && isWordChar(msl[at - 1])) {
+                continue;
             }
-            pos = end;
+            if (readsReadOnlyBuffer(msl, at + kDevice.size(), readOnly)) {
+                out.append(msl, copied, at - copied);
+                out += "const ";
+                copied = at;
+            }
         }
+        out.append(msl, copied, std::string::npos);
         return out;
     }
 
     std::string SlangCompiler::dualSourceOutputs(std::string msl)
     {
-        static const std::regex secondary("(\\bdualSourceSecondary_\\d+\\s*)\\[\\[color\\(1\\)\\]\\]");
-        return std::regex_replace(msl, secondary, "$1[[color(0), index(1)]]");
+        // `dualSourceSecondary_N [[color(1)]]` (at a word boundary) takes `[[color(0), index(1)]]`.
+        static constexpr std::string_view kName = "dualSourceSecondary_";
+        static constexpr std::string_view kColor1 = "[[color(1)]]";
+        std::string out;
+        size_t copied = 0;
+        for (size_t at = msl.find(kName); at != std::string::npos; at = msl.find(kName, at + kName.size())) {
+            if (at > 0 && isWordChar(msl[at - 1])) {
+                continue;
+            }
+            size_t cursor = at + kName.size();
+            const size_t digits = cursor;
+            while (cursor < msl.size() && isDigitChar(msl[cursor])) {
+                ++cursor;
+            }
+            if (cursor == digits) {
+                continue;
+            }
+            cursor = skipSpaces(msl, cursor);
+            if (msl.compare(cursor, kColor1.size(), kColor1) == 0) {
+                out.append(msl, copied, cursor - copied);
+                out += "[[color(0), index(1)]]";
+                copied = cursor + kColor1.size();
+            }
+        }
+        if (copied == 0) {
+            return msl;
+        }
+        out.append(msl, copied, std::string::npos);
+        return out;
     }
+
 }

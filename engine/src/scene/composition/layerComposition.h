@@ -59,6 +59,8 @@ namespace visutwin::canvas
         /// reverse, 0 when they tie. Layer ids the composition lacks count for nothing.
         int sortTransparentLayers(const std::vector<int>& layersA, const std::vector<int>& layersB) const;
         void markDirty() { _dirty = true; }
+        /// The layers, each once per sublayer it has in the composition, in draw order.
+        const std::vector<std::shared_ptr<Layer>>& layerList() const { return _layerList; }
 
         /// Whose cameras the render actions are built from (the scene's engine).
         void setComponentRegistry(ComponentRegistry* registry)

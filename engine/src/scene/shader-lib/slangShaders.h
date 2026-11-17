@@ -117,6 +117,10 @@ namespace visutwin::canvas
     /// from the source tree when VISUTWIN_SLANG_RUNTIME is set, the bundle lacks the program,
     /// or `overrides` is not empty (a chunk override). False, with the diagnostics logged,
     /// when neither works.
+    /// True when every program compiles from the source tree (VISUTWIN_SLANG_RUNTIME or
+    /// VISUTWIN_SHADER_WATCH) instead of coming from the bundle.
+    [[nodiscard]] bool slangRuntimeCompileWanted();
+
     [[nodiscard]] bool loadSlangProgram(GraphicsDevice* device, std::string_view program, std::string_view variant,
         const SlangFileOverrides& overrides, SlangProgramBuild& out);
 

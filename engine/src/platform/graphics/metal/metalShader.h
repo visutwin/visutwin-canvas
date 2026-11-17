@@ -29,6 +29,13 @@ namespace visutwin::canvas
      * they compile side by side, and the frame waits for the slowest, not the sum. So
      * whoever needs several new shaders should CREATE them all before using the first
      * (the forward pass resolves a layer's variants ahead of its draw loop for this).
+     *
+     * Shaders with the SAME source share one compile: every variant of a run-time Slang
+     * program is the program's whole MSL with its features bound later as function constants
+     * (newFunction), so the forward program's 49 variants in `shader-precompile` were 49
+     * compiles of one 440 KB text. A shader finds a compile of its source still running or
+     * still held by another shader (on its MTL::Device, the text compared exactly) and joins
+     * it; each shader retains the library for itself once it takes it.
      */
     class MetalShader : public Shader
     {
@@ -58,17 +65,23 @@ namespace visutwin::canvas
         void swapBackendCode(Shader& other) override;
 
     private:
+    public:
         // The compile started at construction. Shared with its completion handler, which
-        // Metal calls on a queue of its own and possibly after the shader is gone.
+        // Metal calls on a queue of its own and possibly after the shader is gone, and with
+        // every shader of the same source (sharedCompile in metalShader.cpp).
         struct Compile
         {
+            ~Compile();
             std::mutex mutex;
             std::condition_variable done;
             bool finished = false;
-            bool abandoned = false;            // the shader was destroyed first
-            MTL::Library* library = nullptr;   // retained; taken over by getLibrary
+            MTL::Library* library = nullptr;   // retained, released with the compile
             std::string error;
+            MTL::Device* device = nullptr;
+            std::string source;                // what was compiled, compared on a lookup
         };
+
+    private:
 
         MTL::CompileOptions* newCompileOptions() const;
         void reportCompileFailure(const std::string& reason) const;

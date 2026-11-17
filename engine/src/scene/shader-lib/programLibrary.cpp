@@ -524,15 +524,80 @@ namespace visutwin::canvas
         }
     }
 
-    const SlangProgramBuild* ProgramLibrary::slangProgram(const std::string& program, const SlangFileOverrides& overrides)
+    ProgramLibrary::~ProgramLibrary()
+    {
+        // The compile threads finish first: their jobs read the device this library holds.
+        _programQueue.reset();
+    }
+
+    std::string ProgramLibrary::slangProgramKey(const std::string& program, const SlangFileOverrides& overrides)
     {
         uint64_t fingerprint = fnv1a64(program);
         for (const auto& [name, source] : overrides) {
             fingerprint = fnv1a64(source, fnv1a64(name, fingerprint));
         }
-        const std::string key = program + ":" + std::to_string(fingerprint);
+        return program + ":" + std::to_string(fingerprint);
+    }
+
+    bool ProgramLibrary::requestSlangProgram(const std::string& program, const SlangFileOverrides& overrides)
+    {
+        const std::string key = slangProgramKey(program, overrides);
+        if (_slangPrograms.contains(key) || _pendingSlangPrograms.contains(key)) {
+            return false;
+        }
+        // The watcher's fingerprint is taken before the compile, as slangProgram does.
+        if (slangShaderWatchEnabled()) {
+            _slangProgramSources[key] = {program, overrides, slangSourceFingerprint(program, {}, overrides)};
+        }
+        auto promise = std::make_shared<std::promise<std::shared_ptr<SlangProgramBuild>>>();
+        _pendingSlangPrograms[key] = promise->get_future().share();
+        if (!_programQueue) {
+            _programQueue = std::make_unique<PipelineCompileQueue>();
+        }
+        // The job reads the device's shader language and disk cache, the bundle and the source
+        // tree; SlangCompiler gives each concurrent compile a global session of its own.
+        _programQueue->submit([device = _device.get(), program, overrides, promise] {
+            auto build = std::make_shared<SlangProgramBuild>();
+            if (!loadSlangProgram(device, program, {}, overrides, *build)) {
+                build.reset();
+            }
+            promise->set_value(std::move(build));
+        });
+        return true;
+    }
+
+    int ProgramLibrary::requestSlangPrograms(const Material* material, const bool shadowCaster)
+    {
+        const bool runtime = slangRuntimeCompileWanted();
+        int started = 0;
+        // Bundled (no overrides, no run-time compile): nothing to compile.
+        if (const SlangFileOverrides overrides = chunkOverrides(material); !overrides.empty() || runtime) {
+            started += requestSlangProgram("forward", overrides) ? 1 : 0;
+        }
+        // A caster's shadow draw takes its material's overrides only when it needs the material
+        // (shadowNeedsMaterial: the opacity frontend); every other caster draws with the shared
+        // material-less shadow variants, which take the registry's alone.
+        if (shadowCaster) {
+            const SlangFileOverrides shadowOverrides = chunkOverrides(shadowNeedsMaterial(material) ? material : nullptr);
+            if (!shadowOverrides.empty() || runtime) {
+                started += requestSlangProgram("shadow", shadowOverrides) ? 1 : 0;
+            }
+        }
+        return started;
+    }
+
+    const SlangProgramBuild* ProgramLibrary::slangProgram(const std::string& program, const SlangFileOverrides& overrides)
+    {
+        const std::string key = slangProgramKey(program, overrides);
         if (const auto found = _slangPrograms.find(key); found != _slangPrograms.end()) {
             return found->second.get();
+        }
+        // Compiling on a compile thread (requestSlangPrograms): take it over once it is done.
+        if (const auto pending = _pendingSlangPrograms.find(key); pending != _pendingSlangPrograms.end()) {
+            std::shared_ptr<SlangProgramBuild> build = pending->second.get();
+            _pendingSlangPrograms.erase(pending);
+            _slangPrograms[key] = build;
+            return build.get();
         }
         // The watcher's fingerprint is taken BEFORE the compile, so a change landing while it
         // compiles differs from it and is reloaded on the next poll.

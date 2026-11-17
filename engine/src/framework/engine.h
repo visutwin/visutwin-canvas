@@ -56,6 +56,7 @@ namespace visutwin::canvas
     /// What an Engine::precompile did.
     struct PrecompileStats
     {
+        int programs = 0;       ///< Slang programs it compiled on compile threads (chunk overrides)
         int shaders = 0;        ///< shaders it created
         int pipelines = 0;      ///< render pipelines it asked to build
         double frameTime = 0.0; ///< milliseconds of the frame that started it
@@ -261,8 +262,10 @@ namespace visutwin::canvas
         {
             PrecompileOptions options;
             bool started = false;
+            bool sceneStarted = false;   // the frame graph precompiled, after the programs
             int total = 0;
             int done = -1;
+            float progress = -1.0f;
             std::chrono::steady_clock::time_point startTime;
             PrecompileStats stats;
             std::vector<std::function<void(const PrecompileStats&)>> callbacks;
@@ -274,6 +277,9 @@ namespace visutwin::canvas
         // Builds and culls the frame as render() does, and precompiles its passes.
         void precompileScene(const PrecompileOptions& options);
         void finishPrecompile();
+        // Asks the program library to compile the Slang programs the scene's materials need
+        // from source, on compile threads; returns how many it started.
+        int requestScenePrograms();
 
         void tick();
 

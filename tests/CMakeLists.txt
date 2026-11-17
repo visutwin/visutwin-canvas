@@ -70,6 +70,9 @@ endif()
 # function / specialization constant, the quad path's bindings; `gpu` label.
 if(VISUTWIN_SHADER_SLANG)
     visutwin_add_unit_test(visutwin-slang-compiler-tests slang-compiler slangCompilerTests.cpp)
+    # Slang compiles at once on several threads (tests/slangConcurrencyTests.cpp): byte-identical
+    # to serial ones, through the compiler and through ProgramLibrary::requestSlangPrograms.
+    visutwin_add_unit_test(visutwin-slang-concurrency-tests slang-concurrency slangConcurrencyTests.cpp TIMEOUT 300)
     # The Slang program lookup (tests/slangBundleTests.cpp): the bundle built for this
     # backend holds the pilot program, and the runtime compile from the source tree
     # (VISUTWIN_SLANG_RUNTIME) produces code for the same backend.
