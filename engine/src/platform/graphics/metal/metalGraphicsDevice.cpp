@@ -1353,6 +1353,10 @@ namespace visutwin::canvas
     void MetalGraphicsDevice::setDynamicBatchPalette(const void* data, const size_t size,
         const uint64_t contentVersion)
     {
+        // No device frame is open in a precompile pass: nothing may take frame memory.
+        if (_precompilePass) {
+            return;
+        }
         // From the palette ring (variable-size bump allocator, which grows): one copy a
         // frame per content version, however many passes draw the skin.
         _pendingPaletteOffset = _paletteRing->allocate(data, size, contentVersion);
@@ -1419,6 +1423,10 @@ namespace visutwin::canvas
     void MetalGraphicsDevice::setClusterBuffers(const void* lightData, const size_t lightSize,
         const void* cellData, const size_t cellSize)
     {
+        // No device frame is open in a precompile pass: the per-frame slots are not this one's.
+        if (_precompilePass) {
+            return;
+        }
         if (!lightData || lightSize == 0 || !cellData || cellSize == 0) {
             // No grid for this layer: the stand-ins replace whatever an earlier layer bound.
             // The pair and the last-data pointers stay, so the same grid bound again later in
@@ -1807,6 +1815,13 @@ namespace visutwin::canvas
     void MetalGraphicsDevice::draw(const Primitive& primitive, const std::shared_ptr<IndexBuffer>& indexBuffer,
                 int numInstances, const int indirectSlot, const bool first, const bool last)
     {
+        if (_precompilePass) {
+            requestDrawPipeline(primitive, indexBuffer);
+            if (last) {
+                clearVertexBuffer();
+            }
+            return;
+        }
         const auto indexBinding = prepareDraw(primitive, indexBuffer, first);
         if (!indexBinding) {
             return;
@@ -1827,6 +1842,11 @@ namespace visutwin::canvas
         if (commands.empty()) {
             return;
         }
+        if (_precompilePass) {
+            requestDrawPipeline(primitive, indexBuffer);
+            clearVertexBuffer();
+            return;
+        }
         // Metal has no multi-draw call: the state is bound and checked ONCE for the list (every
         // sub-draw shares it), then each sub-draw is encoded.
         const auto indexBinding = prepareDraw(primitive, indexBuffer, true);
@@ -1841,6 +1861,72 @@ namespace visutwin::canvas
         clearVertexBuffer();
     }
 
+    const std::shared_ptr<VertexBuffer>* MetalGraphicsDevice::instancingVertexBuffer() const
+    {
+        for (size_t i = 2; i < _vertexBuffers.size(); ++i) {
+            if (_vertexBuffers[i] && _vertexBuffers[i]->format() &&
+                _vertexBuffers[i]->format()->isInstancing()) {
+                return &_vertexBuffers[i];
+            }
+        }
+        return nullptr;
+    }
+
+    void MetalGraphicsDevice::requestDrawPipeline(const Primitive& primitive,
+        const std::shared_ptr<IndexBuffer>& indexBuffer)
+    {
+        if (!_shader || !_blendState || !_renderPipeline) {
+            return;
+        }
+        // The inputs bindDrawPipeline gives get(), so the precompiled pipeline is the one the
+        // draw will look up.
+        const auto& vb0 = _vertexBuffers.size() > 0 ? _vertexBuffers[0] : _nullVertexBuffer;
+        const auto& vb1 = _vertexBuffers.size() > 1 ? _vertexBuffers[1] : _nullVertexBuffer;
+        const std::shared_ptr<VertexBuffer>* instancingVBPtr = instancingVertexBuffer();
+        const int ibFormat = indexBuffer ? indexBuffer->format() : -1;
+        _renderPipeline->request(primitive,
+            vb0 != nullptr ? vb0->format() : nullptr,
+            vb1 != nullptr ? vb1->format() : nullptr,
+            ibFormat, _shader, _renderTarget, _bindGroupFormats, _blendState,
+            instancingVBPtr ? (*instancingVBPtr)->format() : nullptr,
+            renderTargetFormatKey());
+    }
+
+    void MetalGraphicsDevice::onBeginPrecompilePass(RenderPass* renderPass)
+    {
+        // The target the pass would begin with, as startRenderPass takes it, so the pipelines
+        // are built for its attachment formats.
+        _psoFormatKeyValid = false;
+        const std::shared_ptr<RenderTarget> activeTarget =
+            (renderPass && renderPass->renderTarget()) ? renderPass->renderTarget() : backBuffer();
+        setRenderTarget(activeTarget);
+        if (const auto offscreenTarget = std::dynamic_pointer_cast<MetalRenderTarget>(activeTarget)) {
+            offscreenTarget->ensureAttachments();
+        }
+    }
+
+    void MetalGraphicsDevice::onEndPrecompilePass()
+    {
+        _psoFormatKeyValid = false;
+    }
+
+    int MetalGraphicsDevice::precompilePendingCount() const
+    {
+        return _renderPipeline ? _renderPipeline->pendingCount() : 0;
+    }
+
+    int MetalGraphicsDevice::precompilePipelineRequests() const
+    {
+        return _renderPipeline ? _renderPipeline->requestCount() : 0;
+    }
+
+    void MetalGraphicsDevice::waitPrecompileIdle()
+    {
+        if (_renderPipeline) {
+            _renderPipeline->waitIdle();
+        }
+    }
+
     bool MetalGraphicsDevice::bindDrawPipeline(MTL::RenderCommandEncoder* passEncoder, const Primitive& primitive,
         const std::shared_ptr<IndexBuffer>& indexBuffer)
     {
@@ -1850,14 +1936,7 @@ namespace visutwin::canvas
 
         // Hardware instancing: find VB with isInstancing() format (set at slot 5 by renderer).
         // Use raw pointer — the shared_ptr in _vertexBuffers keeps the object alive.
-        const std::shared_ptr<VertexBuffer>* instancingVBPtr = nullptr;
-        for (size_t i = 2; i < _vertexBuffers.size(); ++i) {
-            if (_vertexBuffers[i] && _vertexBuffers[i]->format() &&
-                _vertexBuffers[i]->format()->isInstancing()) {
-                instancingVBPtr = &_vertexBuffers[i];
-                break;
-            }
-        }
+        const std::shared_ptr<VertexBuffer>* instancingVBPtr = instancingVertexBuffer();
 
         if (vb0) {
             const int vbSlot = submitVertexBuffer(vb0, 0);

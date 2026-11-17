@@ -10,6 +10,9 @@
 #ifdef VISUTWIN_HAS_VULKAN
 
 #include <array>
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -17,6 +20,7 @@
 #include <vector>
 #include <vulkan/vulkan.h>
 
+#include "platform/graphics/pipelineCompileQueue.h"
 #include "platform/graphics/renderPipeline.h"
 
 namespace visutwin::canvas
@@ -64,6 +68,35 @@ namespace visutwin::canvas
             // begins rendering with — MSAA targets get their own pipelines.
             VkSampleCountFlagBits samples,
             bool isSkybox = false);
+
+        /// As get(), for a precompile pass: a pipeline the cache does not hold is built on a
+        /// compile thread (through the device's pipeline cache, which Vulkan synchronises
+        /// internally), and the call returns at once. A later get() of it waits for it.
+        void request(const Primitive& primitive,
+            const std::shared_ptr<VertexFormat>& vertexFormat,
+            const std::shared_ptr<VertexFormat>& instanceFormat,
+            const std::shared_ptr<VulkanShader>& shader,
+            const std::shared_ptr<BlendState>& blendState,
+            const std::shared_ptr<DepthState>& depthState,
+            CullMode cullMode,
+            bool stencilEnabled,
+            const std::shared_ptr<StencilParameters>& stencilFront,
+            const std::shared_ptr<StencilParameters>& stencilBack,
+            std::span<const VkFormat> colorFormats,
+            VkFormat depthFormat,
+            VkSampleCountFlagBits samples,
+            bool isSkybox);
+
+        /// Pipelines requested and still building.
+        [[nodiscard]] int pendingCount() const { return _compileQueue ? _compileQueue->pending() : 0; }
+        /// Pipelines requested to build on a compile thread so far.
+        [[nodiscard]] int requestCount() const { return _requestCount; }
+        void waitIdle()
+        {
+            if (_compileQueue) {
+                _compileQueue->waitIdle();
+            }
+        }
 
         [[nodiscard]] VkPipelineLayout pipelineLayout() const { return _pipelineLayout; }
         [[nodiscard]] VkDescriptorSetLayout materialSetLayout() const { return _materialSetLayout; }
@@ -127,9 +160,31 @@ namespace visutwin::canvas
         struct CacheEntry
         {
             PipelineKey key;
-            VkPipeline pipeline = VK_NULL_HANDLE;
+            // Written once: by the get() that builds it, or by a compile thread for an entry a
+            // precompile requested, which sets `ready` after it.
+            std::atomic<VkPipeline> pipeline{VK_NULL_HANDLE};
+            std::atomic<bool> ready{false};
         };
-        std::unordered_map<uint64_t, std::vector<CacheEntry>> _cache;
+        std::unordered_map<uint64_t, std::vector<std::shared_ptr<CacheEntry>>> _cache;
+
+        // The key words and hash of a pipeline state, and the entry holding it, if any.
+        uint64_t makeKey(PipelineKey& key, const Primitive& primitive,
+            const std::shared_ptr<VertexFormat>& vertexFormat,
+            const std::shared_ptr<VertexFormat>& instanceFormat,
+            const std::shared_ptr<VulkanShader>& shader,
+            const std::shared_ptr<BlendState>& blendState,
+            const std::shared_ptr<DepthState>& depthState,
+            CullMode cullMode, bool stencilEnabled,
+            const std::shared_ptr<StencilParameters>& stencilFront,
+            const std::shared_ptr<StencilParameters>& stencilBack,
+            std::span<const VkFormat> colorFormats, VkFormat depthFormat,
+            VkSampleCountFlagBits samples, bool isSkybox) const;
+        std::shared_ptr<CacheEntry> find(uint64_t hash, const PipelineKey& key) const;
+
+        std::unique_ptr<PipelineCompileQueue> _compileQueue;
+        std::mutex _readyMutex;
+        std::condition_variable _readyCondition;
+        int _requestCount = 0;
     };
 }
 

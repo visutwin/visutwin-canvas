@@ -167,6 +167,7 @@ namespace visutwin::canvas
         if (!device) {
             return nullptr;
         }
+        const std::lock_guard libraryLock(_libraryMutex);
 
         const auto found = _libraries.find(device);
         if (found != _libraries.end()) {

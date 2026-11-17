@@ -50,6 +50,11 @@ namespace visutwin::canvas
         }
     }
 
+    void RenderPassShadowDirectional::precompile()
+    {
+        runPrecompileDraws([this] { execute(); });
+    }
+
     void RenderPassShadowDirectional::execute()
     {
         if (!_graphicsDevice || !_light) {

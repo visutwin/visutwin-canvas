@@ -400,9 +400,18 @@ namespace visutwin::canvas
         _cullRequests.clear();
     }
 
+    void Renderer::setPrecompileFrame(const bool active, const bool frustumCulling)
+    {
+        if (_precompileFrame && !active) {
+            _culledInstances.clear();
+        }
+        _precompileFrame = active;
+        _precompileFrustumCulling = active && frustumCulling;
+    }
+
     bool Renderer::cullSetCurrent(const CulledInstances& set, const Camera* camera, const Frustum& frustum) const
     {
-        if (!_cullReuse || !set.valid || set.cullVersion != CullVersion::current()) {
+        if (_precompileFrame || !_cullReuse || !set.valid || set.cullVersion != CullVersion::current()) {
             return false;
         }
         const uint32_t cullingMask = camera ? camera->cullingMask() : 0xFFFFFFFFu;
@@ -556,6 +565,8 @@ namespace visutwin::canvas
         const Frustum cameraFrustum = hasCameraFrustum
             ? buildCameraFrustum(camera, cameraNode) : Frustum{};
         const Vector3 cameraPosition = hasCameraFrustum ? cameraNode->position() : Vector3();
+        // A precompile culls nothing by view, unless asked to (setPrecompileFrame).
+        const bool frustumTest = hasCameraFrustum && (!_precompileFrame || _precompileFrustumCulling);
         const uint32_t cullingMask = camera ? camera->cullingMask() : 0xFFFFFFFFu;
 
         // The stamps this set is culled under, read before the sweep: the sweep itself
@@ -626,13 +637,13 @@ namespace visutwin::canvas
 
             // A skybox is drawn around the camera and has no meaningful bounds, so it
             // is never frustum culled.
-            if (!material->isSkybox() && hasCameraFrustum && meshInstance->cull() &&
+            if (!material->isSkybox() && frustumTest && meshInstance->cull() &&
                 !isVisibleInFrustum(cameraFrustum, meshInstance->aabb())) {
                 return Bucket::None;
             }
             // Outside its visibility range, as outside the frustum. A set reused while the
             // frustum is unchanged keeps this answer: the camera has not moved.
-            if (hasCameraFrustum && !material->isSkybox() && meshInstance->visibilityFrom(cameraPosition).hidden()) {
+            if (frustumTest && !material->isSkybox() && meshInstance->visibilityFrom(cameraPosition).hidden()) {
                 return Bucket::None;
             }
 
@@ -692,6 +703,10 @@ namespace visutwin::canvas
 
     void Renderer::consumeOneShotShadows()
     {
+        // No shadow renders in a precompile frame: the requests wait for the frame that does.
+        if (_precompileFrame) {
+            return;
+        }
         const bool clusteredEnabled = _scene && _scene->clusteredLightingEnabled();
         auto consume = [&](Light* light) {
             if (!light || !_shadowRenderer || !_shadowRenderer->needsShadowRendering(light)) {
@@ -2224,10 +2239,10 @@ namespace visutwin::canvas
                     auto* si = meshInstance->skinInstance();
                     // The mesh's hierarchy and the skeleton's (which can sit elsewhere, or above the
                     // mesh) were drawn this frame: their anim components are visible.
-                    if (meshInstance->node()) {
+                    if (meshInstance->node() && !device.precompilePass()) {
                         meshInstance->node()->markDeformedRendered(device.renderVersion());
                     }
-                    if (si->rootBone()) {
+                    if (si->rootBone() && !device.precompilePass()) {
                         si->rootBone()->markDeformedRendered(device.renderVersion());
                     }
                     {
@@ -2241,7 +2256,7 @@ namespace visutwin::canvas
                 // Morph targets: bind the shared delta buffer + current weights.
                 if (variant.morphed) {
                     auto* mi = meshInstance->morphInstance();
-                    if (meshInstance->node()) {
+                    if (meshInstance->node() && !device.precompilePass()) {
                         meshInstance->node()->markDeformedRendered(device.renderVersion());
                     }
                     if (mi->morph() && mi->morph()->deltaBuffer()) {

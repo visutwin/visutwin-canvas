@@ -212,6 +212,33 @@ namespace visutwin::canvas
         }
     }
 
+    void RenderPassForward::precompile()
+    {
+        if (!_renderer) {
+            return;
+        }
+        runPrecompileDraws([this] {
+            // The HDR state before() would set: the forward variants follow it.
+            const bool linearOutput = _hdrPass || (_camera && _camera->camera() && _camera->camera()->linearOutput());
+            if (linearOutput) {
+                device()->setHdrPass(true);
+            }
+            for (size_t i = 0; i < _renderActions.size(); ++i) {
+                auto* ra = _renderActions[i];
+                if (!ra || !ra->camera || !_layerComposition || !_layerComposition->isEnabled(ra->layer, ra->transparent)) {
+                    continue;
+                }
+                if (i > 0 && ra->clearDepth && ra->layer && ra->layer->clearDepthBuffer()) {
+                    clearDepthInPass(device().get());
+                }
+                _renderer->renderForwardLayer(ra->camera->camera(), ra->renderTarget.get(), ra->layer, ra->transparent);
+            }
+            if (linearOutput) {
+                device()->setHdrPass(false);
+            }
+        });
+    }
+
     void RenderPassForward::after()
     {
         if (!_beforeCalled) {

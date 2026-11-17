@@ -139,6 +139,10 @@ namespace visutwin::canvas
 
         // ── Render pass lifecycle ────────────────────────────────────────
         void startRenderPass(RenderPass* renderPass) override;
+
+        int precompilePendingCount() const override;
+        int precompilePipelineRequests() const override;
+        void waitPrecompileIdle() override;
         void endRenderPass(RenderPass* renderPass) override;
 
         // ── Dynamic state ────────────────────────────────────────────────
@@ -549,6 +553,22 @@ namespace visutwin::canvas
         };
         DrawResources takePendingDrawResources();
         /// Binds the pipeline for the bound state and the vertex and instance buffers.
+        void onBeginPrecompilePass(RenderPass* renderPass) override;
+        void onEndPrecompilePass() override;
+        // A draw in a precompile pass: asks the pipeline cache for the pipeline the draw would
+        // bind, built on a compile thread when it is new.
+        void requestDrawPipeline(const Primitive& primitive);
+        // What a draw's pipeline is keyed on besides the state: the per-instance format, and
+        // the attachment formats and sample count of the pass (offscreen or the swapchain).
+        struct DrawPipelineTarget
+        {
+            std::shared_ptr<VertexFormat> instanceFormat;
+            std::array<VkFormat, 8> colorFormats{};
+            size_t colorFormatCount = 0;
+            VkFormat depthFormat = VK_FORMAT_UNDEFINED;
+            VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
+        };
+        DrawPipelineTarget drawPipelineTarget() const;
         [[nodiscard]] bool bindDrawPipeline(VkCommandBuffer cmd, const Primitive& primitive,
             const std::shared_ptr<VulkanShader>& shader);
         void applyStencilReference(VkCommandBuffer cmd);

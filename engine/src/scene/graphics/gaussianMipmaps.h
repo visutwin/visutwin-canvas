@@ -56,6 +56,10 @@ namespace visutwin::canvas
         /// Creates the shaders ahead of the first use (RenderPass::prepareShaders).
         void prepareShaders();
 
+        /// Builds the render pipelines generate() draws `texture` with, without rendering
+        /// (Engine::precompile); prepares the targets as prepare() does.
+        void precompile(Texture* texture);
+
     private:
         struct Scratch
         {
@@ -102,6 +106,7 @@ namespace visutwin::canvas
 
         void prepareShaders() override;
         void execute() override;
+        void precompile() override;
 
     private:
         std::weak_ptr<RenderTarget> _target;

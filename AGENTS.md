@@ -348,8 +348,11 @@ bindings like a program of the tree, so it needs the source tree at run time. Wh
   JSON) and the run-time compile (`SlangCompiler::constReadOnlyBuffers`, names from the linked
   layout) const-qualify each read-only buffer's declarations (`name_N`) and the local pointers
   Slang copies it into: two twins of one rule, change both; `tests/slangCompilerTests.cpp`
-  holds the C++ one. A RW buffer stays `device`, so a program whose vertex entry sees one
-  still warns.
+  holds the C++ one. The C++ twin runs its expressions only on the lines holding `device*` and
+  the buffer's name (Slang writes each declaration on one line): `std::regex` over a whole
+  program, some 440 KB of MSL for the forward program, took 1.5 s a pass in a Debug build, 5 of
+  `car-showcase`'s 8 s first frame. A RW buffer stays `device`, so a program whose vertex entry
+  sees one still warns.
 - **`VT_TARGET_METAL` is defined for the Metal targets** (`SlangCompiler` adds it, the bundle
   passes it), and `bindings.slang` declares some inputs per target under it. Prefer
   `__target_switch` inside a function; use the define only where the DECLARATIONS must differ.
@@ -2844,7 +2847,10 @@ present, but the rule below never depends on reading it.
   first frame. Every script initializes before any script post-initializes.
   The tick `start()` ends with renders a frame, so `ExampleApp` runs the example's own
   `update(0)` on `postinitialize`, as it does before every frame of its loop: without it
-  that first frame shows the example's defaults (a dynamic sky at noon).
+  that first frame shows the example's defaults (a dynamic sky at noon). Its `preRender()`
+  runs for that frame too, from the engine's `prerender` event: without it `car-showcase`'s
+  first frame had no planar reflection target (created there) and drew the reflection camera
+  into the back buffer, so a precompile of that frame built the wrong pipelines.
 - **The per-draw uniform rings GROW; Metal's inside the frame, Vulkan's at the next
   frame boundary.** Metal's two rings (`MetalUniformRingBuffer`: transform, and the
   material + lighting slots) start at 256 slots a frame and DOUBLE on the allocation that
@@ -3375,6 +3381,33 @@ present, but the rule below never depends on reading it.
   reset it, or the next draw skips a bind it needed. Per-draw work must not allocate:
   the pipeline's colour formats are a fixed array, and `_materialUniformSlots` is stamped
   with `_frameSerial` instead of cleared (clearing frees a node per material per frame).
+- **`Engine::precompile` builds a frame's render pipelines in parallel before the frame renders,
+  and a pass takes part only through `RenderPass::precompile`.** The next `render()` builds and
+  culls the frame (`Renderer::setPrecompileFrame`: no frustum or visibility-range test unless
+  `PrecompileOptions::frustumCulling`, no one-shot shadow consumed, cull sets dropped after) and
+  calls `FrameGraph::precompile`, which calls `precompile()` on every pass that would execute; no
+  device frame is begun, so `renderVersion()` does not advance and nothing is presented. A pass
+  that overrides it runs its draws between `GraphicsDevice::beginPrecompilePass(this)` and
+  `endPrecompilePass` (`runPrecompileDraws`), where each backend's `draw()` / `multiDraw()`
+  computes the pipeline it would bind and hands a new one to its cache's `request()`, built on a
+  `PipelineCompileQueue` thread; the frames after it render nothing (the update runs) until
+  `precompilePendingCount()` is 0, firing "precompile:start" / "progress" / "end". The forward
+  pass, the three shadow passes, every quad pass and the Gaussian mipmap pass override it; a pass
+  that does not builds its pipelines when it first renders, as before. Four rules: (1) a
+  precompile override fires no event and consumes nothing the next frame relies on; (2) a pass
+  that returns early when an input a rendered frame publishes is missing (the fog passes and the
+  scene depth map) lets a precompile pass through, since the draw binds nothing; (3) a backend
+  setter that takes FRAME memory (a ring allocation: palettes, morph parameters, cluster
+  buffers) returns early under `precompilePass()`, as no frame is open; (4) a pipeline build
+  reads nothing the render thread may change: Metal's attachment formats are captured first
+  (`MetalPipelineTargetFormats`), Vulkan's states are copied into the job, `MetalShader::
+  getLibrary` is locked, and `replaceShaderCode` and Vulkan's pipeline-cache save wait for the
+  queue (`waitPrecompileIdle`). A `get()` of an entry still building waits for it. It does NOT
+  parallelise SHADER creation: a forward variant with a chunk override compiles Slang on the
+  render thread inside the precompile frame (`car-showcase`: 3 s in Debug). Measured cold
+  first frames (Metal Debug / Vulkan Release): `post-processing` 648 -> 214 ms and 2200 -> 191
+  ms, `clear-coat` 649 -> 61 ms on Metal; a static scene renders bit-identically with it.
+  `tests/precompileTests.cpp` holds the frame flow; `VISUTWIN_PRECOMPILE=1` drives any example.
 - **A shader is CREATED before the frame's first pass draws, and on Metal creating it is
   what starts its compile.** `MetalShader` compiles its library asynchronously from its
   constructor and `getLibrary` waits for it. Compiling MSL source is the whole cost of a
@@ -4235,6 +4268,12 @@ halves diverge in opposite directions, test the mirror before theorising. Instea
 20. `VISUTWIN_DISPLAY=<n>` opens the window centred on display n instead of the main one, and
     logs every display with its pixel density: the golden 2x set on a Retina display while the
     main display is a 1x monitor, or the reverse.
+21. `VISUTWIN_PRECOMPILE=1` precompiles any example's first frame (`Engine::precompile`), and
+    every example logs "First frame rendered N ms after start": the wall time from `start()` to
+    the first frame that renders, the cold-start figure (CPU_STATS frame 0 misses the frame
+    `start()` renders, and with a precompile the frames that only build). Cold on Metal means
+    the example's `$(getconf DARWIN_USER_CACHE_DIR)com.visutwin.<category>.<name>` moved aside
+    for the run; on Vulkan, `VISUTWIN_SHADER_CACHE=0`.
 
 Animated examples cannot be screenshot-diffed across shader changes unless they run
 under `VISUTWIN_FIXED_DT`.

@@ -559,7 +559,34 @@ namespace visutwin::canvas
         // before it, as before every frame of the loop, so that frame shows the example's state
         // (an effect's settings, a material a script swaps in) rather than its defaults.
         _engine->once("postinitialize", [this]() { update(0.0f); });
+        // ... and its preRender, as the loop calls it before every render: the frame start()
+        // renders would otherwise miss what an example sets up there (a planar reflection's
+        // target), and differ from the next one, which a precompile of it would then miss.
+        _engine->once("prerender", [this]() {
+            preRender();
+            syncUiCamera();
+        });
+
+        // VISUTWIN_PRECOMPILE=1 builds any example's first frame's pipelines in parallel before
+        // it renders (Engine::precompile), as an example that asks for it does.
+        if (const char* precompile = std::getenv("VISUTWIN_PRECOMPILE"); precompile && *precompile == '1' &&
+            !_engine->precompiling()) {
+            _engine->precompile();
+        }
+        // The wall time from here to the first frame that renders, logged once: the cost of a
+        // cold start (with a precompile, the frames that only build pipelines included).
+        const auto runStart = std::chrono::steady_clock::now();
+        bool firstFrameLogged = false;
+        const auto logFirstFrame = [&] {
+            if (!firstFrameLogged && _engine->graphicsDevice()->renderVersion() > 0) {
+                firstFrameLogged = true;
+                spdlog::info("First frame rendered {:.0f} ms after start", std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - runStart).count());
+            }
+        };
+
         _engine->start();
+        logFirstFrame();
 
         const uint64_t perfFrequency = SDL_GetPerformanceFrequency();
         uint64_t previousCounter = SDL_GetPerformanceCounter();
@@ -673,6 +700,7 @@ namespace visutwin::canvas
             preRender();
             syncUiCamera();
             _engine->render();
+            logFirstFrame();
             postRender();
             if (gpuCapturing) {
                 _engine->graphicsDevice()->endGpuCapture();

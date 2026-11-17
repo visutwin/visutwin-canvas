@@ -206,10 +206,10 @@ namespace visutwin::canvas
                 auto* si = meshInstance->skinInstance();
                 // The mesh's hierarchy and the skeleton's (which can sit elsewhere, or above the
                 // mesh) were drawn this frame: their anim components are visible.
-                if (meshInstance->node()) {
+                if (meshInstance->node() && !device->precompilePass()) {
                     meshInstance->node()->markDeformedRendered(device->renderVersion());
                 }
-                if (si->rootBone()) {
+                if (si->rootBone() && !device->precompilePass()) {
                     si->rootBone()->markDeformedRendered(device->renderVersion());
                 }
                 {
@@ -223,7 +223,7 @@ namespace visutwin::canvas
             }
             if (morphed) {
                 auto* mi = meshInstance->morphInstance();
-                if (meshInstance->node()) {
+                if (meshInstance->node() && !device->precompilePass()) {
                     meshInstance->node()->markDeformedRendered(device->renderVersion());
                 }
                 if (mi->morph() && mi->morph()->deltaBuffer()) {

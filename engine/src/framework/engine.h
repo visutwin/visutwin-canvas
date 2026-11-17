@@ -5,6 +5,10 @@
 //
 #pragma once
 
+#include <chrono>
+#include <functional>
+#include <memory>
+#include <vector>
 #include <SDL3/SDL.h>
 
 #include "appOptions.h"
@@ -41,6 +45,23 @@ namespace visutwin::canvas
      * Scene, ForwardRenderer, component systems, and the async ResourceLoader. A typical frame
      * calls update() -> fixedUpdate() (zero or more substeps) -> render().
      */
+    /// The options of Engine::precompile.
+    struct PrecompileOptions
+    {
+        /// Build only for the mesh instances the cameras see, not for everything in their
+        /// layers: fewer pipelines up front, the rest built when they come into view.
+        bool frustumCulling = false;
+    };
+
+    /// What an Engine::precompile did.
+    struct PrecompileStats
+    {
+        int shaders = 0;        ///< shaders it created
+        int pipelines = 0;      ///< render pipelines it asked to build
+        double frameTime = 0.0; ///< milliseconds of the frame that started it
+        double time = 0.0;      ///< milliseconds until every pipeline had built
+    };
+
     class Engine : public EventHandler, public std::enable_shared_from_this<Engine>
     {
     public:
@@ -121,6 +142,29 @@ namespace visutwin::canvas
 
         // Render the application's scene for one frame
         void render();
+
+        /**
+         * Builds the shaders and render pipelines the next frame needs without rendering it, so
+         * they compile in parallel on compile threads instead of one by one in the frame's draws
+         * (a cold first frame of a few seconds becomes the time of the slowest few). The next
+         * render() builds and culls the frame as usual, runs its passes' draws into precompile
+         * passes (GraphicsDevice::beginPrecompilePass), and renders nothing; the renders after
+         * it render nothing either, the display keeping what it showed, until every pipeline
+         * has built, and the render after that renders the frame. The update keeps running.
+         * The mesh instances in the cameras' layers take part, off screen too, unless
+         * `frustumCulling`; anything else builds when it first renders, as before.
+         *
+         * Call it after adding content that needs new shaders: before the first frame, or
+         * after loading a level. The engine fires "precompile:start" once the builds started,
+         * "precompile:progress" (float, the fraction built, 0 to 1) in the frames it changed,
+         * and "precompile:end" (PrecompileStats) right before the frame that renders with
+         * everything built; `onDone` is called with the same statistics. A call while a
+         * precompile runs adds its callback to that one. If the engine is destroyed first,
+         * the callbacks run then, with what was counted so far.
+         */
+        void precompile(const PrecompileOptions& options = {},
+            std::function<void(const PrecompileStats&)> onDone = {});
+        [[nodiscard]] bool precompiling() const { return _precompile != nullptr; }
 
         /// Block until the next frame can begin (GraphicsDevice::waitForNextFrame). A loop
         /// calls it at the top, before polling input, so the frame shows the freshest input
@@ -212,6 +256,24 @@ namespace visutwin::canvas
 
         // Render a layer composition
         void renderComposition();
+
+        struct PrecompileState
+        {
+            PrecompileOptions options;
+            bool started = false;
+            int total = 0;
+            int done = -1;
+            std::chrono::steady_clock::time_point startTime;
+            PrecompileStats stats;
+            std::vector<std::function<void(const PrecompileStats&)>> callbacks;
+        };
+        std::unique_ptr<PrecompileState> _precompile;
+        // A frame of the precompile: true when it rendered nothing, false once it finished
+        // (and the frame renders as usual).
+        bool precompileFrame();
+        // Builds and culls the frame as render() does, and precompiles its passes.
+        void precompileScene(const PrecompileOptions& options);
+        void finishPrecompile();
 
         void tick();
 

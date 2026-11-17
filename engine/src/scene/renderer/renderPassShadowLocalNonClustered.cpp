@@ -58,6 +58,11 @@ namespace visutwin::canvas
         prepareLocalShadowShaders(_graphicsDevice, false, _applyVsm && _light->shadowType() == SHADOW_VSM_16F);
     }
 
+    void RenderPassShadowLocalNonClustered::precompile()
+    {
+        runPrecompileDraws([this] { execute(); });
+    }
+
     void RenderPassShadowLocalNonClustered::execute()
     {
         if (!_graphicsDevice || !_shadowCamera || !_shadowCamera->node()) {

@@ -6,11 +6,16 @@
 #pragma once
 
 #include <array>
+#include <atomic>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
 #include "Metal/Metal.hpp"
 #include "metalGraphicsDevice.h"
 #include "metalPipeline.h"
 #include "platform/graphics/bindGroupFormat.h"
 #include "platform/graphics/blendState.h"
+#include "platform/graphics/pipelineCompileQueue.h"
 #include "platform/graphics/depthState.h"
 #include "platform/graphics/renderPipeline.h"
 #include "platform/graphics/stencilParameters.h"
@@ -22,11 +27,25 @@ namespace visutwin::canvas
      * Cache entry for storing render pipelines
      */
     struct CacheEntry {
-        // Render pipeline
-        MTL::RenderPipelineState* pipeline = nullptr;
+        // Render pipeline. Written once: by the lookup that builds it, or by a compile thread
+        // for an entry a precompile requested, which sets `ready` after it.
+        std::atomic<MTL::RenderPipelineState*> pipeline{nullptr};
+        std::atomic<bool> ready{false};
 
         /** The full array of hashes used to look up the pipeline, used in case of hash collision */
         std::vector<uint32_t> hashes;
+    };
+
+    /// The attachment formats a pipeline is built for, read from its render target on the
+    /// render thread, so a compile thread never touches the target.
+    struct MetalPipelineTargetFormats
+    {
+        bool backBuffer = true;
+        std::array<MTL::PixelFormat, 8> colors{};
+        size_t colorCount = 0;
+        MTL::PixelFormat depth = MTL::PixelFormatInvalid;
+        bool stencil = false;
+        int samples = 1;
     };
 
     struct MetalBlendState
@@ -67,12 +86,42 @@ namespace visutwin::canvas
             // does, while this runs per draw call — see MetalRenderTarget::formatKey.
             uint32_t renderTargetFormatKey = 0);
 
+        /// As get(), for a precompile pass: a pipeline the cache does not hold is built on a
+        /// compile thread, and the call returns at once. A later get() of it waits for it.
+        void request(const Primitive& primitive, const std::shared_ptr<VertexFormat>& vertexFormat0,
+            const std::shared_ptr<VertexFormat>& vertexFormat1, int ibFormat, const std::shared_ptr<Shader>& shader,
+            const std::shared_ptr<RenderTarget>& renderTarget,
+            const std::vector<std::shared_ptr<MetalBindGroupFormat>>& bindGroupFormats,
+            const std::shared_ptr<BlendState>& blendState,
+            const std::shared_ptr<VertexFormat>& instancingFormat, uint32_t renderTargetFormatKey);
+
+        /// Pipelines requested and still building.
+        [[nodiscard]] int pendingCount() const { return _compileQueue ? _compileQueue->pending() : 0; }
+        /// Pipelines requested to build on a compile thread so far.
+        [[nodiscard]] int requestCount() const { return _requestCount; }
+        void waitIdle()
+        {
+            if (_compileQueue) {
+                _compileQueue->waitIdle();
+            }
+        }
+
     private:
-        // Create a new render pipeline
+        MTL::RenderPipelineState* lookup(const Primitive& primitive, const std::shared_ptr<VertexFormat>& vertexFormat0,
+            const std::shared_ptr<VertexFormat>& vertexFormat1, int ibFormat, const std::shared_ptr<Shader>& shader,
+            const std::shared_ptr<RenderTarget>& renderTarget,
+            const std::vector<std::shared_ptr<MetalBindGroupFormat>>& bindGroupFormats,
+            const std::shared_ptr<BlendState>& blendState,
+            const std::shared_ptr<VertexFormat>& instancingFormat, uint32_t renderTargetFormatKey, bool async);
+
+        MetalPipelineTargetFormats targetFormatsOf(const std::shared_ptr<RenderTarget>& renderTarget) const;
+
+        // Builds a render pipeline; safe on a compile thread (it reads only its arguments,
+        // the shader's library and the device).
         MTL::RenderPipelineState* create(
             const std::shared_ptr<Shader>& shader,
-            const std::shared_ptr<RenderTarget>& renderTarget,
-            const std::shared_ptr<BlendState>& blendState,
+            const MetalPipelineTargetFormats& targetFormats,
+            const BlendState& blendState,
             int vertexStride = 56,
             int instancingStride = 0
         );
@@ -105,6 +154,14 @@ namespace visutwin::canvas
 
         // The cache of render pipelines
         std::unordered_map<uint32_t, std::vector<std::shared_ptr<CacheEntry>>> _cache;
+
+        // The compile threads of request(), made on the first, and how a get() waits for an
+        // entry still building.
+        std::unique_ptr<PipelineCompileQueue> _compileQueue;
+        std::mutex _readyMutex;
+        std::condition_variable _readyCondition;
+        int _requestCount = 0;
+        std::atomic<int> _labelId{0};
 
         // The cache of vertex buffer layouts
 

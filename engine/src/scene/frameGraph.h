@@ -30,6 +30,10 @@ namespace visutwin::canvas
         // Render all passes in the frame graph
         void render(GraphicsDevice* device);
 
+        /// Builds the render pipelines of the frame's passes without rendering them
+        /// (Engine::precompile): RenderPass::precompile on every pass that would execute.
+        void precompile();
+
         // The passes added this frame, in the order they were added
         const std::vector<std::shared_ptr<RenderPass>>& renderPasses() const { return _renderPasses; }
 

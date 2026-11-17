@@ -75,6 +75,10 @@ namespace visutwin::canvas
 
         std::string _sourceCode;
         std::unordered_map<MTL::Device*, MTL::Library*> _libraries;
+        // getLibrary runs on the render thread and on the compile threads of a precompile
+        // (MetalRenderPipeline::request), so the library map and the pending compile are
+        // taken under this.
+        std::mutex _libraryMutex;
         std::shared_ptr<Compile> _compile;
         MTL::Device* _compileDevice = nullptr;
         bool _specializeFeatures = false;

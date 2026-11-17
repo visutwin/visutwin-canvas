@@ -1249,6 +1249,43 @@ Upstream's `ScreenComponent` and `ElementComponent` layout
   cache file per application (`pipelineCacheName`), pruned by age and total size once a
   process.
 
+### Precompile (`Engine::precompile`)
+
+`engine->precompile(options, onDone)` makes the next `render()` a PRECOMPILE frame: the frame is
+built and culled as usual (with `Renderer::setPrecompileFrame`: everything in the cameras' layers,
+off screen too, unless `PrecompileOptions::frustumCulling`), then `FrameGraph::precompile` runs
+each executing pass's `precompile()` instead of rendering it. No device frame begins; the frames
+after it render nothing (the update runs, the engine waits 4 ms a frame with the run loop
+serviced) until the device reports nothing building, and then the frame renders normally.
+
+- **Device side.** `beginPrecompilePass(pass)` takes on the attachment formats of the pass's
+  target the way `startRenderPass` does (Metal: `setRenderTarget` + `ensureAttachments`; Vulkan:
+  the offscreen target or the swapchain at the back buffer's sample count) without beginning
+  anything. Inside it, `draw()` / `multiDraw()` compute the pipeline key exactly as the encoding
+  path does (`requestDrawPipeline`) and call the cache's `request()`; nothing is recorded, and the
+  ring-writing setters return early.
+- **Pipeline caches.** `MetalRenderPipeline` and `VulkanRenderPipeline` share one lookup for
+  `get()` (build now, on the render thread) and `request()` (insert a pending entry, build on a
+  `PipelineCompileQueue` thread: hardware threads less one, up to 8). An entry is
+  `{pipeline, ready}` atomics; a `get()` meeting a pending entry waits on the cache's condition
+  variable rather than building it again. The queue is joined before the cache frees its
+  pipelines. Metal builds from captured attachment formats and a copy of the blend state; Vulkan
+  from copies of every state, through the device's `VkPipelineCache` (internally synchronised);
+  `notePipelineCreated` is counted on the render thread.
+- **Passes that take part:** `RenderPassForward` (its layers as `execute()` renders them, without
+  the prerender / postrender events), the directional and both local shadow passes, every
+  `RenderPassShaderQuad` (its `execute()`), `RenderPassGaussianMipmaps` (one level's two quad
+  draws). The fog passes let a precompile through without the scene depth map, and the local fog
+  draws one quad for the first light that takes part. Not covered: the colour grab's Gaussian
+  chain, SSAO's and the other effect passes that are not quad passes, compute.
+- **What it does not do:** create SHADERS in parallel. A forward variant is still resolved on the
+  render thread in the precompile frame's `prepareShaders`, and one with a chunk override compiles
+  Slang there; upstream's browsers compile shaders on their own threads, which is the gap.
+- **Measured** (first frame, wall time from `start()`, "First frame rendered" in the log): Metal
+  Debug `post-processing` 648 -> 68-214 ms, `clear-coat` 649 -> 61 ms; Vulkan Release
+  `post-processing` cold 2200 -> 191 ms, warm 201 -> 34 ms. `car-showcase` gains little: its
+  first frame is the run-time Slang compile of its chunk overrides.
+
 ### Render pass types
 
 **21 `RenderPass` subclasses.** The scene-level ones: `RenderPassForward` (main PBR

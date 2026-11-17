@@ -144,6 +144,28 @@ namespace visutwin::canvas
         return true;
     }
 
+    void GaussianMipmapGenerator::precompile(Texture* texture)
+    {
+        if (!prepare(texture) || !_device || _device->insideRenderPass() || texture->getNumLevels() < 2) {
+            return;
+        }
+        prepareShaders();
+        Scratch& scratch = scratchFor(texture);
+        const auto& scratchTarget = scratch.targets.front();
+        const auto target = levelTarget(texture, 1);
+        if (!scratchTarget || !target) {
+            return;
+        }
+        // The two draws of a level, into the targets generate() renders them into: every level
+        // shares their formats, so one level builds every pipeline.
+        _blurPass->init(scratchTarget);
+        _blurPass->setQuadTextureBinding(0, texture);
+        _blurPass->precompile();
+        _copyPass->init(target);
+        _copyPass->setQuadTextureBinding(0, scratch.texture.get());
+        _copyPass->precompile();
+    }
+
     bool GaussianMipmapGenerator::generate(Texture* texture)
     {
         if (!prepare(texture) || !_device || _device->insideRenderPass()) {
@@ -216,6 +238,13 @@ namespace visutwin::canvas
     void RenderPassGaussianMipmaps::prepareShaders()
     {
         _generator.prepareShaders();
+    }
+
+    void RenderPassGaussianMipmaps::precompile()
+    {
+        if (Texture* gaussianTexture = texture()) {
+            _generator.precompile(gaussianTexture);
+        }
     }
 
     void RenderPassGaussianMipmaps::execute()

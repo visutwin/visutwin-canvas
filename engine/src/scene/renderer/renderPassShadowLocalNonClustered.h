@@ -20,6 +20,8 @@ namespace visutwin::canvas {
         RenderPassShadowLocalNonClustered(const std::shared_ptr<GraphicsDevice>& device, ShadowRenderer* shadowRenderer,
             Light* light, int face, bool applyVsm);
         void execute() override;
+        /// The draws of execute(), into a precompile pass (Engine::precompile).
+        void precompile() override;
         void prepareShaders() override;
 
     private:

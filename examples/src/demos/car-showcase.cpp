@@ -614,6 +614,10 @@ protected:
         updateLabels();
         spdlog::info("car-showcase: 1-4 paint / wheels / calipers / interior, [ ] option, L lights, S studio, "
                      "D doors, H shells, T TAA, B bloom, V beams");
+
+        // Build the render pipelines of the whole scene in parallel before its first frame,
+        // instead of one by one as it renders; the first frame renders once they are built.
+        engine()->precompile();
         return true;
     }
 

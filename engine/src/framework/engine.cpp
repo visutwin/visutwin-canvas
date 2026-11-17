@@ -5,6 +5,8 @@
 //
 #include "engine.h"
 
+#include "platform/graphics/runLoopWait.h"
+#include <thread>
 #include "framework/components/componentRegistry.h"
 
 #include <algorithm>
@@ -120,6 +122,11 @@ namespace visutwin::canvas
         }
 
         fire("destroy");
+
+        // A precompile still running ends here, with what was counted so far.
+        if (_precompile) {
+            finishPrecompile();
+        }
 
         // Cleanup input devices
         if (_mouse) {
@@ -456,6 +463,14 @@ namespace visutwin::canvas
             immediate->prepareFrame(_scene->layers().get());
         }
 
+        // A precompile builds the frame's pipelines and renders nothing until they are built.
+        if (_precompile && precompileFrame()) {
+            if (Immediate* immediate = _scene ? _scene->immediate() : nullptr) {
+                immediate->clear();
+            }
+            return;
+        }
+
         _graphicsDevice->frameStart();
         _frameStartCalled = true;
         renderComposition();
@@ -516,6 +531,90 @@ namespace visutwin::canvas
             auto now = std::chrono::high_resolution_clock::now();
             const double ms = std::chrono::duration<double, std::milli>(now.time_since_epoch()).count();
             _tick(ms, nullptr);
+        }
+    }
+
+    void Engine::precompile(const PrecompileOptions& options, std::function<void(const PrecompileStats&)> onDone)
+    {
+        if (!_precompile) {
+            _precompile = std::make_unique<PrecompileState>();
+            _precompile->options = options;
+            _precompile->startTime = std::chrono::steady_clock::now();
+        }
+        if (onDone) {
+            _precompile->callbacks.push_back(std::move(onDone));
+        }
+    }
+
+    bool Engine::precompileFrame()
+    {
+        PrecompileState& state = *_precompile;
+        GraphicsDevice& device = *_graphicsDevice;
+
+        if (!state.started) {
+            // The frame that builds the frame graph and starts building what its passes draw.
+            state.started = true;
+            const int shadersBefore = device.liveResourceCounts().shaders;
+            const int pipelinesBefore = device.precompilePipelineRequests();
+            const auto frameStart = std::chrono::steady_clock::now();
+            precompileScene(state.options);
+            state.stats.shaders = device.liveResourceCounts().shaders - shadersBefore;
+            state.stats.pipelines = device.precompilePipelineRequests() - pipelinesBefore;
+            state.stats.frameTime = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - frameStart).count();
+            state.total = device.precompilePendingCount();
+            state.done = -1;
+            fire("precompile:start");
+        }
+
+        // Report the progress, until nothing is building.
+        const int pending = device.precompilePendingCount();
+        state.total = std::max(state.total, pending);
+        const int done = state.total - pending;
+        if (done != state.done) {
+            state.done = done;
+            fire("precompile:progress", state.total > 0 ? static_cast<float>(done) / static_cast<float>(state.total) : 1.0f);
+        }
+        if (pending == 0) {
+            finishPrecompile();
+            return false;   // this frame renders, with everything built
+        }
+
+        // Nothing renders while the pipelines build. Rather than spin through empty frames,
+        // give the compile threads a few milliseconds, with the main run loop serviced
+        // (a blocked main thread on macOS holds a pointer press: runLoopWait.h).
+        waitServicingRunLoop([] { std::this_thread::sleep_for(std::chrono::milliseconds(4)); });
+        return true;
+    }
+
+    void Engine::precompileScene(const PrecompileOptions& options)
+    {
+        if (!_renderer || !_scene || !_graphicsDevice) {
+            return;
+        }
+        const auto& layerComposition = _scene->layers();
+        if (!layerComposition) {
+            return;
+        }
+        // The frame as render() builds it, culled for the precompile, its passes precompiled
+        // instead of rendered. No device frame is begun: that would present an empty frame.
+        _renderer->setPrecompileFrame(true, options.frustumCulling);
+        FrameGraph frameGraph;
+        _renderer->buildFrameGraph(&frameGraph, layerComposition.get());
+        frameGraph.precompile();
+        _renderer->setPrecompileFrame(false);
+    }
+
+    void Engine::finishPrecompile()
+    {
+        std::unique_ptr<PrecompileState> state = std::move(_precompile);
+        state->stats.time = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - state->startTime).count();
+        spdlog::info("Precompile: {} shaders and {} render pipelines in {:.0f} ms (the frame that started it {:.1f} ms)",
+            state->stats.shaders, state->stats.pipelines, state->stats.time, state->stats.frameTime);
+        fire("precompile:end", state->stats);
+        for (const auto& callback : state->callbacks) {
+            callback(state->stats);
         }
     }
 

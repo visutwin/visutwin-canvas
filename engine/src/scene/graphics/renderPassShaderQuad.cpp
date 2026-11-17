@@ -62,6 +62,11 @@ namespace visutwin::canvas
         setShader(getOrCreateQuadShader(gd.get(), cacheKey, vertexEntry, fragmentEntry, msl, glsl));
     }
 
+    void RenderPassShaderQuad::precompile()
+    {
+        runPrecompileDraws([this] { execute(); });
+    }
+
     void RenderPassShaderQuad::execute()
     {
         const auto gd = device();

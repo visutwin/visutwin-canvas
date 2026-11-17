@@ -223,6 +223,10 @@ namespace visutwin::canvas
 
         void startRenderPass(RenderPass* renderPass) override;
 
+        int precompilePendingCount() const override;
+        int precompilePipelineRequests() const override;
+        void waitPrecompileIdle() override;
+
         void endRenderPass(RenderPass* renderPass) override;
 
         void setResolution(int width, int height) override;
@@ -325,6 +329,13 @@ namespace visutwin::canvas
         };
         /// Submits the vertex and instance buffers and sets the pipeline for the bound
         /// state; false when no pipeline could be made and the draw must be skipped.
+        void onBeginPrecompilePass(RenderPass* renderPass) override;
+        void onEndPrecompilePass() override;
+        // A draw in a precompile pass: asks the pipeline cache for the pipeline the draw
+        // would bind, built on a compile thread when it is new.
+        void requestDrawPipeline(const Primitive& primitive, const std::shared_ptr<IndexBuffer>& indexBuffer);
+        // The bound per-instance buffer (an isInstancing() format at slot 2 or above), or null.
+        const std::shared_ptr<VertexBuffer>* instancingVertexBuffer() const;
         bool bindDrawPipeline(MTL::RenderCommandEncoder* passEncoder, const Primitive& primitive,
             const std::shared_ptr<IndexBuffer>& indexBuffer);
         /// The native buffer and index type; nullopt when the draw must be skipped.

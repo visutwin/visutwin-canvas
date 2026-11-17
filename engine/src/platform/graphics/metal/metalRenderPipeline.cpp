@@ -17,8 +17,6 @@
 
 namespace visutwin::canvas
 {
-    static int _pipelineId = 0;
-
     namespace
     {
         bool isIntegerMetalFormat(const MTL::PixelFormat format)
@@ -97,6 +95,9 @@ namespace visutwin::canvas
 
     MetalRenderPipeline::~MetalRenderPipeline()
     {
+        // The compile threads finish what was queued first: their entries live in the cache.
+        _compileQueue.reset();
+
         if (_pipeline) {
             _pipeline->release();
             _pipeline = nullptr;
@@ -104,8 +105,10 @@ namespace visutwin::canvas
 
         for (const auto& [hash, entries] : _cache) {
             for (const auto& entry : entries) {
-                if (entry && entry->pipeline) {
-                    entry->pipeline->release();
+                if (entry) {
+                    if (MTL::RenderPipelineState* pipeline = entry->pipeline.load()) {
+                        pipeline->release();
+                    }
                 }
             }
         }
@@ -206,10 +209,33 @@ namespace visutwin::canvas
             const std::shared_ptr<StencilParameters>& /*stencilBack*/,
             const std::shared_ptr<VertexFormat>& instancingFormat,
             const uint32_t renderTargetFormatKey) {
+        assert(depthState != nullptr);
+        return lookup(primitive, vertexFormat0, vertexFormat1, ibFormat, shader, renderTarget, bindGroupFormats,
+            blendState, instancingFormat, renderTargetFormatKey, false);
+    }
+
+    void MetalRenderPipeline::request(const Primitive& primitive, const std::shared_ptr<VertexFormat>& vertexFormat0,
+            const std::shared_ptr<VertexFormat>& vertexFormat1, const int ibFormat, const std::shared_ptr<Shader>& shader,
+            const std::shared_ptr<RenderTarget>& renderTarget,
+            const std::vector<std::shared_ptr<MetalBindGroupFormat>>& bindGroupFormats,
+            const std::shared_ptr<BlendState>& blendState,
+            const std::shared_ptr<VertexFormat>& instancingFormat, const uint32_t renderTargetFormatKey)
+    {
+        (void)lookup(primitive, vertexFormat0, vertexFormat1, ibFormat, shader, renderTarget, bindGroupFormats,
+            blendState, instancingFormat, renderTargetFormatKey, true);
+    }
+
+    MTL::RenderPipelineState* MetalRenderPipeline::lookup(const Primitive& primitive,
+            const std::shared_ptr<VertexFormat>& vertexFormat0,
+            const std::shared_ptr<VertexFormat>& vertexFormat1, int ibFormat, const std::shared_ptr<Shader>& shader,
+            const std::shared_ptr<RenderTarget>& renderTarget,
+            const std::vector<std::shared_ptr<MetalBindGroupFormat>>& bindGroupFormats,
+            const std::shared_ptr<BlendState>& blendState,
+            const std::shared_ptr<VertexFormat>& instancingFormat, const uint32_t renderTargetFormatKey,
+            const bool async) {
         assert(bindGroupFormats.size() <= 3);
         assert(shader != nullptr);
         assert(blendState != nullptr);
-        assert(depthState != nullptr);
 
         // ibFormat is used only for stripped primitives, clear it otherwise to avoid additional render pipelines
         int primitiveType = primitive.type;
@@ -251,6 +277,9 @@ namespace visutwin::canvas
             const size_t index = (_recentLookup + kRecentLookups - i) % kRecentLookups;
             const RecentLookup& recent = _recentLookups[index];
             if (recent.pipeline && std::equal(recent.key.begin(), recent.key.end(), _lookupHashes.begin())) {
+                if (async) {
+                    return nullptr;
+                }
                 _recentLookup = index;
                 return recent.pipeline;
             }
@@ -265,8 +294,19 @@ namespace visutwin::canvas
             // Find an exact match in case of hash collision
             for (auto& entry : cacheEntries) {
                 if (std::equal(entry->hashes.begin(), entry->hashes.end(), _lookupHashes.begin())) {
-                    rememberLookup(entry->pipeline);
-                    return entry->pipeline;
+                    if (async) {
+                        return nullptr;   // built, or building
+                    }
+                    if (!entry->ready.load(std::memory_order_acquire)) {
+                        // A precompile is building it: wait rather than build it twice.
+                        std::unique_lock lock(_readyMutex);
+                        _readyCondition.wait(lock, [&entry] { return entry->ready.load(std::memory_order_acquire); });
+                    }
+                    MTL::RenderPipelineState* pipeline = entry->pipeline.load(std::memory_order_acquire);
+                    if (pipeline) {
+                        rememberLookup(pipeline);
+                    }
+                    return pipeline;
                 }
             }
         }
@@ -279,31 +319,71 @@ namespace visutwin::canvas
         const int instStride = (instancingFormat && instancingFormat->isInstancing())
             ? instancingFormat->size() : 0;
 
-        // Create a pipeline
         auto cacheEntry = std::make_shared<CacheEntry>();
         cacheEntry->hashes = _lookupHashes;
-        cacheEntry->pipeline = create(
-            shader, renderTarget, blendState, vbStride, instStride
-        );
-        if (!cacheEntry->pipeline) {
+        const MetalPipelineTargetFormats targetFormats = targetFormatsOf(renderTarget);
+
+        if (async) {
+            // Into the cache now, built on a compile thread: a get() of it waits for it.
+            if (!_compileQueue) {
+                _compileQueue = std::make_unique<PipelineCompileQueue>();
+            }
+            _cache[hash].push_back(cacheEntry);
+            ++_requestCount;
+            _compileQueue->submit([this, cacheEntry, shader, targetFormats, blend = *blendState, vbStride, instStride] {
+                MTL::RenderPipelineState* pipeline = create(shader, targetFormats, blend, vbStride, instStride);
+                cacheEntry->pipeline.store(pipeline, std::memory_order_release);
+                {
+                    const std::lock_guard lock(_readyMutex);
+                    cacheEntry->ready.store(true, std::memory_order_release);
+                }
+                _readyCondition.notify_all();
+            });
+            return nullptr;
+        }
+        MTL::RenderPipelineState* pipeline = create(shader, targetFormats, *blendState, vbStride, instStride);
+        if (!pipeline) {
             spdlog::error("Render pipeline creation returned null");
             return nullptr;
         }
+        cacheEntry->pipeline.store(pipeline, std::memory_order_release);
+        cacheEntry->ready.store(true, std::memory_order_release);
+        _cache[hash].push_back(cacheEntry);
 
-        // Add to cache
-        if (it != _cache.end()) {
-            it->second.push_back(cacheEntry);
+        rememberLookup(pipeline);
+        return pipeline;
+    }
+
+    MetalPipelineTargetFormats MetalRenderPipeline::targetFormatsOf(const std::shared_ptr<RenderTarget>& renderTarget) const
+    {
+        MetalPipelineTargetFormats formats;
+        if (const auto metalTarget = std::dynamic_pointer_cast<MetalRenderTarget>(renderTarget)) {
+            formats.backBuffer = false;
+            const auto& colorAttachments = metalTarget->colorAttachments();
+            formats.colorCount = std::min(colorAttachments.size(), formats.colors.size());
+            for (size_t i = 0; i < formats.colorCount; ++i) {
+                formats.colors[i] = colorAttachments[i]->pixelFormat;
+            }
+            if (const auto& depthAtt = metalTarget->depthAttachment()) {
+                formats.depth = depthAtt->pixelFormat;
+                formats.stencil = depthAtt->hasStencil;
+            }
+            formats.samples = std::max(metalTarget->samples(), 1);
         } else {
-            _cache[hash] = { cacheEntry };
+            // Back buffer: BGRA8 colour + depth-stencil (always attached by startRenderPass), at
+            // the device's sample count, fixed for its lifetime.
+            formats.colors[0] = MTL::PixelFormatBGRA8Unorm;
+            formats.colorCount = 1;
+            formats.depth = metal::kBackBufferDepthFormat;
+            formats.stencil = true;
+            formats.samples = _device->samples();
         }
-
-        rememberLookup(cacheEntry->pipeline);
-        return cacheEntry->pipeline;
+        return formats;
     }
 
     MTL::RenderPipelineState* MetalRenderPipeline::create(
-            const std::shared_ptr<Shader>& shader, const std::shared_ptr<RenderTarget>& renderTarget,
-            const std::shared_ptr<BlendState>& blendState,
+            const std::shared_ptr<Shader>& shader, const MetalPipelineTargetFormats& targetFormats,
+            const BlendState& blendState,
             int vertexStride,
             int instancingStride
         )
@@ -353,58 +433,55 @@ namespace visutwin::canvas
         pipelineDescriptor->setVertexFunction(vertexFunction);
         pipelineDescriptor->setFragmentFunction(fragmentFunction);
 
-        if (const auto metalTarget = std::dynamic_pointer_cast<MetalRenderTarget>(renderTarget))
+        if (!targetFormats.backBuffer)
         {
-            const auto colorAttachments = metalTarget->colorAttachments();
-
             // Each attachment its own blend and write mask (attachment 0's unless the blend
             // state gives it one).
-            for (size_t i = 0; i < colorAttachments.size(); ++i)
+            for (size_t i = 0; i < targetFormats.colorCount; ++i)
             {
                 auto* colorAttachment = pipelineDescriptor->colorAttachments()->object(i);
-                colorAttachment->setPixelFormat(colorAttachments[i]->pixelFormat);
-                const BlendState attachmentState = blendState->attachment(static_cast<int>(i));
+                colorAttachment->setPixelFormat(targetFormats.colors[i]);
+                const BlendState attachmentState = blendState.attachment(static_cast<int>(i));
                 colorAttachment->setWriteMask(writeMaskOf(attachmentState));
                 setBlend(colorAttachment, attachmentState);
                 // An integer attachment cannot blend: it takes the shader's value as written.
-                if (isIntegerMetalFormat(colorAttachments[i]->pixelFormat)) {
+                if (isIntegerMetalFormat(targetFormats.colors[i])) {
                     colorAttachment->setBlendingEnabled(false);
                 }
             }
 
             // Set depth/stencil pixel format from the render target's depth attachment
-            if (const auto& depthAtt = metalTarget->depthAttachment()) {
-                pipelineDescriptor->setDepthAttachmentPixelFormat(depthAtt->pixelFormat);
-                if (depthAtt->hasStencil) {
-                    pipelineDescriptor->setStencilAttachmentPixelFormat(depthAtt->pixelFormat);
+            if (targetFormats.depth != MTL::PixelFormatInvalid) {
+                pipelineDescriptor->setDepthAttachmentPixelFormat(targetFormats.depth);
+                if (targetFormats.stencil) {
+                    pipelineDescriptor->setStencilAttachmentPixelFormat(targetFormats.depth);
                 }
             }
 
             // Must match the sample count of the attachments this pipeline renders into,
             // or pipeline creation fails outright on an MSAA target.
-            pipelineDescriptor->setRasterSampleCount(
-                static_cast<NS::UInteger>(std::max(metalTarget->samples(), 1)));
+            pipelineDescriptor->setRasterSampleCount(static_cast<NS::UInteger>(targetFormats.samples));
         } else {
             // Back buffer: BGRA8 color + depth-stencil (always attached by startRenderPass)
             auto* colorAttachment = pipelineDescriptor->colorAttachments()->object(0);
-            colorAttachment->setPixelFormat(MTL::PixelFormatBGRA8Unorm);
+            colorAttachment->setPixelFormat(targetFormats.colors[0]);
             // A mask draws into the stencil alone, with every colour channel off.
-            colorAttachment->setWriteMask(writeMaskOf(*blendState));
-            setBlend(colorAttachment, *blendState);
-            pipelineDescriptor->setDepthAttachmentPixelFormat(metal::kBackBufferDepthFormat);
-            pipelineDescriptor->setStencilAttachmentPixelFormat(metal::kBackBufferDepthFormat);
+            colorAttachment->setWriteMask(writeMaskOf(blendState));
+            setBlend(colorAttachment, blendState);
+            pipelineDescriptor->setDepthAttachmentPixelFormat(targetFormats.depth);
+            pipelineDescriptor->setStencilAttachmentPixelFormat(targetFormats.depth);
             // The back buffer's sample count (GraphicsDeviceOptions::antialias), fixed for
             // the device's lifetime, so the cache key (format key 0) needs no part of it.
-            pipelineDescriptor->setRasterSampleCount(static_cast<NS::UInteger>(_device->samples()));
+            pipelineDescriptor->setRasterSampleCount(static_cast<NS::UInteger>(targetFormats.samples));
         }
 
         // The fragment's alpha decides the samples it covers, on a multisampled target only: a
         // single-sampled one would threshold the alpha at a half and cut the fragment out.
-        pipelineDescriptor->setAlphaToCoverageEnabled(blendState->alphaToCoverage() &&
+        pipelineDescriptor->setAlphaToCoverageEnabled(blendState.alphaToCoverage() &&
             pipelineDescriptor->rasterSampleCount() > 1);
 
-        _pipelineId++;
-        const std::string label = "RenderPipeline-" + std::to_string(_pipelineId);
+        const int labelId = ++_labelId;
+        const std::string label = "RenderPipeline-" + std::to_string(labelId);
         pipelineDescriptor->setLabel(NS::String::string(label.c_str(), NS::UTF8StringEncoding));
 
         MTL::VertexDescriptor* vertexDescriptor = MTL::VertexDescriptor::vertexDescriptor();
@@ -533,7 +610,7 @@ namespace visutwin::canvas
             assert(false);
         }
 
-        spdlog::trace("RenderPipelineAlloc | Alloc: Id " + std::to_string(_pipelineId));
+        spdlog::trace("RenderPipelineAlloc | Alloc: Id " + std::to_string(labelId));
 
         vertexFunction->release();
         fragmentFunction->release();

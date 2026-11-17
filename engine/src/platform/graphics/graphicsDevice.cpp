@@ -180,6 +180,25 @@ namespace visutwin::canvas
         return _drawLanes;
     }
 
+    void GraphicsDevice::beginPrecompilePass(RenderPass* renderPass)
+    {
+        if (_insideRenderPass || _precompilePass) {
+            spdlog::error("beginPrecompilePass inside a render or precompile pass; ignored");
+            return;
+        }
+        _precompilePass = true;
+        onBeginPrecompilePass(renderPass);
+    }
+
+    void GraphicsDevice::endPrecompilePass()
+    {
+        if (!_precompilePass) {
+            return;
+        }
+        onEndPrecompilePass();
+        _precompilePass = false;
+    }
+
     void GraphicsDevice::frameStart()
     {
         _renderPassIndex = 0;
@@ -263,6 +282,8 @@ namespace visutwin::canvas
 
     bool GraphicsDevice::replaceShaderCode(Shader& target, const ShaderCode& code)
     {
+        // A compile thread may be building a pipeline from this shader's current code.
+        waitPrecompileIdle();
         const auto fresh = createShaderFromCode(target.definition(), code);
         return fresh && fresh->waitUntilCompiled() && target.adoptCode(*fresh);
     }

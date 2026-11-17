@@ -200,6 +200,14 @@ namespace visutwin::canvas
             _culledInstances.erase(std::make_pair(camera, layer));
         }
 
+        /// A frame of Engine::precompile: the graph it builds is precompiled, not rendered.
+        /// Its mesh instances are culled afresh, without the frustum and visibility-range tests
+        /// unless `frustumCulling` (so what is off screen gets its pipelines too), and no
+        /// one-shot shadow update is consumed, as no shadow renders. Turning it off drops the
+        /// kept cull sets, which were culled for the precompile.
+        void setPrecompileFrame(bool active, bool frustumCulling = false);
+        [[nodiscard]] bool precompileFrame() const { return _precompileFrame; }
+
         // App-injected render passes appended to the END of every frame graph —
         // they run after all scene render actions but before frame end (while the
         // frame's drawable is still valid). Used by extras like OutlineRenderer;
@@ -372,6 +380,8 @@ namespace visutwin::canvas
         bool cullSetCurrent(const CulledInstances& set, const Camera* camera, const Frustum& frustum) const;
         // VISUTWIN_CULL_REUSE=0 culls every set every frame, for an A/B in one binary.
         bool _cullReuse = true;
+        bool _precompileFrame = false;
+        bool _precompileFrustumCulling = false;
         // culledInstances() for a caller that writes the sorted orders back.
         CulledInstances& resolveCulledInstances(Camera* camera, GraphNode* cameraNode, Layer* layer);
         // VISUTWIN_CULL_CHECK: re-cull a reused set and compare (see cullCheckMismatches).

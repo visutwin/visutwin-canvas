@@ -26,6 +26,8 @@ namespace visutwin::canvas
             const ShadowRenderer* shadowRenderer = nullptr);
 
         void execute() override;
+        /// The draws of execute(), into a precompile pass (Engine::precompile).
+        void precompile() override;
         void prepareShaders() override;
 
     private:

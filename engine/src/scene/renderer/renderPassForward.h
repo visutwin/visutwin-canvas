@@ -59,6 +59,9 @@ namespace visutwin::canvas
 
         void before() override;
         void execute() override;
+        /// The layers as execute() renders them, into a precompile pass (Engine::precompile),
+        /// without the prerender / postrender events.
+        void precompile() override;
         void after() override;
         void prepareShaders() override;
 

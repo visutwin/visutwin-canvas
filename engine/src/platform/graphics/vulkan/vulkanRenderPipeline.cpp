@@ -267,10 +267,14 @@ namespace visutwin::canvas
 
     void VulkanRenderPipeline::destroy() noexcept
     {
+        // The compile threads finish what was queued first: their entries live in the cache.
+        _compileQueue.reset();
         VkDevice vk = _device->device();
         for (auto& [hash, entries] : _cache) {
-            for (const CacheEntry& entry : entries) {
-                vkDestroyPipeline(vk, entry.pipeline, nullptr);
+            for (const auto& entry : entries) {
+                if (const VkPipeline pipeline = entry->pipeline.load(); pipeline != VK_NULL_HANDLE) {
+                    vkDestroyPipeline(vk, pipeline, nullptr);
+                }
             }
         }
         _cache.clear();
@@ -526,7 +530,7 @@ namespace visutwin::canvas
         }
     }
 
-    VkPipeline VulkanRenderPipeline::get(const Primitive& primitive,
+    uint64_t VulkanRenderPipeline::makeKey(PipelineKey& key, const Primitive& primitive,
         const std::shared_ptr<VertexFormat>& vertexFormat,
         const std::shared_ptr<VertexFormat>& instanceFormat,
         const std::shared_ptr<VulkanShader>& shader,
@@ -539,20 +543,14 @@ namespace visutwin::canvas
         const std::span<const VkFormat> colorFormats,
         VkFormat depthFormat,
         VkSampleCountFlagBits samples,
-        bool isSkybox)
+        bool isSkybox) const
     {
         // The state as key words, FNV-1a hashed as they are added.
-        PipelineKey key;
         uint64_t hash = kFnv1aOffsetBasis;
         auto mix = [&](uint64_t v) {
             key.words[key.count++] = v;
             hash = fnv1aMix(hash, v);
         };
-        if (colorFormats.size() > kMaxKeyColorFormats) {
-            spdlog::error("VulkanRenderPipeline: {} colour attachments, at most {} supported",
-                colorFormats.size(), kMaxKeyColorFormats);
-            return VK_NULL_HANDLE;
-        }
         mix(static_cast<uint64_t>(primitive.type));
         mix(vertexFormat ? vertexFormat->renderingHash() : 0);
         mix(shader ? static_cast<uint64_t>(shader->id()) : 0);
@@ -571,20 +569,125 @@ namespace visutwin::canvas
         mix(static_cast<uint64_t>(samples));
         mix(instanceFormat ? instanceFormat->renderingHash() : 0);
         mix(isSkybox ? 1ull : 0ull);
+        return hash;
+    }
 
+    std::shared_ptr<VulkanRenderPipeline::CacheEntry> VulkanRenderPipeline::find(const uint64_t hash,
+        const PipelineKey& key) const
+    {
         if (const auto it = _cache.find(hash); it != _cache.end()) {
-            for (const CacheEntry& entry : it->second) {
-                if (entry.key == key) return entry.pipeline;
+            for (const auto& entry : it->second) {
+                if (entry->key == key) return entry;
             }
+        }
+        return nullptr;
+    }
+
+    VkPipeline VulkanRenderPipeline::get(const Primitive& primitive,
+        const std::shared_ptr<VertexFormat>& vertexFormat,
+        const std::shared_ptr<VertexFormat>& instanceFormat,
+        const std::shared_ptr<VulkanShader>& shader,
+        const std::shared_ptr<BlendState>& blendState,
+        const std::shared_ptr<DepthState>& depthState,
+        CullMode cullMode,
+        bool stencilEnabled,
+        const std::shared_ptr<StencilParameters>& stencilFront,
+        const std::shared_ptr<StencilParameters>& stencilBack,
+        const std::span<const VkFormat> colorFormats,
+        VkFormat depthFormat,
+        VkSampleCountFlagBits samples,
+        bool isSkybox)
+    {
+        if (colorFormats.size() > kMaxKeyColorFormats) {
+            spdlog::error("VulkanRenderPipeline: {} colour attachments, at most {} supported",
+                colorFormats.size(), kMaxKeyColorFormats);
+            return VK_NULL_HANDLE;
+        }
+        PipelineKey key;
+        const uint64_t hash = makeKey(key, primitive, vertexFormat, instanceFormat, shader, blendState, depthState,
+            cullMode, stencilEnabled, stencilFront, stencilBack, colorFormats, depthFormat, samples, isSkybox);
+
+        if (const auto entry = find(hash, key)) {
+            if (!entry->ready.load(std::memory_order_acquire)) {
+                // A precompile is building it: wait rather than build it twice.
+                std::unique_lock lock(_readyMutex);
+                _readyCondition.wait(lock, [&entry] { return entry->ready.load(std::memory_order_acquire); });
+            }
+            return entry->pipeline.load(std::memory_order_acquire);
         }
 
         VkPipeline pipeline = create(primitive, vertexFormat, instanceFormat, shader,
             blendState, depthState, cullMode, stencilEnabled, stencilFront, stencilBack,
             colorFormats, depthFormat, samples, isSkybox);
+        _device->notePipelineCreated();
         if (pipeline != VK_NULL_HANDLE) {
-            _cache[hash].push_back({key, pipeline});
+            auto entry = std::make_shared<CacheEntry>();
+            entry->key = key;
+            entry->pipeline.store(pipeline, std::memory_order_release);
+            entry->ready.store(true, std::memory_order_release);
+            _cache[hash].push_back(std::move(entry));
         }
         return pipeline;
+    }
+
+    void VulkanRenderPipeline::request(const Primitive& primitive,
+        const std::shared_ptr<VertexFormat>& vertexFormat,
+        const std::shared_ptr<VertexFormat>& instanceFormat,
+        const std::shared_ptr<VulkanShader>& shader,
+        const std::shared_ptr<BlendState>& blendState,
+        const std::shared_ptr<DepthState>& depthState,
+        CullMode cullMode,
+        bool stencilEnabled,
+        const std::shared_ptr<StencilParameters>& stencilFront,
+        const std::shared_ptr<StencilParameters>& stencilBack,
+        const std::span<const VkFormat> colorFormats,
+        VkFormat depthFormat,
+        VkSampleCountFlagBits samples,
+        bool isSkybox)
+    {
+        if (!shader || colorFormats.size() > kMaxKeyColorFormats) {
+            return;
+        }
+        PipelineKey key;
+        const uint64_t hash = makeKey(key, primitive, vertexFormat, instanceFormat, shader, blendState, depthState,
+            cullMode, stencilEnabled, stencilFront, stencilBack, colorFormats, depthFormat, samples, isSkybox);
+        if (find(hash, key)) {
+            return;   // built, or building
+        }
+
+        auto entry = std::make_shared<CacheEntry>();
+        entry->key = key;
+        _cache[hash].push_back(entry);
+        if (!_compileQueue) {
+            _compileQueue = std::make_unique<PipelineCompileQueue>();
+        }
+        ++_requestCount;
+        // Counted now, on this thread: the device writes its pipeline cache back once the
+        // creations stop, and waits for the compile threads before it does.
+        _device->notePipelineCreated();
+
+        // The job owns copies of everything it reads: the states may change on this thread.
+        std::array<VkFormat, kMaxKeyColorFormats> formats{};
+        std::copy(colorFormats.begin(), colorFormats.end(), formats.begin());
+        const size_t formatCount = colorFormats.size();
+        auto copyOf = [](const auto& state) {
+            using State = typename std::decay_t<decltype(state)>::element_type;
+            return state ? std::make_shared<State>(*state) : nullptr;
+        };
+        _compileQueue->submit([this, entry, primitive, vertexFormat, instanceFormat, shader,
+                blend = copyOf(blendState), depth = copyOf(depthState), cullMode, stencilEnabled,
+                front = copyOf(stencilFront), back = copyOf(stencilBack), formats, formatCount, depthFormat,
+                samples, isSkybox] {
+            const VkPipeline pipeline = create(primitive, vertexFormat, instanceFormat, shader, blend, depth,
+                cullMode, stencilEnabled, front, back, std::span<const VkFormat>(formats.data(), formatCount),
+                depthFormat, samples, isSkybox);
+            entry->pipeline.store(pipeline, std::memory_order_release);
+            {
+                const std::lock_guard lock(_readyMutex);
+                entry->ready.store(true, std::memory_order_release);
+            }
+            _readyCondition.notify_all();
+        });
     }
 
     VkPipeline VulkanRenderPipeline::create(const Primitive& primitive,
@@ -941,8 +1044,9 @@ namespace visutwin::canvas
         pipelineInfo.renderPass = VK_NULL_HANDLE; // dynamic rendering
 
         VkPipeline pipeline = VK_NULL_HANDLE;
+        // Through the device's cache, which Vulkan synchronises internally, so a compile thread
+        // may build here (request()); the creation is counted by the caller, on its thread.
         VkResult result = vkCreateGraphicsPipelines(vk, _device->pipelineCache(), 1, &pipelineInfo, nullptr, &pipeline);
-        _device->notePipelineCreated();
         if (result != VK_SUCCESS) {
             spdlog::error("Failed to create Vulkan graphics pipeline: {}", static_cast<int>(result));
         }

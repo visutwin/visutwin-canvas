@@ -166,6 +166,7 @@ visutwin_add_unit_test(visutwin-primitive-geometry-tests primitive-geometry prim
 visutwin_add_unit_test(visutwin-anim-layer-blend-tests anim-layer-blend animLayerBlendTests.cpp)
 visutwin_add_unit_test(visutwin-anim-offscreen-update-tests anim-offscreen-update animOffscreenUpdateTests.cpp)
 visutwin_add_unit_test(visutwin-color-string-tests color-string colorStringTests.cpp)
+visutwin_add_unit_test(visutwin-precompile-tests precompile precompileTests.cpp)
 visutwin_add_unit_test(visutwin-anim-controller-tests anim-controller animControllerTests.cpp)
 # glTF animation binding: unnamed nodes take a node_<index> identity and
 # targets are name PATHS, so duplicate names in different branches animate their

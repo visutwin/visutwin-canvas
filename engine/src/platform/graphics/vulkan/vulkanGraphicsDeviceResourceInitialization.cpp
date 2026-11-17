@@ -526,6 +526,8 @@ namespace visutwin::canvas
 
     void VulkanGraphicsDevice::savePipelineCache()
     {
+        // What a precompile is still building goes into the cache with the rest.
+        waitPrecompileIdle();
         _pipelinesSaved = _pipelinesCreated;
         if (_pipelineCache == VK_NULL_HANDLE || !_shaderDiskCache.enabled()) {
             return;

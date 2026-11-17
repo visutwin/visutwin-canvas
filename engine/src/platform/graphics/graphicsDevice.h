@@ -920,6 +920,28 @@ namespace visutwin::canvas
 
         virtual void endRenderPass(RenderPass* renderPass) = 0;
 
+        /**
+         * A PRECOMPILE pass (Engine::precompile): between this and endPrecompilePass a pass runs
+         * its draw loop as when it renders, but nothing is recorded. Each draw instead asks the
+         * backend for the render pipeline it would bind, and a pipeline not built yet is built
+         * on a compile thread (precompilePendingCount), so the pipelines of a whole frame build
+         * in parallel rather than one by one in the frame's draws. A draw that later needs a
+         * pipeline still building waits for it. Setters that would write the frame's GPU
+         * memory (palettes, morph parameters, cluster buffers) do nothing in such a pass, as
+         * no device frame is open. `renderPass` names the target whose attachment formats the
+         * pipelines are built for (its render target, or the back buffer).
+         */
+        void beginPrecompilePass(RenderPass* renderPass);
+        void endPrecompilePass();
+        [[nodiscard]] bool precompilePass() const { return _precompilePass; }
+
+        /// Render pipelines a precompile pass asked for that are still building.
+        [[nodiscard]] virtual int precompilePendingCount() const { return 0; }
+        /// Render pipelines precompile passes have asked to build, since the device was made.
+        [[nodiscard]] virtual int precompilePipelineRequests() const { return 0; }
+        /// Blocks until no pipeline is building (a shader's code is about to change under it).
+        virtual void waitPrecompileIdle() {}
+
         virtual std::unique_ptr<gpu::HardwareTexture> createGPUTexture(Texture* texture) = 0;
 
         virtual std::shared_ptr<VertexBuffer> createVertexBuffer(const std::shared_ptr<VertexFormat>& format,
@@ -1452,6 +1474,13 @@ namespace visutwin::canvas
 
         CullMode _cullMode = CullMode::CULLFACE_BACK;
         bool _insideRenderPass = false;
+        bool _precompilePass = false;
+
+        /// The backend's half of beginPrecompilePass / endPrecompilePass: take on the
+        /// attachment formats of the pass's target, as startRenderPass does, without
+        /// beginning anything; and drop them again.
+        virtual void onBeginPrecompilePass(RenderPass* /*renderPass*/) {}
+        virtual void onEndPrecompilePass() {}
 
         bool _stencilEnabled = false;
 

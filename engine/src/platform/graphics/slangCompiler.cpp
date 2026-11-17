@@ -12,6 +12,7 @@
 #include <fstream>
 #include <mutex>
 #include <regex>
+#include <string_view>
 #include <sstream>
 
 #include "spdlog/spdlog.h"
@@ -366,6 +367,17 @@ namespace visutwin::canvas
 
     std::string SlangCompiler::constReadOnlyBuffers(std::string msl, const std::vector<std::string>& readOnly)
     {
+        if (readOnly.empty()) {
+            return msl;
+        }
+        struct Pattern
+        {
+            std::string marker;     // the name as it appears, `name_`
+            std::regex declaration;
+            std::regex local;
+        };
+        std::vector<Pattern> patterns;
+        patterns.reserve(readOnly.size());
         for (const auto& name : readOnly) {
             std::string escaped;
             for (const char c : name) {
@@ -377,12 +389,35 @@ namespace visutwin::canvas
             const std::string declared = escaped + "_\\d+\\b";
             // Its declarations, and the local pointers Slang copies it into
             // (`T device* _S1 = context->name_0 + i;`).
-            msl = std::regex_replace(msl, std::regex("\\bdevice\\*(\\s+" + declared + ")"), "const device*$1");
-            msl = std::regex_replace(msl,
-                std::regex("\\bdevice\\*(\\s+\\w+\\s*=\\s*(?:\\(&?\\w+\\)->|\\w+->)?" + declared + ")"),
-                "const device*$1");
+            patterns.push_back({name + "_", std::regex("\\bdevice\\*(\\s+" + declared + ")"),
+                std::regex("\\bdevice\\*(\\s+\\w+\\s*=\\s*(?:\\(&?\\w+\\)->|\\w+->)?" + declared + ")")});
         }
-        return msl;
+
+        // Only a line holding `device*` and the buffer's name can match, and Slang writes each
+        // declaration on one line, so the expressions run on those lines alone: std::regex over
+        // the whole program (some 440 KB for the forward program) took seconds per compile.
+        std::string out;
+        out.reserve(msl.size() + 64);
+        size_t pos = 0;
+        while (pos < msl.size()) {
+            size_t end = msl.find('\n', pos);
+            end = end == std::string::npos ? msl.size() : end + 1;
+            const std::string_view line(msl.data() + pos, end - pos);
+            if (line.find("device*") == std::string_view::npos) {
+                out.append(line);
+            } else {
+                std::string edited(line);
+                for (const Pattern& pattern : patterns) {
+                    if (edited.find(pattern.marker) != std::string::npos) {
+                        edited = std::regex_replace(edited, pattern.declaration, "const device*$1");
+                        edited = std::regex_replace(edited, pattern.local, "const device*$1");
+                    }
+                }
+                out += edited;
+            }
+            pos = end;
+        }
+        return out;
     }
 
     std::string SlangCompiler::dualSourceOutputs(std::string msl)

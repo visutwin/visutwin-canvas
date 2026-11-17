@@ -62,6 +62,16 @@ namespace visutwin::canvas
         }
     }
 
+    void RenderPass::runPrecompileDraws(const std::function<void()>& draws)
+    {
+        prepareShaders();
+        _device->beginPrecompilePass(this);
+        if (_device->precompilePass()) {
+            draws();
+            _device->endPrecompilePass();
+        }
+    }
+
     void RenderPass::render() {
         if (_enabled) {
             // null means backbuffer (real pass), "uninitialized" means no pass.

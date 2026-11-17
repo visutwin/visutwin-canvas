@@ -239,6 +239,16 @@ namespace visutwin::canvas
         _renderTargetMap.clear();
     }
 
+    void FrameGraph::precompile()
+    {
+        // The flat list holds every before and after pass too (addRenderPass).
+        for (const auto& pass : _renderPasses) {
+            if (pass && pass->enabled() && pass->executeEnabled()) {
+                pass->precompile();
+            }
+        }
+    }
+
     void FrameGraph::render(GraphicsDevice* /*device*/) {
         compile();
 

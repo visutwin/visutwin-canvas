@@ -41,6 +41,11 @@ namespace visutwin::canvas
         prepareLocalShadowShaders(_graphicsDevice, true);
     }
 
+    void RenderPassShadowLocalClustered::precompile()
+    {
+        runPrecompileDraws([this] { execute(); });
+    }
+
     void RenderPassShadowLocalClustered::execute()
     {
         if (!_graphicsDevice || !_shadowRendererLocal) {

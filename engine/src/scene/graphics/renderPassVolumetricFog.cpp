@@ -159,7 +159,9 @@ namespace visutwin::canvas
         }
 
         Texture* depthTexture = gd->sceneDepthMap();
-        if (!depthTexture) {
+        // A precompile pass binds nothing, so it builds the pipeline without the map, which an
+        // earlier pass of a rendered frame publishes.
+        if (!depthTexture && !gd->precompilePass()) {
             return;
         }
 
@@ -426,6 +428,13 @@ namespace visutwin::canvas
             if (!(isSpot ? _settings.localSpotLights : isOmni && _settings.localOmniLights)) {
                 continue;
             }
+            // A precompile pass builds the one pipeline every light draws with: one draw of
+            // the first light that takes part, wherever it is (it may not be in view yet).
+            if (gd->precompilePass()) {
+                _localQuad->setUniforms(u);
+                _localQuad->render(&fullViewport, nullptr);
+                return;
+            }
             Light* light = component->light();
             if (!light || !light->visibleThisFrame()) {
                 continue;
@@ -554,7 +563,9 @@ namespace visutwin::canvas
         }
 
         Texture* depthTexture = gd->sceneDepthMap();
-        if (!depthTexture) {
+        // A precompile pass binds nothing, so it builds the pipeline without the map, which an
+        // earlier pass of a rendered frame publishes.
+        if (!depthTexture && !gd->precompilePass()) {
             return;
         }
 

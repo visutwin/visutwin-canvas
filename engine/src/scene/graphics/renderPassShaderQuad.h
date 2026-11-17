@@ -73,6 +73,8 @@ namespace visutwin::canvas
         }
 
         void execute() override;
+        /// The draws of execute(), into a precompile pass (Engine::precompile).
+        void precompile() override;
 
         /// Draws `vertexCount` vertices of `vertexBuffer` (a triangle list) instead of the
         /// fullscreen triangle; see QuadRender::setGeometry. Null for the fullscreen triangle.

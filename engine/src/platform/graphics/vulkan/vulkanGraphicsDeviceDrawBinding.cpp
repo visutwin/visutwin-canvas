@@ -591,6 +591,11 @@ namespace visutwin::canvas
         if (commands.empty()) {
             return;
         }
+        if (_precompilePass) {
+            requestDrawPipeline(primitive);
+            clearVertexBuffer();
+            return;
+        }
         // The state, bound and checked ONCE for the list: every sub-draw shares it.
         VkCommandBuffer cmd = prepareDraw(primitive, true);
         if (cmd == VK_NULL_HANDLE) {
@@ -642,6 +647,13 @@ namespace visutwin::canvas
         const std::shared_ptr<IndexBuffer>& indexBuffer,
         int numInstances, int indirectSlot, bool first, bool last)
     {
+        if (_precompilePass) {
+            requestDrawPipeline(primitive);
+            if (last) {
+                clearVertexBuffer();
+            }
+            return;
+        }
         VkCommandBuffer cmd = prepareDraw(primitive, first);
         if (cmd == VK_NULL_HANDLE) {
             return;
@@ -717,14 +729,104 @@ namespace visutwin::canvas
         return resources;
     }
 
+    VulkanGraphicsDevice::DrawPipelineTarget VulkanGraphicsDevice::drawPipelineTarget() const
+    {
+        DrawPipelineTarget target;
+        // Hardware instancing: the renderer binds the per-instance buffer
+        // at engine slot 5 with an isInstancing() format (same contract
+        // as the Metal backend).  Scan the upper slots for it.
+        for (size_t i = 1; i < _vertexBuffers.size(); ++i) {
+            if (_vertexBuffers[i] && _vertexBuffers[i]->format() &&
+                _vertexBuffers[i]->format()->isInstancing()) {
+                target.instanceFormat = _vertexBuffers[i]->format();
+                break;
+            }
+        }
+
+        // Resolve attachment formats for pipeline creation.  The pipeline
+        // is keyed on these — a mismatch with the actual VkRenderingInfo
+        // attachments at draw-time is rejected by validation as
+        // VUID-vkCmdDrawIndexed-dynamicRenderingUnusedAttachments-08910.
+        // A fixed array, not a vector: this runs per draw.
+        target.colorFormats[0] = _swapchainFormat;
+        target.colorFormatCount = 1;
+        target.depthFormat = _depthFormat;
+        // The pipeline's raster sample count has to match what the pass attached: the
+        // offscreen target's, or the back buffer's (multisampled when antialiased).
+        target.samples = _activeRasterSamples;
+        if (_activeOffscreenTarget) {
+            const auto& colors = _activeOffscreenTarget->colorAttachments();
+            target.colorFormatCount = std::min(colors.size(), target.colorFormats.size());
+            for (size_t i = 0; i < target.colorFormatCount; ++i) {
+                target.colorFormats[i] = colors[i].format;
+            }
+            target.depthFormat = _activeOffscreenTarget->hasDepthAttachment()
+                ? _activeOffscreenTarget->depthAttachment().format
+                : VK_FORMAT_UNDEFINED;
+            target.samples = _activeOffscreenTarget->sampleCountFlag();
+        }
+        return target;
+    }
+
+    void VulkanGraphicsDevice::requestDrawPipeline(const Primitive& primitive)
+    {
+        auto shader = std::dynamic_pointer_cast<VulkanShader>(_shader);
+        if (!shader || shader->vertexModule() == VK_NULL_HANDLE || !_renderPipeline) {
+            return;
+        }
+        // The inputs bindDrawPipeline gives get(), so the precompiled pipeline is the one the
+        // draw will look up.
+        const auto vf = !_vertexBuffers.empty() ? _vertexBuffers[0] : nullptr;
+        const DrawPipelineTarget target = drawPipelineTarget();
+        const bool isSkybox = shader->features().test(ShaderFeature::Skybox);
+        _renderPipeline->request(primitive, vf ? vf->format() : nullptr, target.instanceFormat, shader,
+            _blendState, _depthState, isSkybox ? CullMode::CULLFACE_NONE : _cullMode,
+            _stencilEnabled, _stencilFront, _stencilBack,
+            std::span<const VkFormat>(target.colorFormats.data(), target.colorFormatCount), target.depthFormat,
+            target.samples, isSkybox);
+    }
+
+    void VulkanGraphicsDevice::onBeginPrecompilePass(RenderPass* renderPass)
+    {
+        // The attachment state startRenderPass gives the pass, without beginning it: the
+        // offscreen target, or the swapchain at the back buffer's sample count.
+        _activeOffscreenTarget = renderPass
+            ? dynamic_cast<VulkanRenderTarget*>(renderPass->renderTarget().get())
+            : nullptr;
+        _activeRasterSamples = _activeOffscreenTarget ? _activeOffscreenTarget->sampleCountFlag()
+            : (_msaaColor.view != VK_NULL_HANDLE ? vulkanSampleCountFlag(samples()) : VK_SAMPLE_COUNT_1_BIT);
+    }
+
+    void VulkanGraphicsDevice::onEndPrecompilePass()
+    {
+        _activeOffscreenTarget = nullptr;
+        _activeRasterSamples = VK_SAMPLE_COUNT_1_BIT;
+    }
+
+    int VulkanGraphicsDevice::precompilePendingCount() const
+    {
+        return _renderPipeline ? _renderPipeline->pendingCount() : 0;
+    }
+
+    int VulkanGraphicsDevice::precompilePipelineRequests() const
+    {
+        return _renderPipeline ? _renderPipeline->requestCount() : 0;
+    }
+
+    void VulkanGraphicsDevice::waitPrecompileIdle()
+    {
+        if (_renderPipeline) {
+            _renderPipeline->waitIdle();
+        }
+    }
+
     bool VulkanGraphicsDevice::bindDrawPipeline(VkCommandBuffer cmd, const Primitive& primitive,
         const std::shared_ptr<VulkanShader>& shader)
     {
         auto vf = !_vertexBuffers.empty() ? _vertexBuffers[0] : nullptr;
-
-        // Hardware instancing: the renderer binds the per-instance buffer
-        // at engine slot 5 with an isInstancing() format (same contract
-        // as the Metal backend).  Scan the upper slots for it.
+        const DrawPipelineTarget target = drawPipelineTarget();
+        const auto& instanceFormat = target.instanceFormat;
+        // The per-instance buffer drawPipelineTarget() took the format from, to bind below.
         const VulkanVertexBuffer* instancingVB = nullptr;
         for (size_t i = 1; i < _vertexBuffers.size(); ++i) {
             if (_vertexBuffers[i] && _vertexBuffers[i]->format() &&
@@ -733,30 +835,10 @@ namespace visutwin::canvas
                 break;
             }
         }
-        const auto instanceFormat = instancingVB ? instancingVB->format() : nullptr;
-
-        // Resolve attachment formats for pipeline creation.  The pipeline
-        // is keyed on these — a mismatch with the actual VkRenderingInfo
-        // attachments at draw-time is rejected by validation as
-        // VUID-vkCmdDrawIndexed-dynamicRenderingUnusedAttachments-08910.
-        // A fixed array, not a vector: this runs per draw.
-        std::array<VkFormat, 8> colorFormats{_swapchainFormat};
-        size_t colorFormatCount = 1;
-        VkFormat depthFmt = _depthFormat;
-        // The pipeline's raster sample count has to match what the pass attached: the
-        // offscreen target's, or the back buffer's (multisampled when antialiased).
-        VkSampleCountFlagBits rasterSamples = _activeRasterSamples;
-        if (_activeOffscreenTarget) {
-            const auto& colors = _activeOffscreenTarget->colorAttachments();
-            colorFormatCount = std::min(colors.size(), colorFormats.size());
-            for (size_t i = 0; i < colorFormatCount; ++i) {
-                colorFormats[i] = colors[i].format;
-            }
-            depthFmt = _activeOffscreenTarget->hasDepthAttachment()
-                ? _activeOffscreenTarget->depthAttachment().format
-                : VK_FORMAT_UNDEFINED;
-            rasterSamples = _activeOffscreenTarget->sampleCountFlag();
-        }
+        const auto& colorFormats = target.colorFormats;
+        const size_t colorFormatCount = target.colorFormatCount;
+        const VkFormat depthFmt = target.depthFormat;
+        const VkSampleCountFlagBits rasterSamples = target.samples;
 
         // The skybox is an inward-facing shell whose authored winding,
         // combined with our negative-height (Y-flipped) viewport, makes
@@ -1629,7 +1711,8 @@ namespace visutwin::canvas
         // bytes and nothing else.
         _pendingPaletteOffset.reset();
         _pendingPaletteSize = 0;
-        if (!data || size == 0) {
+        // No frame is recording in a precompile pass: nothing may take ring memory.
+        if (!data || size == 0 || _precompilePass) {
             return;
         }
         _pendingPaletteOffset = allocateUniform(data, size);
@@ -1645,7 +1728,7 @@ namespace visutwin::canvas
         _pendingMorphDeltaBuffer.reset();
         _pendingMorphParamsOffset.reset();
         _pendingMorphParamsSize = 0;
-        if (!deltaBuffer || !params || paramsSize == 0) {
+        if (!deltaBuffer || !params || paramsSize == 0 || _precompilePass) {
             return;
         }
         const auto offset = allocateUniform(params, paramsSize);
@@ -1663,6 +1746,9 @@ namespace visutwin::canvas
     {
         _clusterLightOffset.reset();
         _clusterCellOffset.reset();
+        if (_precompilePass) {
+            return;
+        }
         _clusterLightSize = _clusterCellSize = 0;
         if (!lightData || lightSize == 0 || !cellData || cellSize == 0) return;
         _clusterLightOffset = allocateUniform(lightData, lightSize);

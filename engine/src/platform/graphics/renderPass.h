@@ -105,7 +105,24 @@ namespace visutwin::canvas
         /// prepareShaders() for this pass and its before and after passes, if enabled.
         void prepareShadersWithChildren();
 
+        /// A frame of Engine::precompile builds the render pipelines its passes will draw with
+        /// instead of rendering: the frame graph calls this on every pass that would execute.
+        /// A pass that overrides it runs its draws as execute() does, between the device's
+        /// beginPrecompilePass(this) and endPrecompilePass (runPrecompileDraws does both),
+        /// where nothing is recorded and every pipeline not built yet is built on a compile
+        /// thread. It must change nothing the next frame depends on (no events, no one-shot
+        /// state consumed). A pass that does not override it builds its pipelines when it
+        /// first renders, as before.
+        virtual void precompile() {}
+
         void render();
+
+    protected:
+        /// For a precompile() override: prepareShaders(), then `draws` inside a precompile pass
+        /// of this pass's target.
+        void runPrecompileDraws(const std::function<void()>& draws);
+
+    public:
 
         /** Debug name (set by subclasses) — used by the GPU profiler. */
         /// The pass's name for the profiler and the HUD: what the pass set, or its
