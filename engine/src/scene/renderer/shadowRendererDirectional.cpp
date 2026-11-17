@@ -173,12 +173,22 @@ namespace visutwin::canvas
             return bounds;
         }
 
-        // Translate the shadow camera so the near plane sits just behind the nearest
-        // point of the box along the light, and set the far clip to the box's depth span.
-        void fitDepthRange(const CascadeCamera& cascade, const BoundingBox& fitAabb)
+        // Place the shadow camera back at the cascade's texel-snapped `center`, moved along
+        // its axis so the near plane sits just behind the nearest point of the box along the
+        // light, and set the far clip to the box's depth span.
+        //
+        // DEVIATION: upstream fits from the wide camera, a million units back, and moves it
+        // forward by the fitted depth. Upstream's doubles keep that exact; in floats a
+        // position a million units out is only good to about 0.06, so the depths and the
+        // camera's final position (lateral too, undoing the texel snap) jumped in those
+        // steps as a caster moved by any amount (0.3 units of fly moved its shadow camera
+        // by 3 to 6 cm). The depths here are measured from the centre, where they are a few
+        // units at most, and the camera keeps its texel-snapped position.
+        void fitDepthRange(const CascadeCamera& cascade, const Vector3& center, const BoundingBox& fitAabb)
         {
-            const Matrix4 shadowCamView = cascade.node->worldTransform().inverse();
-            const Vector3 c = fitAabb.center();
+            const Matrix4 rotation = Matrix4::trs(Vector3(0.0f), cascade.node->rotation(), Vector3(1.0f));
+            const Vector3 axis(rotation.getColumn(2));   // local +Z: toward the light
+            const Vector3 c = fitAabb.center() - center;
             const Vector3 h = fitAabb.halfExtents();
             float depthMin = 1e30f;
             float depthMax = -1e30f;
@@ -187,10 +197,11 @@ namespace visutwin::canvas
                     (i & 1) ? 1.0f : -1.0f,
                     (i & 2) ? 1.0f : -1.0f,
                     (i & 4) ? 1.0f : -1.0f);
-                const float z = shadowCamView.transformPoint(corner).getZ();
+                const float z = corner.dot(axis);
                 if (z < depthMin) depthMin = z;
                 if (z > depthMax) depthMax = z;
             }
+            cascade.node->setPosition(center);
             cascade.node->translateLocal(0.0f, 0.0f, depthMax + 0.1f);
             cascade.camera->setFarClip(depthMax - depthMin + 0.2f);
         }
@@ -297,6 +308,7 @@ namespace visutwin::canvas
         // identical frame to frame and stored EVSM moments do not drift (a depth range
         // from the frustum corners would move with the view and flicker).
         std::array<std::optional<BoundingBox>, 4> cascadeAabb{};
+        std::array<Vector3, 4> cascadeCenter{};
         for (int cascade = 0; cascade < cascadeCount; ++cascade) {
             const auto cascadeCam = cascadeCamera(*_shadowRenderer, light, camera, cascade);
             if (!cascadeCam) {
@@ -311,6 +323,7 @@ namespace visutwin::canvas
                 distances[cascade], center, radius);
             center = snapToShadowTexels(center, radius, light->shadowResolution(), shadowRotMat);
             placeWideShadowCamera(*cascadeCam, shadowRotation, center, radius);
+            cascadeCenter[cascade] = center;
 
             cascadeAabb[cascade] = casterBounds(casters, buildCameraFrustum(cascadeCam->camera, cascadeCam->node));
         }
@@ -355,7 +368,7 @@ namespace visutwin::canvas
             // has none, leaving the wide camera pass 1 set up (whose shadow pass is
             // then a no-op anyway).
             if (const auto& fitAabb = unionAabb ? unionAabb : cascadeAabb[cascade]) {
-                fitDepthRange(*cascadeCam, *fitAabb);
+                fitDepthRange(*cascadeCam, cascadeCenter[cascade], *fitAabb);
             }
             recordFittedCasters(*cascadeCam, casters, frame);
             storeCascadeShadowMatrix(*light, cascade, *cascadeCam, light->cascadeViewports()[cascade]);
