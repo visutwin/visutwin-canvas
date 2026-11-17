@@ -317,6 +317,16 @@ void countThreads(uint3 id : SV_DispatchThreadID)
                 check(countsOther->read(0, 8, otherValues.data()) && otherValues[0] == 0u,
                     "indirect: the second slot ran none (" + std::to_string(otherValues[0]) + ")");
 
+                // The device's indirect buffer reads back like any storage buffer: the
+                // arguments the kernel wrote, at the two slots.
+                std::vector<uint32_t> args(6, 0xffffffffu);
+                const bool argsRead = device->indirectDispatchBuffer()->read(
+                    static_cast<size_t>(slot) * GraphicsDevice::kIndirectDispatchArgsSize,
+                    2u * GraphicsDevice::kIndirectDispatchArgsSize, args.data());
+                check(argsRead && args == std::vector<uint32_t>{5u, 1u, 1u, 0u, 1u, 1u},
+                    "indirect: the dispatch arguments read back as written (" + std::to_string(args[0]) + ", " +
+                    std::to_string(args[3]) + ")");
+
                 first.setupDispatchThreads(64);
                 check(first.indirectSlot() == -1, "indirect: a direct setup makes the dispatch direct again");
             }
