@@ -188,7 +188,9 @@ namespace visutwin::canvas
                 device->setDynamicBatchPalette(sbi->paletteData(), sbi->paletteSizeBytes(),
                     sbi->paletteVersion());
             }
-            device->setTransformUniforms(viewProjection, Matrix4::identity());
+            // The batch's dither offset, as the forward pass hands it.
+            device->setTransformUniforms(viewProjection, Matrix4::identity(),
+                meshInstance->ditherId(Matrix4::identity()));
             device->draw(mesh->getPrimitive(mesh->drawStyle(meshInstance->renderStyle())),
                 mesh->getIndexBuffer(mesh->drawStyle(meshInstance->renderStyle())), 1, -1, true, true);
             device->setShader(shaders.plain);
@@ -240,7 +242,7 @@ namespace visutwin::canvas
             }
             const auto modelMatrix = meshInstance->node()
                 ? meshInstance->node()->worldTransform() : Matrix4::identity();
-            device->setTransformUniforms(viewProjection, modelMatrix);
+            device->setTransformUniforms(viewProjection, modelMatrix, meshInstance->ditherId(modelMatrix));
             device->draw(mesh->getPrimitive(mesh->drawStyle(meshInstance->renderStyle())),
                 mesh->getIndexBuffer(mesh->drawStyle(meshInstance->renderStyle())), 1, -1, true, true);
             device->setShader(shaders.plain);
@@ -255,7 +257,8 @@ namespace visutwin::canvas
             }
             const auto modelMatrix = meshInstance->node()
                 ? meshInstance->node()->worldTransform() : Matrix4::identity();
-            device->setTransformUniforms(viewProjection, modelMatrix);
+            // The mesh's dither offset, the same one its forward draws use (MeshInstance::ditherId).
+            device->setTransformUniforms(viewProjection, modelMatrix, meshInstance->ditherId(modelMatrix));
             drawWithCommands(*device, mesh->getPrimitive(mesh->drawStyle(meshInstance->renderStyle())),
                 mesh->getIndexBuffer(mesh->drawStyle(meshInstance->renderStyle())), 1,
                 meshInstance->drawCommandsFor(camera));

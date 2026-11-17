@@ -1497,10 +1497,12 @@ namespace visutwin::canvas
             cellsX, cellsY, cellsZ, maxLightsPerCell, numClusteredLights);
     }
 
-    void MetalGraphicsDevice::setTransformUniforms(const Matrix4& viewProjection, const Matrix4& model)
+    void MetalGraphicsDevice::setTransformUniforms(const Matrix4& viewProjection, const Matrix4& model,
+        const float ditherId)
     {
         if (!_renderPassEncoder) return;
-        _uniformBinder.setTransformUniforms(_renderPassEncoder, _transformRing.get(), viewProjection, model);
+        _uniformBinder.setTransformUniforms(_renderPassEncoder, _transformRing.get(), viewProjection, model,
+            ditherId);
     }
 
     void MetalGraphicsDevice::setLightingUniforms(const Color& ambientColor, const std::vector<GpuLightData>& lights,

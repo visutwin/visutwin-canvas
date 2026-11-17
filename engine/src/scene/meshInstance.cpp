@@ -11,6 +11,8 @@
 #include "morphInstance.h"
 
 #include <algorithm>
+#include <bit>
+#include <cmath>
 #include <cstring>
 
 #include "platform/graphics/graphicsDevice.h"
@@ -21,6 +23,30 @@
 
 namespace visutwin::canvas
 {
+    float MeshInstance::translationDitherId(const Matrix4& model)
+    {
+        // forwardDitherId (forward-vertex.slang), on the CPU: the same integer hash of the
+        // translation's bits, and the same exact float steps, so the result is bit-identical.
+        float m[16];
+        static_assert(sizeof(Matrix4) == sizeof(m), "Matrix4 is sixteen packed floats");
+        std::memcpy(m, &model, sizeof(m));
+        const uint32_t x = std::bit_cast<uint32_t>(m[12]);
+        const uint32_t y = std::bit_cast<uint32_t>(m[13]);
+        const uint32_t z = std::bit_cast<uint32_t>(m[14]);
+        uint32_t h = (x * 0x9E3779B1u) ^ (y * 0x85EBCA77u) ^ (z * 0xC2B2AE3Du);
+        // PCG output permutation.
+        h = h * 747796405u + 2891336453u;
+        h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
+        h = (h >> 22u) ^ h;
+        return 64.0f * static_cast<float>(h >> 8u) / 16777216.0f;
+    }
+
+    void MeshInstance::setDitherId(const float id)
+    {
+        const float wrapped = std::fmod(id, 64.0f);
+        _ditherId = wrapped < 0.0f ? wrapped + 64.0f : wrapped;
+    }
+
     MeshInstance::MeshInstance(Mesh* mesh, Material* material, GraphNode* node)
         : _material(material), _mesh(mesh), _node(node)
     {

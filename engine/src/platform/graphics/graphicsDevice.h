@@ -477,9 +477,15 @@ namespace visutwin::canvas
                     i + 1 == commands.size());
             }
         }
-        virtual void setTransformUniforms(const Matrix4& viewProjection, const Matrix4& model)
+        /// The draw's view-projection and model matrices, and the mesh's dither pattern offset
+        /// (MeshInstance::ditherId; 0 for a draw that does not dither). The offset rides in the
+        /// model's projective element [0].w, which an affine model leaves 0 and which drawModel()
+        /// (vtdraw.slang) clears again: no room is left for it on its own in Vulkan's 128-byte
+        /// push constants.
+        virtual void setTransformUniforms(const Matrix4& viewProjection, const Matrix4& model,
+            float ditherId = 0.0f)
         {
-            (void)viewProjection; (void)model;
+            (void)viewProjection; (void)model; (void)ditherId;
             VT_DEVICE_FEATURE_UNSUPPORTED("setTransformUniforms");
         }
         virtual void setLightingUniforms(const Color& ambientColor, const std::vector<GpuLightData>& lights,

@@ -48,7 +48,7 @@ namespace visutwin::canvas
         /// Pack transform uniforms (SceneData VP + ModelData per draw).
         void setTransformUniforms(MTL::RenderCommandEncoder* encoder,
             MetalUniformRingBuffer* transformRing,
-            const Matrix4& viewProjection, const Matrix4& model);
+            const Matrix4& viewProjection, const Matrix4& model, float ditherId);
 
         /// Pack lighting uniforms into the internal LightingUniforms struct.
         void setLightingUniforms(const Color& ambientColor, const std::vector<GpuLightData>& lights,

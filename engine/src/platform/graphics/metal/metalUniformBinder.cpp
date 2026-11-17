@@ -50,7 +50,7 @@ namespace visutwin::canvas
 
     void MetalUniformBinder::setTransformUniforms(MTL::RenderCommandEncoder* encoder,
         MetalUniformRingBuffer* transformRing,
-        const Matrix4& viewProjection, const Matrix4& model)
+        const Matrix4& viewProjection, const Matrix4& model, const float ditherId)
     {
         if (!encoder) {
             return;
@@ -81,10 +81,13 @@ namespace visutwin::canvas
         // that sign: its normals flip with its surface, and the renderer flips
         // which of its faces is culled to match.
         // A near-singular 3x3 (|det| <= 1e-8) uploads a zero normal matrix.
-        const ModelData modelData{
+        ModelData modelData{
             toSimdMatrix(model),
             toSimdMatrix(model.normalMatrix())
         };
+        // The dither pattern offset rides in the model's projective element (see
+        // GraphicsDevice::setTransformUniforms); the normal matrix is built without it.
+        modelData.modelMatrix.columns[0][3] = ditherId;
         // Allocate ModelData from ring buffer and update offset (slot 2).
         // The ring buffer itself was bound to slot 2 in startRenderPass().
         const size_t transformOffset = transformRing->allocate(&modelData, sizeof(ModelData));

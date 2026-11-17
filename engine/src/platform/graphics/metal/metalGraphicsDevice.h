@@ -56,7 +56,8 @@ namespace visutwin::canvas
             std::span<const MultiDrawCommand> commands) override;
         void draw(const Primitive& primitive, const std::shared_ptr<IndexBuffer>& indexBuffer = nullptr,
             int numInstances = 1, int indirectSlot = -1, bool first = true, bool last = true) override;
-        void setTransformUniforms(const Matrix4& viewProjection, const Matrix4& model) override;
+        void setTransformUniforms(const Matrix4& viewProjection, const Matrix4& model,
+            float ditherId = 0.0f) override;
         void setLightingUniforms(const Color& ambientColor, const std::vector<GpuLightData>& lights,
             const Vector3& cameraPosition, bool enableNormalMaps, float exposure,
             const FogParams& fogParams = FogParams{}, const ShadowParams& shadowParams = ShadowParams{},

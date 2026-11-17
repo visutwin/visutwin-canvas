@@ -45,7 +45,7 @@ public float4x4 drawViewProjection()
     }
 }
 
-public float4x4 drawModel()
+float4x4 drawModelPacked()
 {
     __target_switch
     {
@@ -54,6 +54,22 @@ public float4x4 drawModel()
     default:
         return vtPush.model;
     }
+}
+
+/// The draw's model matrix. Its projective element [0].w carries the mesh's dither pattern
+/// offset (GraphicsDevice::setTransformUniforms), cleared here back to the affine 0.
+public float4x4 drawModel()
+{
+    float4x4 model = drawModelPacked();
+    model[0].w = 0.0;
+    return model;
+}
+
+/// The mesh's dither pattern offset in [0, 64) (MeshInstance::ditherId), 0 for a draw that
+/// does not dither.
+public float drawDitherId()
+{
+    return drawModelPacked()[0].w;
 }
 
 /// The model's normal matrix (the inverse transpose of its 3x3, signed so a mirrored model's

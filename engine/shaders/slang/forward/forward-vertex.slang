@@ -148,28 +148,56 @@ float4 forwardVertexColor(float4 color)
         ? float4(srgbToLinear(color.rgb), color.a) : color;
 }
 
-// The per-mesh offset of the opacity dither pattern, in [0, 64): a hash of the model's
-// translation, so two overlapping dithered meshes (or their shadows) discard different pixels and
-// a second layer adds coverage instead of repeating the first. Computed only in a variant that
-// dithers. DEVIATION: an integer hash of the translation's bits, where upstream hashes it with
-// fract(sin(x) * 43758.5453), whose rounding differs between the two backends.
-float forwardDitherId(float4x4 model)
+// The per-mesh offset of the opacity dither pattern, in [0, 64), so two overlapping dithered
+// meshes (or their shadows) discard different pixels and a second layer adds coverage instead of
+// repeating the first. 0 in a variant that does not dither.
+bool forwardDithers()
 {
 #if defined(VT_SHADOW_PROGRAM)
-    const bool dithers = vtFeatureEnabled(VT_FEATURE_SHADOW_DITHER_BIT);
+    return vtFeatureEnabled(VT_FEATURE_SHADOW_DITHER_BIT);
 #else
-    const bool dithers = vtFeatureEnabled(VT_FEATURE_OPACITY_DITHER_BIT);
+    return vtFeatureEnabled(VT_FEATURE_OPACITY_DITHER_BIT);
 #endif
-    if (!dithers) {
-        return 0.0;
-    }
-    const uint3 bits = asuint(model[3].xyz);
-    uint h = bits.x * 0x9E3779B1u ^ bits.y * 0x85EBCA77u ^ bits.z * 0xC2B2AE3Du;
-    // PCG output permutation.
+}
+
+// A hash in [0, 64): the PCG output permutation of `h`.
+float ditherIdFromHash(uint h)
+{
     h = h * 747796405u + 2891336453u;
     h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
     h = (h >> 22u) ^ h;
     return 64.0 * float(h >> 8u) / 16777216.0;
+}
+
+// A mesh's offset: the one its draw hands over (MeshInstance::ditherId), fixed at its first
+// draw. DEVIATION: upstream hashes the model's translation every frame, so a moving mesh's whole
+// pattern, and its shadow's, jumped as it moved.
+float forwardDitherId()
+{
+    return forwardDithers() ? drawDitherId() : 0.0;
+}
+
+// A hardware instance's offset: a hash of its own translation, every frame. DEVIATION: an
+// integer hash of the translation's bits (MeshInstance::translationDitherId on the CPU), where
+// upstream hashes it with fract(sin(x) * 43758.5453), whose rounding differs between the two
+// backends.
+float forwardDitherId(float4x4 model)
+{
+    if (!forwardDithers()) {
+        return 0.0;
+    }
+    const uint3 bits = asuint(model[3].xyz);
+    return ditherIdFromHash(bits.x * 0x9E3779B1u ^ bits.y * 0x85EBCA77u ^ bits.z * 0xC2B2AE3Du);
+}
+
+// A dynamic batch member's offset: the batch's, mixed with the member's palette index, which
+// stays with the member as it moves.
+float forwardBatchDitherId(uint member)
+{
+    if (!forwardDithers()) {
+        return 0.0;
+    }
+    return ditherIdFromHash(asuint(drawDitherId()) * 0x9E3779B1u ^ (member + 1u) * 0x85EBCA77u);
 }
 
 // Everything after the world position: clip, depth, normal frame, UVs and the defaults.
@@ -185,7 +213,7 @@ ForwardVarying forwardFinish(float4 world, float4 clip, float3x3 normalMatrix, f
     o.viewDepth = clip.w;
     o.color = float4(1.0, 1.0, 1.0, 1.0);
     o.lodFade = 1.0;
-    o.ditherId = forwardDitherId(model);
+    o.ditherId = forwardDitherId();
 #if defined(VT_SHADOW_PROGRAM)
     // A shadow fragment reads the position, the world position and the UVs alone; constants
     // here let the compiler drop the normal frame (and a skinned draw's normal blend), which
@@ -339,7 +367,7 @@ ForwardVertexOut forwardDynamicBatchVertex(ForwardDynamicBatchVertexIn input)
     ForwardVarying o = forwardFinish(world, forwardClip(world), normalMatrix, input.normal, input.tangent,
         input.uv0, input.uv1, drawModel());
     // Each member of the batch dithers as its own mesh.
-    o.ditherId = forwardDitherId(model);
+    o.ditherId = forwardBatchDitherId(uint(input.paletteIndex));
     return forwardVertexOut(o);
 }
 

@@ -1691,7 +1691,7 @@ namespace visutwin::canvas
     }
 
     void VulkanGraphicsDevice::setTransformUniforms(
-        const Matrix4& viewProjection, const Matrix4& model)
+        const Matrix4& viewProjection, const Matrix4& model, const float ditherId)
     {
         // Matrix4 is alignas(16) and its union always occupies exactly 64
         // bytes of column-major float matrix data — regardless of whether the
@@ -1700,6 +1700,9 @@ namespace visutwin::canvas
         static_assert(sizeof(Matrix4) == 64, "Matrix4 must be 64 bytes");
         memcpy(_pushConstants.viewProjection, &viewProjection, sizeof(Matrix4));
         memcpy(_pushConstants.model, &model, sizeof(Matrix4));
+        // The dither pattern offset rides in the model's projective element, column 0's w
+        // (see GraphicsDevice::setTransformUniforms).
+        _pushConstants.model[3] = ditherId;
         _pushConstantsDirty = true;
     }
 

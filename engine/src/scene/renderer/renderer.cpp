@@ -2118,9 +2118,10 @@ namespace visutwin::canvas
                     device.setVertexBuffer(instData.vertexBuffer, 5);
                 }
                 device.setIndirectDrawBuffer(device.indirectDrawBuffer()->nativeBuffer());
-                device.setTransformUniforms(view.viewProjection, instanced
+                const Matrix4 model = instanced
                     ? nodeWorldTransform(meshInstance)
-                    : forwardModelMatrix(meshInstance, variant.material, ctx.scene, view.position));
+                    : forwardModelMatrix(meshInstance, variant.material, ctx.scene, view.position);
+                device.setTransformUniforms(view.viewProjection, model, meshInstance->ditherId(model));
                 device.draw(entry.primitive, entry.indexBuffer, 0, indirectSlot, true, true);
             } else if (culled) {
                 // GPU-culled for THIS camera: the compacted visible set at slot 5, the
@@ -2145,8 +2146,8 @@ namespace visutwin::canvas
                 // Direct instancing: all instances drawn, CPU-provided count. The
                 // node's world matrix: instances live in its space (see above).
                 device.setVertexBuffer(instData.vertexBuffer, 5);
-                device.setTransformUniforms(view.viewProjection,
-                    forwardModelMatrix(meshInstance, variant.material, ctx.scene, view.position));
+                const Matrix4 model = forwardModelMatrix(meshInstance, variant.material, ctx.scene, view.position);
+                device.setTransformUniforms(view.viewProjection, model, meshInstance->ditherId(model));
                 drawWithCommands(device, entry.primitive, entry.indexBuffer, instData.count,
                     meshInstance->drawCommandsFor(view.camera));
             } else if (variant.dynamicBatch) {
@@ -2157,7 +2158,9 @@ namespace visutwin::canvas
                     device.setDynamicBatchPalette(sbi->paletteData(), sbi->paletteSizeBytes(),
                         sbi->paletteVersion());
                 }
-                device.setTransformUniforms(view.viewProjection, Matrix4::identity());
+                // The batch's dither offset, which each member mixes with its palette index.
+                device.setTransformUniforms(view.viewProjection, Matrix4::identity(),
+                    meshInstance->ditherId(Matrix4::identity()));
                 device.draw(entry.primitive, entry.indexBuffer, 1, -1, true, true);
             } else if (meshInstance && meshInstance->storageDrawCount() > 0) {
                 // App-driven storage draw: a custom shader expands one instance per
@@ -2270,8 +2273,10 @@ namespace visutwin::canvas
                 }
 
                 const bool sky = variant.material && variant.material->isSkybox();
-                device.setTransformUniforms(sky ? view.viewProjectionSkybox : view.viewProjection,
-                    forwardModelMatrix(meshInstance, variant.material, ctx.scene, view.position));
+                const Matrix4 model = forwardModelMatrix(meshInstance, variant.material, ctx.scene, view.position);
+                // The mesh's dither offset, fixed at its first draw (MeshInstance::ditherId).
+                device.setTransformUniforms(sky ? view.viewProjectionSkybox : view.viewProjection, model,
+                    meshInstance ? meshInstance->ditherId(model) : 0.0f);
                 const DrawCommands* commands = meshInstance && !variant.skinned && !variant.morphed
                     ? meshInstance->drawCommandsFor(view.camera) : nullptr;
                 drawWithCommands(device, entry.primitive, entry.indexBuffer, 1, commands);

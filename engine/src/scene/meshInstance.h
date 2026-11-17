@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -521,6 +522,30 @@ namespace visutwin::canvas
             CullVersion::bump();
         }
 
+        // --- Opacity dither pattern ---
+
+        /// The offset of this mesh's opacity dither pattern (and of its dithered shadow), in
+        /// [0, 64): overlapping dithered meshes then discard different pixels, and a second
+        /// layer adds coverage instead of repeating the first. Fixed at the first draw that
+        /// asks, from the model matrix it is drawn with (translationDitherId), so a static
+        /// mesh gets the offset upstream's hash of its translation gives it, and a moving one
+        /// keeps it: hashed afresh every frame, the whole pattern jumped as the mesh moved.
+        /// The draws hand it to GraphicsDevice::setTransformUniforms.
+        float ditherId(const Matrix4& model)
+        {
+            if (!_ditherId) {
+                _ditherId = translationDitherId(model);
+            }
+            return *_ditherId;
+        }
+        /// Fixes the offset (taken modulo 64), as for a mesh that should match another's.
+        void setDitherId(float id);
+        /// Forgets the offset: the next draw takes it from its model matrix again.
+        void resetDitherId() { _ditherId.reset(); }
+        /// The hash the shaders used to compute per draw: of the bits of the model's
+        /// translation, in [0, 64). Bit-identical to the vertex stage's forwardDitherId.
+        static float translationDitherId(const Matrix4& model);
+
         // --- Batching support (batchGroupId, visible) ---
 
         int batchGroupId() const { return _batchGroupId; }
@@ -696,6 +721,7 @@ namespace visutwin::canvas
 
         // Batching
         int _batchGroupId = -1;   // BatchGroup::NOID
+        std::optional<float> _ditherId;   // see ditherId()
         bool _visible = true;     // Hidden when merged into a batch
         bool _pick = true;        // A Picker candidate
         const Camera* _onlyCamera = nullptr;
