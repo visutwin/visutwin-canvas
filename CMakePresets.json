@@ -108,6 +108,21 @@
       }
     },
     {
+      "name": "vulkan-gpu",
+      "configurePreset": "vulkan",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      },
+      "filter": {
+        "include": {
+          "label": "vulkan|gpu"
+        }
+      }
+    },
+    {
       "name": "golden",
       "configurePreset": "examples",
       "output": {
