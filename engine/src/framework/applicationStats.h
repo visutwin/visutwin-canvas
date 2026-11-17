@@ -51,6 +51,13 @@ namespace visutwin::canvas
         int computeDispatches = 0;
         int computePasses = 0;
 
+        /// Anim components that evaluated their animation in the last update, that skipped it
+        /// as not visible (AnimComponent::offscreenUpdate), and that skipped it under their
+        /// evaluation interval.
+        int animEvaluated = 0;
+        int animOffscreen = 0;
+        int animIntervalSkipped = 0;
+
         double timeToCountFrames = 0.0;
         int fpsAccum = 0;
     };

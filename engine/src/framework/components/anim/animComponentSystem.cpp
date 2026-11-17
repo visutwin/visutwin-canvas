@@ -7,6 +7,7 @@
 
 #include "framework/components/componentRegistry.h"
 
+#include "framework/applicationStats.h"
 #include "framework/entity.h"
 
 namespace visutwin::canvas
@@ -30,6 +31,8 @@ namespace visutwin::canvas
 
     void AnimComponentSystem::onAnimationUpdate(const float dt)
     {
+        ++_updateIndex;
+        _evaluated = _offscreen = _intervalSkipped = 0;
         for (auto* component : instancesOf<AnimComponent>(componentRegistry())) {
             if (!component) {
                 continue;
@@ -40,9 +43,20 @@ namespace visutwin::canvas
                 continue;
             }
 
-            if (component->enabled() && entity->enabled()) {
-                component->update(dt);
+            if (component->enabled() && entity->enabled() && component->playing()) {
+                switch (component->update(dt)) {
+                case AnimUpdateResult::EVALUATED: ++_evaluated; break;
+                case AnimUpdateResult::OFFSCREEN: ++_offscreen; break;
+                case AnimUpdateResult::INTERVAL: ++_intervalSkipped; break;
+                }
             }
+        }
+
+        if (_engine && _engine->stats()) {
+            FrameStats& stats = _engine->stats()->frame();
+            stats.animEvaluated = _evaluated;
+            stats.animOffscreen = _offscreen;
+            stats.animIntervalSkipped = _intervalSkipped;
         }
     }
 }

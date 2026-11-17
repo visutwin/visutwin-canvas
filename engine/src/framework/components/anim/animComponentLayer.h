@@ -117,7 +117,7 @@ namespace visutwin::canvas
             _controller->removeNodeAnimations(nodeName);
         }
 
-        void update(const float dt) { _controller->update(dt); }
+        void update(const float dt, const bool evaluate = true) { _controller->update(dt, evaluate); }
 
     private:
         std::string _name;

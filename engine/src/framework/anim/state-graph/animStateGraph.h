@@ -26,6 +26,18 @@ namespace visutwin::canvas
         ADDITIVE = 1
     };
 
+    /**
+     * How an anim component updates while it is NOT VISIBLE: none of the skinned or morphed
+     * mesh instances under its root was drawn in the previous frame, by any camera or shadow
+     * pass (GraphNode::deformedRenderVersion).
+     */
+    enum class AnimOffscreenUpdate : uint8_t
+    {
+        FULL = 0,   ///< update fully, as when visible (the default)
+        STATE = 1,  ///< update the state graph, transitions and events; evaluate and apply nothing
+        NONE = 2    ///< do not update at all; the animation resumes where it stopped
+    };
+
     /** One animation layer: an independent state machine with its own states and transitions. */
     struct AnimLayerDesc
     {

@@ -509,7 +509,7 @@ namespace visutwin::canvas
         _animEvaluator->removeClips();
     }
 
-    void AnimController::update(float dt)
+    void AnimController::update(float dt, const bool evaluate)
     {
         if (!_playing) {
             return;
@@ -597,6 +597,6 @@ namespace visutwin::canvas
             }
         }
 
-        _animEvaluator->update(dt);
+        _animEvaluator->update(dt, evaluate);
     }
 }

@@ -22,6 +22,14 @@ namespace visutwin::canvas
 {
     class GraphNode;
     class MorphInstance;
+
+    /// What AnimComponent::update did with the animation.
+    enum class AnimUpdateResult : uint8_t
+    {
+        EVALUATED = 0,  ///< evaluated and applied
+        OFFSCREEN = 1,  ///< skipped: the component is not visible (offscreenUpdate)
+        INTERVAL = 2    ///< skipped: not due under the evaluation interval
+    };
     /**
      * The modern animation component: drives the entity hierarchy through a
      * state graph of layers, states, transitions with conditions, and blend trees, controlled
@@ -104,8 +112,36 @@ namespace visutwin::canvas
         bool activate() const { return _activate; }
         void setActivate(const bool value) { _activate = value; }
 
+        /**
+         * How the component updates while it is not visible: no skinned or morphed mesh
+         * instance on its root entity or beneath it was drawn in the previous frame, by any
+         * camera or shadow pass. FULL (the default) always updates fully; STATE updates the
+         * state graph, transitions and events but evaluates and applies nothing; NONE does not
+         * update at all, resuming where it stopped. Visibility is the previous frame's, so a
+         * character coming into view shows its last pose for one frame; an application that
+         * predicts visibility (bounds against the camera frustum) sets FULL on characters about
+         * to appear. A component animating no skinned or morphed mesh is never visible and
+         * should keep FULL.
+         */
+        AnimOffscreenUpdate offscreenUpdate() const { return _offscreenUpdate; }
+        void setOffscreenUpdate(const AnimOffscreenUpdate value) { _offscreenUpdate = value; }
+
+        /**
+         * Evaluate and apply the animation every Nth frame (1, the default, is every frame);
+         * the state graph, transitions and events still update every frame. Components with
+         * the same interval are spread over its frames, and a component that has just become
+         * visible again is evaluated at once.
+         */
+        int evaluationInterval() const { return _evaluationInterval; }
+        void setEvaluationInterval(int value);
+
         void reset();
-        void update(float dt);
+        /// One update, with the visibility and the schedule read from this component's system
+        /// and engine (without them the component counts as visible at update index 0).
+        AnimUpdateResult update(float dt);
+        /// One update against the render version of the frame just drawn (nullopt: visible)
+        /// and the update index shared by the components with an evaluation interval.
+        AnimUpdateResult update(float dt, std::optional<int> renderVersion, uint64_t updateIndex);
 
     private:
         void consumeTrigger(const std::string& name) { _consumedTriggers.insert(name); }
@@ -118,6 +154,13 @@ namespace visutwin::canvas
         float _speed = 1.0f;
         bool _activate = true;
         bool _normalizeWeights = false;
+        AnimOffscreenUpdate _offscreenUpdate = AnimOffscreenUpdate::FULL;
+        int _evaluationInterval = 1;
+        // The frame of the interval this component evaluates in, spreading the components
+        // sharing an interval over its frames.
+        int _evaluationPhase = 0;
+        // The animation was skipped as not visible, so it is evaluated as soon as it is seen.
+        bool _evaluationOffscreen = false;
 
         // Per animated node: what each layer produced this update, and the node's
         // rest value per property, captured the first time a layer drives it. Kept across frames, INDEXED: a layer's

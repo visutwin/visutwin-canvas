@@ -200,5 +200,35 @@ int main()
                 name + ": culls nothing and lights both sides");
         });
 
+    // glTF textures naming one image with one resolved sampling state share a Texture;
+    // another state gets a Texture of its own. Texture 0 has no sampler and texture 1 a
+    // sampler of defaults, which resolve alike; texture 2 clamps.
+    std::cout << "\ntextures sharing an image\n";
+    forEachLoadPath([] {
+            tinygltf::Model model = buildModel();
+            tinygltf::Sampler defaults;
+            model.samplers.push_back(defaults);
+            tinygltf::Sampler clamp;
+            clamp.wrapS = TINYGLTF_TEXTURE_WRAP_CLAMP_TO_EDGE;
+            clamp.wrapT = TINYGLTF_TEXTURE_WRAP_CLAMP_TO_EDGE;
+            model.samplers.push_back(clamp);
+            model.textures[1].source = 0;
+            model.textures[1].sampler = 0;
+            model.textures[2].source = 0;
+            model.textures[2].sampler = 1;
+            return model;
+        }, device, "glbMaterialPathsTests",
+        [&](const GlbContainerResource* container, const LoadPath path) {
+            const std::string name = path == LoadPath::CreateFromModel ? "createFromModel" : "createFromPrepared";
+            const Material* m = container && !container->meshPayloads().empty()
+                ? container->meshPayloads()[0].material.get() : nullptr;
+            check(m && m->baseColorTexture() && m->baseColorTexture() == m->metallicRoughnessTexture(),
+                name + ": one image with one sampling state is one texture");
+            check(m && m->occlusionTexture() && m->occlusionTexture() != m->baseColorTexture() &&
+                      m->occlusionTexture()->addressU() == ADDRESS_CLAMP_TO_EDGE &&
+                      m->baseColorTexture()->addressU() == ADDRESS_REPEAT,
+                name + ": another sampling state of it is a texture of its own");
+        });
+
     return finish("GLB material paths");
 }

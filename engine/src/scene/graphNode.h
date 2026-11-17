@@ -205,6 +205,22 @@ namespace visutwin::canvas
         int graphDepth() const { return _graphDepth; }
         float worldScaleSign();
 
+        /// The render version (GraphicsDevice::renderVersion) of the last frame in which a
+        /// skinned or morphed mesh instance attached to this node or one of its descendants
+        /// was drawn, by any camera or shadow pass; -1 before the first. An anim component
+        /// reads it to skip animating a character nobody saw (AnimComponent::offscreenUpdate).
+        int deformedRenderVersion() const { return _deformedRenderVersion; }
+        /// Marks this node and its ancestors as drawn in the frame `renderVersion`. The walk
+        /// stops at the first node already marked this frame, so only the first deformed draw
+        /// of a hierarchy walks to the root.
+        void markDeformedRendered(const int renderVersion)
+        {
+            for (GraphNode* node = this; node && node->_deformedRenderVersion != renderVersion;
+                 node = node->_parent) {
+                node->_deformedRenderVersion = renderVersion;
+            }
+        }
+
     protected:
         virtual void onHierarchyStateChanged(bool enabled);
 
@@ -280,6 +296,7 @@ namespace visutwin::canvas
         // The slot `child` occupies in _children, or SIZE_MAX.
         size_t childSlot(const GraphNode* child) const;
         int _graphDepth = 0;
+        int _deformedRenderVersion = -1;
 
         bool _dirtyLocal = false;
         bool _dirtyWorld = false;

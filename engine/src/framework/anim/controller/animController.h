@@ -101,7 +101,9 @@ namespace visutwin::canvas
         void transition(const std::string& to, float time, float transitionOffset = -1.0f);
         void pause();
         void reset();
-        void update(float dt);
+        /// With `evaluate` false the state graph, transitions and events still update, but
+        /// the animation is neither evaluated nor applied.
+        void update(float dt, bool evaluate = true);
 
         /// The state of that name, or null (read access for Entity::clone).
         AnimState* state(const std::string& stateName) const { return findState(stateName); }

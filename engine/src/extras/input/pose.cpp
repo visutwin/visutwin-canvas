@@ -14,16 +14,17 @@ namespace visutwin::canvas
 {
     namespace
     {
-        // Angle lerp: the short way round, alpha clamped.
-        float lerpAngle(const float a, float b, const float alpha)
+        // Angle lerp: the short way round (at most 180 degrees, however many turns apart the
+        // two are), alpha clamped. The result is not wrapped.
+        float lerpAngle(const float a, const float b, const float alpha)
         {
-            if (b - a > 180.0f) {
-                b -= 360.0f;
+            float diff = std::fmod(b - a, 360.0f);
+            if (diff > 180.0f) {
+                diff -= 360.0f;
+            } else if (diff < -180.0f) {
+                diff += 360.0f;
             }
-            if (b - a < -180.0f) {
-                b += 360.0f;
-            }
-            return a + (b - a) * std::clamp(alpha, 0.0f, 1.0f);
+            return a + diff * std::clamp(alpha, 0.0f, 1.0f);
         }
 
         float clampRange(const float value, const Vector2& range)

@@ -4,6 +4,7 @@
 // Created by Arnis Lektauers on 11.07.2026
 //
 #include "animComponent.h"
+#include "animComponentSystem.h"
 
 #include "framework/anim/binder/animComponentProperties.h"
 
@@ -79,6 +80,8 @@ namespace visutwin::canvas
         _speed = src->_speed;
         _activate = src->_activate;
         _normalizeWeights = src->_normalizeWeights;
+        _offscreenUpdate = src->_offscreenUpdate;
+        setEvaluationInterval(src->_evaluationInterval);
         if (!src->_stateGraph) {
             return;
         }
@@ -323,21 +326,74 @@ namespace visutwin::canvas
         return target.drives[layer] != 0;
     }
 
-    void AnimComponent::update(const float dt)
+    void AnimComponent::setEvaluationInterval(const int value)
     {
+        const int interval = std::max(1, value);
+        if (interval == _evaluationInterval) {
+            return;
+        }
+        _evaluationInterval = interval;
+        // Spread the components with the same interval over its frames, process-wide.
+        static std::unordered_map<int, int> phaseCounters;
+        const int count = phaseCounters[interval]++;
+        _evaluationPhase = count % interval;
+    }
+
+    AnimUpdateResult AnimComponent::update(const float dt)
+    {
+        const auto* animSystem = dynamic_cast<const AnimComponentSystem*>(system());
+        const Engine* engine = animSystem ? animSystem->engine() : nullptr;
+        const GraphicsDevice* device = engine ? engine->graphicsDevice().get() : nullptr;
+        return update(dt, device ? std::optional<int>(device->renderVersion()) : std::nullopt,
+            animSystem ? animSystem->updateIndex() : 0);
+    }
+
+    AnimUpdateResult AnimComponent::update(const float dt, const std::optional<int> renderVersion,
+        const uint64_t updateIndex)
+    {
+        AnimUpdateResult result = AnimUpdateResult::EVALUATED;
+        if (_offscreenUpdate != AnimOffscreenUpdate::FULL && renderVersion) {
+            // Visible when a deformed mesh instance in the animated hierarchy was drawn in the
+            // previous frame (whose render version is still the device's at update time).
+            const GraphNode* root = entity();
+            if (root && root->deformedRenderVersion() != *renderVersion) {
+                _evaluationOffscreen = true;
+                if (_offscreenUpdate == AnimOffscreenUpdate::NONE) {
+                    return AnimUpdateResult::OFFSCREEN;
+                }
+                result = AnimUpdateResult::OFFSCREEN;
+            }
+        }
+
+        // Under an interval, skip the evaluation until it is due, unless the pose is out of date
+        // after the component was not visible. The phase is tested against an update index the
+        // system shares between its components, so an evaluation forced by becoming visible does
+        // not move the ones after it.
+        if (result == AnimUpdateResult::EVALUATED) {
+            if (_evaluationInterval > 1 && !_evaluationOffscreen &&
+                (updateIndex + static_cast<uint64_t>(_evaluationPhase)) % static_cast<uint64_t>(_evaluationInterval) != 0) {
+                result = AnimUpdateResult::INTERVAL;
+            } else {
+                _evaluationOffscreen = false;
+            }
+        }
+        const bool evaluate = result == AnimUpdateResult::EVALUATED;
+
         clearContributions();
         // Every layer advances, whatever its weight; a
         // weight of 0 contributes nothing in composeTargets but keeps the layer's time
         // moving, so fading it back in resumes where it would have been.
         for (const auto& layer : _layers) {
-            layer->update(dt * _speed);
+            layer->update(dt * _speed, evaluate);
         }
+        // Not evaluated, no layer reported a pose, so this writes nothing.
         composeTargets();
         // Reset triggers consumed by transitions this frame, at frame end.
         for (const auto& name : _consumedTriggers) {
             resetTrigger(name);
         }
         _consumedTriggers.clear();
+        return result;
     }
 
     namespace

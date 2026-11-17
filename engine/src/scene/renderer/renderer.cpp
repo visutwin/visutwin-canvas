@@ -2222,6 +2222,14 @@ namespace visutwin::canvas
                 // matrix stays the node's world transform (they cancel in the shader).
                 if (variant.skinned) {
                     auto* si = meshInstance->skinInstance();
+                    // The mesh's hierarchy and the skeleton's (which can sit elsewhere, or above the
+                    // mesh) were drawn this frame: their anim components are visible.
+                    if (meshInstance->node()) {
+                        meshInstance->node()->markDeformedRendered(device.renderVersion());
+                    }
+                    if (si->rootBone()) {
+                        si->rootBone()->markDeformedRendered(device.renderVersion());
+                    }
                     {
                         const ScopedMilliseconds skinTimer(counters.skinTime);
                         si->updateMatrixPalette(meshInstance->node());
@@ -2233,6 +2241,9 @@ namespace visutwin::canvas
                 // Morph targets: bind the shared delta buffer + current weights.
                 if (variant.morphed) {
                     auto* mi = meshInstance->morphInstance();
+                    if (meshInstance->node()) {
+                        meshInstance->node()->markDeformedRendered(device.renderVersion());
+                    }
                     if (mi->morph() && mi->morph()->deltaBuffer()) {
                         const MorphInstance::GpuMorphParams* params = nullptr;
                         {

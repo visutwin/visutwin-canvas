@@ -204,6 +204,14 @@ namespace visutwin::canvas
             }
             if (skinned) {
                 auto* si = meshInstance->skinInstance();
+                // The mesh's hierarchy and the skeleton's (which can sit elsewhere, or above the
+                // mesh) were drawn this frame: their anim components are visible.
+                if (meshInstance->node()) {
+                    meshInstance->node()->markDeformedRendered(device->renderVersion());
+                }
+                if (si->rootBone()) {
+                    si->rootBone()->markDeformedRendered(device->renderVersion());
+                }
                 {
                     // A shadow pass often reaches a skin before the forward pass does,
                     // so the palette update is timed wherever it actually happens.
@@ -215,6 +223,9 @@ namespace visutwin::canvas
             }
             if (morphed) {
                 auto* mi = meshInstance->morphInstance();
+                if (meshInstance->node()) {
+                    meshInstance->node()->markDeformedRendered(device->renderVersion());
+                }
                 if (mi->morph() && mi->morph()->deltaBuffer()) {
                     const MorphInstance::GpuMorphParams* params = nullptr;
                     {

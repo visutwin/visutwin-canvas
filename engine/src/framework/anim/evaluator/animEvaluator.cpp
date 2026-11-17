@@ -94,9 +94,18 @@ namespace visutwin::canvas
         return slot.morphs;
     }
 
-    void AnimEvaluator::update(const float dt)
+    void AnimEvaluator::update(const float dt, const bool evaluate)
     {
         if (!_binder || _clips.empty()) {
+            return;
+        }
+
+        if (!evaluate) {
+            for (const auto& clip : _clips) {
+                if (clip && clip->blendWeight() > 0.0f) {
+                    clip->update(dt);
+                }
+            }
             return;
         }
 

@@ -2211,6 +2211,18 @@ present, but the rule below never depends on reading it.
   at construction): measured against a progress that never moves, only an exit time of exactly 1
   ever passed and any other left the controller in START for good. `tests/animControllerTests.cpp`
   holds the cases at speeds 0.5, 1, 2 and -2, looping and not, a blend tree and an assigned speed.
+- **An anim component is VISIBLE when a skinned or morphed draw marked its root that frame.**
+  The forward and depth-only draws of a skinned or morphed mesh instance call
+  `GraphNode::markDeformedRendered(device.renderVersion())` on the instance's node and the skin's
+  root bone (the walk goes up to the root and stops at a node already marked this frame), and
+  `AnimComponent::update` compares its entity's `deformedRenderVersion()` with the device's render
+  version, still the drawn frame's at update time. Under `setOffscreenUpdate(STATE)` an unseen
+  component advances its state graph and evaluates nothing, under `NONE` it does not update; an
+  `evaluationInterval` above 1 evaluates every Nth update by a phase per component against the
+  system's shared `updateIndex()`, and evaluates at once a component seen again. So a NEW path
+  that draws a skinned or morphed mesh owes the mark, or a character drawn only there freezes.
+  `AnimUpdateOptimizer` (`extras/script`) sets both from a frustum prediction and the distance;
+  `tests/animOffscreenUpdateTests.cpp`; `animation/crowd` shows it.
 - **A ray starting INSIDE a bounding sphere or box intersects it, and the point is where it
   LEAVES.** `BoundingSphere::intersectsRay` took the absolute value of the entry distance (a
   point outside the sphere); `OrientedBox::intersectsLocalAabbRay` answered false with a point

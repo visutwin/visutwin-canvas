@@ -5,8 +5,13 @@
 //
 // Port of upstream's animation/crowd example.
 //
-// A crowd of independently animated bitmoji characters, a scene for profiling the CPU cost of
-// skinned animation (run it with VISUTWIN_CPU_STATS=first,last for the phase timings). Each
+// A crowd of animated bitmoji characters, which skip evaluating their animation while off
+// screen and evaluate it less often when far away (run it with VISUTWIN_CPU_STATS=first,last for
+// the phase timings). Each character carries an AnimUpdateOptimizer: it predicts whether the
+// character is in the camera's view (its fixed box grown by 1 unit) and lets an unseen one
+// update only its state graph (or nothing), and it evaluates a character's animation every
+// frame within 12 units of the camera, every other frame up to 24, and so on up to every fourth.
+// Each
 // character wanders a round area of radius 40: it idles for a few seconds, picks a random point
 // and walks there (or, three times in ten, jogs), turning smoothly toward it, and jumps now and
 // then on the way. One anim state graph is shared by all: an integer "speed" (0 still, 1 walk,
@@ -15,12 +20,12 @@
 // through a transition. Both random sequences are seeded (mulberry32), so every run spawns the
 // same crowd and makes the same choices.
 //
-// The ground is a 2000 x 2000 grass plane (tiles of 6 units, tinted 0.62 / 0.95 / 0.42, gloss
-// 0.15, metalness workflow at 0) that casts no shadow, ringed by 70 shadow-casting low-poly trees
+// The ground is a 2000 x 2000 grass plane (tiles of 6 units, tinted 0.62 / 0.95 / 0.42, no
+// specular, as the bright sky reflected at grazing angles washes out the grass) that casts no shadow, ringed by 70 shadow-casting low-poly trees
 // outside the characters' area. A warm, low sun (intensity 2.2, colour 1 / 0.9 / 0.75, pitch 40,
 // yaw 35) casts PCF5 shadows over two cascades (distribution 0.6) out to 45 units at 2048; the
 // morning environment atlas lights the scene and draws the sky (mip 1, intensity 1.2), exposure
-// 1.1, and a linear fog from 50 to 400 fades the far ground into the sky. The camera (fov 50, far
+// 1.1, and a linear fog from 30 to 250 fades the far ground into the sky. The camera (fov 50, far
 // 1500, ACES) orbits and flies from (-5, 4.5, 15) around (0, 1, 0), pitch -90 to -2, zoom 1 to
 // 150. Twenty characters to begin with, casting shadows, with a fixed bounding box.
 //
@@ -29,6 +34,11 @@
 //   - / =  characters -/+ 100
 //   B      the fixed character bounding box (Custom AABB) on / off
 //   H      character shadows on / off
+//   O      the off-screen update: full, state, none (state to begin with)
+//   P      the visibility prediction on / off (on)
+//   L      the distance level of detail on / off (on)
+//   I      logs the characters evaluated, skipped off screen and skipped by the LOD, a frame,
+//          averaged over the last quarter second (upstream's stats panel)
 // The camera: WASDQE move (Shift fast, Ctrl slow), left / right mouse orbit / fly, Shift or the
 // middle button pan, the wheel zooms, R resets the view.
 //
@@ -38,6 +48,8 @@
 // - the camera starts at its pose instead of gliding there from the origin.
 // - the characters are steered before the engine's update, so they read the state their
 //   animation reached in the previous frame.
+// - the stats are logged on a key rather than shown in a panel, and without the anim update's
+//   time, which the frame statistics here do not measure on their own.
 //
 // @credit Sparse Grass by Amal Kumar, Poly Haven, CC0 1.0 (assets/textures/terrain/sparse_grass.credits.txt)
 // @credit Low-poly Tree with Twisting Branches, Sketchfab, CC BY 4.0 (assets/models/low-poly-tree.txt)
@@ -54,10 +66,13 @@
 #include "animClips.h"
 #include "exampleApp.h"
 #include "core/shape/boundingBox.h"
+#include "extras/script/animUpdateOptimizer.h"
 #include "extras/script/cameraControls.h"
 #include "framework/assets/asset.h"
 #include "framework/components/anim/animComponent.h"
+#include "framework/applicationStats.h"
 #include "framework/components/anim/animComponentSystem.h"
+#include "framework/components/script/scriptComponent.h"
 #include "platform/input/keyboard.h"
 #include "scene/constants.h"
 #include "scene/materials/standardMaterial.h"
@@ -78,6 +93,20 @@ namespace
     constexpr float kGrassTileSize = 6.0f;
 
     constexpr int kTreeCount = 70;
+
+    // The animation of characters further than this from the camera is evaluated less often, a
+    // step per distance.
+    constexpr float kLodDistance = 12.0f;
+
+    const char* offscreenName(const AnimOffscreenUpdate value)
+    {
+        switch (value) {
+        case AnimOffscreenUpdate::FULL: return "full";
+        case AnimOffscreenUpdate::STATE: return "state";
+        case AnimOffscreenUpdate::NONE: return "none";
+        }
+        return "?";
+    }
 
     // A small seeded random number generator (mulberry32), so every run spawns the same crowd
     // and makes the same choices, which keeps profiling runs comparable. Numbers in [0, 1).
@@ -115,6 +144,8 @@ namespace
         // The character entity, which the anim component is on.
         Entity* entity = nullptr;
         AnimComponent* anim = nullptr;
+        // The script lowering the cost of its animation.
+        AnimUpdateOptimizer* optimizer = nullptr;
         // The position on the ground, and the one the character walks to.
         double x = 0.0;
         double z = 0.0;
@@ -182,8 +213,8 @@ protected:
         // A soft haze which fades the far ground into the sky.
         scene()->setFogEnabled(true);
         scene()->setFogType(FogType::FOG_LINEAR);
-        scene()->setFogColor(Color(0.66f, 0.8f, 0.88f, 1.0f));
-        scene()->setFogLinear(50.0f, 400.0f);
+        scene()->setFogColor(Color(0.72f, 0.83f, 0.9f, 1.0f));
+        scene()->setFogLinear(30.0f, 250.0f);
 
         createGround();
 
@@ -205,6 +236,9 @@ protected:
         // The camera orbits (mouse) and flies (WASD with the right mouse button).
         Entity* camera = createCamera(Vector3(-5.0f, 4.5f, 15.0f));
         camera->setName("Camera");
+        // Created before the characters, so its controls move it before their optimizers predict
+        // what it sees.
+        _camera = camera;
         if (auto* component = camera->findComponent<CameraComponent>(); component && component->camera()) {
             component->setToneMapping(TONEMAP_ACES);
             component->camera()->setFov(50.0f);
@@ -238,7 +272,8 @@ protected:
         setCount(20);
 
         spdlog::info("Crowd: [ / ] characters -/+ 10, - / = -/+ 100, B the fixed bounding box, "
-            "H shadows; {} characters", _characters.size());
+            "H shadows, O off-screen update, P prediction, L distance LOD, I stats; {} characters",
+            _characters.size());
         return true;
     }
 
@@ -271,7 +306,28 @@ protected:
                 setShadows(!_shadows);
                 spdlog::info("Shadows {}", _shadows ? "on" : "off");
             }
+            if (keyboard->wasPressed(Key::O)) {
+                _offscreenUpdate = static_cast<AnimOffscreenUpdate>((static_cast<int>(_offscreenUpdate) + 1) % 3);
+                forEachOptimizer([this](AnimUpdateOptimizer& o) { o.setOffscreenUpdate(_offscreenUpdate); });
+                spdlog::info("Off-screen update: {}", offscreenName(_offscreenUpdate));
+            }
+            if (keyboard->wasPressed(Key::P)) {
+                _prediction = !_prediction;
+                forEachOptimizer([this](AnimUpdateOptimizer& o) { o.setPredict(_prediction); });
+                spdlog::info("Prediction {}", _prediction ? "on" : "off");
+            }
+            if (keyboard->wasPressed(Key::L)) {
+                _lod = !_lod;
+                forEachOptimizer([this](AnimUpdateOptimizer& o) { o.setLodDistance(_lod ? kLodDistance : 0.0f); });
+                spdlog::info("Distance LOD {}", _lod ? "on" : "off");
+            }
+            if (keyboard->wasPressed(Key::I)) {
+                spdlog::info("Characters evaluated {}, off-screen {}, LOD skipped {} (a frame, over {:.2f} s)",
+                    _shownEvaluated, _shownOffscreen, _shownSkipped, _shownTime);
+            }
         }
+
+        accumulateStats(dt);
 
         for (Character& character : _characters) {
             updateCharacter(character, static_cast<double>(dt));
@@ -284,6 +340,38 @@ protected:
     }
 
 private:
+    template <class F>
+    void forEachOptimizer(F&& f)
+    {
+        for (const Character& character : _characters) {
+            if (character.optimizer) {
+                f(*character.optimizer);
+            }
+        }
+    }
+
+    // The counters the I key logs: the last update's anim stats, averaged over a quarter second.
+    void accumulateStats(const float dt)
+    {
+        const FrameStats& frame = engine()->stats()->frame();
+        ++_statsFrames;
+        _statsEvaluated += frame.animEvaluated;
+        _statsOffscreen += frame.animOffscreen;
+        _statsSkipped += frame.animIntervalSkipped;
+        _statsTime += dt;
+        if (_statsTime > 0.25f) {
+            const auto average = [this](const int sum) {
+                return static_cast<int>(std::lround(static_cast<double>(sum) / _statsFrames));
+            };
+            _shownEvaluated = average(_statsEvaluated);
+            _shownOffscreen = average(_statsOffscreen);
+            _shownSkipped = average(_statsSkipped);
+            _shownTime = _statsTime;
+            _statsFrames = _statsEvaluated = _statsOffscreen = _statsSkipped = 0;
+            _statsTime = 0.0f;
+        }
+    }
+
     void createGround()
     {
         Texture* grass = _grassAsset->resourceAs<Texture>();
@@ -303,9 +391,8 @@ private:
             _groundMaterial->setNormalMap(grassNormal);
         }
         _groundMaterial->setDiffuse(Color(0.62f, 0.95f, 0.42f, 1.0f));
-        _groundMaterial->setGloss(0.15f);
-        _groundMaterial->setUseMetalness(true);
-        _groundMaterial->setMetalness(0.0f);
+        // No specular, as the reflection of the bright sky at grazing angles washes out the grass.
+        _groundMaterial->setSpecular(Color(0.0f, 0.0f, 0.0f, 1.0f));
         const float tiling = kGroundSize / kGrassTileSize;
         _groundMaterial->setDiffuseMapTiling(Vector2(tiling, tiling));
         _groundMaterial->setNormalMapTiling(Vector2(tiling, tiling));
@@ -392,8 +479,18 @@ private:
         anim->assignAnimation("Jump", _jump);
         anim->setInteger("speed", speed);
 
+        // Lowers the cost of the animation while the character is off screen or far away.
+        entity->addComponent<ScriptComponent>();
+        auto* optimizer = entity->script()->create<AnimUpdateOptimizer>();
+        optimizer->setCamera(_camera);
+        optimizer->setMargin(1.0f);
+        optimizer->setPredict(_prediction);
+        optimizer->setOffscreenUpdate(_offscreenUpdate);
+        optimizer->setLodDistance(_lod ? kLodDistance : 0.0f);
+
         character.entity = entity;
         character.anim = anim;
+        character.optimizer = optimizer;
         entity->setLocalPosition(static_cast<float>(character.x), 0.0f, static_cast<float>(character.z));
         entity->setLocalEulerAngles(0.0f, static_cast<float>(character.heading), 0.0f);
         root()->addChild(entity);
@@ -420,6 +517,7 @@ private:
             auto removed = character.entity->remove();
             character.entity = nullptr;
             character.anim = nullptr;
+            character.optimizer = nullptr;
         }
     }
 
@@ -541,6 +639,20 @@ private:
     Mulberry32 _random{1234};
     bool _shadows = true;
     bool _customAabb = true;
+    Entity* _camera = nullptr;
+    AnimOffscreenUpdate _offscreenUpdate = AnimOffscreenUpdate::STATE;
+    bool _prediction = true;
+    bool _lod = true;
+
+    int _statsFrames = 0;
+    int _statsEvaluated = 0;
+    int _statsOffscreen = 0;
+    int _statsSkipped = 0;
+    float _statsTime = 0.0f;
+    int _shownEvaluated = 0;
+    int _shownOffscreen = 0;
+    int _shownSkipped = 0;
+    float _shownTime = 0.0f;
 };
 
 VISUTWIN_EXAMPLE_MAIN(CrowdExample)

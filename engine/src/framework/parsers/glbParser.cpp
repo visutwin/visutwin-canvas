@@ -23,12 +23,14 @@
 #include <cstring>
 #include <fstream>
 #include <limits>
+#include <map>
 #include <optional>
 #include <queue>
 #include <set>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 
@@ -2706,10 +2708,28 @@ namespace visutwin::canvas
             return -1;
         }
 
-        void applyGltfSampler(Texture& texture, const tinygltf::Model& model, const tinygltf::Texture& srcTexture)
+        // A glTF texture's sampling state, resolved: -1 leaves a filter at the texture's
+        // default, and an omitted sampler wraps as the glTF default (REPEAT). Two glTF
+        // textures with the same image and an equal state share one Texture.
+        struct GltfSamplerState
         {
+            int minFilter = -1;
+            int magFilter = -1;
+            AddressMode addressU = ADDRESS_REPEAT;
+            AddressMode addressV = ADDRESS_REPEAT;
+
+            bool operator<(const GltfSamplerState& other) const
+            {
+                return std::tie(minFilter, magFilter, addressU, addressV) <
+                    std::tie(other.minFilter, other.magFilter, other.addressU, other.addressV);
+            }
+        };
+
+        GltfSamplerState resolveGltfSampler(const tinygltf::Model& model, const tinygltf::Texture& srcTexture)
+        {
+            GltfSamplerState state;
             if (srcTexture.sampler < 0 || srcTexture.sampler >= static_cast<int>(model.samplers.size())) {
-                return;
+                return state;
             }
             const auto& sampler = model.samplers[static_cast<size_t>(srcTexture.sampler)];
             if (sampler.minFilter != -1) {
@@ -2720,13 +2740,26 @@ namespace visutwin::canvas
                     minFilter == FilterMode::FILTER_LINEAR_MIPMAP_LINEAR) {
                     minFilter = FilterMode::FILTER_LINEAR;
                 }
-                texture.setMinFilter(minFilter);
+                state.minFilter = static_cast<int>(minFilter);
             }
             if (sampler.magFilter != -1) {
-                texture.setMagFilter(mapMagFilter(sampler.magFilter));
+                state.magFilter = static_cast<int>(mapMagFilter(sampler.magFilter));
             }
-            texture.setAddressU(mapWrapMode(sampler.wrapS));
-            texture.setAddressV(mapWrapMode(sampler.wrapT));
+            state.addressU = mapWrapMode(sampler.wrapS);
+            state.addressV = mapWrapMode(sampler.wrapT);
+            return state;
+        }
+
+        void applyGltfSampler(Texture& texture, const GltfSamplerState& state)
+        {
+            if (state.minFilter != -1) {
+                texture.setMinFilter(static_cast<FilterMode>(state.minFilter));
+            }
+            if (state.magFilter != -1) {
+                texture.setMagFilter(static_cast<FilterMode>(state.magFilter));
+            }
+            texture.setAddressU(state.addressU);
+            texture.setAddressV(state.addressV);
         }
 
         std::shared_ptr<Texture> createPreparedTexture(const PreparedGlbData::ImageData& image,
@@ -3579,7 +3612,11 @@ namespace visutwin::canvas
             static_cast<int>(COLORED_VERTEX_STRIDE), std::move(coloredElements), true, false);
 
         // ── Textures, created on first reference by a material ───────
+        // Sampling state lives on the Texture, so an image used with several states needs
+        // a Texture (and GPU memory) for each; glTF textures using one image with one
+        // resolved state share it.
         std::vector<std::shared_ptr<Texture>> gltfTextures(model.textures.size());
+        std::map<std::pair<int, GltfSamplerState>, std::shared_ptr<Texture>> imageTextures;
         auto getOrCreateTexture = [&](const int textureIndex) -> std::shared_ptr<Texture> {
             if (textureIndex < 0 || textureIndex >= static_cast<int>(model.textures.size())) {
                 return nullptr;
@@ -3605,12 +3642,20 @@ namespace visutwin::canvas
                 return nullptr;   // the prepare half already said why
             }
 
+            const GltfSamplerState samplerState = resolveGltfSampler(model, srcTexture);
+            auto& shared = imageTextures[{imageSource, samplerState}];
+            if (shared) {
+                cached = shared;
+                return cached;
+            }
+
             const auto& srcImage = model.images[static_cast<size_t>(imageSource)];
             auto texture = createPreparedTexture(image, srcImage.name.empty() ? srcTexture.name : srcImage.name,
                 device);
-            applyGltfSampler(*texture, model, srcTexture);
+            applyGltfSampler(*texture, samplerState);
             texture->upload();
             container->addOwnedTexture(texture);
+            shared = texture;
             cached = texture;
             return cached;
         };

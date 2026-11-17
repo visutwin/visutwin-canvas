@@ -39,7 +39,9 @@ namespace visutwin::canvas
         /** Replace the track of every clip whose name matches (used by AnimController::assignAnimation). */
         void updateClipTrack(const std::string& name, const std::shared_ptr<AnimTrack>& track);
 
-        void update(float dt);
+        /// Advances the clips and blends their pose. With `evaluate` false the clips only
+        /// advance their time and fire their events, and nothing is evaluated or applied.
+        void update(float dt, bool evaluate = true);
 
         /**
          * Where the blended pose goes. By default the evaluator writes each node's
