@@ -18,9 +18,12 @@
 #                  source read back still looks plausible — so this is what
 #                  catches them.
 #   linux-vulkan   The vulkan preset on Linux: engine and C API build, warnings as
-#                  errors, plus every unit test. The Vulkan validation smoke test
-#                  needs a GPU and a window, so the test presets exclude its label
-#                  everywhere in CI.
+#                  errors, plus every unit test. Then the tests that need a device
+#                  and a window (the `vulkan` and `gpu` labels, the vulkan-gpu test
+#                  preset): the Vulkan validation smoke test and the GPU tests, on
+#                  lavapipe (Mesa's software Vulkan) under Xvfb, with the validation
+#                  layers on (the preset's Debug build enables them). The runner has
+#                  no GPU, so this checks API use and results, not a vendor's driver.
 #
 # linux-vulkan was verified before it was enabled as a gate: the same presets,
 # compiler and package list built clean and passed every unit test on an
@@ -209,3 +212,12 @@ jobs:
         env:
           VISUTWIN_EXPECT_KERNEL_BACKEND: sse2
         run: ctest --preset vulkan
+      # The device tests, on lavapipe under a virtual X server. lavapipe allocates
+      # descriptor sets past a pool's maxSets (allowed since Vulkan 1.1), so the smoke
+      # test's pool-growth check is skipped there and runs on drivers that refuse.
+      - name: Install lavapipe, the Vulkan validation layers and Xvfb
+        run: sudo apt-get install -y mesa-vulkan-drivers vulkan-validationlayers xvfb
+      - name: Vulkan validation smoke and GPU tests (lavapipe)
+        env:
+          VISUTWIN_VULKAN_DRIVER: llvmpipe
+        run: xvfb-run -a -s "-screen 0 1280x1024x24" ctest --preset vulkan-gpu

@@ -67,6 +67,45 @@ namespace visutwin::canvas
             device._submitResultOverride = result;
         }
 
+        /// Whether the driver refuses a descriptor set past a pool's maxSets, the failure the
+        /// device grows its per-frame pools on. Vulkan 1.1 (maintenance1) lets a driver allocate
+        /// past it instead, and lavapipe does: there the pools never fill, and never grow.
+        static bool descriptorPoolLimitsEnforced(const VulkanGraphicsDevice& device)
+        {
+            VkDescriptorSetLayoutBinding binding{};
+            binding.binding = 0;
+            binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            binding.descriptorCount = 1;
+            binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+            VkDescriptorSetLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+            layoutInfo.bindingCount = 1;
+            layoutInfo.pBindings = &binding;
+            VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+            if (vkCreateDescriptorSetLayout(device._device, &layoutInfo, nullptr, &layout) != VK_SUCCESS) {
+                return true;
+            }
+            const VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1};
+            VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+            poolInfo.maxSets = 1;
+            poolInfo.poolSizeCount = 1;
+            poolInfo.pPoolSizes = &size;
+            VkDescriptorPool pool = VK_NULL_HANDLE;
+            bool enforced = true;
+            if (vkCreateDescriptorPool(device._device, &poolInfo, nullptr, &pool) == VK_SUCCESS) {
+                VkDescriptorSetAllocateInfo allocInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+                allocInfo.descriptorPool = pool;
+                allocInfo.descriptorSetCount = 1;
+                allocInfo.pSetLayouts = &layout;
+                VkDescriptorSet sets[2]{};
+                if (vkAllocateDescriptorSets(device._device, &allocInfo, &sets[0]) == VK_SUCCESS) {
+                    enforced = vkAllocateDescriptorSets(device._device, &allocInfo, &sets[1]) != VK_SUCCESS;
+                }
+                vkDestroyDescriptorPool(device._device, pool, nullptr);
+            }
+            vkDestroyDescriptorSetLayout(device._device, layout, nullptr);
+            return enforced;
+        }
+
         /// The window surface's capabilities: the swapchain sizes it allows.
         static VkSurfaceCapabilitiesKHR surfaceCapabilities(const VulkanGraphicsDevice& device)
         {
@@ -862,7 +901,10 @@ void main() { imageStore(outputTexture, ivec2(0), texelFetch(inputTexture, ivec2
                 device->draw(triangle);
             }
             device->setQuadTextureBinding(0, nullptr);
-            if (device->currentFrameDescriptorPoolCount() < 2) {
+            if (!VulkanGraphicsDeviceTestAccess::descriptorPoolLimitsEnforced(*device)) {
+                spdlog::info("Vulkan smoke: the driver allocates descriptor sets past a pool's maxSets, "
+                    "so the pools never fill and their growth is not tested here");
+            } else if (device->currentFrameDescriptorPoolCount() < 2) {
                 spdlog::error(
                     "Vulkan smoke: descriptor pool did not grow under stress");
                 result = 1;
@@ -1031,7 +1073,10 @@ void main() { fragColor = texture(src, vUv) * u.a.x + u.b; }
             device->frameEnd();
 
             device->frameStart();
-            if (device->currentFrameDescriptorPoolCount() < 2 ||
+            // Two pools only where the stress above grew them (see descriptorPoolLimitsEnforced).
+            const size_t grownPools =
+                VulkanGraphicsDeviceTestAccess::descriptorPoolLimitsEnforced(*device) ? 2 : 1;
+            if (device->currentFrameDescriptorPoolCount() < grownPools ||
                 device->currentFrameCachedImageDescriptorSetCount() != 0) {
                 spdlog::error(
                     "Vulkan smoke: descriptor pools were not recycled cleanly");
