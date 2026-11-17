@@ -161,8 +161,9 @@ namespace visutwin::canvas
             const bool instanceColor = instancing.vertexBuffer->format() &&
                 instancing.vertexBuffer->format()->hasInstanceColor();
             auto& cachedVariant = instanceColor ? shaders.instancedColor : shaders.instanced;
+            // A variant whose program is still compiling in a precompile draws nothing.
             if (const auto variant = shadowCasterShader(programLibrary, frontendMaterial,
-                    cachedVariant, false, false, false, true, instanceColor, shaders.vsm, clip)) {
+                    cachedVariant, false, false, false, true, instanceColor, shaders.vsm, clip); variant || device->precompilePass()) {
                 device->setShader(variant);
             }
             device->setVertexBuffer(instancing.vertexBuffer, 5);
@@ -178,8 +179,9 @@ namespace visutwin::canvas
             device->setVertexBuffer(nullptr, 5);
             device->setShader(shaders.plain);
         } else if (meshInstance->isDynamicBatch()) {
+            // A variant whose program is still compiling in a precompile draws nothing.
             if (const auto variant = shadowCasterShader(programLibrary, frontendMaterial,
-                    shaders.dynamicBatch, true, false, false, false, false, shaders.vsm, clip)) {
+                    shaders.dynamicBatch, true, false, false, false, false, shaders.vsm, clip); variant || device->precompilePass()) {
                 device->setShader(variant);
             }
             if (auto* sbi = meshInstance->skinBatchInstance()) {
@@ -198,8 +200,9 @@ namespace visutwin::canvas
             auto& cachedVariant = skinned
                 ? (morphed ? shaders.skinnedMorphed : shaders.skinned)
                 : shaders.morphed;
+            // A variant whose program is still compiling in a precompile draws nothing.
             if (const auto variant = shadowCasterShader(programLibrary, frontendMaterial,
-                    cachedVariant, false, skinned, morphed, false, false, shaders.vsm, clip)) {
+                    cachedVariant, false, skinned, morphed, false, false, shaders.vsm, clip); variant || device->precompilePass()) {
                 device->setShader(variant);
             }
             if (skinned) {
@@ -246,7 +249,7 @@ namespace visutwin::canvas
             // swaps in its own variant and puts the plain one back, as above.
             if (frontendMaterial || clip) {
                 if (const auto variant = programLibrary->getShadowShader(frontendMaterial,
-                        false, false, false, false, false, shaders.vsm, clip)) {
+                        false, false, false, false, false, shaders.vsm, clip); variant || device->precompilePass()) {
                     device->setShader(variant);
                 }
             }

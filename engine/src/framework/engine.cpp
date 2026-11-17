@@ -604,35 +604,40 @@ namespace visutwin::canvas
             fire("precompile:start");
         }
 
-        // The second, once no program is compiling: the frame graph, whose passes resolve their
-        // variants (now from built programs) and start building their pipelines.
         const int programsPending = library ? library->pendingSlangPrograms() : 0;
-        if (!state.sceneStarted && programsPending == 0) {
+        if (!state.sceneStarted) {
+            // The frame graph at once, while the programs compile: the passes resolve their
+            // variants and start building their pipelines. A variant of a program still
+            // compiling is skipped (its draws request nothing) rather than waited for, and a
+            // second pass once the programs are built requests those.
             state.sceneStarted = true;
-            const int shadersBefore = device.liveResourceCounts().shaders;
-            const int pipelinesBefore = device.precompilePipelineRequests();
-            const auto frameStart = std::chrono::steady_clock::now();
-            precompileScene(state.options);
-            state.stats.shaders = device.liveResourceCounts().shaders - shadersBefore;
-            state.stats.pipelines = device.precompilePipelineRequests() - pipelinesBefore;
-            state.stats.frameTime = std::chrono::duration<double, std::milli>(
-                std::chrono::steady_clock::now() - frameStart).count();
+            if (library) {
+                library->setSkipCompilingPrograms(programsPending > 0);
+            }
+            precompileScenePass(state);
+            if (library) {
+                state.sceneRetry = library->skippedVariants() > 0;
+                library->setSkipCompilingPrograms(false);
+            }
+        } else if (state.sceneRetry && programsPending == 0) {
+            state.sceneRetry = false;
+            precompileScenePass(state);
         }
 
         // The progress over both phases: the pipelines join the total once they are known, so
         // it is kept from going back.
-        const int pending = programsPending + (state.sceneStarted ? device.precompilePendingCount() : 0);
-        const int requested = state.stats.programs + (state.sceneStarted ? state.stats.pipelines : 0);
+        const int pending = (library ? library->pendingSlangPrograms() : 0) + device.precompilePendingCount();
+        const int requested = state.stats.programs + state.stats.pipelines;
         state.total = std::max({state.total, requested, pending});
         const int done = state.total - pending;
         const float progress = std::max(state.progress,
-            state.total > 0 ? static_cast<float>(done) / static_cast<float>(state.total) : (state.sceneStarted ? 1.0f : 0.0f));
+            state.total > 0 ? static_cast<float>(done) / static_cast<float>(state.total) : (state.sceneRetry ? 0.0f : 1.0f));
         if (done != state.done || progress != state.progress) {
             state.done = done;
             state.progress = progress;
             fire("precompile:progress", progress);
         }
-        if (state.sceneStarted && pending == 0) {
+        if (!state.sceneRetry && pending == 0) {
             finishPrecompile();
             return false;   // this frame renders, with everything built
         }
@@ -642,6 +647,19 @@ namespace visutwin::canvas
         // (a blocked main thread on macOS holds a pointer press: runLoopWait.h).
         waitServicingRunLoop([] { std::this_thread::sleep_for(std::chrono::milliseconds(4)); });
         return true;
+    }
+
+    void Engine::precompileScenePass(PrecompileState& state)
+    {
+        GraphicsDevice& device = *_graphicsDevice;
+        const int shadersBefore = device.liveResourceCounts().shaders;
+        const int pipelinesBefore = device.precompilePipelineRequests();
+        const auto frameStart = std::chrono::steady_clock::now();
+        precompileScene(state.options);
+        state.stats.shaders += device.liveResourceCounts().shaders - shadersBefore;
+        state.stats.pipelines += device.precompilePipelineRequests() - pipelinesBefore;
+        state.stats.frameTime += std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - frameStart).count();
     }
 
     void Engine::precompileScene(const PrecompileOptions& options)
@@ -667,8 +685,8 @@ namespace visutwin::canvas
         std::unique_ptr<PrecompileState> state = std::move(_precompile);
         state->stats.time = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - state->startTime).count();
-        spdlog::info("Precompile: {} Slang programs, {} shaders and {} render pipelines in {:.0f} ms (the frame that "
-            "built the frame graph {:.1f} ms)", state->stats.programs, state->stats.shaders, state->stats.pipelines,
+        spdlog::info("Precompile: {} Slang programs, {} shaders and {} render pipelines in {:.0f} ms (building the "
+            "frame graph {:.1f} ms)", state->stats.programs, state->stats.shaders, state->stats.pipelines,
             state->stats.time, state->stats.frameTime);
         fire("precompile:end", state->stats);
         for (const auto& callback : state->callbacks) {

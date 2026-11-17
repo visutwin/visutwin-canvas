@@ -55,6 +55,23 @@ namespace visutwin::canvas
         int requestSlangPrograms(const Material* material, bool shadowCaster);
         /// Programs requestSlangPrograms started that are still compiling.
         [[nodiscard]] int pendingSlangPrograms() const { return _programQueue ? _programQueue->pending() : 0; }
+        /**
+         * While set, a forward or shadow variant whose program requestSlangPrograms started and
+         * is still compiling resolves to null instead of waiting for it, and is not cached, so
+         * a later resolution builds it. Engine::precompile sets it for the frame-graph pass it
+         * runs while the programs compile; that pass's draws of such variants request nothing,
+         * and a second pass once the programs are built requests them. Setting it starts the
+         * count of skipped resolutions afresh.
+         */
+        void setSkipCompilingPrograms(bool skip)
+        {
+            _skipCompilingPrograms = skip;
+            if (skip) {
+                _skippedVariants = 0;
+            }
+        }
+        /// The variant resolutions skipped since setSkipCompilingPrograms(true).
+        [[nodiscard]] int skippedVariants() const { return _skippedVariants; }
 
         /// The forward chunk registry: an override (Slang source) replaces a chunk file of
         /// the forward and shadow programs and compiles them at run time; affected variants
@@ -461,6 +478,10 @@ namespace visutwin::canvas
         static std::string slangProgramKey(const std::string& program, const SlangFileOverrides& overrides);
         /// Asks for `program` under `overrides` on the compile threads; true when it started one.
         bool requestSlangProgram(const std::string& program, const SlangFileOverrides& overrides);
+        /// True when skipping is on and `program` under `overrides` is still compiling.
+        bool skipsCompilingProgram(const std::string& program, const SlangFileOverrides& overrides);
+        bool _skipCompilingPrograms = false;
+        int _skippedVariants = 0;
         /// What each build was compiled from, and its sources' fingerprint (watcher only).
         struct SlangProgramSources
         {

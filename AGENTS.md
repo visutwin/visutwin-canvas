@@ -3420,12 +3420,22 @@ present, but the rule below never depends on reading it.
   (`MetalPipelineTargetFormats`), Vulkan's states are copied into the job, `MetalShader::
   getLibrary` is locked, and `replaceShaderCode` and Vulkan's pipeline-cache save wait for the
   queue (`waitPrecompileIdle`). A `get()` of an entry still building waits for it. The
-  frame-graph phase is preceded by a PROGRAM phase: the first frame asks the program library for
+  frame-graph phase OVERLAPS a PROGRAM phase: the first frame asks the program library for
   the run-time Slang programs the scene's materials need (`ProgramLibrary::requestSlangPrograms`:
   a material with chunk overrides, its shadow program only when `shadowNeedsMaterial`, every
   program under `VISUTWIN_SLANG_RUNTIME`), which compile on the library's own compile threads,
-  and the frame graph is built in the first frame none is compiling; `slangProgram()` waits for
-  a program still compiling rather than compiling it again. A new path that resolves forward or
+  and builds the frame graph in the same frame with `setSkipCompilingPrograms(true)`: a variant
+  of a program still compiling resolves to null and is not cached, and a draw whose variant is
+  null clears the bound shader in a precompile pass (`bindMaterial`, the depth-only draw), so it
+  requests no pipeline instead of one for the previous shader. If anything was skipped, the frame
+  graph is built again in the first frame no program is compiling; pipelines already requested
+  are found in the caches. A frame state the scene changes in its first frames (`car-showcase`
+  switches its headlights on) can make the first pass build a variant the frames then never use:
+  two background builds, not a stall. Overlapping the phases measured (`car-showcase`, medians of
+  three alternated runs) Metal warm 708 -> 649 ms, cold 2534 -> 2505 ms, Vulkan cold 3263 -> 3091
+  ms: small, because its two run-time programs are where most of its pipelines come from, and
+  those cannot start before their program. Outside a precompile `slangProgram()` waits for a program
+  still compiling rather than compiling it again. A new path that resolves forward or
   shadow variants with a material's overrides owes the same choice in `requestSlangPrograms`, or
   its programs compile serially in the frame-graph phase. Measured cold first frames (Metal
   Debug / Vulkan Release): `post-processing` 648 -> 214 ms and 2200 -> 191 ms, `clear-coat` 649

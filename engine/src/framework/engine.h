@@ -262,7 +262,8 @@ namespace visutwin::canvas
         {
             PrecompileOptions options;
             bool started = false;
-            bool sceneStarted = false;   // the frame graph precompiled, after the programs
+            bool sceneStarted = false;   // the frame graph precompiled, with the programs compiling
+            bool sceneRetry = false;     // it skipped variants of programs still compiling
             int total = 0;
             int done = -1;
             float progress = -1.0f;
@@ -276,6 +277,8 @@ namespace visutwin::canvas
         bool precompileFrame();
         // Builds and culls the frame as render() does, and precompiles its passes.
         void precompileScene(const PrecompileOptions& options);
+        // precompileScene with the statistics counted into the state.
+        void precompileScenePass(PrecompileState& state);
         void finishPrecompile();
         // Asks the program library to compile the Slang programs the scene's materials need
         // from source, on compile threads; returns how many it started.

@@ -11,6 +11,7 @@
 
 #include <assert.h>
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <vector>
 
@@ -586,6 +587,20 @@ namespace visutwin::canvas
         return started;
     }
 
+    bool ProgramLibrary::skipsCompilingProgram(const std::string& program, const SlangFileOverrides& overrides)
+    {
+        if (!_skipCompilingPrograms || _pendingSlangPrograms.empty()) {
+            return false;
+        }
+        const auto pending = _pendingSlangPrograms.find(slangProgramKey(program, overrides));
+        if (pending == _pendingSlangPrograms.end() ||
+            pending->second.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            return false;   // not requested, or built: slangProgram takes it over
+        }
+        ++_skippedVariants;
+        return true;
+    }
+
     const SlangProgramBuild* ProgramLibrary::slangProgram(const std::string& program, const SlangFileOverrides& overrides)
     {
         const std::string key = slangProgramKey(program, overrides);
@@ -906,9 +921,12 @@ namespace visutwin::canvas
             return cached->second;
         }
 
+        auto overrides = chunkOverrides(material);
+        if (skipsCompilingProgram(programName == "shadow" ? "shadow" : "forward", overrides)) {
+            return nullptr;
+        }
         const uint64_t variantId = key.hash();
         ++_forwardVariantsCreated;
-        auto overrides = chunkOverrides(material);
         auto shader = buildForwardShaderVariant(programName, options, variantId, overrides);
         if (!shader) {
             spdlog::error("Failed to build shader variant '{}' (id={:#x}, localShadows={}, shadows={}, envAtlas={})",
@@ -1076,6 +1094,9 @@ namespace visutwin::canvas
         }
 
         auto overrides = chunkOverrides(material);
+        if (skipsCompilingProgram("shadow", overrides)) {
+            return nullptr;
+        }
         auto shader = buildForwardShaderVariant("shadow", options, key.hash(), overrides);
         _forwardShaderCache[key] = shader;
         rememberVariantRecipe(key, shader, "shadow", options, key.hash(), std::move(overrides));
@@ -1100,7 +1121,9 @@ namespace visutwin::canvas
         auto blendState = material ? material->drawBlendState() : nullptr;
         auto depthState = material ? material->depthState() : nullptr;
 
-        if (shader) {
+        // In a precompile, a variant whose program is still compiling (setSkipCompilingPrograms)
+        // clears the shader, so the draw requests no pipeline rather than one for the last shader.
+        if (shader || device->precompilePass()) {
             device->setShader(shader);
         }
         if (blendState) {

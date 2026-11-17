@@ -1264,8 +1264,13 @@ Upstream's `ScreenComponent` and `ElementComponent` layout
 phases. The PROGRAM phase asks the program library for the run-time Slang programs the scene's
 mesh instances need (render components' and layers' own; `ProgramLibrary::requestSlangPrograms`),
 which compile side by side on the library's compile threads while frames render nothing. The
-FRAME-GRAPH phase starts in the first frame none is compiling: the frame is
-built and culled as usual (with `Renderer::setPrecompileFrame`: everything in the cameras' layers,
+FRAME-GRAPH phase runs in the SAME first frame, while they compile, under
+`ProgramLibrary::setSkipCompilingPrograms(true)`: a forward or shadow variant whose program is
+still compiling resolves to null (uncached, counted by `skippedVariants()`), and the draw clears
+the bound shader so it requests no pipeline. The pipelines of every other variant (the bundled
+programs, most of a scene) start building at once. When anything was skipped, the frame graph is
+precompiled a second time in the first frame no program is compiling, which requests the rest;
+the caches answer the repeats. Each pass builds and culls the frame as usual (with `Renderer::setPrecompileFrame`: everything in the cameras' layers,
 off screen too, unless `PrecompileOptions::frustumCulling`), then `FrameGraph::precompile` runs
 each executing pass's `precompile()` instead of rendering it. No device frame begins; the frames
 after it render nothing (the update runs, the engine waits 4 ms a frame with the run loop

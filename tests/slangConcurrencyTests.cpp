@@ -10,7 +10,8 @@
 // serially and then many times at once, for MSL and SPIR-V, and requires byte-identical code.
 // The second goes through ProgramLibrary::requestSlangPrograms on the null device: two materials
 // with chunk overrides of their own compile the forward program side by side, a second request
-// starts nothing, and what a variant then resolves from is the code a serial compile produces.
+// starts nothing, a variant asked for while skipping (setSkipCompilingPrograms) is left unbuilt,
+// and what a variant then resolves from is the code a serial compile produces.
 
 #include <atomic>
 #include <chrono>
@@ -183,6 +184,17 @@ int main()
     check(library->requestSlangPrograms(&bundled, true) == 0 || slangRuntimeCompileWanted(),
         "a material without overrides needs no compile (its programs are bundled)");
 
+    // While skipping, a variant of a program still compiling resolves to nothing, and is not
+    // remembered: resolved again once skipping is off, it is built (waiting for its program).
+    library->setSkipCompilingPrograms(true);
+    const auto skippedShader = library->getForwardShader(&b, false, false, false, false, false, false, false, false, 0);
+    const int skipped = library->skippedVariants();
+    library->setSkipCompilingPrograms(false);
+    check((skippedShader == nullptr) == (skipped == 1),
+        "skipping: a variant of a program still compiling resolves to null and is counted (" +
+        std::to_string(skipped) + " skipped)");
+    std::cout << "    B's forward program was " << (skipped ? "still compiling" : "already built") << " when asked\n";
+
     const SlangFileOverrides overridesA = ProgramLibraryTestAccess::chunkOverrides(*library, &a);
     const SlangFileOverrides overridesB = ProgramLibraryTestAccess::chunkOverrides(*library, &b);
     const SlangProgramBuild* builtA = ProgramLibraryTestAccess::slangProgram(*library, "forward", overridesA);
@@ -207,6 +219,8 @@ int main()
 
     check(library->getForwardShader(&a, false, false, false, false, false, false, false, false, 0) != nullptr,
         "a variant resolves from the precompiled program");
+    check(library->getForwardShader(&b, false, false, false, false, false, false, false, false, 0) != nullptr,
+        "the variant skipped earlier is built once skipping is off");
 
     library.reset();
     return finish("slang-concurrency");
