@@ -89,6 +89,14 @@ int main()
 
     check(near(Vector3(3.0f, 4.0f, 0.0f).length(), 5.0f, kTolerance), "Vector3(3,4,0) length is 5");
     check(near(Vector3(1.0f, 2.0f, 2.0f).length(), 3.0f, kTolerance), "Vector3(1,2,2) length is 3");
+    {
+        // One float fills every component, on every backend (Apple SIMD used to splat it by
+        // accident through simd_float4, and the others did not compile it).
+        const Vector4 s(2.5f);
+        check(s.getX() == 2.5f && s.getY() == 2.5f && s.getZ() == 2.5f && s.getW() == 2.5f,
+            "Vector4(2.5) fills every component");
+        check(Vector4(0.0f) == Vector4(), "Vector4(0) is the zero vector");
+    }
     check(near(Vector4(1.0f, 2.0f, 3.0f, 4.0f).dot(Vector4(1.0f, 1.0f, 1.0f, 1.0f)), 10.0f, kTolerance),
         "Vector4 dot sums all four lanes");
 

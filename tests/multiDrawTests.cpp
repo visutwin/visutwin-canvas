@@ -60,7 +60,10 @@ int main()
         check(commands.count() == 3, "the live count is clamped to the slots");
         commands.update(-1);
         check(commands.count() == 0, "and to zero");
-        commands.add(7, 10, 1, 0);
+        // A slot outside the list, from a value the optimiser cannot see: with a constant one,
+        // GCC inlines add() and warns (-Warray-bounds) about the store its guard skips.
+        volatile int outside = 7;
+        commands.add(outside, 10, 1, 0);
         commands.add(1, 6, 2, 12, 4, 3);
         check(commands.command(1).count == 6 && commands.command(1).instanceCount == 2 &&
                 commands.command(1).first == 12 && commands.command(1).baseVertex == 4 &&

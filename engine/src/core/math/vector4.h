@@ -57,6 +57,22 @@ namespace visutwin::canvas
 #endif
         }
 
+        /// Every component `s`, as Vector2 and Vector3 have. Without it Vector4(0.0f) compiled
+        /// only under Apple SIMD (the float converted to a splatted simd_float4) and failed on
+        /// every other backend.
+        explicit Vector4(const float s)
+        {
+#if defined(USE_SIMD_SSE)
+            m128 = _mm_set1_ps(s);
+#elif defined(USE_SIMD_APPLE)
+            m128 = simd_make_float4(s, s, s, s);
+#elif defined(USE_SIMD_NEON)
+            m128 = vdupq_n_f32(s);
+#else
+            x = y = z = w = s;
+#endif
+        }
+
         Vector4(const float x, const float y, const float z, const float w)
         {
 #if defined(USE_SIMD_SSE)

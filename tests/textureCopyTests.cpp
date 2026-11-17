@@ -33,6 +33,7 @@
 #include <QuartzCore/QuartzCore.hpp>
 #endif
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdlib>
@@ -146,10 +147,14 @@ namespace
     std::vector<uint8_t> volumePixels(const uint32_t size, const uint32_t first, const uint32_t count,
         const uint32_t seed)
     {
+        // Resized and copied into, not appended with insert(): GCC 14 warned
+        // (-Wfree-nonheap-object) about the inlined insert's reallocation.
         std::vector<uint8_t> pixels;
         for (uint32_t slice = first; slice < first + count; ++slice) {
             const auto one = slicePixels(size, slice, seed);
-            pixels.insert(pixels.end(), one.begin(), one.end());
+            const size_t at = pixels.size();
+            pixels.resize(at + one.size());
+            std::copy(one.begin(), one.end(), pixels.begin() + static_cast<std::ptrdiff_t>(at));
         }
         return pixels;
     }
