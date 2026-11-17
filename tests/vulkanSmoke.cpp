@@ -67,6 +67,14 @@ namespace visutwin::canvas
             device._submitResultOverride = result;
         }
 
+        /// The window surface's capabilities: the swapchain sizes it allows.
+        static VkSurfaceCapabilitiesKHR surfaceCapabilities(const VulkanGraphicsDevice& device)
+        {
+            VkSurfaceCapabilitiesKHR caps{};
+            vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device._physicalDevice, device._surface, &caps);
+            return caps;
+        }
+
         static bool renderingDisabled(const VulkanGraphicsDevice& device)
         {
             return device._renderingDisabled;
@@ -2868,17 +2876,32 @@ void main() { color0 = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0)
         // window (built by hand, as vk-bootstrap always takes the surface's current extent),
         // which renders and presents under validation; lifting the cap restores the window's
         // own size. A deliberately small swapchain must not be rebuilt on every present either.
+        // Only where the surface allows it: an X11 or Windows surface fixes the swapchain at the
+        // window's size (min = max = current extent), and the cap is clamped back to it.
         {
             const auto before = device->size();
             const auto points = device->windowSizeInPoints();
+            const VkSurfaceCapabilitiesKHR caps = VulkanGraphicsDeviceTestAccess::surfaceCapabilities(*device);
             device->setMaxPixelRatio(0.5f);
             const auto capped = device->size();
-            const int expectedW = static_cast<int>(std::floor(static_cast<float>(points.first) * 0.5f));
-            const int expectedH = static_cast<int>(std::floor(static_cast<float>(points.second) * 0.5f));
-            if (capped.first != std::max(expectedW, 1) || capped.second != std::max(expectedH, 1)) {
-                spdlog::error("Vulkan smoke: maxPixelRatio 0.5 gave a {}x{} back buffer for {}x{} points",
-                    capped.first, capped.second, points.first, points.second);
+            const auto expectedSize = [](const int pointSize, const uint32_t minExtent, const uint32_t maxExtent) {
+                const auto half = static_cast<uint32_t>(std::max(1.0f, std::floor(static_cast<float>(pointSize) * 0.5f)));
+                return static_cast<int>(std::clamp(half, minExtent, maxExtent));
+            };
+            const int expectedW = expectedSize(points.first, caps.minImageExtent.width, caps.maxImageExtent.width);
+            const int expectedH = expectedSize(points.second, caps.minImageExtent.height, caps.maxImageExtent.height);
+            const bool fixedExtent = caps.minImageExtent.width == caps.maxImageExtent.width &&
+                caps.minImageExtent.height == caps.maxImageExtent.height;
+            if (capped.first != expectedW || capped.second != expectedH) {
+                spdlog::error("Vulkan smoke: maxPixelRatio 0.5 gave a {}x{} back buffer for {}x{} points, "
+                    "expected {}x{} (the surface allows {}x{} to {}x{})",
+                    capped.first, capped.second, points.first, points.second, expectedW, expectedH,
+                    caps.minImageExtent.width, caps.minImageExtent.height,
+                    caps.maxImageExtent.width, caps.maxImageExtent.height);
                 result = 1;
+            } else if (fixedExtent) {
+                spdlog::info("Vulkan smoke: the surface fixes the swapchain at {}x{}, so maxPixelRatio 0.5 "
+                    "keeps the window's size", expectedW, expectedH);
             }
             for (int i = 0; i < 4; ++i) {
                 device->frameStart();
