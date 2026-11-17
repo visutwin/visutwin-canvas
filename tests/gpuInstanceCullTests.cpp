@@ -216,14 +216,22 @@ int main()
                 compacted->read(0, out.size() * sizeof(Instance), out.data());
             std::vector<uint32_t> survivors;
             bool intact = readInstances;
+            bool tagged = readInstances;
             for (const Instance& instance : out) {
                 const auto index = static_cast<uint32_t>(instance.matrix[12]);
                 survivors.push_back(index);
-                intact = intact && std::memcmp(&instance, &instances[index], sizeof(Instance)) == 0;
+                // The record, but for the tag in its matrix's projective element.
+                Instance untagged = instance;
+                untagged.matrix[3] = 0.0f;
+                intact = intact && index < kCount &&
+                    std::memcmp(&untagged, &instances[index], sizeof(Instance)) == 0;
+                tagged = tagged && instance.matrix[3] == static_cast<float>(index + 1);
             }
             std::sort(survivors.begin(), survivors.end());
             check(survivors == expected, "run " + std::to_string(run) + ": exactly the instances in range survive");
             check(intact, "run " + std::to_string(run) + ": each survivor is copied whole (matrix and colour)");
+            check(tagged, "run " + std::to_string(run) +
+                ": each survivor carries its input index + 1 (its dither offset stays with it)");
         }
 
         std::cout << "\nper camera, through the renderer\n";

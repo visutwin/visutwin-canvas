@@ -177,22 +177,10 @@ float forwardDitherId()
     return forwardDithers() ? drawDitherId() : 0.0;
 }
 
-// A hardware instance's offset: a hash of its own translation, every frame. DEVIATION: an
-// integer hash of the translation's bits (MeshInstance::translationDitherId on the CPU), where
-// upstream hashes it with fract(sin(x) * 43758.5453), whose rounding differs between the two
-// backends.
-float forwardDitherId(float4x4 model)
-{
-    if (!forwardDithers()) {
-        return 0.0;
-    }
-    const uint3 bits = asuint(model[3].xyz);
-    return ditherIdFromHash(bits.x * 0x9E3779B1u ^ bits.y * 0x85EBCA77u ^ bits.z * 0xC2B2AE3Du);
-}
-
-// A dynamic batch member's offset: the batch's, mixed with the member's palette index, which
-// stays with the member as it moves.
-float forwardBatchDitherId(uint member)
+// A member's offset, for a dynamic batch member or a hardware instance: the mesh's, mixed with
+// the member's index (its palette index, or its record's in the instance buffer), which stays
+// with the member as it moves. DEVIATION: upstream hashes each one's translation every frame.
+float forwardMemberDitherId(uint member)
 {
     if (!forwardDithers()) {
         return 0.0;
@@ -367,7 +355,7 @@ ForwardVertexOut forwardDynamicBatchVertex(ForwardDynamicBatchVertexIn input)
     ForwardVarying o = forwardFinish(world, forwardClip(world), normalMatrix, input.normal, input.tangent,
         input.uv0, input.uv1, drawModel());
     // Each member of the batch dithers as its own mesh.
-    o.ditherId = forwardBatchDitherId(uint(input.paletteIndex));
+    o.ditherId = forwardMemberDitherId(uint(input.paletteIndex));
     return forwardVertexOut(o);
 }
 
@@ -415,8 +403,15 @@ ForwardVertexOut forwardMorphedVertex(ForwardVertexIn input, uint vertexIndex : 
         input.uv0, input.uv1, model));
 }
 
-ForwardVarying forwardInstanced(ForwardVertexIn input, float4x4 instance)
+// `instance` is the record's matrix and `instanceIndex` its index in the bound instance buffer.
+ForwardVarying forwardInstanced(ForwardVertexIn input, float4x4 instance, uint instanceIndex)
 {
+    // A GPU cull's compacted output tags each record with its index in the instance buffer + 1,
+    // in the affine matrix's projective element (vtinstancecull's InstanceData); 0 when the
+    // buffer is the instances' own. Cleared, the matrix is the instance's again.
+    const float tag = instance[0].w;
+    instance[0].w = 0.0;
+    const uint member = tag > 0.0 ? uint(tag) - 1u : instanceIndex;
     float3 position = input.position;
     float3 normal = input.normal;
     float4 tangent = input.tangent;
@@ -428,8 +423,8 @@ ForwardVarying forwardInstanced(ForwardVertexIn input, float4x4 instance)
     const float3x3 normalMatrix = float3x3(model[0].xyz, model[1].xyz, model[2].xyz);
     ForwardVarying o = forwardFinish(world, forwardClip(world), normalMatrix, normal, tangent, input.uv0,
         input.uv1, drawModel());
-    // Each instance dithers as its own mesh.
-    o.ditherId = forwardDitherId(model);
+    // Each instance dithers as its own mesh, with an offset that stays with it.
+    o.ditherId = forwardMemberDitherId(member);
     // A per-instance visibility range: the instance's own fade, from its origin's distance to the
     // pass's viewer; an instance it hides is moved out of the clip volume whole, so it costs no
     // fragments (every vertex of it lands at the same point outside).
@@ -455,14 +450,15 @@ ForwardVertexIn forwardVertexOf(ForwardInstancedVertexIn input)
 }
 
 [shader("vertex")]
-ForwardVertexOut forwardInstancedVertex(ForwardInstancedVertexIn input)
+ForwardVertexOut forwardInstancedVertex(ForwardInstancedVertexIn input, uint instanceIndex : SV_VulkanInstanceID)
 {
     return forwardVertexOut(forwardInstanced(forwardVertexOf(input),
-        float4x4(input.instance0, input.instance1, input.instance2, input.instance3)));
+        float4x4(input.instance0, input.instance1, input.instance2, input.instance3), instanceIndex));
 }
 
 [shader("vertex")]
-ForwardVertexOut forwardInstancedColorVertex(ForwardInstancedColorVertexIn input)
+ForwardVertexOut forwardInstancedColorVertex(ForwardInstancedColorVertexIn input,
+    uint instanceIndex : SV_VulkanInstanceID)
 {
     ForwardVertexIn v;
     v.position = input.position;
@@ -470,7 +466,8 @@ ForwardVertexOut forwardInstancedColorVertex(ForwardInstancedColorVertexIn input
     v.uv0 = input.uv0;
     v.tangent = input.tangent;
     v.uv1 = input.uv1;
-    ForwardVarying o = forwardInstanced(v, float4x4(input.instance0, input.instance1, input.instance2, input.instance3));
+    ForwardVarying o = forwardInstanced(v, float4x4(input.instance0, input.instance1, input.instance2, input.instance3),
+        instanceIndex);
     o.instanceColor = input.instanceColor;
     return forwardVertexOut(o);
 }

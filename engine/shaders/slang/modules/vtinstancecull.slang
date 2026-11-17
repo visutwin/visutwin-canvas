@@ -29,7 +29,10 @@ public struct CullParams
 };
 
 /// The model matrix as its four COLUMNS, so the translation is columns[3] with no
-/// question of how a matrix type is indexed.
+/// question of how a matrix type is indexed. In the output, the affine matrix's projective
+/// element columns[0].w (0 in the input) holds the record's input index + 1: the compaction
+/// reorders the instances every frame, and the vertex stage keeps each one's dither pattern
+/// offset by the index it had (forwardInstanced). Exact to 2^24 instances.
 public struct InstanceData
 {
     public float4 columns[4];

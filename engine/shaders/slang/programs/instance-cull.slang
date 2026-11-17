@@ -99,5 +99,8 @@ void instanceCull(uint3 tid : SV_DispatchThreadID)
 #endif
     uint slot;
     InterlockedAdd(args[1], 1u, slot);
-    output[slot] = input[index];
+    // The record, tagged with where it came from (see InstanceData).
+    InstanceData record = input[index];
+    record.columns[0].w = float(index + 1u);
+    output[slot] = record;
 }

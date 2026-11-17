@@ -478,10 +478,14 @@ bindings like a program of the tree, so it needs the source tree at run time. Wh
   another varying adds it there, at its forward location. Together these took the Slang shadow
   pass on `post-processing` from 35% over the hand-written MSL to level.
 - **A forward vertex entry hands on `ditherId` (location 11, flat) beside `lodFade`**: the
-  per-mesh offset of the opacity dither, computed in `forwardFinish` from the model it is given,
-  only under the dither features. An entry whose per-draw model is not that argument (instanced:
-  instance x node; dynamic batch: the palette entry) sets it again from its own matrix, or every
-  instance dithers the same pixels. The shadow program's `ForwardVertexOut` carries it too.
+  per-mesh offset of the opacity dither, `drawDitherId()` in `forwardFinish` (the mesh's fixed
+  offset, packed into the model's `[0].w` by `setTransformUniforms`), only under the dither
+  features. An entry drawing several members (instanced, dynamic batch) sets it again with
+  `forwardMemberDitherId` from the member's index, or every instance dithers the same pixels. A
+  draw of a mesh passes `MeshInstance::ditherId` to `setTransformUniforms` in EVERY pass, or the
+  depth prepass and the shadow disagree with the forward draw. A matrix read straight from the
+  per-draw block or a compacted instance record is not the model: go through `drawModel()`, and
+  clear an instance record's `[0].w`. The shadow program's `ForwardVertexOut` carries it too.
 - **A path gated only by a RUNTIME value is paid for by every draw of the variant, even when
   it never runs.** A uniform branch is cheap; the registers the dead path keeps live are not
   (lower occupancy, more ALU over more time). Where upstream compiles a path under a define,

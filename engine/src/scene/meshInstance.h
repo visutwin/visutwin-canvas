@@ -542,8 +542,11 @@ namespace visutwin::canvas
         void setDitherId(float id);
         /// Forgets the offset: the next draw takes it from its model matrix again.
         void resetDitherId() { _ditherId.reset(); }
-        /// The hash the shaders used to compute per draw: of the bits of the model's
-        /// translation, in [0, 64). Bit-identical to the vertex stage's forwardDitherId.
+        /// The hash the shaders used to compute per draw (upstream's per-mesh offset, as an
+        /// integer hash): of the bits of the model's translation, in [0, 64). Bit-identical to
+        /// the vertex stage's former forwardDitherId(model), so a static mesh keeps its pattern.
+        /// A hardware instance or a dynamic batch member mixes this mesh's offset with its own
+        /// index in the vertex stage (forwardMemberDitherId).
         static float translationDitherId(const Matrix4& model);
 
         // --- Batching support (batchGroupId, visible) ---

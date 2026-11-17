@@ -25,8 +25,9 @@ namespace visutwin::canvas
 {
     float MeshInstance::translationDitherId(const Matrix4& model)
     {
-        // forwardDitherId (forward-vertex.slang), on the CPU: the same integer hash of the
-        // translation's bits, and the same exact float steps, so the result is bit-identical.
+        // The vertex stage's former per-draw hash, on the CPU: the same integer hash of the
+        // translation's bits (ditherIdFromHash in forward-vertex.slang), and the same exact float
+        // steps, so the result is bit-identical.
         float m[16];
         static_assert(sizeof(Matrix4) == sizeof(m), "Matrix4 is sixteen packed floats");
         std::memcpy(m, &model, sizeof(m));
