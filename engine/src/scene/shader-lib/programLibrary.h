@@ -237,6 +237,10 @@ namespace visutwin::canvas
         /// coverage (forwardFragmentOit), and the draws blend additively instead of by their
         /// materials. Set around that pass only.
         void setOitAccumulate(const bool value) { _oitAccumulate = value; }
+        /// The camera drawn captures the geometry a probe volume bake's probes see
+        /// (Camera::probeVolumeGeometryPass): every surface writes what it is, not its colour.
+        void setProbeGBufferPass(const bool value) { _probeGBufferPass = value; }
+        bool probeGBufferPass() const { return _probeGBufferPass; }
         bool oitAccumulate() const { return _oitAccumulate; }
         // The colour attachments of the target the forward pass draws into (1-4): a variant
         // writes one fragment output per attachment (forwardFragmentMrt2/3/4).
@@ -319,6 +323,14 @@ namespace visutwin::canvas
             bool lightClustering = false;
             bool ssao = false;
             bool lightProbes = false;
+            // The ambient from the probe volume (Material::setProbeVolume), and the debug view
+            // showing the probe of the cell (Material::setProbeVolumeDebug).
+            bool probeVolume = false;
+            bool probeVolumeDebug = false;
+            // A probe volume bake: the geometry capture (setProbeGBufferPass) and the lighting
+            // quad's material (Material::setProbeVolumeLighting).
+            bool probeGBuffer = false;
+            bool probeLighting = false;
             bool lightmap = false;      // Baked lightmap sampled at UV1, added to indirect diffuse
             bool vertexColors = false;
             bool skinning = false;
@@ -526,6 +538,7 @@ namespace visutwin::canvas
         bool _toneMapAgxEnabled = false;
         bool _skyHazeEnabled = false;
         bool _oitAccumulate = false;
+        bool _probeGBufferPass = false;
         int _colorOutputCount = 1;
         EnvAtlasEncoding _envAtlasEncoding = EnvAtlasEncoding::Srgb;
         bool _reflectionProbeEnabled = false;

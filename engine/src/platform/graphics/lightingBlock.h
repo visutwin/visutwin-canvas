@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "probeVolumeBlock.h"
 #include "texture.h"
 
 namespace visutwin::canvas
@@ -221,9 +222,12 @@ namespace visutwin::canvas
                                                      0.0f, 1.0f, 0.0f, 0.0f,
                                                      0.0f, 0.0f, 1.0f, 0.0f};
         float hazeParams[4]                       = {};   // density, 1 / height, base height
+        // The probe volume a material with Material::probeVolume takes its ambient from
+        // (VT_FEATURE_PROBE_VOLUME, probeVolumeBlock.h), the block for the camera drawn.
+        ProbeVolumeBlock probeVolume;
     };
     static_assert(sizeof(GpuLightBlock) == 112);
-    static_assert(sizeof(LightingBlock) == 3104, "the shaders of both backends declare this size");
+    static_assert(sizeof(LightingBlock) == 3328, "the shaders of both backends declare this size");
     static_assert(sizeof(LightingBlock) % 16 == 0);
 
     /// The six atmosphere vec4s as one span, for setAtmosphereUniforms: first member

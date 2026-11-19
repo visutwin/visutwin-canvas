@@ -171,6 +171,13 @@ Mirrored from the upstream examples (for visual parity):
   `mtllib monkey.mtl` has no file, upstream ships none either). Used by `obj`.
 - `TwoSidedPlane.glb` — a double-sided normal-mapped plane, byte-identical to upstream's
   test asset (no recorded licence). Used by `two-sided-lighting`.
+- `concrete-pavilion.glb` — a concrete pavilion with planters and trees (Draco, WebP
+  textures, emissive lights with `KHR_materials_emissive_strength`), byte-identical to
+  upstream's example asset (no recorded licence — see THIRD_PARTY_NOTICES). Used by
+  `graphics/probe-volume`.
+- `concrete-pavilion-probes.bin` — the probe volume upstream baked over that pavilion, three
+  lightings (day, sunset, night) in its saved format, byte-identical (no recorded licence).
+  Used by `graphics/probe-volume` and `tests/probeVolumeTests.cpp`.
 - `skull.compressed.ply` — a compressed gaussian splat with spherical harmonics,
   byte-identical to upstream's `splats/skull.compressed.ply` (no recorded licence). Used
   by `gaussian-splatting/simple-sh`.

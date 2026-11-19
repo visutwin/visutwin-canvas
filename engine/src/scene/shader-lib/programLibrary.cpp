@@ -130,6 +130,11 @@ namespace visutwin::canvas
         // The scene's reflection probe replaces only the specular of a material that
         // asks for it, as a cube is given to one material at a time.
         options.reflectionProbe = options.reflectionProbe && material && material->useReflectionProbe();
+        // A probe volume replaces the ambient of the materials that ask for it.
+        options.probeVolume = material && material->probeVolume() && !options.skybox;
+        options.probeVolumeDebug = options.probeVolume && material->probeVolumeDebug();
+        options.probeLighting = material && material->probeVolumeLighting();
+        options.probeGBuffer = _probeGBufferPass && !options.skybox;
         return options;
     }
 
@@ -428,6 +433,10 @@ namespace visutwin::canvas
         set(ShaderFeature::LightClustering, options.lightClustering);
         set(ShaderFeature::Ssao, options.ssao);
         set(ShaderFeature::LightProbes, options.lightProbes);
+        set(ShaderFeature::ProbeVolume, options.probeVolume);
+        set(ShaderFeature::ProbeVolumeDebug, options.probeVolumeDebug);
+        set(ShaderFeature::ProbeGBuffer, options.probeGBuffer);
+        set(ShaderFeature::ProbeLighting, options.probeLighting);
         set(ShaderFeature::Skinning, options.skinning);
         set(ShaderFeature::Morphing, options.morphing);
         set(ShaderFeature::SpecGloss, options.specGloss);
@@ -797,6 +806,7 @@ namespace visutwin::canvas
         add(_toneMapAgxEnabled);
         add(_skyHazeEnabled);
         add(_oitAccumulate);
+        add(_probeGBufferPass);
         // The pass's colour attachment count, 1-4, in two bits.
         add(((_colorOutputCount - 1) & 1) != 0);
         add(((_colorOutputCount - 1) & 2) != 0);

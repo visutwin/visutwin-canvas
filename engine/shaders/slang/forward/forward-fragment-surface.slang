@@ -18,6 +18,15 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
     float4 fragWorldTangent = input.worldTangent;
     float fragViewDepth = input.viewDepth;
     float4 fragColor = input.color;
+    // A probe volume bake's lighting quad: the surface the fragment's texel of the radiance atlas
+    // saw (common-probe-bake.slang), lit as any other.
+    ProbeBakeSurface probeBake = {};
+    if (vtFeatureEnabled(VT_FEATURE_PROBE_LIGHTING_BIT)) {
+        probeBake = probeBakeSurface(input.position.xy);
+        fragWorldPos = probeBake.position;
+        fragWorldNormal = probeBake.normal;
+        fragViewDepth = probeBake.distance;
+    }
     // What the clipping planes clip is not there in any pass: before the alpha test, the
     // pick output and everything else.
     applyClipPlanes(fragWorldPos);
@@ -167,6 +176,9 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
     float3 baseLinear = srgbToLinear(baseFactor.rgb) * baseSampleLinear;
     float4 albedo = float4(baseLinear * vertexTint.rgb,
         baseFactor.a * baseSample.a * vertexTint.a);
+    if (vtFeatureEnabled(VT_FEATURE_PROBE_LIGHTING_BIT)) {
+        albedo = float4(probeBake.albedo, 1.0);
+    }
 
     // Opacity map, flags bit 19: one channel (opacityTransform0.w) on the base colour's UV
     // set under its own transform, as the shadow frontend reads it. Gated on the variant
@@ -483,6 +495,27 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
         }
     }
 
+    // A probe volume bake capturing the geometry its probes see (common-probe-bake.slang): the
+    // diffuse albedo and a hit flag, and for the attachments after it the back face flag, the
+    // distance to the probe and the octahedral normal, and the emission.
+    if (vtFeatureEnabled(VT_FEATURE_PROBE_GBUFFER_BIT)) {
+        const float3 toProbe = lighting.cameraPosExposure.xyz - fragWorldPos;
+        // The surfaces seen from behind are inside the geometry.
+        const float backFace = dot(fragWorldNormal, toProbe) < 0.0 ? 1.0 : 0.0;
+        float3 emission = material.emissiveColor.rgb;
+        if (vtFeatureEnabled(VT_FEATURE_EMISSIVE_MAP_BIT)) {
+            const float3 emissiveSample = sampleEmissiveMap(uvEmissive).rgb;
+            emission *= vtFeatureEnabled(VT_FEATURE_EMISSIVE_MAP_LINEAR_BIT) ? emissiveSample : srgbToLinear(emissiveSample);
+        }
+        if ((material.flags & (1u << 23)) != 0u) {
+            emission *= clamp(fragColor.rgb, 0.0, 1.0);
+        }
+        vtProbeGBuffer1 = float4(backFace, length(toProbe), probeOctahedralEncode(N));
+        vtProbeGBuffer2 = float4(emission, 1.0);
+        outColor = float4(albedo.rgb * (1.0 - metallic), 1.0);
+        return outColor;
+    }
+
     // Planar reflection DEPTH PASS: this camera exists only to produce the
     // per-pixel distance-from-plane map that scales the reflection blur, so all
     // lighting is skipped and the distance is written as grayscale. Placed here
@@ -497,6 +530,11 @@ float4 forwardShade(ForwardVarying input, bool isFrontFace)
 
     float3 V = normalize(lighting.cameraPosExposure.xyz - fragWorldPos);
     float NdotV = max(dot(N, V), 1e-4);
+    if (vtFeatureEnabled(VT_FEATURE_PROBE_LIGHTING_BIT)) {
+        // Seen from the probe, not from the camera drawing the quad.
+        V = probeBake.viewDir;
+        NdotV = max(dot(N, V), 1e-4);
+    }
 
     // The non-metal F0 in the metalness workflow is computed on the CPU:
     // f0(IOR) x the metalness specular colour x the specularity

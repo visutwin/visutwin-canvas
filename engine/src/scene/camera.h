@@ -280,6 +280,20 @@ namespace visutwin::canvas
         bool linearOutput() const { return _linearOutput; }
         void setLinearOutput(const bool value) { _linearOutput = value; }
 
+        /// The camera captures probes for a bake of a probe volume (ProbeVolumeBaker): it lights
+        /// with the probes of the bake's previous bounce rather than those the volume shows
+        /// (GraphicsDevice::probeVolumeBlock).
+        bool probeVolumeCapture() const { return _probeVolumeCapture; }
+        void setProbeVolumeCapture(const bool value) { _probeVolumeCapture = value; }
+        /// The camera captures the geometry a probe volume bake's probes see: every surface writes
+        /// its albedo, back face flag, distance, normal and emission (VT_FEATURE_PROBE_GBUFFER), and
+        /// blended materials are not drawn.
+        bool probeVolumeGeometryPass() const { return _probeVolumeGeometryPass; }
+        void setProbeVolumeGeometryPass(const bool value) { _probeVolumeGeometryPass = value; }
+        /// False draws every face, whatever a material culls (a bake capturing back faces).
+        bool cullFaces() const { return _cullFaces; }
+        void setCullFaces(const bool value) { _cullFaces = value; }
+
         /**
          * Planes that clip what the camera renders, in world space (copied, at most
          * ClipPlanes::kMaxPlanes): in every pass of the camera, the depth prepass and picking
@@ -321,6 +335,9 @@ namespace visutwin::canvas
             _exposureScale = other._exposureScale;
             _fog = other._fog;
             _linearOutput = other._linearOutput;
+            _probeVolumeCapture = other._probeVolumeCapture;
+            _probeVolumeGeometryPass = other._probeVolumeGeometryPass;
+            _cullFaces = other._cullFaces;
             _clearColor = other._clearColor;
             _attachmentClearColors = other._attachmentClearColors;
             _clearColorBuffer = other._clearColorBuffer;
@@ -473,6 +490,9 @@ namespace visutwin::canvas
         float _exposureScale = 1.0f;
         std::shared_ptr<const FogParams> _fog;
         bool _linearOutput = false;
+        bool _probeVolumeCapture = false;
+        bool _probeVolumeGeometryPass = false;
+        bool _cullFaces = true;
         float _orthoHeight = 10.0f;
 
         ProjectionType _projection = ProjectionType::Perspective;

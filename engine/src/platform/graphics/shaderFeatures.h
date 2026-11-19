@@ -125,7 +125,11 @@
     X(DiffuseTransmissionColorMap, "VT_FEATURE_DIFFUSE_TRANSMISSION_COLOR_MAP") \
     X(SkyHaze,                   "VT_FEATURE_SKY_HAZE") \
     X(PlanarReflectionMap,       "VT_FEATURE_PLANAR_REFLECTION_MAP") \
-    X(OitAccumulate,             "VT_FEATURE_OIT_ACCUMULATE")
+    X(OitAccumulate,             "VT_FEATURE_OIT_ACCUMULATE") \
+    X(ProbeVolume,               "VT_FEATURE_PROBE_VOLUME") \
+    X(ProbeVolumeDebug,          "VT_FEATURE_PROBE_VOLUME_DEBUG") \
+    X(ProbeGBuffer,              "VT_FEATURE_PROBE_GBUFFER") \
+    X(ProbeLighting,             "VT_FEATURE_PROBE_LIGHTING")
 
 namespace visutwin::canvas
 {

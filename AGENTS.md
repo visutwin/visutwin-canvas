@@ -41,7 +41,7 @@ visutwin-canvas/
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
   capi/            # The C API: include/visutwin/visutwin.h (C99), the visutwin_canvas_c shared library, a C example
-  examples/        # 198 example applications derived from ExampleApp, in src/<category>/<name>.cpp named as upstream's: upstream ports + three original scenes (camera-frame/ambient-occlusion-davinci, graphics/order-independent-transparency, graphics/visibility-range)
+  examples/        # 199 example applications derived from ExampleApp, in src/<category>/<name>.cpp named as upstream's: upstream ports + three original scenes (camera-frame/ambient-occlusion-davinci, graphics/order-independent-transparency, graphics/visibility-range)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -611,7 +611,7 @@ list lands 16-aligned by construction. An array of eight `vec4` is the type `vec
 clipping planes are the two today.
 
 **The LIGHTING block is ONE layout on both backends** (`platform/graphics/lightingBlock.h`,
-`LightingBlock` / `GpuLightBlock`, 3104 bytes, asserted there and in `vulkanRenderPipeline.cpp`,
+`LightingBlock` / `GpuLightBlock`, 3328 bytes, asserted there and in `vulkanRenderPipeline.cpp`,
 and held against the bundle's reflection by `tests/slangBundleTests.cpp`): Metal binds it at
 buffer 4, Vulkan at set 2 binding 0, and the Slang `LightingData`
 (`forward/forward-fragment-head.slang`) declares it field for field under the SAME names. The
@@ -1759,6 +1759,23 @@ present, but the rule below never depends on reading it.
   reflected and clearcoat), raised to 2.2, to the alpha, so a clear glass still shows its
   highlights and reflections, and then multiplies the alpha by `alphaFade`. Other blend modes
   ignore it, as upstream.
+- **A probe volume reaches the shaders through the lighting block, PER CAMERA, and its textures
+  through the bindless table.** `ProbeVolume` (`extras/probeVolume/`) fills a `ProbeVolumeBlock`
+  (`platform/graphics/probeVolumeBlock.h`, the tail of `LightingBlock`, the Slang `ProbeVolumeData`)
+  and hands the device two of them (`GraphicsDevice::setProbeVolumeBlocks`): what every camera
+  shows, and what a camera capturing for a bake reads (`Camera::probeVolumeCapture`: the probes of
+  the bake's previous bounce). The renderer sets the block for each layer's camera
+  (`setProbeVolumeData`), as upstream swaps its global uniforms on `EVENT_PRERENDER`; a NEW path
+  that draws forward layers owes the same call, or its materials read the last layer's probes.
+  One volume is active at a time (the last created or changed), and a volume freed clears only
+  its own blocks. Only a material with `Material::setProbeVolume` (`VT_FEATURE_PROBE_VOLUME`)
+  reads them, in `forward/forward-fragment-ambient-modifier.slang`: the ambient DIFFUSE is
+  replaced (the SH light-probe and atlas split above stands) and the environment reflections are
+  scaled down where the probes are darker than the environment. The volume's textures are LANES
+  in the block (`packBindlessLane`), not binding rows, so the block is all a backend copies. A
+  bake's capture cameras clear nothing themselves (a camera's clear is the whole atlas's):
+  `ProbeVolumeBaker` clears their tiles with a quad in an offline scope first. ARCHITECTURE.md,
+  probe volumes.
 - **A material with an environment atlas of its own (`StandardMaterial::setEnvAtlas`) reflects
   and takes its ambient and env refraction from it, not the scene's**, without the scene's
   skybox intensity and rotation, and keeps it when it turns the scene environment off (bit 18).

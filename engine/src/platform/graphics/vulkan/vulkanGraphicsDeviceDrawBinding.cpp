@@ -1939,6 +1939,14 @@ namespace visutwin::canvas
         _userShaderTexture = data.texture;
     }
 
+    void VulkanGraphicsDevice::setProbeVolumeData(const ProbeVolumeBlock& block)
+    {
+        if (std::memcmp(&block, &_lightingUbo.probeVolume, sizeof(block)) != 0) {
+            _lightingUbo.probeVolume = block;
+            _lightingNeedsUpload = true;
+        }
+    }
+
     void VulkanGraphicsDevice::setSkyboxRotation(const Quaternion& rotation)
     {
         const Matrix4 r = Matrix4::trs(Vector3(0.0f), rotation, Vector3(1.0f));

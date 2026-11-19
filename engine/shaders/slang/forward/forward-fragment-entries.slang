@@ -11,6 +11,11 @@ ForwardFragmentOutputs forwardOutputs(ForwardVarying input, bool isFrontFace, ou
     color = forwardShade(input, isFrontFace);
     ForwardFragmentOutputs outputs;
     forwardFragmentOutput(color, outputs);
+    if (vtFeatureEnabled(VT_FEATURE_PROBE_GBUFFER_BIT)) {
+        // A probe volume bake's geometry, whatever the output hook writes (common-probe-bake.slang).
+        outputs.color1 = vtProbeGBuffer1;
+        outputs.color2 = vtProbeGBuffer2;
+    }
     return outputs;
 }
 

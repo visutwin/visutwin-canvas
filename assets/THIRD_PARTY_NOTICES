@@ -242,6 +242,7 @@ Resolve before a public release:
   models/Lights.glb,
   models/heart_draco.glb, simple-instancing.glb, monkey.obj, TwoSidedPlane.glb,
   models/skull.compressed.ply
+  models/concrete-pavilion.glb, concrete-pavilion-probes.bin
   textures/playcanvas*.png, snowflake.png, spark.png, particles-numbers.png,
   textures/normal-map.png, animations/bitmoji/*.glb
   hdri/shanghai-riverside-4k.hdr (by its name Poly Haven's "Shanghai Riverside",

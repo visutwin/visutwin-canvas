@@ -73,6 +73,7 @@ namespace visutwin::canvas
         void setSkyboxRotation(const Quaternion& rotation) override;
         void setDitherJitter(const Vector4& jitter) override;
         void setUserShaderData(const UserShaderData& data) override;
+        void setProbeVolumeData(const ProbeVolumeBlock& block) override;
         void setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
             const Vector3& boxMax, bool boxProjection, float intensity,
             float maxLod) override;

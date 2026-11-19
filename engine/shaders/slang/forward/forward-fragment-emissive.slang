@@ -19,5 +19,8 @@
     if ((material.flags & (1u << 23)) != 0u) {
         emissive *= clamp(fragColor.rgb, 0.0, 1.0);
     }
+    if (vtFeatureEnabled(VT_FEATURE_PROBE_LIGHTING_BIT)) {
+        emissive = probeBake.emission;
+    }
     // Added to `color` by the tail, after the sheen and clearcoat layers, so neither
     // attenuates it.

@@ -31,6 +31,25 @@ struct Light
     float4 cookieFlags;        // hasCookie, cookie slot, CookieChannel, cookieFalloff
 };
 
+// The probe volume's part of the lighting block, ProbeVolumeBlock (probeVolumeBlock.h) field for field.
+struct ProbeVolumeData
+{
+    float4 boxMin;
+    float4 boxMax;
+    float4 invSize;
+    float4 count;
+    float4 cellSize;
+    float4 params;                     // normal bias, intensity, SH sharpening, leak reduction
+    float4 blend;                      // 1 / blend distance, probe weight, reflection occlusion
+    float4 encoding;                   // 1 for 8-bit texels, the scale of their L0
+    float4 visibility;                 // use, tiles along a row of the atlas, texels along a side of a map
+    float4 visibilityInvSize;          // xy 1 / the size of the atlas
+    uint4 lanes;                       // the bindless lanes of the probes, the validity and the visibility
+    uint4 bakeLanes;                   // a bake's geometry atlas (3 lanes) and the probes' capture positions
+    uint4 bakeSkyLane;                 // x: a bake's sky atlas
+    float4 bakeAtlas;                  // face size, probes along a row, sky face size, positions' width
+};
+
 struct LightingData
 {
     float4 ambient;
@@ -107,6 +126,8 @@ struct LightingData
     float4 hazeNightParams;
     float4 hazeRotation[3];
     float4 hazeParams;
+    // The probe volume (probeVolumeBlock.h), read under VT_FEATURE_PROBE_VOLUME.
+    ProbeVolumeData probeVolume;
 };
 
 [[vk::binding(0, 2)]] ConstantBuffer<LightingData> lighting : register(b4);
@@ -299,6 +320,10 @@ static bool vtFrontFacing;
 // and gloss as the lit path left them, set where it finishes. A path that returns earlier (the
 // sky, the unlit output) leaves these defaults.
 static float3 vtOutputNormal = float3(0.0, 0.0, 1.0);
+// The geometry a probe volume bake captures (VT_FEATURE_PROBE_GBUFFER), for the second and third
+// attachments: the back face flag, the distance and the octahedral normal; the emission.
+static float4 vtProbeGBuffer1 = float4(0.0, 0.0, 0.0, 0.0);
+static float4 vtProbeGBuffer2 = float4(0.0, 0.0, 0.0, 0.0);
 static float vtOutputGloss = 0.0;
 
 // The outputs of a fragment beyond its first colour: one colour per further attachment of the

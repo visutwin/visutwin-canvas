@@ -254,6 +254,20 @@ namespace visutwin::canvas
         /// the materials it is meant for, as a material is given a cubeMap upstream.
         bool useReflectionProbe() const { return _useReflectionProbe; }
         void setUseReflectionProbe(const bool value) { _useReflectionProbe = value; markUniformsDirty(); }
+
+        /// Whether the material takes its ambient diffuse from the probe volume active on the
+        /// device (ProbeVolume::applyToMaterial), which also occludes its environment
+        /// reflections where the probes are darker than the environment (VT_FEATURE_PROBE_VOLUME).
+        bool probeVolume() const { return _probeVolume; }
+        void setProbeVolume(const bool value) { _probeVolume = value; markUniformsDirty(); }
+        /// With probeVolume, the material shows the probe of the cell of the surface as it is
+        /// stored, for small spheres drawn around the probes (VT_FEATURE_PROBE_VOLUME_DEBUG).
+        bool probeVolumeDebug() const { return _probeVolumeDebug; }
+        void setProbeVolumeDebug(const bool value) { _probeVolumeDebug = value; markUniformsDirty(); }
+        /// The material of a probe volume bake's lighting quad (ProbeVolumeBaker): each fragment
+        /// takes the surface its texel of the radiance atlas saw (VT_FEATURE_PROBE_LIGHTING).
+        bool probeVolumeLighting() const { return _probeVolumeLighting; }
+        void setProbeVolumeLighting(const bool value) { _probeVolumeLighting = value; markUniformsDirty(); }
         bool occludeDirect() const { return _occludeDirect; }
         void setOccludeDirect(const bool value) { _occludeDirect = value; markUniformsDirty(); }
         uint32_t occludeSpecular() const { return _occludeSpecular; }
@@ -494,6 +508,9 @@ namespace visutwin::canvas
         bool _occludeDirect = false;
         uint32_t _occludeSpecular = SPECOCC_AO;
         bool _useReflectionProbe = false;
+        bool _probeVolume = false;
+        bool _probeVolumeDebug = false;
+        bool _probeVolumeLighting = false;
         float _occludeSpecularIntensity = 1.0f;
         Color _emissiveFactor = Color(0.0f, 0.0f, 0.0f, 1.0f);
         Texture* _emissiveTexture = nullptr;

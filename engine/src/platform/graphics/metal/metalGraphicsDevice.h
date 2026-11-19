@@ -77,6 +77,7 @@ namespace visutwin::canvas
             _uniformBinder.setUserData(data.values);
             _userShaderTexture = data.texture;
         }
+        void setProbeVolumeData(const ProbeVolumeBlock& block) override { _uniformBinder.setProbeVolume(block); }
 
         void setAreaLightLuts(Texture* lut1, Texture* lut2) override
         {

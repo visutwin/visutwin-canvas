@@ -25,6 +25,10 @@
     // probes were enabled. Diffuse and specular are kept apart so ambient
     // occlusion can treat them separately (see the occlusion block below).
     float3 ambientIrradiance = ambientIrradianceToward(N);
+    // The ambient modifier (forward-fragment-ambient-modifier.slang): the probe volume replaces
+    // the ambient diffuse of its materials, and gives the scale of their environment reflections.
+    float reflectionOcclusion = 1.0;
+    ambientIrradiance = forwardModifyAmbient(ambientIrradiance, N, fragWorldPos, reflectionOcclusion);
     // Mirrors the specular part of the indirect contribution exactly as it lands
     // in `color` below, AO factor included. SSR replaces that term where the
     // reflection ray hits on-screen geometry, so it only has to add the
@@ -162,8 +166,9 @@
     // replaces the ambient, leaves none.
     float3 dtAmbient = float3(0.0);
     if (vtFeatureEnabled(VT_FEATURE_DIFFUSE_TRANSMISSION_BIT) && !vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BIT)) {
-        dtAmbient = ambientIrradianceToward(-N) * lerp(float3(1.0), float3(1.0) - F0, specularOn) *
-            material.ambientTint.rgb;
+        float backOcclusion = 1.0;
+        dtAmbient = forwardModifyAmbient(ambientIrradianceToward(-N), -N, fragWorldPos, backOcclusion) *
+            lerp(float3(1.0), float3(1.0) - F0, specularOn) * material.ambientTint.rgb;
     }
     bakeDiffuseLight += ambientIrradiance;
     // Sheen image-based lighting: sample the atlas along the reflection at the
@@ -201,6 +206,15 @@
         // contains.
         // Lightmaps store LINEAR light (see the bake output and Lightmapper's encoder).
         indirectDiffuse = max(sampleLightMap(fragUV1).rgb, float3(0.0)) * diffuseAlbedo;
+    }
+    // The occlusion of the environment reflections by the ambient modifier, with the ambient it
+    // modified: a lightmap replaces both.
+    if (!vtFeatureEnabled(VT_FEATURE_LIGHTMAP_BIT)) {
+        indirectSpecular *= reflectionOcclusion;
+        ccReflection *= reflectionOcclusion;
+        sheenSpecularIndirect *= reflectionOcclusion;
+    } else {
+        reflectionOcclusion = 1.0;
     }
     color += indirectDiffuse + indirectSpecular;
     if (vtFeatureEnabled(VT_FEATURE_REFLECTION_PROBE_BIT)) {
@@ -249,7 +263,7 @@
         // The probe REPLACES the environment specular. `color` already carries that
         // term from the block above, so add only the difference — adding the probe
         // outright counted both.
-        float3 replaced = probeSpecular * probeFresnel * specularOn * material.envBoxMax.w;
+        float3 replaced = probeSpecular * probeFresnel * specularOn * material.envBoxMax.w * reflectionOcclusion;
         color += replaced - indirectSpecular;
         indirectSpecular = replaced;
     }

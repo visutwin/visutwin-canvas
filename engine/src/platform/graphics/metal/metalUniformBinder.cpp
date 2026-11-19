@@ -209,6 +209,15 @@ namespace visutwin::canvas
         markLightingChanged();
     }
 
+    void MetalUniformBinder::setProbeVolume(const ProbeVolumeBlock& block)
+    {
+        if (std::memcmp(&block, &_lightingUniforms.probeVolume, sizeof(block)) == 0) {
+            return;
+        }
+        _lightingUniforms.probeVolume = block;
+        markLightingChanged();
+    }
+
     void MetalUniformBinder::setEnvironmentUniforms(Texture* envAtlas, const float skyboxIntensity,
         const float skyboxMip, const Vector3& skyDomeCenter, const bool isDome,
         Texture* skyboxCubeMap)

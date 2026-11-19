@@ -2334,6 +2334,11 @@ namespace visutwin::canvas
             for (const auto* entry : entries) {
                 MeshInstance* meshInstance = entry->meshInstance;
                 const Material* boundMaterial = entry->material ? entry->material : ctx.defaultMaterial;
+                // A probe volume bake's geometry cannot be blended: blended materials are left out.
+                if (camera.probeVolumeGeometryPass() && boundMaterial && boundMaterial->blendState() &&
+                    boundMaterial->blendState()->enabled()) {
+                    continue;
+                }
 
                 // A lightmap the mesh instance owns (a lightmapper's bake) overrides the
                 // material's, so it both selects the lightmap variant and is bound by the
@@ -2417,6 +2422,9 @@ namespace visutwin::canvas
                     static const auto additive = std::make_shared<BlendState>(BlendState::additiveBlend());
                     device.setBlendState(additive);
                 }
+                if (!camera.cullFaces()) {
+                    cullMode = CullMode::CULLFACE_NONE;
+                }
                 if (camera.lightmapBakePass()) {
                     // UV-space bake: triangle winding follows the unwrap, not the surface —
                     // mirrored charts (and the v-flip that puts UV origin at the top) make
@@ -2455,6 +2463,7 @@ namespace visutwin::canvas
         programLibrary.setPlanarReflectionDepthPass(camera.planarReflectionDepthPass());
         programLibrary.setLightmapBakePass(camera.lightmapBakePass());
         programLibrary.setLightmapBakeAccumulate(camera.lightmapBakeAccumulate());
+        programLibrary.setProbeGBufferPass(camera.probeVolumeGeometryPass());
 
         // Debug surface-quantity output (setDebugShaderPass). One variant covers every mode;
         // the mode itself rides in a uniform, uploaded with the environment.
@@ -2729,6 +2738,9 @@ namespace visutwin::canvas
         gatherForwardLights(view, *layer, _scene.get(), clusteredEnabled, camera, lights);
 
         bindLayerEnvironment(*_device, _scene.get(), view);
+        // The probe volume, as the camera lights with it: a camera capturing for a bake reads the
+        // probes of the bake's previous bounce.
+        _device->setProbeVolumeData(_device->probeVolumeBlock(camera && camera->probeVolumeCapture()));
 
         // The opacity dither and the visibility range's dither move with the TAA jitter, one
         // step a frame, and stand still for a camera that does not jitter.

@@ -61,6 +61,7 @@ namespace visutwin::canvas
         void setSkyboxRotation(const Quaternion& rotation);
         void setDitherJitter(const Vector4& jitter);
         void setUserData(const float (&values)[16]);
+        void setProbeVolume(const ProbeVolumeBlock& block);
         void setEnvironmentUniforms(Texture* envAtlas, float skyboxIntensity, float skyboxMip,
             const Vector3& skyDomeCenter, bool isDome, Texture* skyboxCubeMap);
 

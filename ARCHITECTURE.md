@@ -178,6 +178,68 @@ Upstream `framework/anim/controller` + `components/anim` port at `engine/src/fra
 
 **Dynamic scene-capture bake** (`framework/extras/reflectionProbe.h/.cpp`): `ReflectionProbe` renders the live scene into the probe cubemap at runtime instead of using a supplied/authored cube. It owns a mipmapped RGBA8 color cubemap + 6 face `RenderTarget`s + 6 `CameraComponent`s pointed along ±X/±Y/±Z (90° FOV, aspect 1). The face rotations are the COLOUR cubemap's (`kFaceRotations`, upright as a sampled cube expects), not `LightCamera::pointLightRotations`: those suit a depth cube, where a face's roll is invisible, and a colour capture through them turns the four side faces upside down. The six face cameras render as ordinary cameras in the normal frame graph (each `RenderTarget` targets one cube face via `RenderTargetOptions.face`), so the face cameras must render BEFORE the main camera: cameras render in priority order and equal priorities (the default 0) keep construction order, so **construct the probe first**, or give the main camera a higher priority (upstream gives the probe -1). Per frame `update()` (called AFTER `engine->render()`) runs `GraphicsDevice::generateCubemapMips` (blit `generateMipmaps` on its own command buffer) to rebuild the roughness mips from the freshly-rendered level-0 faces, and installs the cube via `setReflectionProbe` on the first call. Modes: `setDynamic(true)` re-captures every frame (reflections track the scene); `false` = one-shot then disable the face cameras. It relies on two engine facilities: (1) `MetalGraphicsDevice::startRenderPass` sets the **color** attachment slice from `activeTarget->face()` for cube textures (as well as the depth attachment, for omni shadows); (2) `GraphicsDevice::generateCubemapMips`. Captured faces hold the normal tonemapped/gamma-encoded forward output, which the probe shader sRGB-decodes — matching the static path. The face cameras take the probe's tone mapping (`ReflectionProbe::setToneMapping`; upstream copies the probe camera's) and fit their own realtime directional shadows like any camera. DEVIATION: the reflective object must sit on a layer excluded from the probe's capture layers or it self-captures (probe camera is at the probe center). Example: `graphics/reflection-cubemap.cpp`, a port of upstream `graphics/reflection-cubemap` (a shiny ball on a probe-excluded layer reflects six orbiting primitives captured live; every frame the captured cube is also reprojected to equirect and octahedral layouts and baked into an octahedral env atlas, shown in panels around the edges, the bake costing about 2.4 ms of GPU a frame at upstream's 1024 / 2048 samples).
 
+### Probe Volumes (baked indirect lighting)
+`extras/probeVolume/` (upstream `extras/probe-volume`, 2026-11-18): `ProbeVolume` is a box
+divided into `resolution` cells with a probe at each centre, each probe the L0 and three L1
+coefficients of the incoming radiance per colour channel (`kFloatsPerProbe` 12, probes ordered
+x, then y, then z). `ProbeVolume::applyToMaterial` sets `Material::setProbeVolume`, which
+compiles `VT_FEATURE_PROBE_VOLUME` (a material input, not a frame switch); such a material's
+ambient DIFFUSE is replaced by the trilinear interpolation of the eight probes around the surface
+(normal bias, ZH3 sharpening, leak reduction, visibility), blended back to the environment's
+ambient over `blendDistance` outside the box, and its environment reflections (base, clearcoat,
+sheen, the reflection probe's) are scaled by the probes' luminance over the environment's, up to
+1 (`reflectionOcclusion`). A lightmap replaces both. The shader is
+`forward/forward-fragment-ambient-modifier.slang` (`forwardModifyAmbient`, upstream's
+`ambientModifierPS`), called by the ambient chunk along the normal and along the flipped normal
+for diffuse transmission; DEVIATION: upstream's default chunk is the identity and its volume
+replaces the chunk, here the volume IS the default, compiled in only under the feature, so the
+bundle serves its materials.
+- **Data path.** Upstream sets global uniforms on the device scope; here the volume fills a
+  `ProbeVolumeBlock` (`platform/graphics/probeVolumeBlock.h`, 224 bytes, appended to the
+  lighting block as `LightingBlock::probeVolume`, the Slang `ProbeVolumeData`) and hands it to
+  the device (`GraphicsDevice::setProbeVolumeBlocks`, one active volume, the last changed; its
+  destructor clears only its own). The renderer gives each layer the block for its camera
+  (`setProbeVolumeData(probeVolumeBlock(camera->probeVolumeCapture()))`), so the cameras of a bake
+  read the probes of the previous bounce while every other camera reads the volume's (upstream's
+  `useBakeData` on `EVENT_PRERENDER`). The three textures are read through the BINDLESS table by
+  the lanes in the block, not by binding rows: the probes a 3D texture of three sub-volumes (r, g,
+  b) stacked along z (RGBA16F, or RGBA8 with L0 as sqrt(L0 / max L0) and L1 over sqrt(3) L0), the
+  validity a 3D RGBA8 texture (each probe's offset in units of its cell, and the validity of the
+  eight corners of its cell as the bits of alpha), the visibility a 2D atlas of 16 x 16 octahedral
+  maps with a one-texel mirrored border (DEVIATION: RGBA16F, upstream's RG16F does not exist here).
+- **Serialization** is upstream's format byte for byte ('PCPV', version 3, the 56-byte header,
+  validity, offsets, visibility as half floats, then every lighting): `serialize` of a
+  deserialized `concrete-pavilion-probes.bin` gives the file's bytes back
+  (`tests/probeVolumeTests.cpp`), so the corners of the box are kept as they were saved
+  (`aabbMin` / `aabbMax`, in double precision from a box), and `floatToHalf`
+  (`core/math/halfFloat.h`) rounds as upstream's `FloatPacking.float2Half` (a tie away from zero).
+- **The baker** (`ProbeVolumeBaker`) runs over frames on the engine's `update` event (upstream's
+  promises; results through `onComplete`). Capture rigs of six 90-degree face cameras
+  (`kFaceEulers`, upstream's face rotations) render into tiles of an atlas, 3 x 2 faces of
+  `faceSize` a probe, `probesPerFrame` probes a frame. A camera's clear is the whole target's, so
+  the rigs clear nothing and the baker clears each tile with the `probe-volume-clear` program in an
+  offline scope before enabling them. The atlas's rows run top first, as every texture here; a
+  face's texel (x, y from the top) sees `probeFaceDirection(face, u, v)` with v UP
+  (`forward/common-probe-bake.slang`, shared with `programs/probe-volume-project.slang`).
+  `captureGeometry` renders with `Camera::probeVolumeGeometryPass` (the frame switch
+  `VT_FEATURE_PROBE_GBUFFER`: the forward program returns early with the diffuse albedo and a hit
+  flag, the back face flag, distance and octahedral normal, and the emission, MRT 2 or 3;
+  blended materials skipped, `Camera::setCullFaces(false)`), then projects with
+  `probe-volume-project` (validity, virtual offsets with the moved probes captured again,
+  visibility) and reads back with `Texture::read`. `bakeLighting` from `ProbeSource::GBuffer`
+  draws a screen-space quad over the radiance atlas with a material carrying
+  `Material::setProbeVolumeLighting` (`VT_FEATURE_PROBE_LIGHTING`: the surface inputs come from
+  the geometry atlas through the block's bake lanes, so the engine's own light loop, shadows and
+  the previous bounce's probes light it) seen by an orthographic camera enclosing the volume, the
+  lights of the captured layers given its layer for the bake; from `ProbeSource::Scene` the rigs
+  render the lit scene. Each pass is projected onto the harmonics, dilated into the invalid
+  probes and handed back as the next bounce's probes, the last into the volume's lighting. The
+  directional lights' shadow bounds are the volume's box for the bake. DEVIATION: the sky behind
+  the texels without geometry is captured into a 3 x 2 face atlas, not a cubemap, as the bindless
+  table holds no cube maps.
+- Example: `graphics/probe-volume` (the pavilion with three baked presets; B bakes the preset
+  shown again, K captures and bakes all).
+
 ### LTC Area Lights
 Upstream's light SHAPE: `LightComponent::setShape(LightShape::LIGHTSHAPE_RECT / DISK / SPHERE)` on a spot, omni or directional light (`LIGHTSHAPE_PUNCTUAL`, the default, is an ordinary light). The source is the size of the light's ENTITY: the world matrix's X column times -0.5 is the half width and its Z column times 0.5 the half height (upstream `_setLtcPositional`), packed as `GpuLightData::areaHalfWidth / areaHalfHeight` with the shape, and carried per light in `GpuLight::areaHalfWidth / areaHalfHeight` (Metal) / `areaRightHalfWidth / areaUpHalfHeight` (Vulkan), the shape in the width's w. A shaped light keeps its type's cone, cookie and shadow (spot and omni shadows, VSM and PCSS included, and the directional cascades); its distance falloff is the range window alone (`getFalloffWindow`), the physical falloff coming from the LTC form factor. Shading is `VT_FEATURE_AREA_LIGHTS`, upstream `ltc.js`: the helpers at the end of `common-ltc.{metal,glsl}` (`ltcAreaLight` corners with the sphere billboarded to the reflection vector, `ltcAreaDiffuse` ×16 for a local light — a directional source keeps plain Lambert, as upstream; a shaped DIRECTIONAL light's LTC source sits at the drawing camera's far clip back along its direction, its half extents scaled by the far clip, so it subtends the angle its entity's scale gives wherever the entity is (`gatherForwardLights`; taken at the entity, `lights-and-shadows/area-lights`'s 0.2-unit sky disk held 5000 units out reflected a hundred times too faintly) — `ltcSpecularFresnel` from LUT 2, `ltcAreaSpecular` with LUT 1's inverse matrix, disk = `ltcEvaluateDisk`, NaN-guarded) are called by BOTH the main light loop and the cluster loop, so the two cannot drift; diffuse takes `(1 - specFres)`, clearcoat its own LTC term. While area lights are in the variant a PUNCTUAL light's diffuse is scaled by `(1 - specularity)`, upstream's AREA_LIGHTS quirk. Under clustered lighting a shaped spot or omni light is an area light only while `scene->lighting().areaLightsEnabled` (off by default, upstream's CLUSTER_AREALIGHTS); `ClusterLightData::shape` and `GpuClusteredLight::areaHalfWidth / areaHalfHeight` (176 bytes a light) carry it, and otherwise it shades as punctual. The two 64×64 RGBA16F LUTs are **embedded** in the engine (`scene/graphics/areaLightLuts.h` + generated `areaLightLutsData.inc`; DEVIATION: upstream ships them as an app-loaded JSON) — the renderer creates them lazily on the first area light and binds fragment slots 20/21 through `GraphicsDevice::setAreaLightLuts`. Examples: `lights-and-shadows/area-lights.cpp` (upstream graphics/area-lights: a shadowed rect spot, a sphere omni and a shadowed disk directional held 5000 units out, clustered area lights on) and `test/contact-hardening-shadows.cpp` (a PCSS-shadowed rect spot, non-clustered).
 

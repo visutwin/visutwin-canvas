@@ -31,6 +31,7 @@
 #include "shader.h"
 #include "stencilParameters.h"
 #include "instanceCuller.h"
+#include "probeVolumeBlock.h"
 #include "vertexBuffer.h"
 #include "core/math/color.h"
 #include "core/math/matrix4.h"
@@ -520,6 +521,39 @@ namespace visutwin::canvas
         /// (Scene::setUserShaderData): the lighting block's userData and the scene texture
         /// `userMap`. Set with the environment, once per layer.
         virtual void setUserShaderData(const UserShaderData& data) { (void)data; }
+
+        /// The probe volume's block of the lighting block (probeVolumeBlock.h), set once per
+        /// layer with the block for its camera (probeVolumeBlock).
+        virtual void setProbeVolumeData(const ProbeVolumeBlock& block) { (void)block; }
+
+        /// The probe volume active on the device, one at a time as the forward shaders read
+        /// one (ProbeVolume, extras/probeVolume): the block every camera shows and, while a bake
+        /// lights the scene with the probes of its previous bounce, the block the cameras
+        /// capturing for it read (Camera::probeVolumeCapture); null for none. `owner` names
+        /// the volume, so that it clears only its own blocks (clearProbeVolumeBlocks).
+        void setProbeVolumeBlocks(const void* owner, const ProbeVolumeBlock& display, const ProbeVolumeBlock* capture)
+        {
+            _probeVolumeOwner = owner;
+            _probeVolumeDisplay = display;
+            _hasProbeVolumeCapture = capture != nullptr;
+            if (capture) {
+                _probeVolumeCapture = *capture;
+            }
+        }
+        void clearProbeVolumeBlocks(const void* owner)
+        {
+            if (_probeVolumeOwner == owner) {
+                _probeVolumeOwner = nullptr;
+                _probeVolumeDisplay = ProbeVolumeBlock{};
+                _hasProbeVolumeCapture = false;
+            }
+        }
+        /// The block a camera reads: the capture block for a camera capturing for a bake while
+        /// one is set, the display block otherwise (no weight when no volume is active).
+        const ProbeVolumeBlock& probeVolumeBlock(const bool capture) const
+        {
+            return capture && _hasProbeVolumeCapture ? _probeVolumeCapture : _probeVolumeDisplay;
+        }
 
         virtual void setReflectionProbeUniforms(Texture* cubemap, const Vector3& boxMin,
             const Vector3& boxMax, bool boxProjection, float intensity, float maxLod)
@@ -1550,6 +1584,11 @@ namespace visutwin::canvas
         int _indirectDrawNext = 0;
         int _indirectDispatchNext = 0;
         uint64_t _indirectFrame = 1;
+        const void* _probeVolumeOwner = nullptr;
+        ProbeVolumeBlock _probeVolumeDisplay;
+        ProbeVolumeBlock _probeVolumeCapture;
+        bool _hasProbeVolumeCapture = false;
+
         int _maxIndirectDrawCount = 1024;
         int _maxIndirectDispatchCount = 256;
         bool _warnedIndirectDrawSlots = false;

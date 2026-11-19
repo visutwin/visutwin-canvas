@@ -35,6 +35,7 @@ the [README](README.md).
 - **Clustered lighting** for many-light scenes with a packed **shadow atlas** whose resolution can change at runtime, plus a **shadow catcher** material for compositing
 - **Physical light units** (photometric glTF light intensities, exposure from the camera's aperture, shutter and sensitivity) and **light masks** separating dynamic, lightmapped and bake-only lights
 - **Lightmap baking**, two bakers: a **CPU** baker that ray-traces ambient occlusion and soft shadows (LDR, single bounce) and a **GPU** baker that rasterises each mesh in UV space lit by the scene's own shadow maps over a few frames: soft directional shadows and ambient occlusion from virtual lights, then the bilateral denoise and dilate
+- **Probe volumes** for baked indirect lighting: a box grid of L1 SH probes interpolated per surface, with leak reduction, per-probe visibility, ZH3 sharpening and reflection occlusion, several lightings per volume (times of day), upstream's saved format; a GPU **probe baker** captures each probe's geometry (validity, virtual offsets, visibility) and bakes multi-bounce lighting from it or from the rendered scene over a few frames
 - **Volumetric fog**: shadow-sampled directional ray march (Henyey-Greenstein phase, height falloff, Beer-Lambert extinction) at reduced resolution with a depth-aware upsample; clustered spot and omni lights scatter in it through their own volumes, with atlas shadows and cookies (`localOmniLights` / `localSpotLights`, per-light `volumetricScattering`)
 
 ## Animation & geometry
@@ -106,6 +107,7 @@ Known Limitations, and `AGENTS.md` records the remaining parity items.
 | Framework / Gizmo | Upstream's transform gizmos: translate (arrows, plane handles, centre), rotate (half/full arc rings, view ring, orbit sphere, angle guides), scale (box-lines, planes, uniform centre); triangle picking, hover themes, snapping, drag modes, span guide lines, constant screen size; translucent outlined planes and glancing fades; overlay gizmos with draggable, snapping handles and value labels: a bounding box gizmo (corner brackets, dashed edges and face and corner handles resizing the selection), camera (frustum, clip planes, field of view), light (directional, omni, spot and area shapes, range, cone angles, area size) and shape gizmos (box, sphere, capsule, cone, cylinder), and an icon gizmo marking lights, cameras and other unseen entities; an anti-aliased reference grid (levels that follow the zoom, axes, distance fade, infinite or fixed, contrast and depth-write options) |
 | Framework / Assets | Async container/texture/font loading; GLB/glTF (+Draco, meshopt, quantised attributes, texture transform, node identity for unnamed nodes), OBJ/STL/Assimp; KTX2/Basis transcoding to ASTC or BC |
 | Framework / Lightmapper | CPU ray-traced baker and GPU UV-space baker |
+| Extras / Probe volume | `ProbeVolume` (baked SH probes, serialization) and the GPU `ProbeVolumeBaker` |
 
 ## Known Limitations
 

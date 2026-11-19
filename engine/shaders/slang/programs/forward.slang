@@ -28,6 +28,8 @@ import vtsrgb;   // srgbToLinear / linearToSrgb, the exact sRGB transfer, for ev
 #include "forward/common-iridescence.slang"
 #include "forward/common-atmosphere.slang"
 #include "forward/forward-fragment-user.slang"
+#include "forward/forward-fragment-ambient-modifier.slang"
+#include "forward/common-probe-bake.slang"
 #include "forward/forward-fragment-surface.slang"
 #include "forward/forward-fragment-lights.slang"
 #include "forward/forward-fragment-clustered.slang"
