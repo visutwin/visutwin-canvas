@@ -167,6 +167,7 @@ namespace visutwin::canvas
             options.format = hdr ? PixelFormat::PIXELFORMAT_RGBA32F : PixelFormat::PIXELFORMAT_RGBA8;
             options.cubemap = true;
             options.mipmaps = data.mipmaps;
+            options.srgb = data.srgb;
             options.numLevels = data.mipmaps ? 0 : 1;
             options.minFilter = data.mipmaps ? FilterMode::FILTER_LINEAR_MIPMAP_LINEAR : FilterMode::FILTER_LINEAR;
             options.magFilter = FilterMode::FILTER_LINEAR;
@@ -356,6 +357,7 @@ namespace visutwin::canvas
                     options.height = static_cast<uint32_t>(height);
                     options.format = PixelFormat::PIXELFORMAT_RGBA32F;
                     options.mipmaps = _data.mipmaps;
+                    options.srgb = _data.srgb;
                     options.numLevels = _data.mipmaps ? 0 : 1;
                     options.name = _name;
 
@@ -394,6 +396,7 @@ namespace visutwin::canvas
                     options.height = static_cast<uint32_t>(height);
                     options.format = PixelFormat::PIXELFORMAT_RGBA8;
                     options.mipmaps = _data.mipmaps;
+                    options.srgb = _data.srgb;
                     options.numLevels = _data.mipmaps ? 0 : 1;
                     options.name = _name;
 
@@ -535,6 +538,7 @@ namespace visutwin::canvas
                         options.format   = pd.isHdr ? PixelFormat::PIXELFORMAT_RGBA32F
                                                     : PixelFormat::PIXELFORMAT_RGBA8;
                         options.mipmaps  = data.mipmaps;
+                        options.srgb = data.srgb;
                         options.numLevels = data.mipmaps ? 0 : 1;
                     }
                     options.name     = name;

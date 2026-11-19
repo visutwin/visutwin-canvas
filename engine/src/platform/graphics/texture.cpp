@@ -4,6 +4,7 @@
 // Created by Arnis Lektauers on 19.09.2025
 //
 #include "texture.h"
+#include "textureMips.h"
 #include "bindlessResidency.h"
 
 #include <assert.h>
@@ -22,7 +23,7 @@ namespace visutwin::canvas
         _name(options.name), _device(graphicsDevice), _width(options.width), _height(options.height),
         _depth(options.depth), _arrayLength(options.arrayLength), _format(options.format), _id(_nextId++),
         _minFilter(options.minFilter), _magFilter(options.magFilter), _cubemap(options.cubemap), _volume(options.volume),
-        _mipmaps(options.mipmaps && options.samples <= 1), _mipmapFilter(options.mipmapFilter),
+        _mipmaps(options.mipmaps && options.samples <= 1), _mipmapFilter(options.mipmapFilter), _srgb(options.srgb),
           _storage(options.storage),
         _samples(std::max(options.samples, 1u)), _numLevelsRequested(options.samples > 1 ? 1u : options.numLevels),
         _profilerHint(options.profilerHint)
@@ -247,9 +248,49 @@ namespace visutwin::canvas
         BindlessResidency::touch(_bindlessIndex, bindlessKind());
     }
 
+    void Texture::buildCpuMips()
+    {
+        uint32_t channels = 0;
+        switch (_format) {
+        case PixelFormat::PIXELFORMAT_RGBA8: channels = 4; break;
+        case PixelFormat::PIXELFORMAT_RG8: channels = 2; break;
+        case PixelFormat::PIXELFORMAT_R8: channels = 1; break;
+        default: return;
+        }
+        if (!_mipmaps || _numLevels < 2 || _cubemap || _volume || isArray() || _samples > 1 || _levels.empty()) {
+            return;
+        }
+        const size_t level0Size = static_cast<size_t>(_width) * _height * channels;
+        const void* level0 = getLevel(0);
+        if (!level0 || getLevelDataSize(0) < level0Size) {
+            return;
+        }
+        // Only a chain this texture built itself is rebuilt: levels a caller supplied stay.
+        if (!_cpuMips) {
+            for (uint32_t level = 1; level < _levels[0].size(); ++level) {
+                if (_levels[0][level]) {
+                    return;
+                }
+            }
+        }
+        // Copied first: setLevelData may move the storage level 0 lives in.
+        const std::vector<uint8_t> top(static_cast<const uint8_t*>(level0),
+            static_cast<const uint8_t*>(level0) + level0Size);
+        const auto chain = generateMipChain8(top.data(), _width, _height, channels, _srgb, _numLevels);
+        for (size_t i = 0; i < chain.size(); ++i) {
+            setLevelData(static_cast<uint32_t>(i + 1), chain[i].data(), chain[i].size());
+        }
+        _cpuMips = true;
+    }
+
     void Texture::upload()
     {
-        if (!_impl || (!_needsUpload && !_needsMipmapsUpload)) {
+        if (!_needsUpload && !_needsMipmapsUpload) {
+            return;
+        }
+        // Before the GPU object is asked: a device without one keeps the same CPU levels.
+        buildCpuMips();
+        if (!_impl) {
             return;
         }
         _impl->uploadImmediate(_device);

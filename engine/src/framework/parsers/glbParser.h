@@ -49,6 +49,12 @@ namespace visutwin::canvas
             bool isCompressed = false;
             uint32_t compressedFormat = 0;     ///< PixelFormat enum value.
             std::vector<std::vector<uint8_t>> compressedLevels;
+
+            /// The image is sRGB colour (a material reads it as a colour map, Texture::srgb), and
+            /// the RGBA8 mip chain below level 0, built with the pixels on the decoding thread
+            /// (textureMips.h) rather than at upload on the main thread.
+            bool srgb = false;
+            std::vector<std::vector<uint8_t>> mipLevels;
         };
 
         /// Pre-built vertex/index byte buffers for one mesh primitive.

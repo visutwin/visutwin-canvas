@@ -54,6 +54,9 @@ namespace visutwin::canvas
         /// one level, no host data and no filtering; a resolve goes into another texture
         /// (RenderTargetOptions::resolveBuffer, depthResolveBuffer).
         uint32_t samples = 1;
+        /// The texels are sRGB-encoded colour (a base colour or emissive map): the mips built on
+        /// the CPU (Texture::upload) average the colour in linear light. See Texture::srgb.
+        bool srgb = false;
         void* levels = nullptr;
         std::string name;
         TexHint profilerHint = TexHint::TEXHINT_NONE;
@@ -224,6 +227,20 @@ namespace visutwin::canvas
         /// the backend does itself, or the Gaussian one, which the Gaussian mipmap generator
         /// (scene/graphics/gaussianMipmaps.h) renders level by level for a 2D texture; the
         /// backends then leave such a texture's chain alone. Applies to the NEXT generation.
+        /// The texels are sRGB-encoded colour. The format stays linear (shaders decode colour maps
+        /// themselves); this decides only how the mips built from level 0 average: in linear light
+        /// for sRGB colour, as stored otherwise. An 8-bit 2D texture asking for mipmaps with only its
+        /// level 0 on the CPU has its chain built at upload (textureMips.h), exactly; any other
+        /// mipmapped texture has it generated on the GPU.
+        bool srgb() const { return _srgb; }
+        void setSrgb(const bool value)
+        {
+            if (_srgb != value) {
+                _srgb = value;
+                _needsUpload = true;
+            }
+        }
+
         MipmapFilter mipmapFilter() const { return _mipmapFilter; }
         void setMipmapFilter(const MipmapFilter filter) { _mipmapFilter = filter; }
 
@@ -332,6 +349,11 @@ namespace visutwin::canvas
         bool _volume;
         bool _mipmaps;
         MipmapFilter _mipmapFilter = MipmapFilter::MIPMAPFILTER_BOX;
+        bool _srgb = false;
+        // Levels 1.. were built on the CPU from level 0 (buildCpuMips), and are built again at
+        // each upload, so new level 0 data never leaves them stale.
+        bool _cpuMips = false;
+        void buildCpuMips();
         bool _storage = false;
         uint32_t _samples = 1;
         bool _renderTargetUse = false;

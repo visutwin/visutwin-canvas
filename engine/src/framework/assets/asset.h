@@ -60,6 +60,9 @@ namespace visutwin::canvas
         /// distance aliases without them. An environment atlas (RGBP and kin) must say
         /// false, since its rects are sampled at explicit levels.
         bool mipmaps = true;
+        /// The image is sRGB-encoded colour (Texture::srgb): its mips average the colour in
+        /// linear light. False by default, as upstream's texture assets unless their data says.
+        bool srgb = false;
         /// AssetType::CUBEMAP (asset with six face textures): the
         /// face image files in the engine's cube order +X, -X, +Y, -Y, +Z, -Z. The
         /// asset's own `file` is not read. DEVIATION: upstream names six texture ASSETS

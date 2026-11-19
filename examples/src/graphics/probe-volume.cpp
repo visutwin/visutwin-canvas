@@ -38,7 +38,7 @@
 // VISUTWIN_PROBE_PRESET=n starts at preset n, VISUTWIN_PROBE_BAKE=1 bakes every preset at start
 // instead of showing the loaded ones (as upstream does when the file cannot be loaded), with
 // VISUTWIN_PROBE_SOURCE=scene from the scene rendered from each probe, VISUTWIN_PROBE_SAVE=<file>
-// saves the probes when a bake ends, VISUTWIN_PROBES=0 starts with the probes off and
+// saves the probes when a bake ends, VISUTWIN_PROBE_BOUNCES=n bakes n bounces (2 by default), VISUTWIN_PROBES=0 starts with the probes off and
 // VISUTWIN_PROBE_SHOW=1 with the probes shown.
 //
 // DEVIATIONS:
@@ -150,6 +150,9 @@ protected:
         }
         if (const char* source = std::getenv("VISUTWIN_PROBE_SOURCE"); source && std::strcmp(source, "scene") == 0) {
             _source = ProbeSource::Scene;
+        }
+        if (const char* bounces = std::getenv("VISUTWIN_PROBE_BOUNCES")) {
+            _bounces = static_cast<uint32_t>(std::max(0, std::atoi(bounces)));
         }
         if (const char* save = std::getenv("VISUTWIN_PROBE_SAVE")) {
             _savePath = save;
@@ -596,7 +599,7 @@ private:
         ProbeVolumeBakeOptions options;
         options.source = _source;
         options.index = static_cast<uint32_t>(index);
-        options.bounces = 2;
+        options.bounces = _bounces;
         _baker->bakeLighting(options);
     }
 
@@ -633,6 +636,7 @@ private:
     bool _bakeActive = false;
     std::vector<int> _bakeQueue;
     std::string _savePath;
+    uint32_t _bounces = 2;
     int _settleFrames = 0;
 };
 

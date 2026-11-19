@@ -47,6 +47,8 @@
 #include "platform/graphics/depthState.h"
 #include "platform/graphics/graphicsDevice.h"
 #include "platform/graphics/texture.h"
+#include "platform/graphics/textureMips.h"
+#include "platform/graphics/textureUtils.h"
 #include "platform/graphics/vertexFormat.h"
 #include "framework/parsers/texture/ktx2Transcoder.h"
 #include "framework/parsers/texture/webpDecoder.h"
@@ -2762,6 +2764,39 @@ namespace visutwin::canvas
             texture.setAddressV(state.addressV);
         }
 
+        // Every texture a material of the model reads as sRGB colour, by texture index: base
+        // colour, emissive, sheen colour, specular colour, the spec-gloss diffuse and specular,
+        // and the diffuse transmission colour.
+        std::vector<bool> gltfColourTextures(const tinygltf::Model& model)
+        {
+            std::vector<bool> colour(model.textures.size(), false);
+            const auto mark = [&colour](const int index) {
+                if (index >= 0 && index < static_cast<int>(colour.size())) {
+                    colour[static_cast<size_t>(index)] = true;
+                }
+            };
+            const auto markExtension = [&mark](const tinygltf::Material& material, const char* extension,
+                const char* texture) {
+                const auto it = material.extensions.find(extension);
+                if (it != material.extensions.end() && it->second.IsObject() && it->second.Has(texture)) {
+                    const auto& info = it->second.Get(texture);
+                    if (info.IsObject() && info.Has("index") && info.Get("index").IsInt()) {
+                        mark(info.Get("index").GetNumberAsInt());
+                    }
+                }
+            };
+            for (const auto& material : model.materials) {
+                mark(material.pbrMetallicRoughness.baseColorTexture.index);
+                mark(material.emissiveTexture.index);
+                markExtension(material, "KHR_materials_sheen", "sheenColorTexture");
+                markExtension(material, "KHR_materials_specular", "specularColorTexture");
+                markExtension(material, "KHR_materials_pbrSpecularGlossiness", "diffuseTexture");
+                markExtension(material, "KHR_materials_pbrSpecularGlossiness", "specularGlossinessTexture");
+                markExtension(material, "KHR_materials_diffuse_transmission", "diffuseTransmissionColorTexture");
+            }
+            return colour;
+        }
+
         std::shared_ptr<Texture> createPreparedTexture(const PreparedGlbData::ImageData& image,
             const std::string& name, const std::shared_ptr<GraphicsDevice>& device)
         {
@@ -2778,10 +2813,10 @@ namespace visutwin::canvas
                                                     : FilterMode::FILTER_LINEAR;
             } else {
                 options.format = PixelFormat::PIXELFORMAT_RGBA8;
-                // Allocate a full mip chain — the Metal backend generates levels 1..N via a blit
-                // pass after the CPU uploads level 0. Without mipmaps, trilinear/anisotropic
-                // sampling can't minify ground/wall textures at glancing angles and we get radial
-                // streak aliasing from the viewer's nadir point.
+                // A full mip chain, built with the pixels in prepareFromModel (Texture::srgb).
+                // Without mipmaps, trilinear/anisotropic sampling can't minify ground/wall
+                // textures at glancing angles and we get radial streak aliasing from the
+                // viewer's nadir point.
                 options.mipmaps = true;
                 options.numLevels = 0;  // 0 = allocate full mip chain based on max(w,h)
                 options.minFilter = FilterMode::FILTER_LINEAR_MIPMAP_LINEAR;
@@ -2797,7 +2832,12 @@ namespace visutwin::canvas
                 }
             } else {
                 texture->setLevelData(0, image.rgbaPixels.data(), image.rgbaPixels.size());
+                for (size_t level = 0; level < image.mipLevels.size(); ++level) {
+                    texture->setLevelData(static_cast<uint32_t>(level + 1), image.mipLevels[level].data(),
+                        image.mipLevels[level].size());
+                }
             }
+            texture->setSrgb(image.srgb);
             return texture;
         }
 
@@ -3474,6 +3514,27 @@ namespace visutwin::canvas
         // All of them at once, one per thread: decoding is most of the time a textured
         // model takes to load, and no image depends on another.
         result.images.resize(model.images.size());
+        // An image is colour when a colour map's texture shows it.
+        std::vector<bool> colourImages(model.images.size(), false);
+        {
+            const std::vector<bool> colourTextures = gltfColourTextures(model);
+            for (size_t t = 0; t < model.textures.size(); ++t) {
+                const int source = textureImageSource(model.textures[t]);
+                if (colourTextures[t] && source >= 0 && source < static_cast<int>(colourImages.size())) {
+                    colourImages[static_cast<size_t>(source)] = true;
+                }
+            }
+        }
+        // The mip chain of an RGBA8 image, on its decoding thread.
+        const auto buildMips = [&colourImages](const size_t i, PreparedGlbData::ImageData& img) {
+            img.srgb = colourImages[i];
+            if (img.valid && !img.isCompressed && img.width > 0 && img.height > 0) {
+                const auto w = static_cast<uint32_t>(img.width);
+                const auto h = static_cast<uint32_t>(img.height);
+                img.mipLevels = generateMipChain8(img.rgbaPixels.data(), w, h, 4, img.srgb,
+                    TextureUtils::calcMipLevelsCount(w, h));
+            }
+        };
         parallelFor(model.images.size(), [&](const size_t i) {
             auto& img = result.images[i];
             const auto& srcImage = model.images[i];
@@ -3495,6 +3556,7 @@ namespace visutwin::canvas
             if (srcImage.as_is) {
                 // Left encoded by loadImageData.
                 decodeEncodedImage(srcImage, i, img);
+                buildMips(i, img);
                 return;
             }
             // Pixels someone else decoded (a model built in memory).
@@ -3502,6 +3564,7 @@ namespace visutwin::canvas
             if (img.valid) {
                 img.width  = srcImage.width;
                 img.height = srcImage.height;
+                buildMips(i, img);
             } else {
                 spdlog::warn("glTF image '{}' unsupported format (bits={}, components={}, pixelType={})",
                     srcImage.name, srcImage.bits, srcImage.component, srcImage.pixel_type);

@@ -1344,6 +1344,20 @@ present, but the rule below never depends on reading it.
   include `stb_image.h` from a header: stb guards its declarations but not its
   implementation, which `asset.cpp` compiles. `tests/stbImageFlipTests.cpp` loads
   an asymmetric atlas through the font path after a leaked flip.
+- **An 8-bit 2D texture's mips are built on the CPU, exactly, and in linear light when it is sRGB
+  colour** (`platform/graphics/textureMips.h`, from `Texture::upload`): an RGBA8 / RG8 / R8
+  texture asking for mipmaps with only level 0 on the CPU gets a 2x2 box chain (halves to even),
+  rebuilt at every upload so new level 0 data never leaves it stale, and never over levels the
+  caller supplied. `Texture::srgb` (`TextureOptions::srgb`) makes the colour average in linear
+  light as an sRGB format's hardware mips do; the format stays linear, shaders decode colour maps
+  themselves. The glTF parser builds its images' chains on their decoding threads
+  (`prepareFromModel`, `ImageData::mipLevels`), a colour map's in linear light
+  (`gltfColourTextures`: base colour, emissive, sheen colour, specular colour, spec-gloss diffuse
+  and specular, transmission colour); at upload on the main thread they cost a textured model
+  ~60 ms of load. A texture asset is sRGB only with `AssetData::srgb`, as upstream's. Floats, cubes, arrays, volumes, render targets
+  and block-compressed textures keep the GPU's chain. The GPU generators drift: Metal's
+  `generateMipmaps` blit (and MoltenVK's) moved a 2048 texture's mean two counts by 1 x 1,
+  darkening every distant surface, which a probe bake's 8 x 8 faces read as 2-3% less albedo.
 - **A texture ASSET is mipmapped unless it says otherwise** (`AssetData::mipmaps`,
   true, as upstream's textures). A map seen at a distance aliases into noise without
   mips, and a shimmering floor reads as a shading bug. Anything sampled at EXPLICIT

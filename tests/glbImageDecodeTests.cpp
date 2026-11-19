@@ -194,5 +194,39 @@ int main()
             "already-decoded pixels are widened to RGBA and otherwise left as they are");
     }
 
+    std::cout << "\nthe mip chains come with the pixels, a colour map's in linear light\n";
+    {
+        // Image 0 a base colour map, image 1 a normal map, both 4 x 4 black and white columns.
+        Source columns{4, 4, 4, {}};
+        columns.pixels.resize(4 * 4 * 4);
+        for (size_t i = 0; i < 16; ++i) {
+            const uint8_t v = (i % 2) == 0 ? 0 : 255;
+            columns.pixels[i * 4] = columns.pixels[i * 4 + 1] = columns.pixels[i * 4 + 2] = v;
+            columns.pixels[i * 4 + 3] = 255;
+        }
+        tinygltf::Model model;
+        model.images.push_back(imageThroughCallback(encodePng(columns), 0));
+        model.images.push_back(imageThroughCallback(encodePng(columns), 1));
+        for (int i = 0; i < 2; ++i) {
+            tinygltf::Texture texture;
+            texture.source = i;
+            model.textures.push_back(texture);
+        }
+        tinygltf::Material material;
+        material.pbrMetallicRoughness.baseColorTexture.index = 0;
+        material.normalTexture.index = 1;
+        model.materials.push_back(material);
+        const PreparedGlbData prepared = GlbParser::prepareFromModel(model, PixelFormat::PIXELFORMAT_RGBA8, "test");
+        const auto& colour = prepared.images[0];
+        const auto& normal = prepared.images[1];
+        check(colour.srgb && !normal.srgb, "only the colour map is sRGB");
+        check(colour.mipLevels.size() == 2 && normal.mipLevels.size() == 2 &&
+            colour.mipLevels[1].size() == 4, "each has its chain down to 1 x 1");
+        // black and white average to linear 0.5, sRGB code 188; as stored, 128 (a half, to even)
+        check(!colour.mipLevels.empty() && colour.mipLevels[0][0] == 188 && colour.mipLevels[0][3] == 255,
+            "the colour map's colour averages in linear light, its alpha as stored");
+        check(!normal.mipLevels.empty() && normal.mipLevels[0][0] == 128, "the normal map's as stored");
+    }
+
     return finish("glTF image decode");
 }
