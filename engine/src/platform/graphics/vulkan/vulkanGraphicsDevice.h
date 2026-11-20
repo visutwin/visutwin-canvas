@@ -44,6 +44,7 @@ namespace visutwin::canvas::gpu
 namespace visutwin::canvas
 {
     class VulkanRenderPipeline;
+    struct VulkanPipelineDesc;
     class VulkanRenderTarget;
     class VulkanShader;
     class VulkanUniformRingBuffer;
@@ -571,6 +572,10 @@ namespace visutwin::canvas
             VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
         };
         DrawPipelineTarget drawPipelineTarget() const;
+        // The pipeline state of a draw with the bound state, for get() and request() alike, so a
+        // precompiled pipeline is the one the draw looks up. Views `target`'s colour formats.
+        VulkanPipelineDesc drawPipelineDesc(const Primitive& primitive, VulkanShader* shader,
+            const DrawPipelineTarget& target) const;
         [[nodiscard]] bool bindDrawPipeline(VkCommandBuffer cmd, const Primitive& primitive,
             const std::shared_ptr<VulkanShader>& shader);
         void applyStencilReference(VkCommandBuffer cmd);

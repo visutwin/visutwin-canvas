@@ -22,6 +22,7 @@
 
 #include "platform/graphics/pipelineCompileQueue.h"
 #include "platform/graphics/renderPipeline.h"
+#include "scene/mesh.h"
 
 namespace visutwin::canvas
 {
@@ -31,8 +32,44 @@ namespace visutwin::canvas
     class VulkanGraphicsDevice;
     class VulkanShader;
     class VertexFormat;
-    struct Primitive;
     enum class CullMode;
+
+    /**
+     * The state a graphics pipeline is built from, which is also its cache key. A VIEW: every
+     * pointer and the colour formats are the caller's, read during the call and not held (a
+     * draw builds one per draw, so it copies no shared pointer). request() makes the copies its
+     * compile job needs (VulkanRenderPipeline::OwnedDesc).
+     */
+    struct VulkanPipelineDesc
+    {
+        PrimitiveType primitiveType = PRIMITIVE_TRIANGLES;
+        const VertexFormat* vertexFormat = nullptr;
+        // The per-instance buffer's format, null for a draw without one.
+        const VertexFormat* instanceFormat = nullptr;
+        VulkanShader* shader = nullptr;
+        const BlendState* blendState = nullptr;
+        const DepthState* depthState = nullptr;
+        CullMode cullMode{};
+        bool stencilEnabled = false;
+        // Not const: a stencil state computes its key on first use.
+        StencilParameters* stencilFront = nullptr;
+        StencilParameters* stencilBack = nullptr;
+        std::span<const VkFormat> colorFormats;
+        VkFormat depthFormat = VK_FORMAT_UNDEFINED;
+        // Raster sample count, which must match the attachments the pass begins rendering
+        // with: MSAA targets get their own pipelines.
+        VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
+        // Selects the depth-pin skybox vertex stage.
+        bool isSkybox = false;
+    };
+
+    /// The owners of a desc's shader and vertex formats, which a compile job keeps alive.
+    struct VulkanPipelineOwners
+    {
+        std::shared_ptr<VulkanShader> shader;
+        std::shared_ptr<VertexFormat> vertexFormat;
+        std::shared_ptr<VertexFormat> instanceFormat;
+    };
 
     class VulkanRenderPipeline final : public RenderPipelineBase
     {
@@ -40,8 +77,6 @@ namespace visutwin::canvas
         explicit VulkanRenderPipeline(VulkanGraphicsDevice* device);
         ~VulkanRenderPipeline() override;
 
-        // The declared elements in both formats define their Vulkan vertex
-        // bindings. isSkybox selects the depth-pin skybox vertex stage.
         /// The pipelines this cache holds.
         [[nodiscard]] int count() const
         {
@@ -52,40 +87,15 @@ namespace visutwin::canvas
             return static_cast<int>(total);
         }
 
-        VkPipeline get(const Primitive& primitive,
-            const std::shared_ptr<VertexFormat>& vertexFormat,
-            const std::shared_ptr<VertexFormat>& instanceFormat,
-            const std::shared_ptr<VulkanShader>& shader,
-            const std::shared_ptr<BlendState>& blendState,
-            const std::shared_ptr<DepthState>& depthState,
-            CullMode cullMode,
-            bool stencilEnabled,
-            const std::shared_ptr<StencilParameters>& stencilFront,
-            const std::shared_ptr<StencilParameters>& stencilBack,
-            std::span<const VkFormat> colorFormats,
-            VkFormat depthFormat,
-            // Raster sample count, which must match the attachments the pass
-            // begins rendering with — MSAA targets get their own pipelines.
-            VkSampleCountFlagBits samples,
-            bool isSkybox = false);
+        /// The pipeline for a state, built on first use. The declared elements of the vertex
+        /// and instance formats define its Vulkan vertex bindings.
+        VkPipeline get(const VulkanPipelineDesc& desc);
 
         /// As get(), for a precompile pass: a pipeline the cache does not hold is built on a
         /// compile thread (through the device's pipeline cache, which Vulkan synchronises
         /// internally), and the call returns at once. A later get() of it waits for it.
-        void request(const Primitive& primitive,
-            const std::shared_ptr<VertexFormat>& vertexFormat,
-            const std::shared_ptr<VertexFormat>& instanceFormat,
-            const std::shared_ptr<VulkanShader>& shader,
-            const std::shared_ptr<BlendState>& blendState,
-            const std::shared_ptr<DepthState>& depthState,
-            CullMode cullMode,
-            bool stencilEnabled,
-            const std::shared_ptr<StencilParameters>& stencilFront,
-            const std::shared_ptr<StencilParameters>& stencilBack,
-            std::span<const VkFormat> colorFormats,
-            VkFormat depthFormat,
-            VkSampleCountFlagBits samples,
-            bool isSkybox);
+        /// `owners` own the desc's shader and formats; the mutable states are copied.
+        void request(const VulkanPipelineDesc& desc, VulkanPipelineOwners owners);
 
         /// Pipelines requested and still building.
         [[nodiscard]] int pendingCount() const { return _compileQueue ? _compileQueue->pending() : 0; }
@@ -111,20 +121,7 @@ namespace visutwin::canvas
         [[nodiscard]] VkDescriptorSetLayout bindlessSetLayout() const { return _bindlessSetLayout; }
 
     private:
-        VkPipeline create(const Primitive& primitive,
-            const std::shared_ptr<VertexFormat>& vertexFormat,
-            const std::shared_ptr<VertexFormat>& instanceFormat,
-            const std::shared_ptr<VulkanShader>& shader,
-            const std::shared_ptr<BlendState>& blendState,
-            const std::shared_ptr<DepthState>& depthState,
-            CullMode cullMode,
-            bool stencilEnabled,
-            const std::shared_ptr<StencilParameters>& stencilFront,
-            const std::shared_ptr<StencilParameters>& stencilBack,
-            std::span<const VkFormat> colorFormats,
-            VkFormat depthFormat,
-            VkSampleCountFlagBits samples,
-            bool isSkybox);
+        VkPipeline create(const VulkanPipelineDesc& desc);
 
         void createLayouts();
         void destroy() noexcept;
@@ -168,18 +165,26 @@ namespace visutwin::canvas
         std::unordered_map<uint64_t, std::vector<std::shared_ptr<CacheEntry>>> _cache;
 
         // The key words and hash of a pipeline state, and the entry holding it, if any.
-        uint64_t makeKey(PipelineKey& key, const Primitive& primitive,
-            const std::shared_ptr<VertexFormat>& vertexFormat,
-            const std::shared_ptr<VertexFormat>& instanceFormat,
-            const std::shared_ptr<VulkanShader>& shader,
-            const std::shared_ptr<BlendState>& blendState,
-            const std::shared_ptr<DepthState>& depthState,
-            CullMode cullMode, bool stencilEnabled,
-            const std::shared_ptr<StencilParameters>& stencilFront,
-            const std::shared_ptr<StencilParameters>& stencilBack,
-            std::span<const VkFormat> colorFormats, VkFormat depthFormat,
-            VkSampleCountFlagBits samples, bool isSkybox) const;
+        uint64_t makeKey(PipelineKey& key, const VulkanPipelineDesc& desc) const;
         std::shared_ptr<CacheEntry> find(uint64_t hash, const PipelineKey& key) const;
+
+        // A desc a compile job owns: the owners of its shader and formats, its own copies of
+        // the mutable states (which may change on the requesting thread while the job runs)
+        // and of the colour formats. desc() is the view over them.
+        struct OwnedDesc
+        {
+            OwnedDesc(const VulkanPipelineDesc& source, VulkanPipelineOwners sourceOwners);
+            [[nodiscard]] VulkanPipelineDesc desc() const;
+
+            VulkanPipelineDesc scalars;   // the pointers and formats are taken from the members below
+            VulkanPipelineOwners owners;
+            std::shared_ptr<const BlendState> blendState;
+            std::shared_ptr<const DepthState> depthState;
+            std::shared_ptr<StencilParameters> stencilFront;
+            std::shared_ptr<StencilParameters> stencilBack;
+            std::array<VkFormat, kMaxKeyColorFormats> colorFormats{};
+            size_t colorFormatCount = 0;
+        };
 
         std::unique_ptr<PipelineCompileQueue> _compileQueue;
         std::mutex _readyMutex;

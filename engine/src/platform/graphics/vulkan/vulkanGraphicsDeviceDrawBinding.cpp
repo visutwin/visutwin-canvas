@@ -776,14 +776,44 @@ namespace visutwin::canvas
         }
         // The inputs bindDrawPipeline gives get(), so the precompiled pipeline is the one the
         // draw will look up.
-        const auto vf = !_vertexBuffers.empty() ? _vertexBuffers[0] : nullptr;
         const DrawPipelineTarget target = drawPipelineTarget();
-        const bool isSkybox = shader->features().test(ShaderFeature::Skybox);
-        _renderPipeline->request(primitive, vf ? vf->format() : nullptr, target.instanceFormat, shader,
-            _blendState, _depthState, isSkybox ? CullMode::CULLFACE_NONE : _cullMode,
-            _stencilEnabled, _stencilFront, _stencilBack,
-            std::span<const VkFormat>(target.colorFormats.data(), target.colorFormatCount), target.depthFormat,
-            target.samples, isSkybox);
+        VulkanPipelineOwners owners;
+        owners.shader = shader;
+        if (!_vertexBuffers.empty() && _vertexBuffers[0]) {
+            owners.vertexFormat = _vertexBuffers[0]->format();
+        }
+        owners.instanceFormat = target.instanceFormat;
+        _renderPipeline->request(drawPipelineDesc(primitive, shader.get(), target), std::move(owners));
+    }
+
+    VulkanPipelineDesc VulkanGraphicsDevice::drawPipelineDesc(const Primitive& primitive, VulkanShader* shader,
+        const DrawPipelineTarget& target) const
+    {
+        VulkanPipelineDesc desc;
+        desc.primitiveType = primitive.type;
+        if (!_vertexBuffers.empty() && _vertexBuffers[0]) {
+            desc.vertexFormat = _vertexBuffers[0]->format().get();
+        }
+        desc.instanceFormat = target.instanceFormat.get();
+        desc.shader = shader;
+        desc.blendState = _blendState.get();
+        desc.depthState = _depthState.get();
+        // The skybox is an inward-facing shell whose authored winding, combined with our
+        // negative-height (Y-flipped) viewport, makes its CULLFACE_FRONT cull the visible inner
+        // faces. Render it with no culling so the environment shell is always drawn, and select
+        // the depth-pin skybox vertex stage. Derive this from the shader variant, not mutable
+        // material binding state: material-less passes such as shadows can otherwise inherit
+        // the previous frame's skybox material and accidentally render every caster with the
+        // sky vertex stage at the far plane.
+        desc.isSkybox = shader->features().test(ShaderFeature::Skybox);
+        desc.cullMode = desc.isSkybox ? CullMode::CULLFACE_NONE : _cullMode;
+        desc.stencilEnabled = _stencilEnabled;
+        desc.stencilFront = _stencilFront.get();
+        desc.stencilBack = _stencilBack.get();
+        desc.colorFormats = std::span<const VkFormat>(target.colorFormats.data(), target.colorFormatCount);
+        desc.depthFormat = target.depthFormat;
+        desc.samples = target.samples;
+        return desc;
     }
 
     void VulkanGraphicsDevice::onBeginPrecompilePass(RenderPass* renderPass)
@@ -825,7 +855,6 @@ namespace visutwin::canvas
     {
         auto vf = !_vertexBuffers.empty() ? _vertexBuffers[0] : nullptr;
         const DrawPipelineTarget target = drawPipelineTarget();
-        const auto& instanceFormat = target.instanceFormat;
         // The per-instance buffer drawPipelineTarget() took the format from, to bind below.
         const VulkanVertexBuffer* instancingVB = nullptr;
         for (size_t i = 1; i < _vertexBuffers.size(); ++i) {
@@ -835,29 +864,7 @@ namespace visutwin::canvas
                 break;
             }
         }
-        const auto& colorFormats = target.colorFormats;
-        const size_t colorFormatCount = target.colorFormatCount;
-        const VkFormat depthFmt = target.depthFormat;
-        const VkSampleCountFlagBits rasterSamples = target.samples;
-
-        // The skybox is an inward-facing shell whose authored winding,
-        // combined with our negative-height (Y-flipped) viewport, makes
-        // its CULLFACE_FRONT cull the visible inner faces.  Render it with
-        // no culling so the environment shell is always drawn, and select
-        // the depth-pin skybox vertex stage. Derive this from the shader
-        // variant, not mutable material binding state: material-less passes
-        // such as shadows can otherwise inherit the previous frame's skybox
-        // material and accidentally render every caster with the sky vertex
-        // stage at the far plane.
-        const bool isSkybox = shader->features().test(ShaderFeature::Skybox);
-        const CullMode cullMode = isSkybox ? CullMode::CULLFACE_NONE : _cullMode;
-
-        VkPipeline pipeline = _renderPipeline->get(primitive,
-            vf ? vf->format() : nullptr,
-            instanceFormat,
-            shader, _blendState, _depthState, cullMode,
-            _stencilEnabled, _stencilFront, _stencilBack,
-            std::span<const VkFormat>(colorFormats.data(), colorFormatCount), depthFmt, rasterSamples, isSkybox);
+        VkPipeline pipeline = _renderPipeline->get(drawPipelineDesc(primitive, shader.get(), target));
 
         if (pipeline == VK_NULL_HANDLE) {
             spdlog::error("VulkanGraphicsDevice: draw skipped because pipeline creation failed");

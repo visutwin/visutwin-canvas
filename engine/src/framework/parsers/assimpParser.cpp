@@ -482,46 +482,6 @@ namespace visutwin::canvas
                 generateTangents(vertices, indices);
             }
 
-            // Create GPU vertex buffer
-            const int vCount = static_cast<int>(vertices.size());
-            std::vector<uint8_t> vertexBytes(vertices.size() * sizeof(PackedVertex));
-            std::memcpy(vertexBytes.data(), vertices.data(), vertexBytes.size());
-
-            VertexBufferOptions vbOpts;
-            vbOpts.usage = BUFFER_STATIC;
-            vbOpts.data = std::move(vertexBytes);
-            auto vb = device->createVertexBuffer(vertexFormat, vCount, vbOpts);
-
-            // Create GPU index buffer (uint16 for small, uint32 for large)
-            const int indexCount = static_cast<int>(indices.size());
-            IndexFormat idxFmt = (vCount <= 65535) ? INDEXFORMAT_UINT16 : INDEXFORMAT_UINT32;
-
-            std::vector<uint8_t> indexBytes;
-            if (idxFmt == INDEXFORMAT_UINT16) {
-                indexBytes.resize(indices.size() * sizeof(uint16_t));
-                auto* dst = reinterpret_cast<uint16_t*>(indexBytes.data());
-                for (size_t i = 0; i < indices.size(); ++i) {
-                    dst[i] = static_cast<uint16_t>(indices[i]);
-                }
-            } else {
-                indexBytes.resize(indices.size() * sizeof(uint32_t));
-                std::memcpy(indexBytes.data(), indices.data(), indexBytes.size());
-            }
-            auto ib = device->createIndexBuffer(idxFmt, indexCount, indexBytes);
-
-            // Create Mesh
-            auto meshResource = std::make_shared<Mesh>();
-            meshResource->setVertexBuffer(vb);
-            meshResource->setIndexBuffer(ib, 0);
-
-            Primitive prim;
-            prim.type = PRIMITIVE_TRIANGLES;
-            prim.base = 0;
-            prim.baseVertex = 0;
-            prim.count = indexCount;
-            prim.indexed = true;
-            meshResource->setPrimitive(prim, 0);
-
             // Use Assimp's pre-computed AABB if valid, otherwise use our computed bounds
             if (aiM->mAABB.mMin.x <= aiM->mAABB.mMax.x &&
                 aiM->mAABB.mMin.y <= aiM->mAABB.mMax.y &&
@@ -532,12 +492,7 @@ namespace visutwin::canvas
                 maxPos = toVector3(aiM->mAABB.mMax, false);
             }
 
-            BoundingBox bounds;
-            bounds.setCenter((minPos + maxPos) * 0.5f);
-            bounds.setHalfExtents((maxPos - minPos) * 0.5f);
-            meshResource->setAabb(bounds);
-
-            return meshResource;
+            return createPackedMesh(*device, vertexFormat, vertices, indices, minPos, maxPos);
         }
 
     } // anonymous namespace

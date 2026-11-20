@@ -8,7 +8,8 @@
  * window system, so the CI test presets leave it out). A hidden window, a camera rendering
  * offscreen with a red clear, and a quad drawn unlit with a 2x2 texture on its emissive map:
  * the corners read back red and the middle the texture's colour, and an update of the texture
- * reaches the next frame. Everything is built through the C API, from C99.
+ * reaches the next frame; a render component removed and added again forgets the material it
+ * was given. Everything is built through the C API, from C99.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -121,7 +122,6 @@ int main(void)
     check(vt_entity_create(engine, 0, "Quad", &quad) == VT_OK && vt_component_add(engine, quad, "render") == VT_OK &&
         vt_render_set_material(engine, quad, material) == VT_OK && vt_render_set_mesh(engine, quad, mesh) == VT_OK,
         "an entity draws them");
-    vt_resource_release(engine, mesh);
     vt_resource_release(engine, material);
 
     for (i = 0; i < 3; ++i) {
@@ -140,6 +140,16 @@ int main(void)
     check(vt_camera_read_pixels(engine, camera, image, sizeof(image), &w, &h) == VT_OK &&
         near(image, W, W / 2, H / 2, 255, 255, 0) && near(image, W, 0, 0, 255, 0, 0),
         "and the next frame shows it");
+
+    /* The material belonged to the removed render component: one added again draws the mesh
+     * with the default material, not the yellow texture. */
+    check(vt_component_remove(engine, quad, "render") == VT_OK && vt_component_add(engine, quad, "render") == VT_OK &&
+        vt_render_set_mesh(engine, quad, mesh) == VT_OK, "the render component is removed and added again");
+    vt_resource_release(engine, mesh);
+    vt_frame(engine, 1.0f / 60.0f, NULL);
+    check(vt_camera_read_pixels(engine, camera, image, sizeof(image), &w, &h) == VT_OK &&
+        !near(image, W, W / 2, H / 2, 255, 255, 0) && !near(image, W, W / 2, H / 2, 255, 0, 0),
+        "and it draws the quad without the removed component's material");
 
     {
         /* A glTF model in place of the quad, under a light: the middle shows it. */

@@ -98,12 +98,17 @@ namespace visutwin::canvas
         /// on this entity.
         [[nodiscard]] std::optional<ComponentTypeID> componentTypeIdOf(const Component* component) const;
 
-        /// Remove this entity's component of the given type.
+        /// Remove this entity's component of the given type, through the system that owns it
+        /// (so its `beforeremove` / `remove` events fire, as for Entity::destroy), or directly
+        /// when it has none.
         template <class ComponentType>
         bool removeComponent()
         {
-            return removeComponentInstance(componentTypeID<ComponentType>());
+            return removeComponentOfType(componentTypeID<ComponentType>());
         }
+
+        /// removeComponent<T>() by type id.
+        bool removeComponentOfType(ComponentTypeID typeId);
 
         template <class ComponentType>
         Component* addComponent()

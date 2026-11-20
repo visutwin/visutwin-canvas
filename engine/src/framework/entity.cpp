@@ -172,6 +172,18 @@ namespace visutwin::canvas
         return std::nullopt;
     }
 
+    bool Entity::removeComponentOfType(const ComponentTypeID typeId)
+    {
+        const auto it = _components.find(typeId);
+        if (it == _components.end()) {
+            return false;
+        }
+        if (Component* component = it->second; component && component->system()) {
+            return component->system()->removeComponent(this);
+        }
+        return removeComponentInstance(typeId);
+    }
+
     bool Entity::removeComponentInstance(const ComponentTypeID typeId)
     {
         const auto it = _components.find(typeId);

@@ -19,10 +19,13 @@
 #include <memory>
 #include <vector>
 
+#include "core/shape/boundingBox.h"
+
 namespace visutwin::canvas
 {
     class GraphicsDevice;
     class Mesh;
+    class VertexBuffer;
 
     struct PrimitiveGeometry
     {
@@ -88,6 +91,18 @@ namespace visutwin::canvas
     /// radius at either end is a tip; `roundedCaps` makes hemispheres of radius `peakRadius`.
     PrimitiveGeometry createConeBaseGeometry(float baseRadius, float peakRadius, float height, int heightSegments,
                                              int capSegments, bool roundedCaps);
+
+    /// The vertices of a geometry in the engine's packed vertex layout, and their bounds.
+    struct GeometryVertexBuffer
+    {
+        std::shared_ptr<VertexBuffer> vertexBuffer;   // null for empty geometry
+        BoundingBox aabb;
+    };
+
+    /// The geometry's vertex buffer alone (its indices are not uploaded): what replacing the
+    /// vertices of a mesh built by createMeshFromGeometry needs, the triangles kept.
+    GeometryVertexBuffer createGeometryVertexBuffer(const std::shared_ptr<GraphicsDevice>& device,
+                                                    const PrimitiveGeometry& geometry);
 
     /// A mesh in the engine's packed vertex layout, with the
     /// CPU copies a mesh collider or a bake reads. Null for empty geometry.

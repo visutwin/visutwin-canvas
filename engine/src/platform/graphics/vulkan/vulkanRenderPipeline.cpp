@@ -238,7 +238,7 @@ namespace visutwin::canvas
             return VK_FORMAT_UNDEFINED;
         }
 
-        bool hasSemantic(const std::shared_ptr<VertexFormat>& format, VertexSemantic semantic)
+        bool hasSemantic(const VertexFormat* format, VertexSemantic semantic)
         {
             if (!format) return false;
             for (const auto& element : format->elements()) {
@@ -530,20 +530,7 @@ namespace visutwin::canvas
         }
     }
 
-    uint64_t VulkanRenderPipeline::makeKey(PipelineKey& key, const Primitive& primitive,
-        const std::shared_ptr<VertexFormat>& vertexFormat,
-        const std::shared_ptr<VertexFormat>& instanceFormat,
-        const std::shared_ptr<VulkanShader>& shader,
-        const std::shared_ptr<BlendState>& blendState,
-        const std::shared_ptr<DepthState>& depthState,
-        CullMode cullMode,
-        bool stencilEnabled,
-        const std::shared_ptr<StencilParameters>& stencilFront,
-        const std::shared_ptr<StencilParameters>& stencilBack,
-        const std::span<const VkFormat> colorFormats,
-        VkFormat depthFormat,
-        VkSampleCountFlagBits samples,
-        bool isSkybox) const
+    uint64_t VulkanRenderPipeline::makeKey(PipelineKey& key, const VulkanPipelineDesc& desc) const
     {
         // The state as key words, FNV-1a hashed as they are added.
         uint64_t hash = kFnv1aOffsetBasis;
@@ -551,24 +538,24 @@ namespace visutwin::canvas
             key.words[key.count++] = v;
             hash = fnv1aMix(hash, v);
         };
-        mix(static_cast<uint64_t>(primitive.type));
-        mix(vertexFormat ? vertexFormat->renderingHash() : 0);
-        mix(shader ? static_cast<uint64_t>(shader->id()) : 0);
-        mix(blendState ? blendState->key() : 0);
-        mix(blendState ? blendState->attachmentsKey() : 0);
-        mix(depthState ? depthState->key() : 0);
-        mix(static_cast<uint64_t>(cullMode));
-        mix(stencilEnabled ? 1ull : 0ull);
-        mix(stencilFront ? stencilFront->stateKey() : 0);
-        mix(stencilBack ? stencilBack->stateKey() : 0);
-        mix(static_cast<uint64_t>(colorFormats.size()));
-        for (const VkFormat colorFormat : colorFormats) {
+        mix(static_cast<uint64_t>(desc.primitiveType));
+        mix(desc.vertexFormat ? desc.vertexFormat->renderingHash() : 0);
+        mix(desc.shader ? static_cast<uint64_t>(desc.shader->id()) : 0);
+        mix(desc.blendState ? desc.blendState->key() : 0);
+        mix(desc.blendState ? desc.blendState->attachmentsKey() : 0);
+        mix(desc.depthState ? desc.depthState->key() : 0);
+        mix(static_cast<uint64_t>(desc.cullMode));
+        mix(desc.stencilEnabled ? 1ull : 0ull);
+        mix(desc.stencilFront ? desc.stencilFront->stateKey() : 0);
+        mix(desc.stencilBack ? desc.stencilBack->stateKey() : 0);
+        mix(static_cast<uint64_t>(desc.colorFormats.size()));
+        for (const VkFormat colorFormat : desc.colorFormats) {
             mix(static_cast<uint64_t>(colorFormat));
         }
-        mix(static_cast<uint64_t>(depthFormat));
-        mix(static_cast<uint64_t>(samples));
-        mix(instanceFormat ? instanceFormat->renderingHash() : 0);
-        mix(isSkybox ? 1ull : 0ull);
+        mix(static_cast<uint64_t>(desc.depthFormat));
+        mix(static_cast<uint64_t>(desc.samples));
+        mix(desc.instanceFormat ? desc.instanceFormat->renderingHash() : 0);
+        mix(desc.isSkybox ? 1ull : 0ull);
         return hash;
     }
 
@@ -583,29 +570,15 @@ namespace visutwin::canvas
         return nullptr;
     }
 
-    VkPipeline VulkanRenderPipeline::get(const Primitive& primitive,
-        const std::shared_ptr<VertexFormat>& vertexFormat,
-        const std::shared_ptr<VertexFormat>& instanceFormat,
-        const std::shared_ptr<VulkanShader>& shader,
-        const std::shared_ptr<BlendState>& blendState,
-        const std::shared_ptr<DepthState>& depthState,
-        CullMode cullMode,
-        bool stencilEnabled,
-        const std::shared_ptr<StencilParameters>& stencilFront,
-        const std::shared_ptr<StencilParameters>& stencilBack,
-        const std::span<const VkFormat> colorFormats,
-        VkFormat depthFormat,
-        VkSampleCountFlagBits samples,
-        bool isSkybox)
+    VkPipeline VulkanRenderPipeline::get(const VulkanPipelineDesc& desc)
     {
-        if (colorFormats.size() > kMaxKeyColorFormats) {
+        if (desc.colorFormats.size() > kMaxKeyColorFormats) {
             spdlog::error("VulkanRenderPipeline: {} colour attachments, at most {} supported",
-                colorFormats.size(), kMaxKeyColorFormats);
+                desc.colorFormats.size(), kMaxKeyColorFormats);
             return VK_NULL_HANDLE;
         }
         PipelineKey key;
-        const uint64_t hash = makeKey(key, primitive, vertexFormat, instanceFormat, shader, blendState, depthState,
-            cullMode, stencilEnabled, stencilFront, stencilBack, colorFormats, depthFormat, samples, isSkybox);
+        const uint64_t hash = makeKey(key, desc);
 
         if (const auto entry = find(hash, key)) {
             if (!entry->ready.load(std::memory_order_acquire)) {
@@ -616,9 +589,7 @@ namespace visutwin::canvas
             return entry->pipeline.load(std::memory_order_acquire);
         }
 
-        VkPipeline pipeline = create(primitive, vertexFormat, instanceFormat, shader,
-            blendState, depthState, cullMode, stencilEnabled, stencilFront, stencilBack,
-            colorFormats, depthFormat, samples, isSkybox);
+        VkPipeline pipeline = create(desc);
         _device->notePipelineCreated();
         if (pipeline != VK_NULL_HANDLE) {
             auto entry = std::make_shared<CacheEntry>();
@@ -630,27 +601,41 @@ namespace visutwin::canvas
         return pipeline;
     }
 
-    void VulkanRenderPipeline::request(const Primitive& primitive,
-        const std::shared_ptr<VertexFormat>& vertexFormat,
-        const std::shared_ptr<VertexFormat>& instanceFormat,
-        const std::shared_ptr<VulkanShader>& shader,
-        const std::shared_ptr<BlendState>& blendState,
-        const std::shared_ptr<DepthState>& depthState,
-        CullMode cullMode,
-        bool stencilEnabled,
-        const std::shared_ptr<StencilParameters>& stencilFront,
-        const std::shared_ptr<StencilParameters>& stencilBack,
-        const std::span<const VkFormat> colorFormats,
-        VkFormat depthFormat,
-        VkSampleCountFlagBits samples,
-        bool isSkybox)
+    VulkanRenderPipeline::OwnedDesc::OwnedDesc(const VulkanPipelineDesc& source, VulkanPipelineOwners sourceOwners)
+        : scalars(source), owners(std::move(sourceOwners)), colorFormatCount(source.colorFormats.size())
     {
-        if (!shader || colorFormats.size() > kMaxKeyColorFormats) {
+        auto copyOf = [](const auto* state) {
+            using State = std::remove_cvref_t<decltype(*state)>;
+            return state ? std::make_shared<State>(*state) : nullptr;
+        };
+        blendState = copyOf(source.blendState);
+        depthState = copyOf(source.depthState);
+        stencilFront = copyOf(source.stencilFront);
+        stencilBack = copyOf(source.stencilBack);
+        std::copy(source.colorFormats.begin(), source.colorFormats.end(), colorFormats.begin());
+    }
+
+    VulkanPipelineDesc VulkanRenderPipeline::OwnedDesc::desc() const
+    {
+        VulkanPipelineDesc result = scalars;
+        result.shader = owners.shader.get();
+        result.vertexFormat = owners.vertexFormat.get();
+        result.instanceFormat = owners.instanceFormat.get();
+        result.blendState = blendState.get();
+        result.depthState = depthState.get();
+        result.stencilFront = stencilFront.get();
+        result.stencilBack = stencilBack.get();
+        result.colorFormats = std::span<const VkFormat>(colorFormats.data(), colorFormatCount);
+        return result;
+    }
+
+    void VulkanRenderPipeline::request(const VulkanPipelineDesc& desc, VulkanPipelineOwners owners)
+    {
+        if (!desc.shader || desc.colorFormats.size() > kMaxKeyColorFormats) {
             return;
         }
         PipelineKey key;
-        const uint64_t hash = makeKey(key, primitive, vertexFormat, instanceFormat, shader, blendState, depthState,
-            cullMode, stencilEnabled, stencilFront, stencilBack, colorFormats, depthFormat, samples, isSkybox);
+        const uint64_t hash = makeKey(key, desc);
         if (find(hash, key)) {
             return;   // built, or building
         }
@@ -667,20 +652,8 @@ namespace visutwin::canvas
         _device->notePipelineCreated();
 
         // The job owns copies of everything it reads: the states may change on this thread.
-        std::array<VkFormat, kMaxKeyColorFormats> formats{};
-        std::copy(colorFormats.begin(), colorFormats.end(), formats.begin());
-        const size_t formatCount = colorFormats.size();
-        auto copyOf = [](const auto& state) {
-            using State = typename std::decay_t<decltype(state)>::element_type;
-            return state ? std::make_shared<State>(*state) : nullptr;
-        };
-        _compileQueue->submit([this, entry, primitive, vertexFormat, instanceFormat, shader,
-                blend = copyOf(blendState), depth = copyOf(depthState), cullMode, stencilEnabled,
-                front = copyOf(stencilFront), back = copyOf(stencilBack), formats, formatCount, depthFormat,
-                samples, isSkybox] {
-            const VkPipeline pipeline = create(primitive, vertexFormat, instanceFormat, shader, blend, depth,
-                cullMode, stencilEnabled, front, back, std::span<const VkFormat>(formats.data(), formatCount),
-                depthFormat, samples, isSkybox);
+        _compileQueue->submit([this, entry, owned = OwnedDesc(desc, std::move(owners))] {
+            const VkPipeline pipeline = create(owned.desc());
             entry->pipeline.store(pipeline, std::memory_order_release);
             {
                 const std::lock_guard lock(_readyMutex);
@@ -690,21 +663,21 @@ namespace visutwin::canvas
         });
     }
 
-    VkPipeline VulkanRenderPipeline::create(const Primitive& primitive,
-        const std::shared_ptr<VertexFormat>& vertexFormat,
-        const std::shared_ptr<VertexFormat>& instanceFormat,
-        const std::shared_ptr<VulkanShader>& shader,
-        const std::shared_ptr<BlendState>& blendState,
-        const std::shared_ptr<DepthState>& depthState,
-        CullMode cullMode,
-        bool stencilEnabled,
-        const std::shared_ptr<StencilParameters>& stencilFront,
-        const std::shared_ptr<StencilParameters>& stencilBack,
-        const std::span<const VkFormat> colorFormats,
-        VkFormat depthFormat,
-        VkSampleCountFlagBits samples,
-        bool isSkybox)
+    VkPipeline VulkanRenderPipeline::create(const VulkanPipelineDesc& desc)
     {
+        const VertexFormat* vertexFormat = desc.vertexFormat;
+        const VertexFormat* instanceFormat = desc.instanceFormat;
+        VulkanShader* shader = desc.shader;
+        const BlendState* blendState = desc.blendState;
+        const DepthState* depthState = desc.depthState;
+        StencilParameters* stencilFront = desc.stencilFront;
+        StencilParameters* stencilBack = desc.stencilBack;
+        const std::span<const VkFormat> colorFormats = desc.colorFormats;
+        const CullMode cullMode = desc.cullMode;
+        const bool stencilEnabled = desc.stencilEnabled;
+        const VkFormat depthFormat = desc.depthFormat;
+        const VkSampleCountFlagBits samples = desc.samples;
+        const bool isSkybox = desc.isSkybox;
         VkDevice vk = _device->device();
 
         // Use the instanced vertex stage only when the draw carries a
@@ -713,7 +686,7 @@ namespace visutwin::canvas
             shader->instancedVertexModule() != VK_NULL_HANDLE;
         const bool useSky = isSkybox && shader->skyVertexModule() != VK_NULL_HANDLE;
         const bool usePoint = !useSky && !instanced &&
-            primitive.type == PRIMITIVE_POINTS &&
+            desc.primitiveType == PRIMITIVE_POINTS &&
             hasSemantic(vertexFormat, VertexSemantic::SEMANTIC_COLOR) &&
             shader->pointVertexModule() != VK_NULL_HANDLE;
         const bool useColor = !useSky && !instanced && !usePoint &&
@@ -801,7 +774,7 @@ namespace visutwin::canvas
         // declares is a validation warning (the shadow program's entries read the position and
         // UVs of a format that also carries the normal and tangent). Unknown: declare them all.
         const std::optional<uint64_t> consumedLocations = shader->vertexInputLocations(vertModule);
-        auto appendFormat = [&](const std::shared_ptr<VertexFormat>& format,
+        auto appendFormat = [&](const VertexFormat* format,
                                 const uint32_t binding,
                                 const VkVertexInputRate inputRate) {
             if (!format || format->size() <= 0 || format->elements().empty()) {
@@ -849,10 +822,10 @@ namespace visutwin::canvas
 
         // --- Input assembly ---
         VkPipelineInputAssemblyStateCreateInfo inputAssembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-        inputAssembly.topology = vulkanMapPrimitiveType(primitive.type);
+        inputAssembly.topology = vulkanMapPrimitiveType(desc.primitiveType);
         inputAssembly.primitiveRestartEnable =
-            primitive.type == PRIMITIVE_LINESTRIP ||
-            primitive.type == PRIMITIVE_TRISTRIP;
+            desc.primitiveType == PRIMITIVE_LINESTRIP ||
+            desc.primitiveType == PRIMITIVE_TRISTRIP;
 
         // --- Viewport (dynamic) ---
         VkPipelineViewportStateCreateInfo viewportState{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
@@ -989,7 +962,7 @@ namespace visutwin::canvas
         // color attachment list as VkRenderingInfo. The shader may write only
         // a subset of locations; unwritten attachments retain their load value.
         std::vector<VkPipelineColorBlendAttachmentState> blendAttachments(
-            colorFormats.size(), attachmentState(blendState.get()));
+            colorFormats.size(), attachmentState(blendState));
         for (size_t i = 1; independent && i < blendAttachments.size(); ++i) {
             const BlendState state = blendState->attachment(static_cast<int>(i));
             blendAttachments[i] = attachmentState(&state);

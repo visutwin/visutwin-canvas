@@ -99,6 +99,12 @@ struct vt_engine
     };
     std::unordered_map<uint64_t, Offscreen> offscreen;
 
+    // renderMaterials and offscreen belong to one COMPONENT, not to the entity: these clear an
+    // entry when its component goes, by whatever path (vt_component_remove, the entity
+    // destroyed, a script), so a component added again starts without its predecessor's state.
+    visutwin::canvas::EventHandlePtr renderRemoved;
+    visutwin::canvas::EventHandlePtr cameraRemoved;
+
     // The environment atlas the scene lights with, which it holds by raw pointer.
     std::shared_ptr<void> environment;
 
@@ -446,15 +452,6 @@ namespace
         return VT_OK;
     }
 
-    // Every entity id of a subtree, the root of it included.
-    void collectSubtree(GraphNode* node, std::vector<uint64_t>& ids)
-    {
-        if (const auto* entity = dynamic_cast<const Entity*>(node)) {
-            ids.push_back(entity->id().value);
-        }
-        node->forEachChild([&](GraphNode* child) { collectSubtree(child, ids); });
-    }
-
     void startIfNeeded(vt_engine* engine)
     {
         if (!engine->started) {
@@ -472,6 +469,10 @@ namespace
         // hold the engine itself, so without it the last reference dropped here frees nothing.
         // The picker draws through the engine: it goes first.
         engine->picker.reset();
+        if (engine->renderRemoved) {
+            engine->renderRemoved->off();
+            engine->cameraRemoved->off();
+        }
         if (engine->engine) {
             engine->engine->destroy();
         }
@@ -640,6 +641,14 @@ vt_status vt_engine_create(const vt_engine_desc* desc, vt_engine** out)
 
         engine->engine = std::make_shared<Engine>(engine->window);
         engine->engine->init(appOptions);
+        {
+            vt_engine* owner = engine.get();
+            const auto systems = engine->engine->systems();
+            engine->renderRemoved = systems->getById("render")->on("beforeremove",
+                [owner](Entity* entity, Component*) { owner->renderMaterials.erase(entity->id().value); });
+            engine->cameraRemoved = systems->getById("camera")->on("beforeremove",
+                [owner](Entity* entity, Component*) { owner->offscreen.erase(entity->id().value); });
+        }
         if (engine->window) {
             engine->engine->setCanvasFillMode(FillMode::FILLMODE_FILL_WINDOW);
             engine->engine->setCanvasResolution(ResolutionMode::RESOLUTION_AUTO);
@@ -910,12 +919,7 @@ vt_status vt_entity_destroy(vt_engine* engine, const vt_entity id)
         if (entity == engine->engine->root() || !entity->parent()) {
             return fail(VT_ERROR_INVALID_STATE, "the root cannot be destroyed");
         }
-        std::vector<uint64_t> subtree;
-        collectSubtree(entity, subtree);
-        for (const uint64_t gone : subtree) {
-            engine->renderMaterials.erase(gone);
-            engine->offscreen.erase(gone);
-        }
+        // destroy() releases every component through its system, which clears its state here.
         entity->destroy();
         // The parent owned it; taking it back frees it and everything below it.
         std::unique_ptr<GraphNode> owned = entity->parent()->removeChild(entity);
@@ -1521,15 +1525,16 @@ vt_status vt_mesh_update(vt_engine* engine, const vt_resource id, const vt_mesh_
         if (const vt_status status = vertexGeometry(d, resource->indices, geometry); status != VT_OK) {
             return status;
         }
-        const std::shared_ptr<Mesh> rebuilt = createMeshFromGeometry(engine->device, geometry);
-        if (!rebuilt) {
-            return fail(VT_ERROR_INTERNAL, "the mesh could not be rebuilt");
+        // Only the vertices: the mesh keeps its index buffer, whose triangles did not change.
+        GeometryVertexBuffer vertices = createGeometryVertexBuffer(engine->device, geometry);
+        if (!vertices.vertexBuffer) {
+            return fail(VT_ERROR_INTERNAL, "the mesh's vertices could not be rebuilt");
         }
         // A new vertex buffer into the same mesh, so every instance drawing it follows; the old
         // buffer is freed once the frames still drawing it are done (both backends defer it).
         auto* mesh = static_cast<Mesh*>(resource->target);
-        mesh->setVertexBuffer(rebuilt->getVertexBuffer());
-        mesh->setAabb(rebuilt->aabb());
+        mesh->setVertexBuffer(std::move(vertices.vertexBuffer));
+        mesh->setAabb(vertices.aabb);
         return VT_OK;
     });
 }
@@ -1804,6 +1809,9 @@ vt_status vt_camera_read_pixels(vt_engine* engine, const vt_entity id, uint8_t* 
         Entity* entity = nullptr;
         if (const vt_status status = findEntity(engine, id, entity); status != VT_OK) {
             return status;
+        }
+        if (!entity->findComponent<CameraComponent>()) {
+            return fail(VT_ERROR_NO_TARGET, "entity " + std::to_string(id) + " has no camera");
         }
         const auto it = engine->offscreen.find(id);
         if (it == engine->offscreen.end()) {

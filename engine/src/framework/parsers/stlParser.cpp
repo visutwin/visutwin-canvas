@@ -620,49 +620,7 @@ namespace visutwin::canvas
         auto vertexFormat = std::make_shared<VertexFormat>(
             BYTES_PER_VERTEX, VertexFormat::standardElements(), true, false);
 
-        const int vertexCount = static_cast<int>(vertices.size());
-        std::vector<uint8_t> vertexBytes(vertices.size() * sizeof(PackedVertex));
-        std::memcpy(vertexBytes.data(), vertices.data(), vertexBytes.size());
-
-        VertexBufferOptions vbOpts;
-        vbOpts.usage = BUFFER_STATIC;
-        vbOpts.data = std::move(vertexBytes);
-        auto vb = device->createVertexBuffer(vertexFormat, vertexCount, vbOpts);
-
-        const int indexCount = static_cast<int>(indices.size());
-        IndexFormat idxFmt = (vertexCount <= 65535) ? INDEXFORMAT_UINT16 : INDEXFORMAT_UINT32;
-
-        std::vector<uint8_t> indexBytes;
-        if (idxFmt == INDEXFORMAT_UINT16) {
-            indexBytes.resize(indices.size() * sizeof(uint16_t));
-            auto* dst = reinterpret_cast<uint16_t*>(indexBytes.data());
-            for (size_t i = 0; i < indices.size(); ++i) {
-                dst[i] = static_cast<uint16_t>(indices[i]);
-            }
-        } else {
-            indexBytes.resize(indices.size() * sizeof(uint32_t));
-            std::memcpy(indexBytes.data(), indices.data(), indexBytes.size());
-        }
-        auto ib = device->createIndexBuffer(idxFmt, indexCount, indexBytes);
-
-        // ── Assemble Mesh ────────────────────────────────────────────────
-
-        auto meshResource = std::make_shared<Mesh>();
-        meshResource->setVertexBuffer(vb);
-        meshResource->setIndexBuffer(ib, 0);
-
-        Primitive prim;
-        prim.type = PRIMITIVE_TRIANGLES;
-        prim.base = 0;
-        prim.baseVertex = 0;
-        prim.count = indexCount;
-        prim.indexed = true;
-        meshResource->setPrimitive(prim, 0);
-
-        BoundingBox bounds;
-        bounds.setCenter((minPos + maxPos) * 0.5f);
-        bounds.setHalfExtents((maxPos - minPos) * 0.5f);
-        meshResource->setAabb(bounds);
+        auto meshResource = createPackedMesh(*device, vertexFormat, vertices, indices, minPos, maxPos);
 
         // ── Create default PBR material ──────────────────────────────────
 

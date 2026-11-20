@@ -2914,7 +2914,9 @@ present, but the rule below never depends on reading it.
   one wires itself to a sibling that had to exist first. Never iterate an
   `unordered_map` here: the order would vary per run.
 - **Component systems emit `add` / `beforeremove` / `remove`, and
-  `removeComponent(Entity*)` is the way to take a component away.** A system that
+  `removeComponent(Entity*)` is the way to take a component away.** `Entity::removeComponent<T>()`
+  goes through the owning system too (the property table's and the C API's removal did not,
+  and the C API's per-component state outlived it). A system that
   needs its own bookkeeping on destruction must not declare an overload named
   `removeComponent` — that hides the virtual (`ScriptComponentSystem` calls its
   one `unregisterComponent` for exactly this reason).

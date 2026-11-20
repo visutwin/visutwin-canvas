@@ -611,49 +611,8 @@ namespace visutwin::canvas
         std::shared_ptr<Mesh> createObjMesh(GraphicsDevice& device, const std::shared_ptr<VertexFormat>& vertexFormat,
             const GroupGeometry& geometry)
         {
-            const int vertexCount = static_cast<int>(geometry.vertices.size());
-            std::vector<uint8_t> vertexBytes(geometry.vertices.size() * sizeof(PackedVertex));
-            std::memcpy(vertexBytes.data(), geometry.vertices.data(), vertexBytes.size());
-
-            VertexBufferOptions vbOpts;
-            vbOpts.usage = BUFFER_STATIC;
-            vbOpts.data = std::move(vertexBytes);
-            auto vb = device.createVertexBuffer(vertexFormat, vertexCount, vbOpts);
-
-            const int indexCount = static_cast<int>(geometry.indices.size());
-            // Use uint16 for small meshes, uint32 for large
-            const IndexFormat idxFmt = (vertexCount <= 65535) ? INDEXFORMAT_UINT16 : INDEXFORMAT_UINT32;
-
-            std::vector<uint8_t> indexBytes;
-            if (idxFmt == INDEXFORMAT_UINT16) {
-                indexBytes.resize(geometry.indices.size() * sizeof(uint16_t));
-                auto* dst = reinterpret_cast<uint16_t*>(indexBytes.data());
-                for (size_t i = 0; i < geometry.indices.size(); ++i) {
-                    dst[i] = static_cast<uint16_t>(geometry.indices[i]);
-                }
-            } else {
-                indexBytes.resize(geometry.indices.size() * sizeof(uint32_t));
-                std::memcpy(indexBytes.data(), geometry.indices.data(), indexBytes.size());
-            }
-            auto ib = device.createIndexBuffer(idxFmt, indexCount, indexBytes);
-
-            auto meshResource = std::make_shared<Mesh>();
-            meshResource->setVertexBuffer(vb);
-            meshResource->setIndexBuffer(ib, 0);
-
-            Primitive prim;
-            prim.type = PRIMITIVE_TRIANGLES;
-            prim.base = 0;
-            prim.baseVertex = 0;
-            prim.count = indexCount;
-            prim.indexed = true;
-            meshResource->setPrimitive(prim, 0);
-
-            BoundingBox bounds;
-            bounds.setCenter((geometry.minPos + geometry.maxPos) * 0.5f);
-            bounds.setHalfExtents((geometry.maxPos - geometry.minPos) * 0.5f);
-            meshResource->setAabb(bounds);
-            return meshResource;
+            return createPackedMesh(device, vertexFormat, geometry.vertices, geometry.indices, geometry.minPos,
+                geometry.maxPos);
         }
 
         /// Adds one mesh payload per material group of the shape and returns their

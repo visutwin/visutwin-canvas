@@ -9,16 +9,21 @@
 // (formatIsPackedVertexLayout in batchSplit.h is the guard on that cast), so the writers
 // and the merge cannot disagree about it.
 //
-// The tangent helpers the parsers share (generateTangents, tangentFromNormal) live here too,
-// for the same reason.
+// The tangent helpers the parsers share (generateTangents, tangentFromNormal) and the upload
+// of a packed mesh (createPackedMesh) live here too, for the same reason.
 //
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace visutwin::canvas
 {
+    class GraphicsDevice;
+    class Mesh;
+    struct Vector3;
+    class VertexFormat;
     struct PackedVertex
     {
         float px, py, pz;       // position
@@ -43,4 +48,14 @@ namespace visutwin::canvas
 
     /// A tangent perpendicular to the normal, for a vertex with no UVs (handedness 1).
     void tangentFromNormal(float nx, float ny, float nz, float& tx, float& ty, float& tz, float& tw);
+
+    /**
+     * The GPU mesh of packed vertices and a triangle list: a static vertex buffer in `format`
+     * (a 56-byte PackedVertex layout), an index buffer of 16-bit indices when every vertex fits
+     * and 32-bit otherwise, one indexed triangle-list primitive, and the bounds [minPos, maxPos].
+     * Decoding, winding, normals, tangents and the bounds policy stay the parser's.
+     */
+    std::shared_ptr<Mesh> createPackedMesh(GraphicsDevice& device, const std::shared_ptr<VertexFormat>& format,
+        const std::vector<PackedVertex>& vertices, const std::vector<uint32_t>& indices,
+        const Vector3& minPos, const Vector3& maxPos);
 }

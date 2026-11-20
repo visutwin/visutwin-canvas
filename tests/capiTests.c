@@ -417,7 +417,14 @@ int main(void)
             vt_frame(engine, 1.0f / 60.0f, NULL) == VT_OK &&
             vt_camera_read_pixels(engine, offscreenCamera, image, sizeof(image), &w, &h) == VT_ERROR_UNSUPPORTED,
             "the null backend renders it but has no pixels to give");
-        check(vt_camera_set_offscreen(engine, offscreenCamera, 0, 0) == VT_OK &&
+        check(vt_component_remove(engine, offscreenCamera, "camera") == VT_OK &&
+            vt_camera_read_pixels(engine, offscreenCamera, NULL, 0, &w, &h) == VT_ERROR_NO_TARGET,
+            "its camera removed, the entity has no image to read");
+        check(vt_component_add(engine, offscreenCamera, "camera") == VT_OK &&
+            vt_camera_read_pixels(engine, offscreenCamera, NULL, 0, &w, &h) == VT_ERROR_INVALID_STATE,
+            "and a camera added again renders to the window, not to the removed one's image");
+        check(vt_camera_set_offscreen(engine, offscreenCamera, 4, 3) == VT_OK &&
+            vt_camera_set_offscreen(engine, offscreenCamera, 0, 0) == VT_OK &&
             vt_entity_destroy(engine, offscreenCamera) == VT_OK, "and it goes back to the window");
     }
 

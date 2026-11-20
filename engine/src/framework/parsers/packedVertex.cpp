@@ -3,13 +3,18 @@
 //
 // Created by Arnis Lektauers on 30.09.2026
 //
-// The parsers' shared tangent helpers (see packedVertex.h).
+// The parsers' shared tangent helpers and packed mesh upload (see packedVertex.h).
 //
 #include "packedVertex.h"
 
 #include <cmath>
+#include <cstring>
 
 #include "core/math/vector3.h"
+#include "core/shape/boundingBox.h"
+#include "platform/graphics/graphicsDevice.h"
+#include "platform/graphics/vertexFormat.h"
+#include "scene/mesh.h"
 
 namespace visutwin::canvas
 {
@@ -99,5 +104,52 @@ namespace visutwin::canvas
         ty = t.getY();
         tz = t.getZ();
         tw = 1.0f;
+    }
+
+    std::shared_ptr<Mesh> createPackedMesh(GraphicsDevice& device, const std::shared_ptr<VertexFormat>& format,
+        const std::vector<PackedVertex>& vertices, const std::vector<uint32_t>& indices,
+        const Vector3& minPos, const Vector3& maxPos)
+    {
+        const int vertexCount = static_cast<int>(vertices.size());
+        std::vector<uint8_t> vertexBytes(vertices.size() * sizeof(PackedVertex));
+        std::memcpy(vertexBytes.data(), vertices.data(), vertexBytes.size());
+
+        VertexBufferOptions vbOpts;
+        vbOpts.usage = BUFFER_STATIC;
+        vbOpts.data = std::move(vertexBytes);
+        auto vb = device.createVertexBuffer(format, vertexCount, vbOpts);
+
+        const int indexCount = static_cast<int>(indices.size());
+        const IndexFormat indexFormat = vertexCount <= 65535 ? INDEXFORMAT_UINT16 : INDEXFORMAT_UINT32;
+        std::vector<uint8_t> indexBytes;
+        if (indexFormat == INDEXFORMAT_UINT16) {
+            indexBytes.resize(indices.size() * sizeof(uint16_t));
+            auto* dst = reinterpret_cast<uint16_t*>(indexBytes.data());
+            for (size_t i = 0; i < indices.size(); ++i) {
+                dst[i] = static_cast<uint16_t>(indices[i]);
+            }
+        } else {
+            indexBytes.resize(indices.size() * sizeof(uint32_t));
+            std::memcpy(indexBytes.data(), indices.data(), indexBytes.size());
+        }
+        auto ib = device.createIndexBuffer(indexFormat, indexCount, indexBytes);
+
+        auto mesh = std::make_shared<Mesh>();
+        mesh->setVertexBuffer(vb);
+        mesh->setIndexBuffer(ib, 0);
+
+        Primitive primitive;
+        primitive.type = PRIMITIVE_TRIANGLES;
+        primitive.base = 0;
+        primitive.baseVertex = 0;
+        primitive.count = indexCount;
+        primitive.indexed = true;
+        mesh->setPrimitive(primitive, 0);
+
+        BoundingBox bounds;
+        bounds.setCenter((minPos + maxPos) * 0.5f);
+        bounds.setHalfExtents((maxPos - minPos) * 0.5f);
+        mesh->setAabb(bounds);
+        return mesh;
     }
 }
