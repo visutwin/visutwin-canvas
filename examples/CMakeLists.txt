@@ -199,7 +199,7 @@ visutwin_add_example(lights-and-shadows shadow-cascades)
 visutwin_add_example(lights-and-shadows shadow-catcher)
 visutwin_add_example(lights-and-shadows shadow-soft)
 
-visutwin_add_example(loaders draco-glb)
+visutwin_add_example(loaders compressed-meshes)
 visutwin_add_example(loaders glb)
 visutwin_add_example(loaders obj)
 

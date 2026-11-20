@@ -38,6 +38,17 @@ models/carbon-sphere.glb
   Author:   Random13
   License:  CC-BY 4.0
 
+models/stanford-dragon.glb, stanford-dragon-meshopt.glb, stanford-dragon-draco.glb
+  Original: Stanford Dragon (dragon_vrip_res2.ply), smoothed, centred and given a
+            material; the two compressed files are made from the first
+  Source:   https://graphics.stanford.edu/data/3Dscanrep/
+  Author:   Stanford University Computer Graphics Laboratory
+  License:  The Stanford 3D Scanning Repository terms: the source must be
+            acknowledged; free for research and to redistribute for free; NOT for
+            commercial use, or in a product for sale, without Stanford's permission;
+            the dragon must not be animated, morphed, put through Boolean operations,
+            or shown breaking, exploding or melting (see models/stanford-dragon.txt)
+
 models/SheenChair.glb
   Original: SheenChair
   Source:   https://github.com/KhronosGroup/glTF-Sample-Models/tree/master/2.0/SheenChair

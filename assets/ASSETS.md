@@ -163,8 +163,14 @@ Mirrored from the upstream examples (for visual parity):
 - `chess-board.glb` — Chess Board by Idmental, Sketchfab (**CC-BY 4.0**, see .txt)
 - `carbon-sphere.glb` — CARBON 60 SPHERE by Random13, Sketchfab (**CC-BY 4.0**, see .txt),
   byte-identical to upstream's copy. Used by `volumetric-fog-shafts`.
-- `heart_draco.glb` — a Draco-compressed heart, byte-identical to upstream's example
-  asset (no recorded licence — see THIRD_PARTY_NOTICES). Used by `draco-glb`.
+- `heart_draco.glb` — a Draco-compressed heart, byte-identical to a former upstream example
+  asset (no recorded licence — see THIRD_PARTY_NOTICES). Used by the C API test
+  (`tests/capiTests.c`).
+- `stanford-dragon.glb`, `stanford-dragon-meshopt.glb`, `stanford-dragon-draco.glb` — the
+  Stanford dragon uncompressed, meshopt- and Draco-compressed, byte-identical to upstream's
+  (**Stanford 3D Scanning Repository terms: acknowledge the source, no commercial use
+  without permission, do not animate, morph or break it** — see .txt). Used by
+  `compressed-meshes`.
 - `simple-instancing.glb` — an `EXT_mesh_gpu_instancing` sample (JglTF), byte-identical to
   upstream's (no recorded licence). Used by `instancing-glb`.
 - `monkey.obj` — Blender's Suzanne exported as OBJ, byte-identical to upstream's (its

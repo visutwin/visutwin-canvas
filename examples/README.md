@@ -275,7 +275,7 @@ original scenes, marked *original*, sit in the category nearest to what they sho
 
 | Example | Description |
 |---------|-------------|
-| draco-glb | A Draco-compressed glTF |
+| compressed-meshes | One mesh uncompressed, meshopt- and Draco-compressed, labelled with size and counts |
 | glb | A GLB carrying meshes, lights and cameras |
 | obj | An OBJ file through the OBJ parser |
 
