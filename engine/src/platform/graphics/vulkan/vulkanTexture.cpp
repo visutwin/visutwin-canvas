@@ -62,7 +62,7 @@ namespace visutwin::canvas::gpu
         if (_deviceRef) {
             _deviceRef->cancelReadbacks(this);
             _deviceRef->deferDestroy(
-                [vkDevice = _vkDevice, allocator = _allocator, image = _image,
+                [vkDevice = _vkDevice, allocator = _allocator, image = _externalImage ? VkImage{VK_NULL_HANDLE} : _image,
                  allocation = _allocation, view = _imageView, sampler = _sampler] {
                     if (vkDevice != VK_NULL_HANDLE) {
                         if (sampler != VK_NULL_HANDLE) vkDestroySampler(vkDevice, sampler, nullptr);
@@ -82,7 +82,7 @@ namespace visutwin::canvas::gpu
                 _imageView = VK_NULL_HANDLE;
             }
         }
-        if (_allocator != VK_NULL_HANDLE && _image != VK_NULL_HANDLE) {
+        if (_allocator != VK_NULL_HANDLE && _image != VK_NULL_HANDLE && !_externalImage) {
             vmaDestroyImage(_allocator, _image, _allocation);
             _image = VK_NULL_HANDLE;
             _allocation = VK_NULL_HANDLE;
@@ -440,14 +440,17 @@ namespace visutwin::canvas::gpu
             return;
         }
         _deviceRef->deferDestroy(
-            [vkDevice = _vkDevice, allocator = _allocator,
+            [vkDevice = _vkDevice, allocator = _allocator, external = _externalImage,
              oldImage = _image, oldAllocation = _allocation, oldView = _imageView, oldSampler = _sampler] {
                 if (oldSampler != VK_NULL_HANDLE)
                     vkDestroySampler(vkDevice, oldSampler, nullptr);
                 if (oldView != VK_NULL_HANDLE)
                     vkDestroyImageView(vkDevice, oldView, nullptr);
-                vmaDestroyImage(allocator, oldImage, oldAllocation);
+                if (!external) {
+                    vmaDestroyImage(allocator, oldImage, oldAllocation);
+                }
             });
+        _externalImage = false;
         _image = VK_NULL_HANDLE;
         _allocation = VK_NULL_HANDLE;
         _imageView = VK_NULL_HANDLE;
@@ -642,11 +645,53 @@ namespace visutwin::canvas::gpu
             _imageView = VK_NULL_HANDLE;
         }
         if (_image != VK_NULL_HANDLE) {
-            vmaDestroyImage(_allocator, _image, _allocation);
+            if (!_externalImage) {
+                vmaDestroyImage(_allocator, _image, _allocation);
+            }
             _image = VK_NULL_HANDLE;
             _allocation = VK_NULL_HANDLE;
+            _externalImage = false;
         }
         _subresourceLayouts.clear();
+    }
+
+    bool VulkanTexture::adoptExternalImage(VulkanGraphicsDevice* device, const VkImage image,
+        const VkFormat viewFormat, const VkImageLayout layout)
+    {
+        if (!device || image == VK_NULL_HANDLE) {
+            return false;
+        }
+        _deviceRef = device;
+        _deviceAlive = device->aliveToken();
+        _vkDevice = device->device();
+        _allocator = device->vmaAllocator();
+        retireImage();
+
+        _image = image;
+        _allocation = VK_NULL_HANDLE;
+        _externalImage = true;
+        _format = viewFormat;
+        _aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+        _arrayLayers = 1;
+        _mipLevels = 1;
+        _supportsLinearBlit = false;
+        _supportsLinearSampling = true;
+        _supportsColorAttachment = true;
+        _subresourceLayouts.assign(1, layout);
+        // A failed view or sampler lets go of the image without destroying it.
+        if (!createImageView() || !createSampler(device, _sampler)) {
+            releaseImageResources();
+            return false;
+        }
+        // An upload of the owner later finds its own shape here and leaves the image alone.
+        _imageShape = currentShape();
+        _owner->noteGpuObjectChanged();
+        return true;
+    }
+
+    void VulkanTexture::noteExternalLayout(const VkImageLayout layout)
+    {
+        std::fill(_subresourceLayouts.begin(), _subresourceLayouts.end(), layout);
     }
 
     VkImageLayout VulkanTexture::layout(

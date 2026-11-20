@@ -64,6 +64,19 @@ namespace visutwin::canvas::gpu
         void transitionLayout(VkCommandBuffer commandBuffer, VkImageLayout newLayout,
             uint32_t baseMipLevel = 0, uint32_t levelCount = VK_REMAINING_MIP_LEVELS,
             uint32_t baseArrayLayer = 0, uint32_t layerCount = VK_REMAINING_ARRAY_LAYERS);
+        /// Makes the texture a wrapper of an image something else owns (an OpenXR runtime's
+        /// swapchain image): one level, one layer, colour, viewed as `viewFormat`, which may
+        /// be the linear twin of the format the image was created with when it was created
+        /// for mutable formats. The image is never destroyed here; whatever image the
+        /// texture had is retired. `layout` is the layout the image is in now. A render
+        /// target already built over the texture has to refresh its attachments afterwards.
+        bool adoptExternalImage(VulkanGraphicsDevice* device, VkImage image, VkFormat viewFormat,
+            VkImageLayout layout);
+        /// Tells the layout tracker what layout an adopted image is in, after its owner had
+        /// it (a swapchain image as it is acquired).
+        void noteExternalLayout(VkImageLayout layout);
+        [[nodiscard]] bool externalImage() const { return _externalImage; }
+
         /// The texture this is the GPU side of.
         Texture* owner() const { return _owner; }
         bool generateMipmaps(VkCommandBuffer commandBuffer,
@@ -104,6 +117,9 @@ namespace visutwin::canvas::gpu
         VmaAllocator _allocator = VK_NULL_HANDLE;
         VkImage _image = VK_NULL_HANDLE;
         VmaAllocation _allocation = VK_NULL_HANDLE;
+        // The image belongs to something else: its view and sampler are this texture's, the
+        // image is never destroyed here.
+        bool _externalImage = false;
         VkImageView _imageView = VK_NULL_HANDLE;
         VkSampler _sampler = VK_NULL_HANDLE;
         VkFormat _format = VK_FORMAT_UNDEFINED;

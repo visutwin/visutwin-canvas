@@ -10,7 +10,7 @@
         "CMAKE_CXX_STANDARD": "23",
         "CMAKE_BUILD_TYPE": "Debug",
         "VISUTWIN_BUILD_EXAMPLES": "OFF",
-        "VCPKG_MANIFEST_FEATURES": "jolt"
+        "VCPKG_MANIFEST_FEATURES": "jolt;openxr"
       }
     },
     {

@@ -41,7 +41,7 @@ visutwin-canvas/
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
   capi/            # The C API: include/visutwin/visutwin.h (C99), the visutwin_canvas_c shared library, a C example
-  examples/        # 199 example applications derived from ExampleApp, in src/<category>/<name>.cpp named as upstream's: upstream ports + three original scenes (camera-frame/ambient-occlusion-davinci, graphics/order-independent-transparency, graphics/visibility-range)
+  examples/        # 200 example applications derived from ExampleApp, in src/<category>/<name>.cpp named as upstream's: upstream ports + three original scenes (camera-frame/ambient-occlusion-davinci, graphics/order-independent-transparency, graphics/visibility-range)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
   tools/           # Build/utility scripts
@@ -77,6 +77,14 @@ cmake --build --preset default
 ctest --preset default
 ```
 
+- **`VISUTWIN_XR_OPENXR` (ON) builds the OpenXR backend when the loader is found**: the
+  `openxr` vcpkg feature (`openxr-loader`), which the `default` preset and the presets
+  inheriting it turn on. The `vulkan` preset does not (its feature list replaces the
+  default's, and the port is unverified on the Linux CI image), so a Vulkan tree configures
+  with a status line and `createOpenXrBackend()` returns null there; add `openxr` to its
+  `VCPKG_MANIFEST_FEATURES` to build it (`cmake -S . -B build-vulkan
+  -DVCPKG_MANIFEST_FEATURES="vulkan;jolt;openxr"`; on Linux the port also needs
+  `libxxf86vm-dev`, checked with GCC 14 on arm64 Ubuntu 24.04, warnings as errors).
 - **`VISUTWIN_BUILD_C_API` (ON on macOS and Linux, OFF on Windows) builds `capi/`**: the shared
   library `visutwin_canvas_c` over the static engine, exporting ONLY the `vt_*` functions of
   `capi/include/visutwin/visutwin.h` (`capi/exports.txt` for ld64, `exports.map` for GNU ld), and
@@ -255,6 +263,10 @@ ctest --preset default
 **Core:** SDL3 (3.4+), spdlog (1.17+, bundled fmt, `default-features: false`), tinyobjloader, tinygltf (header-only, use `find_path`), draco, meshoptimizer (glTF meshopt decoding only), libwebp (`default-features: false`, the decoder only: a glTF's `EXT_texture_webp` images), assimp, basisu (`basisu::basisu_encoder` — transcoder + encoder + CLI tool), boost-core
 
 **Vendored:** metal-cpp, stb
+
+**XR (`openxr` feature):** openxr-loader (with jsoncpp). `VISUTWIN_XR_OPENXR` (ON by
+default) degrades to a status line when the package is missing; the XR manager and the
+simulated backend are always built.
 
 **Physics (`jolt` feature):** joltphysics. `VISUTWIN_PHYSICS_JOLT` (ON by default)
 decides whether the Jolt-backed `PhysicsWorld` is compiled in; the seam itself is
@@ -931,6 +943,125 @@ systems follow. `createJoltPhysicsWorld()` returns the Jolt-backed one.
   so `joltPhysicsWorld.cpp` installs one.
 - Joint limits and motor speeds are authored in DEGREES for a hinge and metres for
   a slider, matching upstream; the component converts.
+
+## XR
+
+`framework/xr/`: `XrManager` runs a session on a camera, over an `XrBackend` the application
+supplies (the rule physics follows): `createOpenXrBackend()` for a headset through the
+system's OpenXR runtime, `SimulatedXrBackend` for a desk and for tests.
+
+    options.xr = std::make_shared<XrManager>(createOpenXrBackend());
+    // later, on a camera whose PARENT entity is the user's place in the world:
+    engine->xr()->start(cameraComponent, XrSessionOptions{});
+
+- **With no manager, or no session, nothing changes**: every XR call in the engine is behind
+  `_xr && _xr->active()`, and a frame without a multi-view camera renders exactly as before.
+- **The engine drives the session's frame from its own three calls**, so an application's
+  loop needs nothing new: `Engine::waitForNextFrame` waits for the runtime
+  (`XrManager::waitFrame`), `Engine::update` brings the views, the camera and the input up to
+  date BEFORE anything else updates (`XrManager::update`), and `Engine::render` takes the
+  frame's images before `frameStart` (`beginRender`) and hands the frame over after `frameEnd`
+  (`endRender`): the runtime may have an image back only once the GPU work drawing it is
+  submitted. A frame that was waited for is always begun and ended, drawn or not (no pose,
+  `shouldRender` false, a precompile frame): OpenXR requires the three calls to pair.
+- **A session's camera is a MULTI-VIEW camera** (`Camera::setViews`, `scene/cameraView.h`): a
+  list of views, each with its own projection, view matrix, viewport and RENDER TARGET.
+  `ForwardRenderer::addRenderActionPasses` adds the camera's block once per view, as forward
+  passes with `RenderPassForward::setView`, which set `GraphicsDevice::currentViewIndex` while
+  they run; `setupForwardView` reads the view by that index. Everything else happens ONCE for
+  the camera: the cull, for the union of the views' frusta (`buildCameraFrustum`,
+  `Frustum::add`), the sort, the directional shadows, and its `prerender` / `postrender`
+  events (the first view's passes fire the first, the last view's the second). Views never
+  share a target: each view's pass clears its own. A NEW path that draws for a camera and
+  builds a view or a frustum from the camera's node and projection must go through
+  `buildCameraFrustum` and the view list, or it draws the head's mono view in every eye.
+- **DEVIATION: a multi-view camera has no camera frame and no scene colour or depth grab**
+  (one warning): both are built around one view and one target. Its GPU instance culling is
+  off too (a multi-view camera gets no culled output and draws the whole instance buffer).
+  TAA history (`storeShaderMatrices`) keeps the first view's matrices only.
+- **The session's reference space is the PARENT of the camera's entity.** The manager writes
+  the head's pose as the camera entity's LOCAL transform every update and the views' world
+  matrices go through the parent; input sources answer world poses the same way. Move the
+  parent to move the user. While a session runs the camera's fov and aspect follow the first
+  view (aspect mode manual), and `end()` gives back the fov, aspect, aspect mode and local
+  transform it started with. A camera entity destroyed under a session ends it.
+- **Depth slices are views** (`XrSessionOptions::depthSlices`, the multifocal hook): each
+  eye is rendered N times, into N targets, with the eye's projection between two of the
+  `depthSliceBoundaries` (default: even steps in dioptres, `xrDepthSliceBoundaries`). Only the
+  FARTHEST slice of an eye is a `background` view; the others clear to transparent black and
+  draw no sky (`CameraView::background`: the sky sits at the far plane, which a slice's own
+  projection would not clip, so its matrix is collapsed for such a view). A backend gets
+  `views x slices` targets, a view's slices together, nearest first; OpenXR submits them as
+  projection layers, farthest first, blended by alpha. Nothing here knows a display's focal
+  planes: a multifocal backend takes the slices from `beginFrame` / `endFrame`.
+- **The forward pass writes GAMMA-encoded colour, so an OpenXR swapchain is an sRGB format
+  drawn through a LINEAR VIEW** (`XR_SWAPCHAIN_USAGE_MUTABLE_FORMAT_BIT`,
+  `OpenXrGraphics::chooseColorFormat`): the bytes are stored as written and the compositor
+  decodes them. Rendering into the sRGB format itself would encode twice. A new graphics
+  binding owes the same view.
+- **The OpenXR backend has a graphics binding per engine backend**
+  (`framework/xr/openxr/openXrGraphics.h`): Metal's (`XR_KHR_metal_enable`, under
+  `openxr/metal/`) and Vulkan's (`XR_KHR_vulkan_enable`, under `openxr/vulkan/`), each left
+  out of a build without its backend. `begin()` takes the one that knows the device.
+- **On Vulkan the runtime has a say in the device, BEFORE it is created.** Its compositor
+  shares the engine's `VkDevice`, so `XrBackend::configureGraphicsDevice(options)` fills
+  `GraphicsDeviceOptions::vulkanInstanceExtensions` / `vulkanDeviceExtensions` (enabled where
+  the driver has them, a warning where not) and `vulkanPhysicalDevice` (asked once the
+  instance exists; a device the backend cannot use falls back to the engine's choice with an
+  error). An application calls it on the options it then creates the device from
+  (`ExampleApp::configureDevice` is the examples' hook); a device created without it is
+  refused by `begin()` when it sits on another GPU than the runtime's. Metal needs nothing.
+- **A runtime's swapchain image is ADOPTED, not copied into**: Metal
+  `MetalTexture::setExternalTexture`, Vulkan `VulkanTexture::adoptExternalImage` (one level,
+  one layer, colour; the image is never destroyed by the texture, its view and sampler are).
+  On both the image is adopted AFTER its render target exists (building the first target over
+  a texture recreates the texture's own GPU image) and on Vulkan the target then takes new
+  views (`RenderTarget::refreshAttachments`). The Vulkan layout tracker is told what the
+  runtime hands over at each acquire (`noteExternalLayout`: a colour attachment) and the image
+  is put back into that layout before the frame is submitted: `XrBackend::finishFrame`, which
+  `Engine::render` calls between `postrender` and `frameEnd` (`XrManager::finishRender`),
+  the last point the frame's command buffer still records. A new graphics binding owes both.
+- **The linear view of an sRGB swapchain has to be ASKED FOR on Vulkan**
+  (`XR_KHR_vulkan_swapchain_format_list`, one of `kOpenXrOptionalExtensions`, chained into
+  the swapchain's create info with both formats): a mutable-format usage flag alone did not
+  make Monado create a mutable image, and a UNORM view of it is a validation error
+  (VUID-VkImageViewCreateInfo-image-01762). Without the extension the binding takes a LINEAR
+  swapchain format instead (valid, but a compositor may show it with the wrong gamma) and
+  says so. The swapchains also ask for transfer-source use, so a view can be read and copied.
+  Ubuntu 24.04's Monado (21.0 snapshot) has NO format-list extension, so the fallback is the
+  path that ran against it, clean under validation; the sRGB-through-a-view path is held only
+  by `tests/xrGpuTests.cpp`, on images the test creates mutable itself.
+- **On Apple platforms the OpenXR loader is linked as ONE prelinked object with only its
+  `xr*` symbols visible** (`engine/CMakeLists.txt`, `ld -r` with an exported-symbol filter,
+  archived into the engine library with its JSON library). vcpkg builds the loader WITHOUT
+  RTTI, so its static library holds weak, hidden copies of the standard exceptions' type
+  information, and ld64 binds an executable's own references to those copies: every
+  `catch (const std::exception&)` in a program that links it then misses what the C++ runtime
+  throws, and the exception goes uncaught (`vulkan-validation-smoke`'s injected failure
+  aborted; `tests/xrManagerTests.cpp` holds it now). Any other static library built
+  `-fno-rtti` with exceptions on is the same trap: check `nm -m <lib> | grep __ZTISt9exception`
+  for a definition before linking one into the engine. Elsewhere (ELF) the loader is a
+  plain public link dependency, and the port needs `libxxf86vm-dev` beside the GL and X11
+  packages CI already installs.
+- **The OpenXR backend has run against ONE runtime: Monado's simulated headset, Vulkan on
+  lavapipe, in an arm64 Linux container** (`tests/openXrRuntimeTests.cpp`, label `gpu`, which
+  passes as skipped where no runtime is active). There a session starts, frames are rendered
+  into the runtime's own images and both eyes hold the scene with the right stereo offset.
+  NOT run: any real headset, the Metal binding against a runtime, controllers (the simulated
+  headset has none), AR blend modes, more than one depth slice through a compositor.
+  `monado-service` wants a stdin it can poll (`sleep 100000 | monado-service`) and
+  `XRT_COMPOSITOR_NULL=1` without a display.
+- A program linking the static engine and calling `createOpenXrBackend()` on a Metal build
+  reaches the Metal device, so it needs the metal-cpp implementation unit (every example has
+  it; a unit test that touches the function carries its own, as `xrManagerTests.cpp` does).
+- The window stays what it was: its own swapchain, presented every frame, resizable. The
+  session mirrors its first view into it (`XrSessionOptions::mirror`, a pass among the
+  camera's after-passes, stretched to the window). On a headset the window's display sync
+  then paces the loop beside the runtime's: turn vsync off there
+  (`GraphicsDeviceOptions::vsync`; Vulkan still presents FIFO, an open item).
+- Not ported from upstream's XR: hit testing, anchors, plane and mesh detection, image
+  tracking, light estimation, hand joints, camera colour and depth, DOM overlay, and XR
+  select events on UI elements.
 
 ## Rendering Pipeline
 

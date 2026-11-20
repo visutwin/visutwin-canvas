@@ -219,6 +219,7 @@ visutwin_add_example(materials normals-and-tangents)
 visutwin_add_example(materials parallax-mapping)
 visutwin_add_example(materials transmission-roughness)
 
+visutwin_add_example(xr vr-basic)
 visutwin_add_example(misc annotations)
 visutwin_add_example(misc hello-world)
 

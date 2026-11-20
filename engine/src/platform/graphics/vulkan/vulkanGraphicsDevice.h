@@ -417,8 +417,8 @@ namespace visutwin::canvas
         // must be released explicitly.
         void cleanupPartialInitialization() noexcept;
 
-        void initInstance(SDL_Window* window);
-        void initDevice();
+        void initInstance(SDL_Window* window, const GraphicsDeviceOptions& options);
+        void initDevice(const GraphicsDeviceOptions& options);
         // initialize()'s stages after the device exists, in the order it runs
         // them. Each throws on failure; cleanupPartialInitialization() then
         // releases whatever the earlier stages made.

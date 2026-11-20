@@ -952,6 +952,7 @@ namespace visutwin::canvas
             }
         }
 
+        configureDevice(deviceOptions);
         auto device = createGraphicsDevice(deviceOptions);
         if (!device) {
             spdlog::error("Failed to create the {} graphics device", backendName(_backend));

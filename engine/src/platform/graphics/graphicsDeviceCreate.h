@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#include <vector>
+#include <functional>
 #include <string>
 #include <memory>
 
@@ -59,6 +61,18 @@ namespace visutwin::canvas
         /// the device's lifetime. A scene that antialiases an offscreen target of its own (a
         /// camera frame) or draws gaussian splats turns it off, as upstream's examples do.
         bool antialias{true};
+
+        /// Vulkan: instance and device extensions to enable beside the engine's own, where
+        /// the driver has them, for an API that shares the device (an OpenXR runtime names
+        /// the ones its compositor needs). OpenXR fills these through
+        /// XrBackend::configureGraphicsDevice.
+        std::vector<std::string> vulkanInstanceExtensions;
+        std::vector<std::string> vulkanDeviceExtensions;
+
+        /// Vulkan: asked once the instance exists (a VkInstance) for the physical device
+        /// (a VkPhysicalDevice) the device must be created on: the GPU a headset is wired
+        /// to. Null, or a null answer, leaves the choice to the engine.
+        std::function<void*(void* vulkanInstance)> vulkanPhysicalDevice;
     };
 
     /// Human-readable backend name ("Metal", "Vulkan", "WebGPU").

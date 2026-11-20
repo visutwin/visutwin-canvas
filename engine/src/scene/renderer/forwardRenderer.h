@@ -107,5 +107,12 @@ namespace visutwin::canvas
         void addCameraFramePass(FrameGraph* frameGraph, LayerComposition* layerComposition,
             int startIndex, int endIndex);
         void addGrabPasses(FrameGraph* frameGraph, const RenderAction& depthLayerAction);
+
+        /// The view of a multi-view camera the block being added draws (addRenderActionBlock
+        /// is called once per view), or -1 with no count for a camera rendering its own view.
+        int _blockViewIndex = -1;
+        int _blockViewCount = 0;
+        std::shared_ptr<RenderTarget> _blockViewTarget;
+        bool _multiViewLimitsWarned = false;
     };
 }

@@ -1389,6 +1389,12 @@ namespace visutwin::canvas
 
         int renderVersion() const { return _renderVersion; }
 
+        /// Which of a multi-view camera's views (Camera::views) the pass being rendered draws,
+        /// or -1 outside such a pass. A forward pass of a multi-view camera sets it for its
+        /// own duration; anything drawing for that camera reads the view's matrices by it.
+        int currentViewIndex() const { return _currentViewIndex; }
+        void setCurrentViewIndex(const int index) { _currentViewIndex = index; }
+
         // Device-level shader cache for utility shaders (downsample, upsample, etc.)
         // that are compiled from fixed source and should only be created once.
         std::shared_ptr<Shader> getCachedShader(const std::string& name) const
@@ -1578,6 +1584,7 @@ namespace visutwin::canvas
         // ever assigned; callers also compare it against a sentinel of their own to
         // do a thing once per frame.
         int _renderVersion = 0;
+        int _currentViewIndex = -1;
 
         std::shared_ptr<VertexBuffer> _indirectDrawArgs;
         std::shared_ptr<VertexBuffer> _indirectDispatchArgs;

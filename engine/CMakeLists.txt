@@ -42,6 +42,7 @@ option(VISUTWIN_BACKEND_VULKAN "Enable Vulkan backend" ${_VISUTWIN_VULKAN_DEFAUL
 # application supplies one. This option only decides whether the Jolt-backed
 # implementation is compiled in alongside it.
 option(VISUTWIN_PHYSICS_JOLT "Build the Jolt Physics backend" ON)
+option(VISUTWIN_XR_OPENXR "Build the OpenXR backend of the XR manager" ON)
 # The Slang compiler library (vcpkg `shader-slang`, a prebuilt dynamic library). It is
 # the single-source shader toolchain: one Slang module is compiled to MSL for Metal and
 # to SPIR-V for Vulkan, at build time into the shader bundles and at run time for chunk
@@ -205,6 +206,16 @@ if(VISUTWIN_PHYSICS_JOLT)
     endif()
 endif()
 
+if(VISUTWIN_XR_OPENXR)
+    find_package(OpenXR CONFIG QUIET)
+    if(NOT TARGET OpenXR::openxr_loader)
+        # Not a warning: the vcpkg feature ("openxr") is opt-in, and the XR manager works
+        # without it (createOpenXrBackend then returns null).
+        message(STATUS "OpenXR loader not found; building without the OpenXR backend")
+        set(VISUTWIN_XR_OPENXR OFF)
+    endif()
+endif()
+
 if(VISUTWIN_SHADER_SLANG)
     find_package(slang CONFIG QUIET)
     if(NOT TARGET slang::slang)
@@ -318,6 +329,7 @@ if(NOT VISUTWIN_BACKEND_METAL)
 endif()
 if(NOT VISUTWIN_BACKEND_VULKAN)
     list(FILTER VISUTWIN_CANVAS_SOURCES EXCLUDE REGEX ".*/platform/graphics/vulkan/.*")
+    list(FILTER VISUTWIN_CANVAS_SOURCES EXCLUDE REGEX ".*/framework/xr/openxr/vulkan/.*")
 endif()
 
 # A file holding a SIMD kernel and the scalar reference it is tested against must
@@ -463,6 +475,44 @@ endif()
 # ── Vulkan backend linking ────────────────────────────────────────────
 if(VISUTWIN_BACKEND_VULKAN)
     target_compile_definitions(visutwin-canvas PUBLIC VISUTWIN_HAS_VULKAN)
+endif()
+
+# ── OpenXR backend linking ────────────────────────────────────────────
+if(VISUTWIN_XR_OPENXR)
+    target_compile_definitions(visutwin-canvas PUBLIC VISUTWIN_XR_OPENXR)
+    if(APPLE)
+        # The loader is built WITHOUT RTTI, so its static library carries private copies of
+        # the standard exceptions' type information (weak, hidden: typeinfo for
+        # std::exception among them). Linked into an executable as it is, ld binds every
+        # reference in that executable to those copies, and a `catch (const std::exception&)`
+        # anywhere in the program no longer matches what the C++ runtime throws: the
+        # exception goes uncaught (vulkanSmoke's injected failure aborted the process).
+        # So the loader and its JSON library are linked beforehand into ONE relocatable
+        # object whose only global symbols are the xr* entry points (`ld -r` makes every
+        # other symbol local), and that object is archived into the engine library: nothing
+        # of the loader's is visible to a program's link, and a consumer needs neither library.
+        set(_OPENXR_LOADER_OBJECT "${CMAKE_BINARY_DIR}/engine/generated/openxr/openxr_loader_local.o")
+        if(CMAKE_OSX_ARCHITECTURES)
+            set(_OPENXR_LOADER_ARCH "${CMAKE_OSX_ARCHITECTURES}")
+        else()
+            set(_OPENXR_LOADER_ARCH "${CMAKE_SYSTEM_PROCESSOR}")
+        endif()
+        add_custom_command(
+            OUTPUT "${_OPENXR_LOADER_OBJECT}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_BINARY_DIR}/engine/generated/openxr"
+            COMMAND "${CMAKE_CXX_COMPILER}" -arch "${_OPENXR_LOADER_ARCH}" -r -nostdlib
+                -Wl,-all_load "$<TARGET_FILE:OpenXR::openxr_loader>" "$<TARGET_FILE:jsoncpp_static>"
+                "-Wl,-exported_symbol,_xr*" -o "${_OPENXR_LOADER_OBJECT}"
+            DEPENDS "$<TARGET_FILE:OpenXR::openxr_loader>" "$<TARGET_FILE:jsoncpp_static>"
+            COMMENT "Linking the OpenXR loader into one object with only its xr* symbols visible"
+            VERBATIM)
+        set_source_files_properties("${_OPENXR_LOADER_OBJECT}" PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
+        target_sources(visutwin-canvas PRIVATE "${_OPENXR_LOADER_OBJECT}")
+        target_include_directories(visutwin-canvas PRIVATE
+            "$<TARGET_PROPERTY:OpenXR::headers,INTERFACE_INCLUDE_DIRECTORIES>")
+    else()
+        target_link_libraries(visutwin-canvas PUBLIC OpenXR::openxr_loader)
+    endif()
 endif()
 
 # ── Physics backend linking ───────────────────────────────────────────

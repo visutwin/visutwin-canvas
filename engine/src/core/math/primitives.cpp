@@ -36,6 +36,30 @@ namespace visutwin::canvas
         planes[5] = (c3 + c1).planeNormalize();
     }
 
+    void Frustum::add(const Matrix4& otherViewProjection)
+    {
+        const Matrix4 inverse = otherViewProjection.inverse();
+        for (int corner = 0; corner < 8; ++corner) {
+            const Vector4 clip(
+                (corner & 1) ? 1.0f : -1.0f,
+                (corner & 2) ? 1.0f : -1.0f,
+                (corner & 4) ? 1.0f : -1.0f,
+                1.0f);
+            const Vector4 world = inverse * clip;
+            const float w = world.getW();
+            if (w == 0.0f) {
+                continue;
+            }
+            const Vector4 point(world.getX() / w, world.getY() / w, world.getZ() / w, 1.0f);
+            for (auto& plane : planes) {
+                const float distance = plane.planeDotCoord(point);
+                if (distance < 0.0f) {
+                    plane = Vector4(plane.getX(), plane.getY(), plane.getZ(), plane.getW() - distance);
+                }
+            }
+        }
+    }
+
     bool Frustum::checkPoint(const Vector3& point) const
     {
         const auto p = Vector4(point);

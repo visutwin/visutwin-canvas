@@ -27,6 +27,7 @@ visutwin_add_unit_test(visutwin-material-uniforms-tests material-uniforms materi
 visutwin_add_unit_test(visutwin-stencil-parameters-tests stencil-parameters stencilParametersTests.cpp)
 visutwin_add_unit_test(visutwin-blend-state-tests blend-state blendStateTests.cpp)
 visutwin_add_unit_test(visutwin-camera-projection-tests camera-projection cameraProjectionTests.cpp)
+visutwin_add_unit_test(visutwin-xr-manager-tests xr-manager xrManagerTests.cpp)
 
 # GPU instance culling on a real device of this build's backend (tests/gpuInstanceCullTests.cpp).
 # It needs a GPU and a window, so it carries the `gpu` label, which the CI test presets
@@ -50,6 +51,12 @@ visutwin_add_unit_test(visutwin-multi-draw-gpu-tests multi-draw-gpu multiDrawGpu
 # Order-independent transparency's accumulation blend and composite on a real device
 # (tests/oitGpuTests.cpp); `gpu` label for the same reason.
 visutwin_add_unit_test(visutwin-oit-gpu-tests oit-gpu oitGpuTests.cpp LABELS gpu TIMEOUT 60)
+# An XR session through the simulated backend on a real device: stereo views and depth slices
+# read back (tests/xrGpuTests.cpp); `gpu` label for the same reason.
+visutwin_add_unit_test(visutwin-xr-gpu-tests xr-gpu xrGpuTests.cpp LABELS gpu TIMEOUT 60)
+# A session through a real OpenXR runtime (tests/openXrRuntimeTests.cpp): passes as skipped
+# where none is active, so it can sit with the other device tests.
+visutwin_add_unit_test(visutwin-openxr-runtime-tests openxr-runtime openXrRuntimeTests.cpp LABELS gpu TIMEOUT 120)
 # The scene maps a compute kernel reads through vtscenemaps, on a real device
 # (tests/sceneMapsGpuTests.cpp); `gpu` label for the same reason.
 visutwin_add_unit_test(visutwin-scene-maps-gpu-tests scene-maps-gpu sceneMapsGpuTests.cpp LABELS gpu TIMEOUT 60)

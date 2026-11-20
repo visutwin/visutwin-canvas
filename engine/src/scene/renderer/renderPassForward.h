@@ -49,6 +49,17 @@ namespace visutwin::canvas
             _firstCameraUse = first;
             _lastCameraUse = last;
         }
+        /// Makes the pass draw one view of a multi-view camera (Camera::views): the device's
+        /// current view index is `index` while the pass runs. The camera's prerender fires from
+        /// its first view's passes only and its postrender from its last view's, so each fires
+        /// once a frame however many views there are.
+        void setView(const int index, const bool firstView, const bool lastView)
+        {
+            _viewIndex = index;
+            _firstView = firstView;
+            _lastView = lastView;
+        }
+        [[nodiscard]] int viewIndex() const { return _viewIndex; }
         [[nodiscard]] CameraComponent* camera() const { return _camera; }
         const std::vector<RenderAction*>& renderActions() const { return _renderActions; }
 
@@ -78,6 +89,10 @@ namespace visutwin::canvas
         std::vector<std::unique_ptr<RenderAction>> _ownedActions;
         bool _firstCameraUse = false;
         bool _lastCameraUse = false;
+
+        int _viewIndex = -1;
+        bool _firstView = true;
+        bool _lastView = true;
 
         bool _hdrPass = false;
         bool _linearOutput = false;   // set between before() and after(): this pass writes linear

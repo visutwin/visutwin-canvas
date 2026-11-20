@@ -78,7 +78,13 @@ namespace visutwin::canvas
         const bool clearDepth = ra->clearDepth;
         const bool clearStencil = ra->clearStencil;
 
-        if (clearColor) {
+        // A view that is a layer over other views is cleared to nothing, whatever the camera clears to.
+        const bool layerView = _viewIndex >= 0 && static_cast<size_t>(_viewIndex) < camera->views().size() &&
+            !camera->views()[static_cast<size_t>(_viewIndex)].background;
+        if (layerView) {
+            const Color transparent(0.0f, 0.0f, 0.0f, 0.0f);
+            setClearColor(&transparent);
+        } else if (clearColor) {
             const auto clear = camera->clearColor();
             setClearColor(&clear);
             // A target with several colour attachments clears each to the camera's colour for it.
@@ -130,11 +136,13 @@ namespace visutwin::canvas
 
         updateClears();
 
-        if (_firstCameraUse && _scene) {
+        device()->setCurrentViewIndex(_viewIndex);
+
+        if (_firstCameraUse && _firstView && _scene) {
             _scene->fire("prerender", _camera);
         }
         for (const auto* ra : _renderActions) {
-            if (ra && ra->firstCameraUse && _scene) {
+            if (ra && ra->firstCameraUse && _firstView && _scene) {
                 _scene->fire("prerender", ra->camera);
             }
         }
@@ -202,6 +210,7 @@ namespace visutwin::canvas
             assert(_beforeCalled && "RenderPassForward::execute requires before()");
         }
         _executeCalled = true;
+        device()->setCurrentViewIndex(_viewIndex);
 
         for (size_t i = 0; i < _renderActions.size(); ++i) {
             auto* ra = _renderActions[i];
@@ -253,12 +262,14 @@ namespace visutwin::canvas
             assert(_executeCalled && "RenderPassForward::after requires execute()");
         }
 
+        device()->setCurrentViewIndex(-1);
+
         for (const auto* ra : _renderActions) {
-            if (ra && ra->lastCameraUse && _scene) {
+            if (ra && ra->lastCameraUse && _lastView && _scene) {
                 _scene->fire("postrender", ra->camera);
             }
         }
-        if (_lastCameraUse && _scene) {
+        if (_lastCameraUse && _lastView && _scene) {
             _scene->fire("postrender", _camera);
         }
 

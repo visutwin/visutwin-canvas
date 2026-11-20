@@ -33,6 +33,12 @@
         { "name": "joltphysics" }
       ]
     },
+    "openxr": {
+      "description": "OpenXR backend for the XR manager (headsets through an OpenXR runtime)",
+      "dependencies": [
+        { "name": "openxr-loader" }
+      ]
+    },
     "vulkan": {
       "description": "Vulkan rendering backend",
       "dependencies": [

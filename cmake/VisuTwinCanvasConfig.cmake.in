@@ -45,6 +45,12 @@ if(@VISUTWIN_PHYSICS_JOLT@)
     endif()
 endif()
 
+# The OpenXR loader is a link dependency everywhere but on Apple platforms, where it is
+# inside the engine library.
+if(@VISUTWIN_XR_OPENXR@ AND NOT APPLE)
+    find_dependency(OpenXR CONFIG)
+endif()
+
 if(@VISUTWIN_BACKEND_VULKAN@)
     find_dependency(VulkanHeaders CONFIG)
     find_dependency(Vulkan)

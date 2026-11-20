@@ -11,7 +11,9 @@
 #include <memory>
 #include <numbers>
 #include <optional>
+#include <vector>
 
+#include "cameraView.h"
 #include "clipPlanes.h"
 #include "constants.h"
 #include "core/math/matrix4.h"
@@ -196,6 +198,27 @@ namespace visutwin::canvas
         /// render after it. Add or remove entries to change them; a disabled pass is skipped.
         std::vector<std::shared_ptr<RenderPass>>& afterPasses() { return _afterPasses; }
         const std::vector<std::shared_ptr<RenderPass>>& afterPasses() const { return _afterPasses; }
+
+        /**
+         * The views the camera renders this frame, when it renders more than its own: the eyes
+         * (and depth slices) of an XR session. While set, the forward passes draw the camera's
+         * layers once per view, with the view's matrices and into the view's target, in place
+         * of the camera's projection, node transform, rect and render target; culling uses the
+         * volume all views cover (buildCameraFrustum). An empty list set here still counts as
+         * multi-view: a session whose views have not arrived yet renders nothing.
+         */
+        void setViews(std::vector<CameraView> views)
+        {
+            _views = std::move(views);
+            _multiView = true;
+        }
+        void clearViews()
+        {
+            _views.clear();
+            _multiView = false;
+        }
+        [[nodiscard]] bool multiView() const { return _multiView; }
+        [[nodiscard]] const std::vector<CameraView>& views() const { return _views; }
 
         const std::shared_ptr<RenderTarget>& renderTarget() const { return _renderTarget; }
         void setRenderTarget(const std::shared_ptr<RenderTarget>& value) { _renderTarget = value;}
@@ -503,6 +526,9 @@ namespace visutwin::canvas
         bool _horizontalFov = false;
 
         CalculateProjection _calculateProjection;
+
+        std::vector<CameraView> _views;
+        bool _multiView = false;
 
         Matrix4 _projMat;
         bool _projMatDirty = true;

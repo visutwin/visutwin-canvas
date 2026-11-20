@@ -87,6 +87,9 @@ namespace visutwin::canvas
         const std::shared_ptr<GraphicsDevice>& graphicsDevice() const { return _graphicsDevice; }
         const std::shared_ptr<ForwardRenderer>& renderer() const { return _renderer; }
 
+        /// The XR manager the application supplied (AppOptions::xr), or null.
+        const std::shared_ptr<XrManager>& xr() const { return _xr; }
+
         /// Per-frame CPU timings, draw-call and primitive counts. Populated every frame; read by
         /// the MiniStats HUD.
         const std::shared_ptr<ApplicationStats>& stats() const { return _stats; }

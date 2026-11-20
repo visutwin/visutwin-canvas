@@ -783,6 +783,54 @@ Example: `materials/material-refraction.cpp` (port of upstream `materials/materi
 - `StandardMaterial`: Full PBR (clearcoat, anisotropy, sheen, iridescence, transmission, parallax)
 - `ShaderMaterial`: Custom Metal shader with user entry points
 
+### XR sessions (OpenXR, simulated) and multi-view cameras
+
+Turn on: `AppOptions::xr = std::make_shared<XrManager>(backend)`, then
+`engine->xr()->start(cameraComponent, XrSessionOptions{...})`; `end()` stops it. Backends:
+`createOpenXrBackend()` (`framework/xr/openxr/`, the `openxr` vcpkg feature) and
+`SimulatedXrBackend` (`framework/xr/simulatedXrBackend.h`: engine textures as the eyes, the
+head and controllers wherever the application puts them; `viewTexture(view, slice)` is each
+image). The rules that bind are in AGENTS.md, "XR".
+
+How a frame goes. `XrBackend` is five calls: `waitFrame` (the runtime's pacing and the
+predicted display time), `locateViews` (each view's pose and field of view in the reference
+space), `pollInput`, `beginFrame` (the targets to draw into, `views x depthSlices`),
+`endFrame` (the frame as rendered). `XrManager::update` turns the located views into
+`XrView`s (projection from the field of view over the camera's near and far, `viewMat` /
+`viewInvMat` in the reference space), puts the camera entity between the eyes, and updates
+`XrInput`; `beginRender` composes each view with the camera's parent transform and gives the
+camera its `CameraView` list; the forward renderer then draws the camera's layers once per
+view (AGENTS.md). Input sources (`XrInputSource`) carry a grip pose, a pointing ray, select
+and squeeze with their events (`selectstart`, `selectend`, `select`, and the squeeze three,
+on the source and repeated on `XrInput`), a gamepad-layout button and axis list, and
+`pulse()` for haptics.
+
+OpenXR specifics (`openXrBackend.cpp`): one instance per backend object, created on first
+use with the graphics binding's extension; the system is asked for again each time until a
+headset is there; primary stereo (or mono for a handheld); the reference space falls back
+LOCAL_FLOOR -> STAGE -> LOCAL; one swapchain per view and slice (array size 1, sample count
+1: the engine multisamples in its own buffer and resolves into the image); the session is
+begun on the READY event and ended on STOPPING, and EXITING or LOSS_PENDING ends the
+manager's session on its next update. Controllers are one action set bound for the simple,
+Touch, Index, Vive and Windows motion controller profiles; float actions bound to boolean
+inputs read 0 or 1, select and squeeze get hysteresis (0.6 on, 0.4 off), and actions are read
+only while the session is FOCUSED.
+
+Graphics bindings (`openXrGraphics.h`): Metal hands the session its command queue and wraps
+each `MTLTexture` (through a linear texture view of an sRGB image); Vulkan hands it the
+instance, physical device, device and queue family, after
+`XrBackend::configureGraphicsDevice` let the runtime name its extensions and GPU through
+`GraphicsDeviceOptions`, wraps each `VkImage` with `VulkanTexture::adoptExternalImage`, and
+asks for the linear view with `XR_KHR_vulkan_swapchain_format_list`. On macOS the loader is
+inside the engine library as a prelinked object with only its `xr*` symbols visible
+(AGENTS.md, XR, says why).
+
+Deviations from upstream: the session is driven by the engine's update and render rather
+than a frame callback; `start` takes the camera component and an options struct and reports
+through "error" and a callback; views are a plain list on the manager (no add / remove
+events); each view has its own target where upstream's WebGL path shares one framebuffer
+with viewports; depth slices have no upstream counterpart.
+
 ## Engine subsystems
 They are reference, not rules; the
 rules they imply are repeated in the gotcha list of `CLAUDE.md`.

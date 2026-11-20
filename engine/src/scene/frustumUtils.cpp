@@ -19,6 +19,15 @@ namespace visutwin::canvas
         if (!camera || !cameraNode) {
             return frustum;
         }
+        // A camera rendering several views is culled for the volume they cover together.
+        if (camera->multiView() && !camera->views().empty()) {
+            const auto& views = camera->views();
+            frustum.create(views[0].projection * views[0].view);
+            for (size_t i = 1; i < views.size(); ++i) {
+                frustum.add(views[i].projection * views[i].view);
+            }
+            return frustum;
+        }
         const auto view = cameraNode->worldTransform().inverse();
         const auto viewProjection = camera->projectionMatrix() * view;
         frustum.create(viewProjection);

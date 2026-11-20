@@ -148,13 +148,13 @@ namespace visutwin::canvas
         _width = w;
         _height = h;
 
-        initInstance(_window);
+        initInstance(_window, options);
         if (_instance == VK_NULL_HANDLE || _surface == VK_NULL_HANDLE) {
             throw std::runtime_error(
                 "VulkanGraphicsDevice: instance/surface initialization failed");
         }
 
-        initDevice();
+        initDevice(options);
         if (_physicalDevice == VK_NULL_HANDLE ||
             _device == VK_NULL_HANDLE ||
             _graphicsQueue == VK_NULL_HANDLE ||
@@ -738,7 +738,7 @@ namespace visutwin::canvas
         }
     }
 
-    void VulkanGraphicsDevice::initInstance(SDL_Window* window)
+    void VulkanGraphicsDevice::initInstance(SDL_Window* window, const GraphicsDeviceOptions& options)
     {
         vkb::InstanceBuilder builder;
         builder.set_app_name("VisuTwin Canvas")
@@ -758,6 +758,18 @@ namespace visutwin::canvas
                        VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT);
         }
 
+        // Extensions an API sharing the device asked for (GraphicsDeviceOptions).
+        if (!options.vulkanInstanceExtensions.empty()) {
+            const auto systemInfo = vkb::SystemInfo::get_system_info();
+            for (const auto& extension : options.vulkanInstanceExtensions) {
+                if (systemInfo && systemInfo.value().is_extension_available(extension.c_str())) {
+                    builder.enable_extension(extension);
+                } else {
+                    spdlog::warn("Vulkan instance extension {} was asked for and is not available", extension);
+                }
+            }
+        }
+
         auto result = builder.build();
         if (!result) {
             spdlog::error("Failed to create Vulkan instance: {}", result.error().message());
@@ -775,7 +787,7 @@ namespace visutwin::canvas
         }
     }
 
-    void VulkanGraphicsDevice::initDevice()
+    void VulkanGraphicsDevice::initDevice(const GraphicsDeviceOptions& options)
     {
         // Require Vulkan 1.3 — dynamicRendering and synchronization2 are
         // promoted-to-core there, so we can use the core entry points
@@ -832,7 +844,26 @@ namespace visutwin::canvas
         const std::string wanted = requestedDriver ? lowered(requestedDriver) : std::string();
         const auto& candidates = physResult.value();
         const vkb::PhysicalDevice* chosen = nullptr;
+        // A device the application names (the GPU a headset is wired to) comes before the
+        // driver preference, when it is one this backend can run on.
+        if (options.vulkanPhysicalDevice) {
+            if (const auto required = static_cast<VkPhysicalDevice>(options.vulkanPhysicalDevice(_instance))) {
+                for (const auto& candidate : candidates) {
+                    if (candidate.physical_device == required) {
+                        chosen = &candidate;
+                        break;
+                    }
+                }
+                if (!chosen) {
+                    spdlog::error("The Vulkan physical device asked for is not one this backend can use; "
+                        "the choice falls back to the engine's");
+                }
+            }
+        }
         for (const auto& candidate : candidates) {
+            if (chosen) {
+                break;
+            }
             const auto driver = driverProperties(candidate.physical_device);
             const bool match = wanted.empty()
                 ? driver.driverID == VK_DRIVER_ID_MOLTENVK
@@ -1058,6 +1089,11 @@ namespace visutwin::canvas
             features12Supported.runtimeDescriptorArray == VK_TRUE,
             bindlessTextureCapacity(), bindlessSamplerCapacity());
 
+        for (const auto& extension : options.vulkanDeviceExtensions) {
+            if (!vkbPhysical.enable_extension_if_present(extension)) {
+                spdlog::warn("Vulkan device extension {} was asked for and is not available", extension);
+            }
+        }
         vkb::DeviceBuilder deviceBuilder{vkbPhysical};
         if (_descriptorIndexing) {
             deviceBuilder.add_pNext(&features12Enable);

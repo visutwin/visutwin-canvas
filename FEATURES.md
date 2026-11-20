@@ -112,7 +112,7 @@ Known Limitations, and `AGENTS.md` records the remaining parity items.
 ## Known Limitations
 
 - Metal remains the primary graphics backend; Vulkan is functional and covers most rendering paths, but not yet at full parity. Metal-only today: texture streaming and the compute passes used by the sibling visualization project (marching cubes)
-- No XR: `XrManager` is an empty placeholder
+- XR: sessions with stereo views and controller input through OpenXR (Metal and Vulkan bindings; exercised against Monado's simulated headset on Vulkan, not yet on a physical headset) or a simulated headset; depth-sliced views for multifocal displays. Not ported: hit testing, anchors, plane/mesh detection, hand joints, AR camera access
 - No audio subsystem; no sprite component (sprites are data an image element shows)
 - Gaussian splatting: WebP-packed SOG format and the unified octree/LOD streaming path are not ported
 - Reflection probes support runtime scene-capture baking (dynamic cubemap) as well as supplied cubemaps; per-level GGX cube prefilter is deferred (roughness uses hardware trilinear cube mips)

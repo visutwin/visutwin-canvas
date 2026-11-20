@@ -68,12 +68,7 @@ namespace visutwin::canvas
             app->_time = currentTime;
 
             // Submit a request to queue up a new animation frame
-            if (app->_xr && app->_xr->active()) {
-                app->_frameRequestId = app->_xr->requestAnimationFrame(app->_tick);
-            } else {
-                // Would use platform-specific requestAnimationFrame
-                app->_frameRequestId = reinterpret_cast<void*>(1); // Placeholder
-            }
+            app->_frameRequestId = reinterpret_cast<void*>(1); // Placeholder
 
             if (app->_graphicsDevice->contextLost()) {
                 app->_inFrameUpdate = false;
@@ -87,9 +82,9 @@ namespace visutwin::canvas
 
             bool skipUpdate = false;
 
-            if (xrFrame && app->_xr) {
-                skipUpdate = !app->_xr->update(xrFrame);
-            }
+            // An XR session is driven from update() and render() themselves, so an application
+            // with its own loop gets it too.
+            (void)xrFrame;
 
             if (!skipUpdate) {
                 app->update(rawDt);
@@ -213,6 +208,7 @@ namespace visutwin::canvas
 
         if (_xr) {
             _xr->end();
+            _xr->setEngine(nullptr);
             _xr.reset();
         }
 
@@ -344,6 +340,9 @@ namespace visutwin::canvas
         }
 
         _xr = appOptions.xr;
+        if (_xr) {
+            _xr->setEngine(this);
+        }
         _scriptPrefix = appOptions.scriptPrefix;
 
         // Create a tick function
@@ -397,6 +396,11 @@ namespace visutwin::canvas
 
     void Engine::waitForNextFrame()
     {
+        // An XR session paces the frame: its runtime says when the next one is due, and the
+        // poses the update reads are predicted for the moment that frame is shown.
+        if (_xr && _xr->active()) {
+            _xr->waitFrame();
+        }
         if (_graphicsDevice) {
             _graphicsDevice->waitForNextFrame();
         }
@@ -474,6 +478,11 @@ namespace visutwin::canvas
             return;
         }
 
+        // The XR session's images for this frame, and its camera's views into them.
+        if (_xr && _xr->active()) {
+            _xr->beginRender();
+        }
+
         _graphicsDevice->frameStart();
         _frameStartCalled = true;
         renderComposition();
@@ -505,8 +514,18 @@ namespace visutwin::canvas
             assert(!_graphicsDevice->insideRenderPass() && "Unbalanced render pass before frameEnd");
         }
 
+        // The XR runtime's images back as it expects them, while the frame still records.
+        if (_xr && _xr->active()) {
+            _xr->finishRender();
+        }
+
         _graphicsDevice->frameEnd();
         _frameEndCalled = true;
+
+        // The frame's GPU work is submitted: the XR runtime may have its images back.
+        if (_xr && _xr->active()) {
+            _xr->endRender();
+        }
 
         // CPU time spent rendering: the wall time of this call less what the device spent
         // blocked on the display (see GraphicsDevice::displayWaitMilliseconds), which under
@@ -760,10 +779,6 @@ namespace visutwin::canvas
             return {0, 0};
         }
 
-        // Prevent resizing when in XR session
-        if (_xr && _xr->active()) {
-            return {0, 0};
-        }
 
         // Get window dimensions (simplified)
         auto windowSize = _graphicsDevice->size();   // Would get from an actual window
@@ -929,6 +944,11 @@ namespace visutwin::canvas
 
         _graphicsDevice->update();
 
+        // The XR session's views, camera pose and input, before anything this update reads them.
+        if (_xr && _xr->active()) {
+            _xr->update(dt);
+        }
+
         // A camera rendering through a camera frame has its frame and effects before anything
         // this update reads them.
         if (_renderer && _scene && _scene->layers()) {
@@ -1039,8 +1059,8 @@ namespace visutwin::canvas
 
     void Engine::updateCanvasSize()
     {
-        // Don't update if we are in VR or XR
-        if ((!_allowResize) || (_xr != nullptr && _xr->active())) {
+        // An XR session draws into its runtime's images; the window beside it resizes as ever.
+        if (!_allowResize) {
             return;
         }
 

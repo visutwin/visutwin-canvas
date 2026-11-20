@@ -856,7 +856,8 @@ namespace visutwin::canvas
 
     void Renderer::resolveAutoAspectRatio(Camera* camera) const
     {
-        if (!camera || camera->aspectRatioMode() != AspectRatioMode::ASPECT_AUTO || !_device) {
+        if (!camera || camera->aspectRatioMode() != AspectRatioMode::ASPECT_AUTO || !_device ||
+            camera->multiView()) {
             return;
         }
         const auto* target = camera->renderTarget().get();
@@ -879,7 +880,9 @@ namespace visutwin::canvas
         std::vector<GpuCullView> views;
         views.reserve(cameras.size());
         for (Camera* camera : cameras) {
-            if (!camera || !camera->node()) {
+            // A multi-view camera has no one frustum a culled set could be compacted for: it
+            // gets no output, so its draws take the whole instance buffer.
+            if (!camera || !camera->node() || camera->multiView()) {
                 continue;
             }
             GpuCullView view;
@@ -1105,6 +1108,9 @@ namespace visutwin::canvas
             // (Renderer::cullMeshInstancesInto) and never touch it.
             bool hasFrustum = false;
             Frustum frustum{};
+            // False for a view of a multi-view camera that is a layer over other views
+            // (CameraView::background): it draws no sky.
+            bool background = true;
         };
 
         ForwardView setupForwardView(GraphicsDevice& device, const Scene* scene, Camera& camera,
@@ -1125,7 +1131,7 @@ namespace visutwin::canvas
             view.scissor = normalizedRectToPixels(camera.scissorRect(), targetWidth, targetHeight);
 
             // ASPECT_AUTO cameras use viewport size, not full target size.
-            if (camera.aspectRatioMode() == AspectRatioMode::ASPECT_AUTO) {
+            if (camera.aspectRatioMode() == AspectRatioMode::ASPECT_AUTO && !camera.multiView()) {
                 camera.setAspectRatio(static_cast<float>(view.viewport.w) / static_cast<float>(view.viewport.h));
             }
 
@@ -1134,6 +1140,43 @@ namespace visutwin::canvas
                     view.cameraComponent = candidate;
                     break;
                 }
+            }
+
+            // A multi-view camera draws the view the pass names: the view's own matrices and
+            // viewport, no jitter (nothing reprojects a view's history).
+            if (camera.multiView() && !camera.views().empty()) {
+                const auto& views = camera.views();
+                const auto index = static_cast<size_t>(std::clamp(device.currentViewIndex(), 0,
+                    static_cast<int>(views.size()) - 1));
+                const CameraView& cameraView = views[index];
+                view.viewMatrix = cameraView.view;
+                view.projMatrix = cameraView.projection;
+                view.position = cameraView.viewInverse.getTranslation();
+                view.forward = cameraForwardOf(cameraView.viewInverse);
+                // The view's target, whatever target the camera or its render action names.
+                if (cameraView.renderTarget) {
+                    view.activeTarget = cameraView.renderTarget.get();
+                }
+                const int viewTargetWidth = std::max(view.activeTarget ? view.activeTarget->width() : device.size().first, 1);
+                const int viewTargetHeight = std::max(view.activeTarget ? view.activeTarget->height() : device.size().second, 1);
+                PixelRect rect;
+                rect.x = std::clamp(static_cast<int>(cameraView.viewport.getX()), 0, viewTargetWidth - 1);
+                rect.y = std::clamp(static_cast<int>(cameraView.viewport.getY()), 0, viewTargetHeight - 1);
+                rect.w = std::clamp(static_cast<int>(cameraView.viewport.getZ()), 1, viewTargetWidth - rect.x);
+                rect.h = std::clamp(static_cast<int>(cameraView.viewport.getW()), 1, viewTargetHeight - rect.y);
+                view.viewport = rect;
+                view.scissor = rect;
+                view.viewProjection = view.projMatrix * view.viewMatrix;
+                view.background = cameraView.background;
+                // A view without the background draws the sky with a matrix that collapses it:
+                // every vertex at the clip origin, so nothing is rasterised. The sky sits AT
+                // the far plane, which a depth slice's own projection would not clip.
+                static constexpr float kZero[16] = {};
+                view.viewProjectionSkybox = view.background ? view.viewProjection : Matrix4::load(kZero);
+                camera.storeShaderMatrices(view.viewProjection, 0.0f, 0.0f, device.renderVersion());
+                const int sceneTone = scene ? scene->toneMapping() : TONEMAP_LINEAR;
+                view.toneMapping = camera.toneMapping() != TONEMAP_INHERIT ? camera.toneMapping() : sceneTone;
+                return view;
             }
 
             view.projMatrix = camera.projectionMatrix();

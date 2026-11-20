@@ -26,6 +26,12 @@ namespace visutwin::canvas
 
         void create(const Matrix4& viewProjection);
 
+        /// Grows the frustum to also contain the frustum of another view-projection: each
+        /// plane keeps its orientation and is pushed out just far enough to hold the other
+        /// frustum's eight corners. Conservative, and right for the asymmetric projections of
+        /// a headset's eyes, whose matching planes have different normals.
+        void add(const Matrix4& otherViewProjection);
+
         [[nodiscard]] bool checkPoint(const Vector3&) const;
         [[nodiscard]] bool checkSphere(const Vector3&, float) const;
 

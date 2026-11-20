@@ -144,6 +144,10 @@ namespace visutwin::canvas
 
         // ── Hooks ────────────────────────────────────────────────────────────
 
+        /// A say in how the graphics device is created, before it is: an XR example lets its
+        /// runtime name the Vulkan extensions and the GPU it needs here.
+        virtual void configureDevice(GraphicsDeviceOptions& options) { (void)options; }
+
         /// Register component systems beyond the four every example gets
         /// (Render, Camera, Light, Script). Called before Engine::init.
         virtual void configure(AppOptions& options) { (void)options; }

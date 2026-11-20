@@ -3,6 +3,8 @@
 //
 // Created by Arnis Lektauers on 11.09.2025
 //
+#include <spdlog/spdlog.h>
+
 #include "forwardRenderer.h"
 
 #include "framework/components/componentRegistry.h"
@@ -500,6 +502,30 @@ namespace visutwin::canvas
 
             const RenderAction* nextRenderAction = i + 1 < actionCount ? renderActions[i + 1] : nullptr;
             if (endsRenderActionBlock(*renderAction, nextRenderAction, renderTarget)) {
+                // A multi-view camera (the eyes and depth slices of an XR session) renders the
+                // block once per view, each into the view's own target; a session whose views
+                // have not arrived renders nothing.
+                Camera* blockCamera = renderAction->camera ? renderAction->camera->camera() : nullptr;
+                if (blockCamera && blockCamera->multiView()) {
+                    const auto& views = blockCamera->views();
+                    _blockViewCount = static_cast<int>(views.size());
+                    for (int v = 0; v < _blockViewCount; ++v) {
+                        if (!views[v].renderTarget) {
+                            continue;
+                        }
+                        _blockViewIndex = v;
+                        _blockViewTarget = views[v].renderTarget;
+                        addRenderActionBlock(frameGraph, layerComposition, _blockViewTarget.get(), startIndex, i);
+                    }
+                    _blockViewIndex = -1;
+                    _blockViewCount = 0;
+                    _blockViewTarget.reset();
+                    if (renderAction->lastCameraUse) {
+                        addCameraAfterPasses(frameGraph, renderAction->camera);
+                    }
+                    newStart = true;
+                    continue;
+                }
                 addRenderActionBlock(frameGraph, layerComposition, renderTarget, startIndex, i);
                 // a target over multisampled textures resolves its depth after it is rendered
                 if (renderAction->renderTarget && renderAction->renderTarget->depthResolveBuffer()) {
@@ -635,7 +661,18 @@ namespace visutwin::canvas
     {
         RenderAction* lastAction = layerComposition->renderActions()[endIndex];
         const bool isDepthLayer = isDepthLayerAction(*lastAction);
-        const bool useCameraFrame = rendersThroughCameraFrame(*lastAction);
+        const bool multiView = _blockViewIndex >= 0;
+        // DEVIATION: a multi-view camera renders its layers straight into its views' targets:
+        // no camera frame (post-processing) and no scene colour or depth grab, which are built
+        // around one view and one target.
+        if (multiView && !_multiViewLimitsWarned &&
+            (rendersThroughCameraFrame(*lastAction) || (isDepthLayer && lastAction->camera &&
+                (lastAction->camera->renderSceneColorMap() || lastAction->camera->renderSceneDepthMap())))) {
+            _multiViewLimitsWarned = true;
+            spdlog::warn("A multi-view (XR) camera renders without post-processing and without the scene "
+                "colour and depth maps.");
+        }
+        const bool useCameraFrame = !multiView && rendersThroughCameraFrame(*lastAction);
 
         // A block holding nothing but the depth layer renders nothing itself.
         if (const bool isDepthOnly = isDepthLayer && startIndex == endIndex; !isDepthOnly) {
@@ -647,7 +684,7 @@ namespace visutwin::canvas
         }
 
         // depth layer triggers grab passes if enabled
-        if (isDepthLayer && !useCameraFrame) {
+        if (isDepthLayer && !useCameraFrame && !multiView) {
             addGrabPasses(frameGraph, *lastAction);
         }
     }
@@ -723,7 +760,9 @@ namespace visutwin::canvas
         }
 
         std::shared_ptr<RenderTarget> passTarget = firstRenderAction->renderTarget;
-        if (!passTarget && renderTarget != nullptr) {
+        if (_blockViewIndex >= 0) {
+            passTarget = _blockViewTarget;
+        } else if (!passTarget && renderTarget != nullptr) {
             // Intentional fallback to preserve API shape until render actions are the single source of truth.
             passTarget = firstRenderAction->camera->camera() ? firstRenderAction->camera->camera()->renderTarget() : nullptr;
         }
@@ -760,6 +799,10 @@ namespace visutwin::canvas
                     _device, layerComposition, _scene.get(), this, firstRenderAction->camera
                 );
                 mainPass->init(passTarget);
+                if (_blockViewIndex >= 0) {
+                    mainPass->setView(_blockViewIndex, _blockViewIndex == 0,
+                        _blockViewIndex == _blockViewCount - 1);
+                }
             }
             mainPass->addRenderAction(ra);
         }
