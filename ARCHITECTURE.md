@@ -449,7 +449,7 @@ projection or omni face pick). Example: `lights-and-shadows/lights.cpp`, cluster
 
 **Spot cone angles are HALF-angles** (upstream: `cos(outerConeAngle * DEG_TO_RAD)`,
 and its shadow/cookie cameras use `fov = outerConeAngle * 2`). Do not halve them
-when building `outerConeCos` (`renderer.cpp`, `worldClusters.cpp`): that makes
+when building `outerConeCos` (`rendererForwardLights.cpp`, `worldClusters.cpp`): that makes
 every spot's lit cone half as wide as the shadow and cookie frustum fitted to the
 same light — a beam covering only the middle of its own cookie.
 
@@ -2762,8 +2762,9 @@ the text form reading back) and holds the ids, the paths and the statuses; break
 dropping an enum's options fails it. Not yet: `ResourceId`s, entity creation and components by
 type name (phase 2, with the C API), tags, a script's properties.
 
-**Phase 2 (landed 2026-11-09).** `capi/`: the header, `src/visutwin.cpp` (one file over the
-engine and the property table), the export lists (`exports.txt` for ld64, `exports.map` for GNU
+**Phase 2 (landed 2026-11-09).** `capi/`: the header, `src/visutwin.cpp` and `src/capi*.cpp`
+(one file per section of the header, sharing `capiInternal.h`, over the engine and the property
+table), the export lists (`exports.txt` for ld64, `exports.map` for GNU
 ld: only `vt_*` leaves the library; 56 symbols) and `examples/hello.c`, a C program building a
 lit, shadowed scene by property names alone (Metal and Vulkan render it alike, 1 px over 8 of
 2.5 M). What it covers: the version; statuses with names and the thread's last message; the

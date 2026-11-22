@@ -1786,7 +1786,7 @@ present, but the rule below never depends on reading it.
   it; do not spell the cone a second time.
 - **Spot cone angles are HALF-angles** (upstream: `cos(outerConeAngle * DEG_TO_RAD)`,
   shadow and cookie cameras use `fov = outerConeAngle * 2`). Do not halve them
-  again in `renderer.cpp` or `worldClusters.cpp`.
+  again in `rendererForwardLights.cpp` or `worldClusters.cpp`.
 - **An omni light's shadow casters are classified ONCE for all six faces**, in
   `omniShadowCasterClassification.cpp`, before the frame graph runs; each face pass
   then draws `LightRenderData::visibleCasters` with no culling of its own. The

@@ -351,7 +351,7 @@ namespace visutwin::canvas
             const std::vector<const void*>& lightSetMembers);
 
         // renderForwardLayer's stages that need the renderer's own state; the rest
-        // are free functions in renderer.cpp.
+        // are free functions in rendererForward.cpp and rendererForwardLights.cpp.
 
         /// Sets the frame-wide shader feature switches (lights, sky, SSAO, probes,
         /// atmosphere) for this camera, and binds the area-light LUTs and atmosphere

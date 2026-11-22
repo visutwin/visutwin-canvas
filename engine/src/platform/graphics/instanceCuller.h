@@ -9,7 +9,7 @@
 // that tests each instance's bounding sphere against a camera frustum and
 // writes the visible instances into a compacted buffer plus an indirect draw
 // arguments buffer. The forward renderer then consumes those via indirect
-// instancing (see renderer.cpp draw dispatch).
+// instancing (see the draw dispatch in rendererForward.cpp).
 //
 #pragma once
 

@@ -1,6 +1,14 @@
 # The C API: a shared library over the static engine that exports only the vt_* functions of
 # capi/include/visutwin/visutwin.h. VISUTWIN_BUILD_C_API turns it on.
-add_library(visutwin-canvas-c SHARED src/visutwin.cpp src/metalCppImplementation.cpp)
+add_library(visutwin-canvas-c SHARED
+    src/visutwin.cpp
+    src/capiSupport.cpp
+    src/capiEntities.cpp
+    src/capiProperties.cpp
+    src/capiResources.cpp
+    src/capiAssets.cpp
+    src/capiViews.cpp
+    src/metalCppImplementation.cpp)
 set_target_properties(visutwin-canvas-c PROPERTIES
     OUTPUT_NAME visutwin_canvas_c
     VERSION 0.1
