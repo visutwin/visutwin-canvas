@@ -2340,7 +2340,7 @@ present, but the rule below never depends on reading it.
 - **A glTF attribute is not always float, and refusing a quantised one drops the
   whole primitive in silence.** `TEXCOORD_n` and `COLOR_n` may be normalized
   byte/short in CORE glTF, and `KHR_mesh_quantization` extends that to `POSITION`,
-  `NORMAL` and `TANGENT`. One `decodeComponent` in `glbParser.cpp` does the spec's
+  `NORMAL` and `TANGENT`. One `decodeComponent` in `glbParserAccessors.cpp` does the spec's
   de-quantisation for every reader, sparse overrides included, so a new reader
   should go through `AccessorReader` (built once per accessor, sparse substitution
   resolved up front, a base-less accessor reading as zeros plus its overrides) rather than
@@ -2442,7 +2442,7 @@ present, but the rule below never depends on reading it.
   ...) carry an update's result;
   the unflagged ones are left over from earlier updates.
 - **A glTF node's identity is its name or `node_<index>`, and an animation target
-  is a PATH of those names.** `glbNodeName` in `glbParser.cpp` is the one spelling,
+  is a PATH of those names.** `glbNodeName` in `glbParserAccessors.cpp` is the one spelling,
   used by the node payload the container instantiates, the animation channels and
   the skin's bone list; a new site that names a node must call it, or an unnamed
   node exists under one name and is animated under another. Channels carry
@@ -2609,7 +2609,7 @@ present, but the rule below never depends on reading it.
   through `LightComponent::renderIntensity(physicalUnits)`, not `intensity()`.
   `tests/glbCameraLightTests.cpp` checks both load paths.
 - **One glTF extension is FACTORS-ONLY where it touches materials.**
-  `KHR_materials_sheen` applies its factors (`applySheen` in `glbParser.cpp`, beside
+  `KHR_materials_sheen` applies its factors (`applySheen` in `glbParserMaterials.cpp`, beside
   `applyClearcoat`) and IGNORES its textures with one warning — there are no sheen maps.
   `KHR_materials_iridescence` reads both of its textures (`setIridescenceMap` /
   `setIridescenceThicknessMap`, SEPARATE images at Metal 47 / 48, Vulkan 39 / 40, each on the
