@@ -76,9 +76,9 @@ namespace visutwin::canvas
 
         // Probe root: the six face cameras hang off it, so setPosition() moves
         // all of them at once. Face cameras look along ±X/±Y/±Z (90° FOV).
-        _node = new Entity();
+        _node.reset(new Entity());
         _node->setEngine(_engine);
-        _engine->root()->addChild(_node);
+        _engine->root()->addChild(_node.get());
 
         _faceTargets.resize(6);
         for (int face = 0; face < 6; ++face) {
@@ -117,15 +117,7 @@ namespace visutwin::canvas
         if (_installed && _engine && _engine->scene()) {
             _engine->scene()->clearReflectionProbe();
         }
-        if (_node) {
-            if (_node->parent()) {
-                auto ownedNode = _node->remove();
-                ownedNode.reset();
-            } else {
-                delete _node;
-            }
-            _node = nullptr;
-        }
+        _node.reset();
         _faceEntities.fill(nullptr);
         _faceCameras.fill(nullptr);
     }

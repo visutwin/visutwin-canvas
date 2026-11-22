@@ -11,6 +11,7 @@
 #include "core/eventHandler.h"
 #include "core/math/color.h"
 #include "core/math/vector3.h"
+#include "framework/ownedEntity.h"
 
 namespace visutwin::canvas
 {
@@ -57,7 +58,7 @@ namespace visutwin::canvas
         Entity* makeRod(const Color& color);
 
         Engine* _engine = nullptr;
-        Entity* _root = nullptr;
+        OwnedEntity _root;
 
         // Handles in axis order +X, +Y, +Z, -X, -Y, -Z; rods along +X, +Y, +Z.
         std::array<Entity*, 6> _handles{};

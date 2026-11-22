@@ -142,29 +142,28 @@ namespace visutwin::canvas
         destroyRenderTargets(1);
     }
 
-    void RenderPassBloom::frameUpdate() const
+    void RenderPassBloom::frameUpdate()
     {
         RenderPass::frameUpdate();
-        auto mutableThis = const_cast<RenderPassBloom*>(this);
-        if (!mutableThis->_sourceTexture) {
+        if (!_sourceTexture) {
             return;
         }
 
-        const int maxNumPasses = calcMipLevels(mutableThis->_sourceTexture->width(), mutableThis->_sourceTexture->height(), 1);
-        const int numPasses = std::clamp(maxNumPasses, 1, mutableThis->_blurLevel);
+        const int maxNumPasses = calcMipLevels(_sourceTexture->width(), _sourceTexture->height(), 1);
+        const int numPasses = std::clamp(maxNumPasses, 1, _blurLevel);
         // The high pass is a shader variant of the first downsample, so switching the
         // threshold on or off rebuilds the passes.
-        if (static_cast<int>(mutableThis->_renderTargets.size()) != numPasses ||
-            mutableThis->_prefilterEnabled != (mutableThis->_threshold > 0.0f)) {
-            mutableThis->destroyRenderPasses();
-            mutableThis->destroyRenderTargets(1);
-            mutableThis->createRenderTargets(numPasses);
-            mutableThis->createRenderPasses(numPasses);
+        if (static_cast<int>(_renderTargets.size()) != numPasses ||
+            _prefilterEnabled != (_threshold > 0.0f)) {
+            destroyRenderPasses();
+            destroyRenderTargets(1);
+            createRenderTargets(numPasses);
+            createRenderPasses(numPasses);
         }
 
-        if (mutableThis->_prefilterPass) {
-            mutableThis->_prefilterPass->setPrefilterThreshold(mutableThis->_threshold);
-            mutableThis->_prefilterPass->setPrefilterKnee(mutableThis->_threshold * 0.5f);
+        if (_prefilterPass) {
+            _prefilterPass->setPrefilterThreshold(_threshold);
+            _prefilterPass->setPrefilterKnee(_threshold * 0.5f);
         }
     }
 }

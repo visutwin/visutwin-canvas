@@ -18,6 +18,7 @@
 #include "core/math/color.h"
 #include "core/math/vector3.h"
 #include "core/shape/boundingBox.h"
+#include "framework/ownedEntity.h"
 
 namespace visutwin::canvas
 {
@@ -203,7 +204,7 @@ namespace visutwin::canvas
         std::vector<std::shared_ptr<Texture>> _occlusionTextures;
         std::vector<std::shared_ptr<RenderTarget>> _occlusionRT;
         std::vector<std::shared_ptr<Layer>> _layers;
-        std::vector<Entity*> _cameras;
+        std::vector<OwnedEntity> _cameras;
         std::map<int, std::pair<std::shared_ptr<Texture>, std::shared_ptr<RenderTarget>>> _tempTargets;
 
         std::vector<uint32_t> _originalMasks;
@@ -223,7 +224,7 @@ namespace visutwin::canvas
         std::vector<LightEnabledBackup> _lightEnabledBackup;
 
         // The ambient-occlusion virtual light.
-        Entity* _ambientLightEntity = nullptr;
+        OwnedEntity _ambientLightEntity;
         LightComponent* _ambientLight = nullptr;
 
         // Directional lights baked as virtual copies: their authored rotation, intensity and

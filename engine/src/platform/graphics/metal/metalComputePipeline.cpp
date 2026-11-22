@@ -46,7 +46,7 @@ namespace visutwin::canvas
             return nullptr;
         }
 
-        auto* metalDevice = const_cast<MTL::Device*>(_device->raw());
+        auto* metalDevice = _device->raw();
         if (!metalDevice) {
             return nullptr;
         }

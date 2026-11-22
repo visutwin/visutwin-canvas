@@ -91,14 +91,14 @@ namespace visutwin::canvas
         // standalone grab passes at its depth layer.
         bool usesStandaloneGrabs(const RenderAction& action)
         {
-            const bool cameraOwnsGrabs = action.camera && action.camera->onPostprocessing() != nullptr;
+            const bool cameraOwnsGrabs = action.camera && action.camera->onPostprocessing();
             return !cameraOwnsGrabs &&
                 (action.camera->renderSceneColorMap() || action.camera->renderSceneDepthMap());
         }
 
         bool rendersThroughCameraFrame(const RenderAction& action)
         {
-            return action.triggerPostprocess && action.camera && action.camera->onPostprocessing() != nullptr;
+            return action.triggerPostprocess && action.camera && action.camera->onPostprocessing();
         }
     }
 

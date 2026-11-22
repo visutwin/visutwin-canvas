@@ -86,7 +86,7 @@ namespace
     public:
         LoggingPass(const std::shared_ptr<GraphicsDevice>& graphicsDevice, const std::string& name, std::vector<std::string>& log)
             : RenderPass(graphicsDevice), _name(name), _log(log) {}
-        void frameUpdate() const override { _log.push_back(_name); }
+        void frameUpdate() override { _log.push_back(_name); }
     private:
         std::string _name;
         std::vector<std::string>& _log;

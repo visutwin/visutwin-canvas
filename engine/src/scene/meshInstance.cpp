@@ -171,7 +171,7 @@ namespace visutwin::canvas
             _overrideClipVersion = clipVersion;
             _overrideCameraClipVersion = cameraClipVersion;
             _overrideVersion = Material::nextUniformsVersion();
-            const_cast<MeshInstance*>(this)->_parametersChanged = false;
+            _parametersChanged = false;
         }
         return _overrideBlock.get();
     }

@@ -10,6 +10,7 @@
 
 #include "core/eventHandler.h"
 #include "core/math/color.h"
+#include "framework/ownedEntity.h"
 
 namespace visutwin::canvas
 {
@@ -74,7 +75,7 @@ namespace visutwin::canvas
         Engine* _engine = nullptr;
 
         std::shared_ptr<Layer> _layer;
-        Entity* _cameraEntity = nullptr;
+        OwnedEntity _cameraEntity;
         CameraComponent* _cameraComponent = nullptr;
 
         std::shared_ptr<Texture> _colorTexture;

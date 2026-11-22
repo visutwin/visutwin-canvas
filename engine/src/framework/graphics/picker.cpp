@@ -437,8 +437,8 @@ namespace visutwin::canvas
         }
 
         std::sort(selection.begin(), selection.end(), [&](const MeshInstance* a, const MeshInstance* b) {
-            const auto ita = _candidateIndex.find(const_cast<MeshInstance*>(a));
-            const auto itb = _candidateIndex.find(const_cast<MeshInstance*>(b));
+            const auto ita = _candidateIndex.find(a);
+            const auto itb = _candidateIndex.find(b);
             if (ita == _candidateIndex.end() || itb == _candidateIndex.end()) {
                 return a < b;
             }

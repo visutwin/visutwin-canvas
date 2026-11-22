@@ -11,6 +11,7 @@
 
 #include "core/math/color.h"
 #include "core/math/vector3.h"
+#include "framework/ownedEntity.h"
 
 namespace visutwin::canvas
 {
@@ -112,7 +113,7 @@ namespace visutwin::canvas
         std::vector<std::shared_ptr<RenderTarget>> _mipTargets;
         std::vector<std::shared_ptr<RenderTarget>> _faceTargets;
 
-        Entity* _node = nullptr;
+        OwnedEntity _node;
         std::array<Entity*, 6> _faceEntities{};
         std::array<CameraComponent*, 6> _faceCameras{};
 

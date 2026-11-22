@@ -35,9 +35,9 @@ namespace visutwin::canvas
 
     ViewCube::ViewCube(Engine* engine) : _engine(engine)
     {
-        _root = new Entity();
+        _root.reset(new Entity());
         _root->setEngine(engine);
-        engine->root()->addChild(_root);
+        engine->root()->addChild(_root.get());
 
         setColors(Color(0.86f, 0.16f, 0.16f, 1.0f), Color(0.24f, 0.72f, 0.19f, 1.0f),
             Color(0.16f, 0.35f, 0.9f, 1.0f), Color(0.3f, 0.3f, 0.3f, 1.0f));
@@ -45,15 +45,7 @@ namespace visutwin::canvas
 
     ViewCube::~ViewCube()
     {
-        if (_root) {
-            if (_root->parent()) {
-                auto ownedRoot = _root->remove();
-                ownedRoot.reset();
-            } else {
-                delete _root;
-            }
-            _root = nullptr;
-        }
+        _root.reset();
         _handles.fill(nullptr);
         _rods.fill(nullptr);
         _materials.fill(nullptr);

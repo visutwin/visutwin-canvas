@@ -225,7 +225,7 @@ namespace visutwin::canvas
             } else {
                 vulkanTransitionImageLayout(cmd, depthImg, fromLayout, depthAttachLayout, depthAspect, 0, 1, 0, 1);
                 // Internal depth — track via the RT itself.
-                const_cast<VulkanDepthAttachment&>(da).currentLayout = depthAttachLayout;
+                da.currentLayout = depthAttachLayout;
             }
         }
 

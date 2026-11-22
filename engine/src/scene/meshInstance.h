@@ -697,7 +697,7 @@ namespace visutwin::canvas
 
         // Uniform overrides (setParameter) and the block built from them.
         Material::ParameterMap _parameters;
-        bool _parametersChanged = false;
+        mutable bool _parametersChanged = false;
         mutable std::unique_ptr<MaterialUniforms> _overrideBlock;
         mutable const Material* _overrideMaterial = nullptr;
         mutable uint64_t _overrideMaterialVersion = 0;

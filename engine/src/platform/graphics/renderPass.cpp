@@ -15,7 +15,7 @@
 
 namespace visutwin::canvas
 {
-    void RenderPass::frameUpdate() const
+    void RenderPass::frameUpdate()
     {
         if (_options != nullptr && _renderTarget != nullptr) {
             // With no explicit resizeSource the pass follows the back buffer: its colour

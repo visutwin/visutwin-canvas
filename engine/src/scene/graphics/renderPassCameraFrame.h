@@ -137,7 +137,7 @@ namespace visutwin::canvas
         void setRenderTargetScale(float value);
         float renderTargetScale() const { return _renderTargetScale; }
 
-        void frameUpdate() const override;
+        void frameUpdate() override;
 
         /// Publishes this frame's scene depth, depth grab and lighting-mode SSAO texture
         /// on the device. Run by the frame's first pass when it renders, not by

@@ -52,7 +52,7 @@ namespace visutwin::canvas
         resizeTargets(4, 4);
 
         // Camera rendering the outline layer to the offscreen target.
-        _cameraEntity = new Entity();
+        _cameraEntity.reset(new Entity());
         _cameraEntity->setEngine(engine);
         _cameraComponent = static_cast<CameraComponent*>(_cameraEntity->addComponent<CameraComponent>());
         if (_cameraComponent) {
@@ -60,7 +60,7 @@ namespace visutwin::canvas
             _cameraComponent->camera()->setRenderTarget(_renderTarget);
             _cameraComponent->camera()->setClearColor(Color(0.0f, 0.0f, 0.0f, 0.0f));
         }
-        engine->root()->addChild(_cameraEntity);
+        engine->root()->addChild(_cameraEntity.get());
 
         // Post passes: horizontal extend (rt -> temp), vertical extend (temp -> rt),
         // alpha blend over the back buffer.
@@ -85,16 +85,8 @@ namespace visutwin::canvas
     {
         removeAllEntities();
         setPassesRegistered(false);
-        if (_cameraEntity) {
-            if (_cameraEntity->parent()) {
-                auto ownedCamera = _cameraEntity->remove();
-                ownedCamera.reset();
-            } else {
-                delete _cameraEntity;
-            }
-            _cameraEntity = nullptr;
-            _cameraComponent = nullptr;
-        }
+        _cameraComponent = nullptr;
+        _cameraEntity.reset();
     }
 
     void OutlineRenderer::collectClones(Entity* entity, const Color& color, const bool recursive,

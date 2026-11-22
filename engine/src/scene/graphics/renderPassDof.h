@@ -19,7 +19,7 @@ namespace visutwin::canvas
         RenderPassDof(const std::shared_ptr<GraphicsDevice>& device, CameraComponent* cameraComponent, Texture* sceneTexture,
             Texture* sceneTextureHalf, bool highQuality, bool nearBlur);
 
-        void frameUpdate() const override;
+        void frameUpdate() override;
 
         float focusDistance() const { return _focusDistance; }
         void setFocusDistance(const float value) { _focusDistance = value; }

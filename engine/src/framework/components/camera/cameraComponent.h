@@ -268,19 +268,18 @@ namespace visutwin::canvas
 
         const Camera* camera() const { return _camera; }
 
-        /// Non-null when the camera has to render through an offscreen frame rather
+        /// True when the camera has to render through an offscreen frame rather
         /// than straight to its target. Every effect that reads the scene back needs
         /// one, and so do the two settings that describe the scene target itself:
         /// multisampling and a render scale have nowhere to live without it, so asking
         /// for either alone must also produce a frame.
-        void* onPostprocessing() const
+        bool onPostprocessing() const
         {
             const bool needsSceneTarget = _rendering.useCameraFrame ||
                 _rendering.samples > 1 || _rendering.renderTargetScale != 1.0f;
             return (_dof.enabled || _taa.enabled || _ssao.enabled || _volumetricFog.enabled ||
                     _rendering.bloomIntensity > 0.0f || _rendering.sharpness > 0.0f ||
-                    _rendering.changesImage() || needsSceneTarget || hasActiveFrameEffect())
-                ? const_cast<CameraComponent*>(this) : nullptr;
+                    _rendering.changesImage() || needsSceneTarget || hasActiveFrameEffect());
         }
 
         /// Camera::screenToWorld. Screen space is the engine's canvas (window points, the space

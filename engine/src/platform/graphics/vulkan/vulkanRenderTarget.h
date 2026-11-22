@@ -63,7 +63,7 @@ namespace visutwin::canvas
         // is private to the RT and freed when the RT is destroyed.
         VkImage internalImage = VK_NULL_HANDLE;
         VmaAllocation internalAllocation = VK_NULL_HANDLE;
-        VkImageLayout currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        mutable VkImageLayout currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         bool ownView = false;
 
         // Multisampled depth, owned here. Only allocated over a TEXTURE-backed

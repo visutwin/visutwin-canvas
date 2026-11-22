@@ -161,14 +161,11 @@ namespace visutwin::canvas
             _cameraDestroyed.watch(_camera->entity(), [this] { _camera = nullptr; });
         }
 
-        auto root = std::make_unique<Entity>();
-        _root = root.get();
+        _root.reset(new Entity());   // freed in destroy(), in the scene or not
         _root->setEngine(_engine);
         _root->setName(name);
         if (_engine && _engine->root()) {
-            _engine->root()->addChild(std::move(root));
-        } else {
-            root.release();   // owned by `_root`, freed in destroy()
+            _engine->root()->addChild(_root.get());
         }
         _root->setEnabled(false);
 
@@ -684,14 +681,7 @@ namespace visutwin::canvas
         removeLayerFromCamera();
         _intersectShapes.clear();
 
-        if (_root) {
-            if (_root->parent()) {
-                auto owned = _root->remove();
-            } else {
-                delete _root;
-            }
-            _root = nullptr;
-        }
+        _root.reset();
         _engine = nullptr;
     }
 }

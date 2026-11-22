@@ -191,12 +191,12 @@ int main()
     auto stages = std::make_shared<TestEffect>("stages",
         std::vector<FrameResource>{FrameResource::SceneColorGrab, FrameResource::SceneTarget, FrameResource::Depth},
         std::vector<std::string>{"postResolve", "resolve", "postScene", "postOpaque", "preScene"});
-    check(camera->onPostprocessing() == nullptr, "a camera with nothing to post-process renders without a frame");
+    check(!camera->onPostprocessing(), "a camera with nothing to post-process renders without a frame");
     check(camera->addFrameEffect(stages), "an effect is registered");
     check(!camera->addFrameEffect(std::make_shared<TestEffect>("stages", std::vector<FrameResource>{},
         std::vector<std::string>{})), "a second effect with the same id is refused");
     check(camera->frameEffect("stages") == stages && camera->frameEffects().size() == 1, "found by its id");
-    check(camera->onPostprocessing() != nullptr, "an active effect makes the camera render through a frame");
+    check(camera->onPostprocessing(), "an active effect makes the camera render through a frame");
 
     frame();
     auto cameraFrame = camera->cameraFrame();
@@ -348,7 +348,7 @@ int main()
 
         camera->removeFrameEffect(owner);
         frame();
-        check(camera->onPostprocessing() != nullptr && camera->cameraFrame() != nullptr,
+        check(camera->onPostprocessing() && camera->cameraFrame() != nullptr,
             "a compose effect alone makes the camera render through a frame");
 
         auto depthTint = std::make_shared<CameraFrameEffect>("depthTint", CameraFrameEffectOptions{

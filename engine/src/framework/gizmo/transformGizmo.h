@@ -24,6 +24,7 @@
 #include "core/shape/ray.h"
 #include "framework/gizmo/dragGizmo.h"
 #include "framework/gizmo/gizmoReadout.h"
+#include "framework/ownedEntity.h"
 #include "framework/gizmo/shape/shape.h"
 
 namespace visutwin::canvas
@@ -173,7 +174,7 @@ namespace visutwin::canvas
         Color _guideBase = Color(1.0f, 1.0f, 1.0f, 1.0f);
         Color _guideOccluded = Color(1.0f, 1.0f, 1.0f, 1.0f);
         Color _guideFill = Color(1.0f, 1.0f, 1.0f, 0.0f);
-        Entity* _guideRoot = nullptr;
+        OwnedEntity _guideRoot;
         std::unique_ptr<OverlayRenderer> _guides;
         std::vector<std::pair<Vector3, Vector3>> _frameGuideLines;
     };

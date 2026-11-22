@@ -1250,7 +1250,7 @@ namespace visutwin::canvas
         return gd ? gd->size() : std::pair<int, int>{0, 0};
     }
 
-    void RenderPassCameraFrame::frameUpdate() const
+    void RenderPassCameraFrame::frameUpdate()
     {
         RenderPass::frameUpdate();
 

@@ -161,7 +161,7 @@ namespace visutwin::canvas
         _historyValid = true;
     }
 
-    void RenderPassTAA::frameUpdate() const
+    void RenderPassTAA::frameUpdate()
     {
         RenderPass::frameUpdate();
     }

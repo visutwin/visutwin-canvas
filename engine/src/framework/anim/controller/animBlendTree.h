@@ -61,11 +61,11 @@ namespace visutwin::canvas
         int getNodeCount() const;
 
         /** Recompute child weights from the current parameter values. */
-        virtual void calculateWeights() = 0;
+        virtual void calculateWeights() const = 0;
 
     protected:
         /** Refresh cached parameter values; returns true when nothing changed. */
-        bool updateParameterValues();
+        bool updateParameterValues() const;
 
         std::vector<std::string> _parameters;
         mutable std::vector<float> _parameterValues;
@@ -80,7 +80,7 @@ namespace visutwin::canvas
     {
     public:
         using AnimBlendTree::AnimBlendTree;
-        void calculateWeights() override;
+        void calculateWeights() const override;
     };
 
     /** 2D cartesian gradient-band interpolation. */
@@ -88,7 +88,7 @@ namespace visutwin::canvas
     {
     public:
         using AnimBlendTree::AnimBlendTree;
-        void calculateWeights() override;
+        void calculateWeights() const override;
 
     private:
         const Vector2& pointDistanceCache(size_t i, size_t j) const;
@@ -99,7 +99,7 @@ namespace visutwin::canvas
     {
     public:
         using AnimBlendTree::AnimBlendTree;
-        void calculateWeights() override;
+        void calculateWeights() const override;
 
     private:
         const Vector2& pointCache(size_t i, size_t j) const;
@@ -110,6 +110,6 @@ namespace visutwin::canvas
     {
     public:
         using AnimBlendTree::AnimBlendTree;
-        void calculateWeights() override;
+        void calculateWeights() const override;
     };
 }

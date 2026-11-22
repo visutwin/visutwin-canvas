@@ -21,7 +21,7 @@ namespace visutwin::canvas
         RenderPassBloom(const std::shared_ptr<GraphicsDevice>& device, Texture* sourceTexture, PixelFormat format);
         ~RenderPassBloom() = default;
 
-        void frameUpdate() const override;
+        void frameUpdate() override;
         void onDisable() override;
 
         Texture* bloomTexture() const { return _bloomTexture; }

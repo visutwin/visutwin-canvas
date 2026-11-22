@@ -23,6 +23,7 @@ function(visutwin_add_unit_test target testName source)
 endfunction()
 
 visutwin_add_unit_test(visutwin-graph-node-tests graph-node-invariants graphNodeTests.cpp)
+visutwin_add_unit_test(visutwin-owned-entity-tests owned-entity ownedEntityTests.cpp)
 visutwin_add_unit_test(visutwin-material-uniforms-tests material-uniforms materialUniformsTests.cpp)
 visutwin_add_unit_test(visutwin-stencil-parameters-tests stencil-parameters stencilParametersTests.cpp)
 visutwin_add_unit_test(visutwin-blend-state-tests blend-state blendStateTests.cpp)

@@ -254,7 +254,7 @@ namespace visutwin::canvas
         _originalMasks.push_back(meshInstance->mask());
         meshInstance->setMask(MASK_AFFECT_LIGHTMAPPED);
 
-        _cameras.push_back(createBakeCamera(*layer, renderTarget));
+        _cameras.emplace_back(createBakeCamera(*layer, renderTarget));
         _lightmaps.push_back(std::move(texture));
         _targetsRT.push_back(std::move(renderTarget));
         _layers.push_back(std::move(layer));
@@ -370,10 +370,10 @@ namespace visutwin::canvas
         // at 2048. DEVIATION: shadow bias 0.05 rather than upstream's 0.2 — the authoring
         // value here feeds a polygon offset, and 0.2 pushes small casters out of their own
         // shadows (the same conversion the lightmap examples make for their lights).
-        _ambientLightEntity = new Entity();
+        _ambientLightEntity.reset(new Entity());
         _ambientLightEntity->setName("AmbientLight");
         _ambientLightEntity->setEngine(_engine);
-        _engine->root()->addChild(_ambientLightEntity);
+        _engine->root()->addChild(_ambientLightEntity.get());
 
         _ambientLight = static_cast<LightComponent*>(
             _ambientLightEntity->addComponent<LightComponent>());
@@ -414,7 +414,7 @@ namespace visutwin::canvas
         const bool accumulate)
     {
         for (size_t i = 0; i < _cameras.size(); ++i) {
-            auto* cameraEntity = _cameras[i];
+            Entity* cameraEntity = _cameras[i].get();
             auto* cameraComponent = cameraEntity ? cameraEntity->findComponent<CameraComponent>() : nullptr;
             Camera* camera = cameraComponent ? cameraComponent->camera() : nullptr;
             if (!camera) {
@@ -709,8 +709,7 @@ namespace visutwin::canvas
         restoreSceneLights();
         _lightEnabledBackup.clear();
 
-        delete _ambientLightEntity;
-        _ambientLightEntity = nullptr;
+        _ambientLightEntity.reset();
         _ambientLight = nullptr;
 
         for (auto& [lightComponent, layerIds] : _lightLayerBackup) {
@@ -734,10 +733,7 @@ namespace visutwin::canvas
         }
         _lightShadowBoundsBackup.clear();
 
-        for (auto* cameraEntity : _cameras) {
-            delete cameraEntity;   // detaches from the parent in ~GraphNode
-        }
-        _cameras.clear();
+        _cameras.clear();   // frees each camera; a node deleted in the scene detaches itself
 
         if (_engine) {
             if (const auto& layers = _engine->scene()->layers()) {

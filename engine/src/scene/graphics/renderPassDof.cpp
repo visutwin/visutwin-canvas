@@ -69,7 +69,7 @@ namespace visutwin::canvas
         }
     }
 
-    void RenderPassDof::frameUpdate() const
+    void RenderPassDof::frameUpdate()
     {
         RenderPass::frameUpdate();
 

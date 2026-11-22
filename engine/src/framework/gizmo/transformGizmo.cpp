@@ -75,21 +75,18 @@ namespace visutwin::canvas
     {
         // guides sit on an unrotated root in the Immediate layer, whose depth lets the scene hide
         // them, or follow the gizmo layer without one
-        auto guideRoot = std::make_unique<Entity>();
-        _guideRoot = guideRoot.get();
+        _guideRoot.reset(new Entity());   // freed in destroy(), in the scene or not
         _guideRoot->setEngine(_engine);
         _guideRoot->setName("guides");
         if (_engine && _engine->root()) {
-            _engine->root()->addChild(std::move(guideRoot));
-        } else {
-            guideRoot.release();   // owned by `_guideRoot`, freed in destroy()
+            _engine->root()->addChild(_guideRoot.get());
         }
         std::shared_ptr<Layer> guideLayer;
         if (_engine && _engine->scene() && _engine->scene()->layers()) {
             guideLayer = _engine->scene()->layers()->getLayerById(LAYERID_IMMEDIATE);
         }
         _guides = std::make_unique<OverlayRenderer>(this,
-            OverlayRendererTheme{&_guideBase, &_guideOccluded, &_guideFill, nullptr}, _guideRoot, guideLayer);
+            OverlayRendererTheme{&_guideBase, &_guideOccluded, &_guideFill, nullptr}, _guideRoot.get(), guideLayer);
         _guides->lineThickness = 1.0f;
 
         // color.js and the theme defaults
@@ -613,14 +610,7 @@ namespace visutwin::canvas
             _guides->destroy();
             _guides.reset();
         }
-        if (_guideRoot) {
-            if (_guideRoot->parent()) {
-                auto owned = _guideRoot->remove();
-            } else {
-                delete _guideRoot;
-            }
-            _guideRoot = nullptr;
-        }
+        _guideRoot.reset();
         Gizmo::destroy();
     }
 

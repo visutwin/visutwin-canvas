@@ -132,7 +132,7 @@ namespace visutwin::canvas
         int _height = 1;
         std::vector<int> _layers;
         std::vector<Candidate> _candidates;
-        std::unordered_map<MeshInstance*, size_t> _candidateIndex;
+        std::unordered_map<const MeshInstance*, size_t> _candidateIndex;
 
         // The id pass.
         std::shared_ptr<Texture> _colorBuffer;

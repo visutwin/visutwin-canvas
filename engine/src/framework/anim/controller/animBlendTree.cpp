@@ -81,7 +81,7 @@ namespace visutwin::canvas
 
     float AnimBlendTree::weight() const
     {
-        const_cast<AnimBlendTree*>(this)->calculateWeights();
+        calculateWeights();
         return _parent ? _parent->weight() * _weight : _weight;
     }
 
@@ -108,7 +108,7 @@ namespace visutwin::canvas
         return count;
     }
 
-    bool AnimBlendTree::updateParameterValues()
+    bool AnimBlendTree::updateParameterValues() const
     {
         bool paramsEqual = true;
         for (size_t i = 0; i < _parameterValues.size(); ++i) {
@@ -124,7 +124,7 @@ namespace visutwin::canvas
 
     // ── 1D ──────────────────────────────────────────────────────────────
 
-    void AnimBlendTree1D::calculateWeights()
+    void AnimBlendTree1D::calculateWeights() const
     {
         if (updateParameterValues() || _children.empty()) {
             return;
@@ -174,7 +174,7 @@ namespace visutwin::canvas
         return it->second;
     }
 
-    void AnimBlendTreeCartesian2D::calculateWeights()
+    void AnimBlendTreeCartesian2D::calculateWeights() const
     {
         if (updateParameterValues() || _children.empty()) {
             return;
@@ -228,7 +228,7 @@ namespace visutwin::canvas
         return it->second;
     }
 
-    void AnimBlendTreeDirectional2D::calculateWeights()
+    void AnimBlendTreeDirectional2D::calculateWeights() const
     {
         if (updateParameterValues() || _children.empty()) {
             return;
@@ -274,7 +274,7 @@ namespace visutwin::canvas
 
     // ── Direct ──────────────────────────────────────────────────────────
 
-    void AnimBlendTreeDirect::calculateWeights()
+    void AnimBlendTreeDirect::calculateWeights() const
     {
         if (updateParameterValues() || _children.empty()) {
             return;

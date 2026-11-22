@@ -310,10 +310,10 @@ namespace visutwin::canvas
             const float elev = std::atan2(-dir.getY(), std::sqrt(dir.getX() * dir.getX() + dir.getZ() * dir.getZ())) *
                 RAD_TO_DEG;
             const float azim = std::atan2(-dir.getX(), -dir.getZ()) * RAD_TO_DEG;
-            setWorldRotation(_face->entity(), _root, Quaternion::fromEulerAngles(-elev + 90.0f, azim, 0.0f));
+            setWorldRotation(_face->entity(), _root.get(), Quaternion::fromEulerAngles(-elev + 90.0f, azim, 0.0f));
         } else {
             // the camera's Euler angles, then rotateLocal(-90, 0, 0)
-            setWorldRotation(_face->entity(), _root, cameraRotation() * Quaternion::fromEulerAngles(-90.0f, 0.0f, 0.0f));
+            setWorldRotation(_face->entity(), _root.get(), cameraRotation() * Quaternion::fromEulerAngles(-90.0f, 0.0f, 0.0f));
         }
 
         // axes shapes

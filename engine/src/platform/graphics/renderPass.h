@@ -72,7 +72,7 @@ namespace visutwin::canvas
         virtual void init(const std::shared_ptr<RenderTarget>& renderTarget = nullptr,
             const std::shared_ptr<RenderPassOptions>& options = nullptr);
 
-        virtual void frameUpdate() const;
+        virtual void frameUpdate();
 
         virtual void before() {}
         virtual void after() {}

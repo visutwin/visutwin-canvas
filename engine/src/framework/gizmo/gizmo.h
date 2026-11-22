@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "framework/destroyWatch.h"
+#include "framework/ownedEntity.h"
 #include "core/eventHandler.h"
 #include "core/math/quaternion.h"
 #include "core/math/vector3.h"
@@ -108,7 +109,7 @@ namespace visutwin::canvas
         float worldScale() const { return _scale; }
 
         const std::vector<GraphNode*>& nodes() const { return _nodes; }
-        Entity* root() const { return _root; }
+        Entity* root() const { return _root.get(); }
         Engine* engine() const { return _engine; }
 
         /// There is no DOM event to cancel; kept for the API.
@@ -191,7 +192,7 @@ namespace visutwin::canvas
         std::shared_ptr<Layer> _layer;
         bool _renderUpdate = false;
         std::vector<GraphNode*> _nodes;
-        Entity* _root = nullptr;
+        OwnedEntity _root;
         std::vector<Shape*> _intersectShapes;
 
     private:
