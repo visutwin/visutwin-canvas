@@ -589,6 +589,8 @@ still be GLSL source, compiled at run time through shaderc.
 
 `VulkanGraphicsDevice` is split across
 `vulkanGraphicsDevice{FrameSwapchain,Descriptors,Uploads,DrawBinding,Compute,ResourceInitialization}.cpp`
+and `MetalGraphicsDevice` across `metalGraphicsDevice.cpp` (construction, resource creation,
+capabilities) and `metalGraphicsDevice{Frame,DrawBinding,RenderPass,Compute,Transfers,Bindless}.cpp`
 — add new code to the matching component, not one monolith.
 
 **Metal-only today:** texture streaming and marching cubes. Volumetric fog
