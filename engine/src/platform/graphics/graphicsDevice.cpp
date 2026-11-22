@@ -5,6 +5,7 @@
 //
 #include <cmath>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <string>
@@ -157,8 +158,8 @@ namespace visutwin::canvas
 
     uint64_t GraphicsDevice::nextPaletteVersion()
     {
-        static uint64_t version = 0;
-        return ++version;
+        static std::atomic<uint64_t> version{0};
+        return version.fetch_add(1, std::memory_order_relaxed) + 1;
     }
 
     const MaterialMapLanes& GraphicsDevice::drawMapLanes()

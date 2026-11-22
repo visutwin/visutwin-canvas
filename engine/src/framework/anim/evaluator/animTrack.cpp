@@ -6,6 +6,7 @@
 #include "animTrack.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 
 namespace visutwin::canvas
@@ -51,8 +52,8 @@ namespace visutwin::canvas
     {
         uint64_t nextTrackSerial()
         {
-            static uint64_t last = 0;
-            return ++last;
+            static std::atomic<uint64_t> last{0};
+            return last.fetch_add(1, std::memory_order_relaxed) + 1;
         }
     }
 

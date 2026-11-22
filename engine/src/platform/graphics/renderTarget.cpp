@@ -5,6 +5,8 @@
 //
 #include "renderTarget.h"
 
+#include <atomic>
+
 #include <spdlog/spdlog.h>
 
 #include "graphicsDevice.h"
@@ -12,11 +14,11 @@
 
 namespace visutwin::canvas
 {
-    static int globalRenderTargetId = 0;
+    static std::atomic<int> globalRenderTargetId{0};
 
     RenderTarget::RenderTarget(const RenderTargetOptions& options)
     {
-        _id = globalRenderTargetId++;
+        _id = globalRenderTargetId.fetch_add(1, std::memory_order_relaxed);
 
         // Get device from one of the buffers
         _device = options.colorBuffer ? options.colorBuffer->device() :

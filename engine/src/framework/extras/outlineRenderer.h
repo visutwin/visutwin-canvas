@@ -50,6 +50,9 @@ namespace visutwin::canvas
         explicit OutlineRenderer(Engine* engine, int layerId = 100);
         ~OutlineRenderer();
 
+        OutlineRenderer(const OutlineRenderer&) = delete;
+        OutlineRenderer& operator=(const OutlineRenderer&) = delete;
+
         /// Add an entity (and, when recursive, its descendants) with the given outline color.
         void addEntity(Entity* entity, const Color& color, bool recursive = true);
 

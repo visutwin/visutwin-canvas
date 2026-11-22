@@ -131,6 +131,18 @@ namespace
         return status;
     }
 
+    // The status of an exception caught at the boundary. Building the message may itself
+    // throw (out of memory); then the error text stays empty, and nothing escapes into C.
+    vt_status failInternal(const char* what) noexcept
+    {
+        try {
+            lastError = what ? std::string("engine error: ") + what : std::string("engine error");
+        } catch (...) {
+            lastError.clear();
+        }
+        return VT_ERROR_INTERNAL;
+    }
+
     // Runs one entry point: a clear error to start, every exception caught.
     template <class Body>
     vt_status guarded(Body&& body)
@@ -139,9 +151,9 @@ namespace
         try {
             return body();
         } catch (const std::exception& exception) {
-            return fail(VT_ERROR_INTERNAL, std::string("engine error: ") + exception.what());
+            return failInternal(exception.what());
         } catch (...) {
-            return fail(VT_ERROR_INTERNAL, "engine error");
+            return failInternal(nullptr);
         }
     }
 
@@ -1379,10 +1391,17 @@ vt_status vt_get_string(vt_engine* e, const vt_entity id, const vt_property p, c
 vt_status vt_set_string(vt_engine* e, const vt_entity id, const vt_property p, const char* value)
 {
     if (!value) {
-        lastError = "no string";
-        return VT_ERROR_INVALID_ARGUMENT;
+        return guarded([] { return fail(VT_ERROR_INVALID_ARGUMENT, "no string"); });
     }
-    return setTyped(e, id, p, ValueType::String, PropertyValue(std::string(value)));
+    PropertyValue text;
+    if (const vt_status status = guarded([&] {
+            text = std::string(value);
+            return VT_OK;
+        });
+        status != VT_OK) {
+        return status;
+    }
+    return setTyped(e, id, p, ValueType::String, std::move(text));
 }
 
 vt_status vt_get_text(vt_engine* engine, const vt_entity id, const vt_property handle, char* buffer,
@@ -2096,7 +2115,7 @@ vt_status vt_set_error(const vt_status status, const char* message)
         lastError.clear();
         return VT_OK;
     }
-    return fail(status, message ? message : "");
+    return guarded([&] { return fail(status, message ? message : ""); });
 }
 
 vt_status vt_engine_on_destroy(vt_engine* engine, const vt_engine_destroy_callback callback, void* user)

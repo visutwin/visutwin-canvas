@@ -88,6 +88,11 @@ namespace visutwin::canvas
         // no-op) even when the emitter is destroyed first.
         virtual ~EventHandler();
 
+        EventHandler() = default;
+        // Not copyable or movable: every handle it gave out points back at this object.
+        EventHandler(const EventHandler&) = delete;
+        EventHandler& operator=(const EventHandler&) = delete;
+
         EventHandlePtr on(const std::string& name, HandleEventCallback callback, void* scope = nullptr);
         EventHandlePtr once(const std::string& name, HandleEventCallback callback, void* scope = nullptr);
 

@@ -5,12 +5,14 @@
 //
 #include "bindGroupFormat.h"
 
+#include <atomic>
+
 namespace visutwin::canvas
 {
-    static uint32_t idCounter = 0;
+    static std::atomic<uint32_t> idCounter{0};
 
     BindGroupFormat::BindGroupFormat(GraphicsDevice* /*graphicsDevice*/, const std::vector<BindBaseFormat*>& /*formats*/)
-        : _id(idCounter++) {
+        : _id(idCounter.fetch_add(1, std::memory_order_relaxed)) {
 
     }
 }

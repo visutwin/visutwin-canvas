@@ -1087,6 +1087,8 @@ namespace visutwin::canvas
         VkDescriptorPool _bindlessFramePool = VK_NULL_HANDLE;
         std::vector<VkSampler> _bindlessSamplers;
         std::vector<TextureSamplerState> _bindlessSamplerStates;
+        std::vector<VkWriteDescriptorSet> _bindlessWrites;
+        std::vector<VkDescriptorImageInfo> _bindlessImageInfos;
         std::array<std::vector<BindlessResidency::Entry>, static_cast<size_t>(BindlessKind::Count)> _bindlessSnapshots;
         uint64_t _bindlessGeneration = 0;
         // The draw's lanes block in the ring, by GraphicsDevice::drawMapLanesVersion(), for this frame.

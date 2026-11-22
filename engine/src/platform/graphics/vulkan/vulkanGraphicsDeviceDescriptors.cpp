@@ -529,8 +529,10 @@ namespace visutwin::canvas
         constexpr std::array<uint32_t, static_cast<size_t>(BindlessKind::Count)> kCapacities{
             kBindlessTableTextureCapacity, kBindlessTableTextureArrayCapacity, kBindlessTableVolumeCapacity};
         constexpr uint32_t kSamplers = kBindlessTableSamplerCapacity;
-        static std::vector<VkWriteDescriptorSet> writes;
-        static std::vector<VkDescriptorImageInfo> infos;
+        // Members, not function statics: reused across frames without reallocating, and per
+        // device. `infos` is reserved before any push, so the pointers `writes` holds stay valid.
+        auto& writes = _bindlessWrites;
+        auto& infos = _bindlessImageInfos;
         writes.clear();
         infos.clear();
         infos.reserve(kCapacities[0] + kCapacities[1] + kCapacities[2] + kSamplers);

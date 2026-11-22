@@ -64,6 +64,9 @@ namespace visutwin::canvas
         void setClearColor(const Color& color);
         ~ReflectionProbe();
 
+        ReflectionProbe(const ReflectionProbe&) = delete;
+        ReflectionProbe& operator=(const ReflectionProbe&) = delete;
+
         /// World-space capture origin (probe center). Also the box-projection center.
         void setPosition(const Vector3& worldPosition);
 

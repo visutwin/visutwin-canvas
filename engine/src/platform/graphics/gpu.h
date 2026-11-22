@@ -60,6 +60,11 @@ namespace visutwin::canvas::gpu
     public:
         virtual ~HardwareTexture() = default;
 
+        HardwareTexture() = default;
+        // Not copyable: a backend's object owns native GPU handles it releases on destruction.
+        HardwareTexture(const HardwareTexture&) = delete;
+        HardwareTexture& operator=(const HardwareTexture&) = delete;
+
         // Upload texture data immediately if needed
         virtual void uploadImmediate(GraphicsDevice* device) = 0;
 
@@ -119,6 +124,11 @@ namespace visutwin::canvas::gpu
     {
     public:
         virtual ~HardwareBuffer() = default;
+
+        HardwareBuffer() = default;
+        // Not copyable: a backend's object owns native GPU handles it releases on destruction.
+        HardwareBuffer(const HardwareBuffer&) = delete;
+        HardwareBuffer& operator=(const HardwareBuffer&) = delete;
 
         /// Upload data to the GPU buffer.
         virtual void upload(GraphicsDevice* device, const void* data, size_t size) = 0;
