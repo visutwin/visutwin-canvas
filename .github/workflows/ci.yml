@@ -1,13 +1,15 @@
 # Continuous integration: the test floor.
 #
-# Three jobs, from cheapest to most expensive:
+# Four jobs, from cheapest to most expensive:
 #
-#   simd-backends  Compiles the SIMD contract test once per backend and asserts
-#                  the backend it actually selected. Only ONE backend compiles in
-#                  an ordinary build, so the SSE and NEON paths were never built
-#                  by anything; two wrong SSE sums lived there unnoticed. The test
-#                  and the maths it covers are header-only, so this needs no
-#                  vcpkg and runs in seconds.
+#   simd-backends  Compiles the SIMD contract test for the two backends no full
+#                  build selects, scalar (Linux x86) and NEON (Linux arm64), and
+#                  asserts the backend it actually selected. Only ONE backend
+#                  compiles in an ordinary build; two wrong SSE sums once lived
+#                  unnoticed in a path nothing built. SSE and Apple are asserted
+#                  by the Linux and macOS builds' own unit tests. The test and the
+#                  maths it covers are header-only, so this needs no vcpkg and runs
+#                  in seconds.
 #   macos-metal    The default preset: Metal backend, every unit test, and every
 #                  example application built (not run) so an API change cannot
 #                  leave one uncompiled. The SIMD test runs here too with the Apple
@@ -18,7 +20,7 @@
 #                  source read back still looks plausible — so this is what
 #                  catches them.
 #   linux-vulkan   The vulkan preset on Linux: engine and C API build, warnings as
-#                  errors, plus every unit test. Then the tests that need a device
+#                  errors, plus every unit test, the SIMD test with SSE expected. Then the tests that need a device
 #                  and a window (the `vulkan` and `gpu` labels, the vulkan-gpu test
 #                  preset): the Vulkan validation smoke test and the GPU tests, on
 #                  lavapipe (Mesa's software Vulkan) under Xvfb, with the validation
@@ -53,14 +55,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { runner: ubuntu-24.04, backend: sse,    flags: "-msse4.1" }
-          - { runner: ubuntu-24.04, backend: scalar, flags: "-mno-sse4.1" }
-          - { runner: macos-15,     backend: neon,   flags: "-DUSE_SIMD_PREFER_NEON" }
-          - { runner: macos-15,     backend: apple,  flags: "" }
+          # SSE is the Linux (Vulkan) build's own backend and Apple the macOS (Metal) build's,
+          # and both run this test among their unit tests; only scalar and NEON have no full build.
+          - { runner: ubuntu-24.04,     backend: scalar, flags: "-mno-sse4.1" }
+          - { runner: ubuntu-24.04-arm, backend: neon,   flags: "" }
     name: simd (${{ matrix.backend }})
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build the contract test
         run: >
           clang++ -std=c++23 ${{ matrix.flags }} -I engine/src
@@ -77,7 +79,7 @@ jobs:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-binary-cache
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install build tools
         run: brew install ninja
       # The engine's CMake enables the Metal language whenever the Metal backend
@@ -97,7 +99,7 @@ jobs:
           "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
       - name: Restore vcpkg binary cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/vcpkg-binary-cache
           key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
@@ -124,7 +126,7 @@ jobs:
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-binary-cache
       UBSAN_OPTIONS: print_stacktrace=1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install build tools
         run: brew install ninja
       - name: Ensure the Metal shader compiler is present
@@ -142,7 +144,7 @@ jobs:
       # Same key as macos-metal: the dependencies are not instrumented, so the
       # sanitizer build reuses the same binary cache.
       - name: Restore vcpkg binary cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/vcpkg-binary-cache
           key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
@@ -169,7 +171,7 @@ jobs:
       CC: gcc-14
       CXX: g++-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # libvulkan-dev supplies the loader (libvulkan.so) the engine links. vcpkg's
       # vulkan-headers port has headers only, and the runtime package alone ships
       # just the versioned libvulkan.so.1, which find_package(Vulkan) cannot use.
@@ -194,7 +196,7 @@ jobs:
           "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
       - name: Restore vcpkg binary cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/vcpkg-binary-cache
           key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
@@ -210,6 +212,7 @@ jobs:
         run: cmake --build --preset vulkan
       - name: Unit tests
         env:
+          VISUTWIN_EXPECT_SIMD_BACKEND: sse
           VISUTWIN_EXPECT_KERNEL_BACKEND: sse2
         run: ctest --preset vulkan
       # The device tests, on lavapipe under a virtual X server. lavapipe allocates

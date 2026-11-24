@@ -116,8 +116,9 @@ ctest --preset default
   run kernels on this build's real device (`ctest -L gpu` in a Vulkan build). Every preset errors when it
   matches no tests, so a broken filter fails rather than passing on nothing.
 - **CI is `.github/workflows/ci.yml`**, four jobs: `simd-backends` compiles the
-  header-only SIMD contract test once per backend (SSE and scalar on Linux x86,
-  NEON and Apple on macOS arm64) with no vcpkg; `macos-metal` builds the `default`
+  header-only SIMD contract test for the two backends no full build selects (scalar on
+  Linux x86, NEON on Linux arm64) with no vcpkg, while the full builds assert their own
+  (SSE on Linux, Apple on macOS) through `VISUTWIN_EXPECT_SIMD_BACKEND`; `macos-metal` builds the `default`
   preset WITH every example (`-DVISUTWIN_BUILD_EXAMPLES=ON`, built not run) and runs
   its tests; `macos-sanitize` builds the `sanitize` preset and runs the unit tests
   under AddressSanitizer and UndefinedBehaviorSanitizer; `linux-vulkan` builds the
