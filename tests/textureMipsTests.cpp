@@ -75,15 +75,17 @@ int main()
 
     std::cout << "the mean down a deep chain\n";
     {
+        // mt19937's raw output is fixed by the standard, a distribution's is not: libc++ and
+        // libstdc++ turn the same engine into different numbers, so the noise is taken modulo.
         std::mt19937 random(7);
-        std::uniform_int_distribution<int> noise(-40, 40);
+        const auto noise = [&] { return static_cast<int>(random() % 81u) - 40; };
         const uint32_t size = 1024;
         std::vector<uint8_t> top(static_cast<size_t>(size) * size * 4);
         for (size_t i = 0; i < top.size(); i += 4) {
-            top[i] = static_cast<uint8_t>(std::clamp(190 + noise(random), 0, 255));
-            top[i + 1] = static_cast<uint8_t>(std::clamp(60 + noise(random), 0, 255));
-            top[i + 2] = static_cast<uint8_t>(std::clamp(120 + noise(random), 0, 255));
-            top[i + 3] = static_cast<uint8_t>(std::clamp(128 + noise(random), 0, 255));
+            top[i] = static_cast<uint8_t>(std::clamp(190 + noise(), 0, 255));
+            top[i + 1] = static_cast<uint8_t>(std::clamp(60 + noise(), 0, 255));
+            top[i + 2] = static_cast<uint8_t>(std::clamp(120 + noise(), 0, 255));
+            top[i + 3] = static_cast<uint8_t>(std::clamp(128 + noise(), 0, 255));
         }
         const auto chain = generateMipChain8(top.data(), size, size, 4, false, 11);
         check(chain.size() == 10 && chain.back().size() == 4, "a 1024 chain ends at 1 x 1");
@@ -93,11 +95,14 @@ int main()
         }
         check(kept, "as stored, the 1 x 1 is the top level's mean, within rounding");
 
+        // Every level is stored as 8-bit codes, and rounding a linear average to the nearest code
+        // drifts in linear light, so ten levels end up to about 1.2 codes from the exact mean (40
+        // inputs measured). A chain averaging the codes instead lands 1.8 or more away.
         const auto srgbChain = generateMipChain8(top.data(), size, size, 4, true, 11);
         bool linear = true;
         for (uint32_t c = 0; c < 3; ++c) {
             const float expected = linearToGamma(static_cast<float>(linearMean(top, 4, c))) * 255.0f;
-            linear = linear && std::abs(srgbChain.back()[c] - expected) <= 0.6f;
+            linear = linear && std::abs(srgbChain.back()[c] - expected) <= 1.5f;
         }
         check(linear, "sRGB colour: the 1 x 1 is the top level's mean in linear light");
         check(srgbChain.back()[3] == chain.back()[3], "and its alpha is averaged as stored");
