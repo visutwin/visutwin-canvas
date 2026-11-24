@@ -3,28 +3,28 @@
 #
 # Builds the engine from a LOCAL checkout rather than a published archive: this
 # is a sibling project that moves with its consumers, so there is no released
-# tarball to hash. VISUTWIN_CANVAS_SOURCE_DIR selects the checkout and defaults
-# to a sibling of the port tree (../../../ from this file, i.e. the canvas root).
+# tarball to hash. VISUTWIN_ENGINE_SOURCE_DIR selects the checkout and defaults
+# to a sibling of the port tree (../../../ from this file, i.e. the engine checkout root).
 #
 # Pass it explicitly when the layout differs:
-#   -DVCPKG_OVERLAY_PORTS=<canvas>/vcpkg-overlays/ports
-#   -DVISUTWIN_CANVAS_SOURCE_DIR=<canvas>
+#   -DVCPKG_OVERLAY_PORTS=<checkout>/vcpkg-overlays/ports
+#   -DVISUTWIN_ENGINE_SOURCE_DIR=<checkout>
 #
 # Because the source is a working tree rather than a fixed revision, vcpkg
 # cannot tell one build from another: bump "version" in this port's vcpkg.json
 # (or clear the binary cache) after changing engine sources, or consumers will
 # keep the previously built package.
-if(NOT DEFINED VISUTWIN_CANVAS_SOURCE_DIR)
-    get_filename_component(VISUTWIN_CANVAS_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
+if(NOT DEFINED VISUTWIN_ENGINE_SOURCE_DIR)
+    get_filename_component(VISUTWIN_ENGINE_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 endif()
 
-if(NOT EXISTS "${VISUTWIN_CANVAS_SOURCE_DIR}/engine/CMakeLists.txt")
+if(NOT EXISTS "${VISUTWIN_ENGINE_SOURCE_DIR}/engine/CMakeLists.txt")
     message(FATAL_ERROR
-        "visutwin-canvas sources not found at ${VISUTWIN_CANVAS_SOURCE_DIR}. "
-        "Set VISUTWIN_CANVAS_SOURCE_DIR to the root of the visutwin-canvas checkout.")
+        "visutwin-engine sources not found at ${VISUTWIN_ENGINE_SOURCE_DIR}. "
+        "Set VISUTWIN_ENGINE_SOURCE_DIR to the root of the visutwin-engine checkout.")
 endif()
 
-set(SOURCE_PATH "${VISUTWIN_CANVAS_SOURCE_DIR}")
+set(SOURCE_PATH "${VISUTWIN_ENGINE_SOURCE_DIR}")
 
 vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
     FEATURES
@@ -39,12 +39,12 @@ vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS
         ${FEATURE_OPTIONS}
-        -DVISUTWIN_CANVAS_SHARED=ON
+        -DVISUTWIN_ENGINE_SHARED=ON
         -DVISUTWIN_BUILD_EXAMPLES=OFF
         -DBUILD_TESTING=OFF
 )
 vcpkg_cmake_install()
-vcpkg_cmake_config_fixup(PACKAGE_NAME VisuTwinCanvas CONFIG_PATH lib/cmake/VisuTwinCanvas)
+vcpkg_cmake_config_fixup(PACKAGE_NAME VisuTwinEngine CONFIG_PATH lib/cmake/VisuTwinEngine)
 vcpkg_copy_pdbs()
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include" "${CURRENT_PACKAGES_DIR}/debug/share")

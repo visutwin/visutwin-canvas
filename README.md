@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="media/globe.jpg" alt="Topographic globe rendered with VisuTwin Canvas" width="100%">
+  <img src="media/globe.jpg" alt="Topographic globe rendered with VisuTwin Engine" width="100%">
 </p>
 
-# VisuTwin Canvas
+# VisuTwin Engine
 
-[![CI](https://github.com/visutwin/visutwin-canvas/actions/workflows/ci.yml/badge.svg)](https://github.com/visutwin/visutwin-canvas/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/visutwin/visutwin-canvas?include_prereleases&label=release)](https://github.com/visutwin/visutwin-canvas/releases)
+[![CI](https://github.com/visutwin/visutwin-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/visutwin/visutwin-engine/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/visutwin/visutwin-engine?include_prereleases&label=release)](https://github.com/visutwin/visutwin-engine/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
 [![Backends](https://img.shields.io/badge/backends-Metal%20%7C%20Vulkan-orange.svg)](FEATURES.md)
@@ -29,7 +29,7 @@ geospatial, scientific-visualization and robotics layers built on it have no
 PlayCanvas equivalent.
 
 > **Status: alpha** — first tagged release
-> [v0.1.0](https://github.com/visutwin/visutwin-canvas/releases/tag/v0.1.0).
+> [v0.1.0](https://github.com/visutwin/visutwin-engine/releases/tag/v0.1.0).
 > The engine renders everything shown on this page and ships 197 working
 > examples, all but one ported from PlayCanvas's own examples so the two can be
 > compared side by side. The API is not stable and changes without notice.
@@ -38,7 +38,7 @@ PlayCanvas equivalent.
 ## Quick start
 
 ```bash
-git clone https://github.com/visutwin/visutwin-canvas.git && cd visutwin-canvas
+git clone https://github.com/visutwin/visutwin-engine.git && cd visutwin-engine
 export VCPKG_ROOT=/path/to/vcpkg          # dependencies come from vcpkg
 cmake --preset examples && cmake --build build-examples
 open build-examples/examples/camera-frame/post-processing.app
@@ -70,7 +70,7 @@ A few of the 197 examples, each a small self-contained program
 | <img src="media/examples/materials/material-refraction.jpg" width="200"><br>`materials/material-refraction` | <img src="media/examples/camera-frame/volumetric-fog-local-lights.jpg" width="200"><br>`camera-frame/volumetric-fog-local-lights` | <img src="media/examples/lights-and-shadows/clustered-lighting.jpg" width="200"><br>`lights-and-shadows/clustered-lighting` | <img src="media/examples/lights-and-shadows/lights-baked-a-o.jpg" width="200"><br>`lights-and-shadows/lights-baked-a-o` |
 | <img src="media/examples/materials/clear-coat.jpg" width="200"><br>`materials/clear-coat` | <img src="media/examples/lights-and-shadows/shadow-cascades.jpg" width="200"><br>`lights-and-shadows/shadow-cascades` | <img src="media/examples/lights-and-shadows/area-lights.jpg" width="200"><br>`lights-and-shadows/area-lights` | <img src="media/examples/camera-frame/volumetric-fog-shafts.jpg" width="200"><br>`camera-frame/volumetric-fog-shafts` |
 
-## Built on VisuTwin Canvas
+## Built on VisuTwin Engine
 
 | | |
 |---|---|
@@ -86,7 +86,7 @@ and [OpenTopoMap](https://opentopomap.org/) (CC-BY-SA).
 ## Why this exists
 
 Most engines that render a planet do it in a browser, and most engines that
-render a scientific volume are not real-time. VisuTwin Canvas is aimed at the
+render a scientific volume are not real-time. VisuTwin Engine is aimed at the
 overlap:
 
 - **Native and embeddable** — a C++ library you link into an application, not a
@@ -157,16 +157,16 @@ overlap:
 The engine installs as a CMake package. Build and install it once:
 
 ```bash
-cmake --preset release -B build-release -DVISUTWIN_CANVAS_SHARED=ON
+cmake --preset release -B build-release -DVISUTWIN_ENGINE_SHARED=ON
 cmake --build build-release
 cmake --install build-release --prefix /path/to/prefix
 ```
 
-Then link `visutwin::canvas` from your own project:
+Then link `visutwin::engine` from your own project:
 
 ```cmake
-find_package(VisuTwinCanvas CONFIG REQUIRED)
-target_link_libraries(my-app PRIVATE visutwin::canvas)
+find_package(VisuTwinEngine CONFIG REQUIRED)
+target_link_libraries(my-app PRIVATE visutwin::engine)
 ```
 
 Configure it with `-DCMAKE_PREFIX_PATH=/path/to/prefix`. The engine's
@@ -272,7 +272,7 @@ either backend, plus input devices and camera controls.
 
 ### From C, or any language that calls C
 
-On macOS the build also produces `libvisutwin_canvas_c`, a shared library with a C99 interface
+On macOS the build also produces `libvisutwin_engine_c`, a shared library with a C99 interface
 (`capi/include/visutwin/visutwin.h`) for frontends in other languages: Julia through `ccall`,
 Python through `ctypes`, Rust, C#. It names entities by id, reads and writes every property of
 the engine's property table by name, and leaves the frame loop to the caller:
@@ -351,10 +351,10 @@ fallback so it builds on its own and is normally pointed here instead:
 
 ```bash
 cmake -S . -B build -DVISUTWIN_SIM_ENABLE_METAL=ON \
-  -DVISUTWIN_SIM_METAL_CPP_DIR=../visutwin-canvas/engine/lib/metal-cpp
+  -DVISUTWIN_SIM_METAL_CPP_DIR=../visutwin-engine/engine/lib/metal-cpp
 ```
 
-`VISUTWIN_CANVAS_METAL_CPP_DIR` does the same for this project, so the shared
+`VISUTWIN_ENGINE_METAL_CPP_DIR` does the same for this project, so the shared
 copy can live anywhere. Keep the copies in step when upgrading; nothing checks
 that automatically.
 
@@ -368,12 +368,12 @@ that automatically.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — how each subsystem works and where it deviates from upstream
 - [AGENTS.md](AGENTS.md) — the rules, contracts and known traps for anyone changing the code
 - [canvas.visutwin.com](https://canvas.visutwin.com/?utm_source=github&utm_medium=readme) — project home page
-- [Releases](https://github.com/visutwin/visutwin-canvas/releases) — tagged versions and release notes
+- [Releases](https://github.com/visutwin/visutwin-engine/releases) — tagged versions and release notes
 
 ## Getting help and contributing
 
-Bugs and feature requests go in [issues](https://github.com/visutwin/visutwin-canvas/issues/new/choose),
-questions and ideas in [discussions](https://github.com/visutwin/visutwin-canvas/discussions).
+Bugs and feature requests go in [issues](https://github.com/visutwin/visutwin-engine/issues/new/choose),
+questions and ideas in [discussions](https://github.com/visutwin/visutwin-engine/discussions).
 Security issues are reported privately, as described in [SECURITY.md](SECURITY.md).
 Contributions are welcome: start with [CONTRIBUTING.md](CONTRIBUTING.md). Everyone
 taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
@@ -392,7 +392,7 @@ Separate CMake projects built on this engine, to be published soon:
 
 ## Attribution
 
-VisuTwin Canvas derives its architecture, class hierarchy, and core rendering
+VisuTwin Engine derives its architecture, class hierarchy, and core rendering
 algorithms from the [PlayCanvas engine](https://github.com/playcanvas/engine),
 used under the MIT License. Work built on that foundation — the Vulkan backend,
 volumetric fog, the CPU lightmap baker, the physics integration, and the
@@ -402,7 +402,7 @@ comments in the source. See [NOTICE](NOTICE) for full attribution.
 
 ## Citing
 
-If you use VisuTwin Canvas in research, please cite it. GitHub's "Cite this
+If you use VisuTwin Engine in research, please cite it. GitHub's "Cite this
 repository" button gives the reference from [CITATION.cff](CITATION.cff).
 
 ## License

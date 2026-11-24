@@ -41,7 +41,7 @@ namespace visutwin::canvas
      * @brief Central application orchestrator managing scenes, rendering, input, and resource loading.
      * @ingroup group_framework_ecs
      *
-     * Engine is the entry point for a VisuTwin Canvas application. It owns the GraphicsDevice,
+     * Engine is the entry point for a VisuTwin Engine application. It owns the GraphicsDevice,
      * Scene, ForwardRenderer, component systems, and the async ResourceLoader. A typical frame
      * calls update() -> fixedUpdate() (zero or more substeps) -> render().
      */

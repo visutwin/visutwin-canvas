@@ -15,7 +15,7 @@ namespace visutwin::canvas
     struct OpenXrOptions
     {
         /// The name the runtime shows for the application.
-        std::string applicationName = "VisuTwin Canvas";
+        std::string applicationName = "VisuTwin Engine";
         /// A handheld display (a phone or tablet) in place of a head-mounted one.
         bool handheld = false;
     };

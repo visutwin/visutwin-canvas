@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.28)
 if(VISUTWIN_BACKEND_METAL)
     add_executable(generate-env-atlas generate-env-atlas.cpp)
 
-    target_link_libraries(generate-env-atlas PRIVATE visutwin-canvas)
+    target_link_libraries(generate-env-atlas PRIVATE visutwin-engine)
 
     # stb headers come from the vcpkg stb package
     target_include_directories(generate-env-atlas PRIVATE

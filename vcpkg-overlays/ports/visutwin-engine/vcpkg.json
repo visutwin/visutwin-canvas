@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
-  "name": "visutwin-canvas",
+  "name": "visutwin-engine",
   "version": "0.1.0",
-  "description": "VisuTwin Canvas rendering engine, built once and shared by consuming projects",
+  "description": "VisuTwin Engine, the rendering engine, built once and shared by consuming projects",
   "homepage": "https://canvas.visutwin.com",
   "license": "Apache-2.0",
   "supports": "!windows",

@@ -22,7 +22,7 @@ namespace visutwin::canvas
     class ScriptComponent;
 
     /**
-     * The Script class is the fundamental base class for all scripts within VisuTwin Canvas. It provides
+     * The Script class is the fundamental base class for all scripts within VisuTwin Engine. It provides
      * the minimal interface required for a script to be compatible with both the Engine and the
      * Editor.
      *

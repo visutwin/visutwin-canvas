@@ -218,7 +218,7 @@ int main()
         const auto tree = root / "engine" / "shaders" / "slang";
         std::filesystem::create_directories(tree.parent_path());
         std::filesystem::copy(source, tree, std::filesystem::copy_options::recursive);
-        setenv("VISUTWIN_CANVAS_SHADERS", root.c_str(), 1);
+        setenv("VISUTWIN_ENGINE_SHADERS", root.c_str(), 1);
         setenv("VISUTWIN_SHADER_WATCH", "1", 1);
         check(slangShaderWatchEnabled(), "VISUTWIN_SHADER_WATCH turns the watcher on");
         check(std::filesystem::equivalent(slangShaderSourceDir(), tree), "the runtime path compiles from the copy");

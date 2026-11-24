@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 21.03.2026
 //
-// OBJ + MTL file parser for VisuTwin Canvas.
+// OBJ + MTL file parser for VisuTwin Engine.
 //
 // Loads Wavefront OBJ geometry and companion MTL materials using tinyobjloader,
 // producing a GlbContainerResource that plugs into the existing asset pipeline

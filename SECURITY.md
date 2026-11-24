@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-VisuTwin Canvas is in alpha and has no release branches yet. Security fixes land
+VisuTwin Engine is in alpha and has no release branches yet. Security fixes land
 on `main` only; please reproduce against the latest `main` before reporting.
 
 | Version | Supported |
@@ -19,7 +19,7 @@ Report them privately instead, by either:
 
 - GitHub's private vulnerability reporting: the **Report a vulnerability**
   button on the repository's
-  [Security tab](https://github.com/visutwin/visutwin-canvas/security/advisories/new), or
+  [Security tab](https://github.com/visutwin/visutwin-engine/security/advisories/new), or
 - email to **ale@visutwin.com**.
 
 Please include as much of the following as you can:

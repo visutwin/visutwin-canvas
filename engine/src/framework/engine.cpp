@@ -414,7 +414,7 @@ namespace visutwin::canvas
         if (!_shaderWatcher) {
             const auto directory = slangShaderSourceDir();
             if (directory.empty()) {
-                spdlog::warn("Shader watcher: no engine/shaders/slang source tree found (VISUTWIN_CANVAS_SHADERS?)");
+                spdlog::warn("Shader watcher: no engine/shaders/slang source tree found (VISUTWIN_ENGINE_SHADERS?)");
                 _shaderWatcherUnavailable = true;
                 return;
             }

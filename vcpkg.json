@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
-  "name": "visutwin-canvas",
+  "name": "visutwin-engine",
   "version-string": "0.1.0",
   "description": "C++ 3D engine targeting Apple Metal, derived from the PlayCanvas engine",
   "license": "Apache-2.0",

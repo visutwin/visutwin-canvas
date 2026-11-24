@@ -532,7 +532,7 @@ namespace visutwin::canvas
                     XrInstanceCreateInfo createInfo{XR_TYPE_INSTANCE_CREATE_INFO};
                     std::strncpy(createInfo.applicationInfo.applicationName, _options.applicationName.c_str(),
                         XR_MAX_APPLICATION_NAME_SIZE - 1);
-                    std::strncpy(createInfo.applicationInfo.engineName, "VisuTwin Canvas", XR_MAX_ENGINE_NAME_SIZE - 1);
+                    std::strncpy(createInfo.applicationInfo.engineName, "VisuTwin Engine", XR_MAX_ENGINE_NAME_SIZE - 1);
                     createInfo.applicationInfo.applicationVersion = 1;
                     createInfo.applicationInfo.engineVersion = 1;
                     createInfo.applicationInfo.apiVersion = XR_API_VERSION_1_0;

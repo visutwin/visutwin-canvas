@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 21.03.2026
 //
-// STL (Stereolithography) file parser for VisuTwin Canvas.
+// STL (Stereolithography) file parser for VisuTwin Engine.
 //
 // Supports both binary and ASCII STL formats. Binary is auto-detected by
 // validating the file size against the header triangle count formula:

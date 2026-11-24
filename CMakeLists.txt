@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(visutwin-canvas LANGUAGES C CXX)
+project(visutwin-engine LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
@@ -8,7 +8,7 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 set(VISUTWIN_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
-option(VISUTWIN_BUILD_EXAMPLES "Build the VisuTwin Canvas example applications" OFF)
+option(VISUTWIN_BUILD_EXAMPLES "Build the VisuTwin Engine example applications" OFF)
 
 # The C API shared library (capi/): on by default where it has been built and tested (macOS,
 # and Linux with GCC 14: the PIC engine and the version script were checked there, x86-64);
@@ -18,7 +18,7 @@ if(APPLE OR (UNIX AND NOT ANDROID))
 else()
     set(_visutwin_c_api_default OFF)
 endif()
-option(VISUTWIN_BUILD_C_API "Build the C API shared library (visutwin_canvas_c)" ${_visutwin_c_api_default})
+option(VISUTWIN_BUILD_C_API "Build the C API shared library (visutwin_engine_c)" ${_visutwin_c_api_default})
 if(VISUTWIN_BUILD_C_API)
     # The static engine goes into a shared library.
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)

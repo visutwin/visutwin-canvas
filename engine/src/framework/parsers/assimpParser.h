@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 21.03.2026
 //
-// Assimp-based multi-format 3D model parser for VisuTwin Canvas.
+// Assimp-based multi-format 3D model parser for VisuTwin Engine.
 //
 // Loads Collada (.dae), FBX (.fbx), 3DS, PLY, and other Assimp-supported
 // formats, producing a GlbContainerResource that plugs into the existing

@@ -1,6 +1,6 @@
 # Architecture Reference
 
-Per-subsystem reference for VisuTwin Canvas: how each feature works, how to turn
+Per-subsystem reference for VisuTwin Engine: how each feature works, how to turn
 it on, and where it deviates from upstream.
 
 Read `CLAUDE.md` first. It holds the rules and the live gotchas, and where the two
@@ -2679,7 +2679,7 @@ glTF's disambiguation of same-named siblings) resolves to an id; names alone are
 Meshes, materials, textures and assets get `ResourceId`s on the same terms, the engine holding the
 reference until the caller releases it.
 
-**3. The C API** (`capi/include/visutwin/visutwin.h`, a shared library `visutwin_canvas_c` linking
+**3. The C API** (`capi/include/visutwin/visutwin.h`, a shared library `visutwin_engine_c` linking
 the static engine and exporting only `vt_*`; `VISUTWIN_BUILD_C_API`):
 - C99 in the header, opaque handles, every function returning a `vt_status` (an `int32_t` with
   named constants, not a C enum, so its size is fixed), messages through `vt_last_error()` (the

@@ -1,4 +1,4 @@
-# VisuTwin Canvas Examples
+# VisuTwin Engine Examples
 
 197 example applications, each a small self-contained program built on the
 engine. All but three are ports of [PlayCanvas](https://playcanvas.com/) engine

@@ -116,19 +116,19 @@ namespace visutwin::canvas
         }
 #if defined(_WIN32)
         if (const char* local = environment("LOCALAPPDATA")) {
-            return std::filesystem::path(local) / "visutwin-canvas" / "cache";
+            return std::filesystem::path(local) / "visutwin-engine" / "cache";
         }
         return {};
 #else
         const char* home = environment("HOME");
 #if defined(__APPLE__)
-        return home ? std::filesystem::path(home) / "Library" / "Caches" / "visutwin-canvas"
+        return home ? std::filesystem::path(home) / "Library" / "Caches" / "visutwin-engine"
                     : std::filesystem::path{};
 #else
         if (const char* xdg = environment("XDG_CACHE_HOME")) {
-            return std::filesystem::path(xdg) / "visutwin-canvas";
+            return std::filesystem::path(xdg) / "visutwin-engine";
         }
-        return home ? std::filesystem::path(home) / ".cache" / "visutwin-canvas" : std::filesystem::path{};
+        return home ? std::filesystem::path(home) / ".cache" / "visutwin-engine" : std::filesystem::path{};
 #endif
 #endif
     }

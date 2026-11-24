@@ -245,7 +245,7 @@ int main()
             "the application's directory is used as given");
         check(ShaderDiskCache::resolveDirectory("/some/where", false).empty(), "unless caching is off");
         const auto fallback = ShaderDiskCache::resolveDirectory("", true);
-        check(!fallback.empty() && fallback.string().find("visutwin-canvas") != std::string::npos,
+        check(!fallback.empty() && fallback.string().find("visutwin-engine") != std::string::npos,
             "with none given, a per-user directory named for the engine (" + fallback.string() + ")");
         setenv("VISUTWIN_SHADER_CACHE_DIR", "/from/the/environment", 1);
         check(ShaderDiskCache::resolveDirectory("/some/where", true) == std::filesystem::path("/from/the/environment"),

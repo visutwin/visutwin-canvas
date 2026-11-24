@@ -15,7 +15,7 @@
 // definition the application already provides. An application that keeps its own
 // TU and links the dylib is fine; the two copies live in separate images and
 // each only caches sel_registerName results.
-#ifdef VISUTWIN_CANVAS_SHARED_BUILD
+#ifdef VISUTWIN_ENGINE_SHARED_BUILD
 
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION

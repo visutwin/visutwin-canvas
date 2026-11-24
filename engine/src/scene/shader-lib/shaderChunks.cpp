@@ -55,19 +55,19 @@ namespace visutwin::canvas
         // (set when the engine is compiled from source), the working directory and its
         // parents, and finally the directory the shader trees were INSTALLED into. The
         // installed path is last so a build tree always wins, and it is what lets a
-        // consumer that links an installed libvisutwin-canvas find shaders at all.
+        // consumer that links an installed libvisutwin-engine find shaders at all.
         const auto sourceRoot = projectRootFromThisSource();
         const auto cwd = std::filesystem::current_path();
         std::vector<std::filesystem::path> roots;
-        if (const char* override = std::getenv("VISUTWIN_CANVAS_SHADERS"); override && *override) {
+        if (const char* override = std::getenv("VISUTWIN_ENGINE_SHADERS"); override && *override) {
             roots.emplace_back(override);
         }
         roots.push_back(sourceRoot);
         roots.push_back(cwd);
         roots.push_back(cwd.parent_path());
         roots.push_back(cwd.parent_path().parent_path());
-#ifdef VISUTWIN_CANVAS_INSTALLED_SHADER_DIR
-        roots.emplace_back(VISUTWIN_CANVAS_INSTALLED_SHADER_DIR);
+#ifdef VISUTWIN_ENGINE_INSTALLED_SHADER_DIR
+        roots.emplace_back(VISUTWIN_ENGINE_INSTALLED_SHADER_DIR);
 #endif
         return roots;
     }

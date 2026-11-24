@@ -274,7 +274,7 @@ namespace visutwin::canvas
             }
             const auto dir = slangSourceDir();
             if (dir.empty()) {
-                spdlog::error("Slang program '{}': no engine/shaders/slang source tree found (VISUTWIN_CANVAS_SHADERS?)",
+                spdlog::error("Slang program '{}': no engine/shaders/slang source tree found (VISUTWIN_ENGINE_SHADERS?)",
                     program);
                 return false;
             }

@@ -4,7 +4,7 @@
  *
  * Created by Arnis Lektauers on 09.11.2026
  *
- * The VisuTwin Canvas C API: the engine driven from C or from any language that calls C
+ * The VisuTwin Engine C API: the engine driven from C or from any language that calls C
  * (Julia's ccall, Python's ctypes, Rust, C#), in the caller's own process. C99, no C++ across
  * the boundary.
  *

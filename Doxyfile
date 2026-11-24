@@ -1,10 +1,10 @@
-# Doxyfile for VisuTwin Canvas
+# Doxyfile for VisuTwin Engine
 # Generated for Doxygen 1.16.x
 
 #---------------------------------------------------------------------------
 # Project
 #---------------------------------------------------------------------------
-PROJECT_NAME           = "VisuTwin Canvas"
+PROJECT_NAME           = "VisuTwin Engine"
 PROJECT_BRIEF          = "C++ 3D Engine — Metal Backend"
 PROJECT_NUMBER         =
 PROJECT_LOGO           =

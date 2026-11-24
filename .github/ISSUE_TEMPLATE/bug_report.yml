@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         Thanks for taking the time to report this. Security issues go through the
-        [security policy](https://github.com/visutwin/visutwin-canvas/security/policy), not here.
+        [security policy](https://github.com/visutwin/visutwin-engine/security/policy), not here.
 
   - type: textarea
     id: what-happened

@@ -3,7 +3,7 @@
 # can show just the examples instead of the engine, tools and tests as well.
 #
 # Standalone, this mirrors how visutwin-geo consumes the engine: point
-# VISUTWIN_ROOT_DIR at the canvas tree and add_subdirectory its engine/ with an
+# VISUTWIN_ROOT_DIR at the engine checkout and add_subdirectory its engine/ with an
 # explicit binary dir (required — the source sits outside CMAKE_SOURCE_DIR).
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     cmake_minimum_required(VERSION 3.28)
@@ -12,7 +12,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     # TOP-LEVEL project's languages. The engine's own enable_language(C) comes too
     # late for that, so a standalone configure failed to generate with "No known
     # features for C compiler". The root project declares C CXX for the same reason.
-    project(visutwin-canvas-examples LANGUAGES C CXX)
+    project(visutwin-engine-examples LANGUAGES C CXX)
     set(CMAKE_CXX_STANDARD 23)
     set(CMAKE_CXX_STANDARD_REQUIRED True)
     set(CMAKE_CXX_EXTENSIONS OFF)
@@ -20,7 +20,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
     get_filename_component(VISUTWIN_ROOT_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
     add_subdirectory("${VISUTWIN_ROOT_DIR}/engine"
-        "${CMAKE_BINARY_DIR}/_deps/visutwin-canvas-engine")
+        "${CMAKE_BINARY_DIR}/_deps/visutwin-engine-engine")
 endif()
 
 if(NOT DEFINED VISUTWIN_ROOT_DIR)
@@ -74,7 +74,7 @@ function(visutwin_add_example category example_name)
         VISUTWIN_EXAMPLE_CATEGORY="${category}"
         VISUTWIN_EXAMPLE_NAME="${example_name}"
     )
-    target_link_libraries(${target} PRIVATE visutwin-canvas)
+    target_link_libraries(${target} PRIVATE visutwin-engine)
     visutwin_set_macos_bundle(${target} com.visutwin.${category}.${example_name})
 endfunction()
 

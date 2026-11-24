@@ -741,7 +741,7 @@ namespace visutwin::canvas
     void VulkanGraphicsDevice::initInstance(SDL_Window* window, const GraphicsDeviceOptions& options)
     {
         vkb::InstanceBuilder builder;
-        builder.set_app_name("VisuTwin Canvas")
+        builder.set_app_name("VisuTwin Engine")
                .set_engine_name("VisuTwin")
                .require_api_version(1, 3, 0);
 

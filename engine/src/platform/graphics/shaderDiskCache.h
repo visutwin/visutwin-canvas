@@ -58,8 +58,8 @@ namespace visutwin::canvas
         /**
          * The directory a device should cache in. `configured` is the application's
          * choice (GraphicsDeviceOptions::shaderCacheDirectory); empty means the
-         * per-user default: ~/Library/Caches/visutwin-canvas on macOS,
-         * $XDG_CACHE_HOME/visutwin-canvas (or ~/.cache/...) elsewhere, %LOCALAPPDATA%
+         * per-user default: ~/Library/Caches/visutwin-engine on macOS,
+         * $XDG_CACHE_HOME/visutwin-engine (or ~/.cache/...) elsewhere, %LOCALAPPDATA%
          * on Windows. The environment overrides both: VISUTWIN_SHADER_CACHE_DIR names a
          * directory, VISUTWIN_SHADER_CACHE=0 turns caching off. Returns an empty path
          * when caching is off or no location can be found.

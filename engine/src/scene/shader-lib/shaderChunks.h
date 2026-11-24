@@ -31,7 +31,7 @@ namespace visutwin::canvas
      * overrides layer on top through `Material::setShaderChunk`; a material's wins.
      */
     /// The directories the shader source tree (`engine/shaders/slang/...`) is looked for
-    /// under, in order: $VISUTWIN_CANVAS_SHADERS, the engine's own source tree, the working
+    /// under, in order: $VISUTWIN_ENGINE_SHADERS, the engine's own source tree, the working
     /// directory and two parents, and the installed data directory. Shared by the chunk
     /// registry and the Slang runtime compile.
     std::vector<std::filesystem::path> shaderSourceRoots();

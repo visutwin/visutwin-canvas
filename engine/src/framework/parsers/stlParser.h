@@ -3,7 +3,7 @@
 //
 // Created by Arnis Lektauers on 21.03.2026
 //
-// STL (Stereolithography) file parser for VisuTwin Canvas.
+// STL (Stereolithography) file parser for VisuTwin Engine.
 //
 // Loads binary and ASCII STL geometry, producing a GlbContainerResource that
 // plugs into the existing asset pipeline (same instantiateRenderEntity() path

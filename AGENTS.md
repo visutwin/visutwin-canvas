@@ -1,4 +1,4 @@
-# Agent Guidelines for VisuTwin Canvas
+# Agent Guidelines for VisuTwin Engine
 
 Rules, contracts and known traps for AI agents and developers working on this
 codebase. Tool-neutral by design: Claude Code reaches it through `CLAUDE.md`,
@@ -10,6 +10,11 @@ scientific visualization. Architecture originally derived from the PlayCanvas
 engine (referred to as **upstream** throughout the code and docs — never by
 name), rebuilt in C++ and substantially extended. Runs on Apple Metal and
 Vulkan 1.3.
+
+The project is VisuTwin Engine (repo, CMake package `VisuTwinEngine`, targets
+`visutwin::engine` / `visutwin::engine-c`), but its C++ namespace is `visutwin::canvas` and
+its installed headers sit under `include/visutwin/canvas`, beside the sibling layers'
+`visutwin::geo` and `visutwin::robotics`. That split is deliberate: do not "fix" either half.
 
 ## Where things are written down
 
@@ -33,14 +38,14 @@ Vulkan 1.3.
 ## Project Structure
 
 ```
-visutwin-canvas/
+visutwin-engine/
   engine/          # Core 3D engine (C++ only, no Objective-C++)
     src/core/      # Math (Vector2/3/4, Matrix4, Quaternion, SIMD multi-backend), shapes, events, tags
     src/platform/  # Graphics abstraction + Metal and Vulkan backends, input
     src/scene/     # Scene graph, renderer, materials, shader-lib, lighting, shadows
     src/framework/ # ECS (Engine, Entity, Components), asset loading, parsers, gizmos, input
     shaders/slang/  # every engine shader, once, in Slang: programs/, modules/, forward/ (the forward chunks)
-  capi/            # The C API: include/visutwin/visutwin.h (C99), the visutwin_canvas_c shared library, a C example
+  capi/            # The C API: include/visutwin/visutwin.h (C99), the visutwin_engine_c shared library, a C example
   examples/        # 200 example applications derived from ExampleApp, in src/<category>/<name>.cpp named as upstream's: upstream ports + three original scenes (camera-frame/ambient-occlusion-davinci, graphics/order-independent-transparency, graphics/visibility-range)
   tests/           # Unit tests + Vulkan validation smoke test
   assets/          # Shared assets (models, textures, HDR environments)
@@ -50,7 +55,7 @@ visutwin-canvas/
 Sibling repositories (separate CMake projects, same parent dir):
 - `visutwin-geo/` - Geospatial: WGS84 ellipsoid, 3D Tiles, terrain tiling, globe camera, atmosphere
 - `visutwin-viz/` - Scientific visualization: volume loading, marching cubes, streamlines, transfer functions
-- `VisuTwin.jl/` - Julia package over the C API (`capi/`): loads `libvisutwin_canvas_c` from a sibling
+- `VisuTwin.jl/` - Julia package over the C API (`capi/`): loads `libvisutwin_engine_c` from a sibling
   build or `VISUTWIN_LIB`; a change to the C header that removes or reorders anything breaks it
 
 ## Build
@@ -86,7 +91,7 @@ ctest --preset default
   -DVCPKG_MANIFEST_FEATURES="vulkan;jolt;openxr"`; on Linux the port also needs
   `libxxf86vm-dev`, checked with GCC 14 on arm64 Ubuntu 24.04, warnings as errors).
 - **`VISUTWIN_BUILD_C_API` (ON on macOS and Linux, OFF on Windows) builds `capi/`**: the shared
-  library `visutwin_canvas_c` over the static engine, exporting ONLY the `vt_*` functions of
+  library `visutwin_engine_c` over the static engine, exporting ONLY the `vt_*` functions of
   `capi/include/visutwin/visutwin.h` (`capi/exports.txt` for ld64, `exports.map` for GNU ld), and
   turns on `CMAKE_POSITION_INDEPENDENT_CODE` for the tree. The library is its own binary, so it
   carries the metal-cpp implementation unit (`capi/src/metalCppImplementation.cpp`). The header
@@ -211,7 +216,7 @@ ctest --preset default
 - **tinygltf comes from the baseline (3.0.0), through its v2 header `tiny_gltf.h`.** 3.0.0
   ships the v2 C++ API unchanged beside a new v3 header (`tiny_gltf_v3.h`), which the
   parser does not use. The overlay that pinned 2.9.7 over a regenerated archive's hash is
-  gone; `vcpkg-overlays/ports/` now holds only the `visutwin-canvas` port for consumers.
+  gone; `vcpkg-overlays/ports/` now holds only the `visutwin-engine` port for consumers.
 - **CI's macOS compiler is OLDER than the local one** (Xcode 16.4's Apple clang 17 on the
   `macos-15` runners; Apple clang 21 here), and the local one accepts code it rejects. The
   one that broke CI for three days: a member of a REFERENCE parameter in a constant
@@ -403,7 +408,7 @@ bindings like a program of the tree, so it needs the source tree at run time. Wh
   `VT_DECLARE_QUAD_TEXEL_INPUTn` is an input read only with `Load`: a plain image on Metal,
   where `Load` through a combined sampler emits code Apple's compiler rejects.
 - **`VISUTWIN_SLANG_RUNTIME=1` compiles from the source tree instead** (found through
-  `shaderSourceRoots()`, so `VISUTWIN_CANVAS_SHADERS=<dir>` points at another tree: `<dir>` is a
+  `shaderSourceRoots()`, so `VISUTWIN_ENGINE_SHADERS=<dir>` points at another tree: `<dir>` is a
   PROJECT ROOT holding `engine/shaders/slang`, not the slang directory itself, which is silently
   passed over for the repository's own tree), through
   `SlangCompiler` with `bindings.slang` served from memory; Vulkan keeps that SPIR-V in its
@@ -428,7 +433,7 @@ bindings like a program of the tree, so it needs the source tree at run time. Wh
   watched; the superseded pipelines stay in their caches until the device goes.
 - **Prove a migrated program with a stimulus, not only a match**: a copy of the tree with
   the program's output changed, run through `VISUTWIN_SLANG_RUNTIME` and
-  `VISUTWIN_CANVAS_SHADERS`, must change the frame on both backends. A pass that never runs
+  `VISUTWIN_ENGINE_SHADERS`, must change the frame on both backends. A pass that never runs
   matches its reference perfectly too.
 - **Write `mul(v, M)`, never `mul(M, v)`.** Under the row-major reading that spelling is what
   both targets emit natively — MSL `M * v`, SPIR-V `OpMatrixTimesVector` — exactly what the
@@ -3638,7 +3643,7 @@ present, but the rule below never depends on reading it.
   `$(getconf DARWIN_USER_CACHE_DIR)/com.visutwin.<category>.<name>` aside for the run and put
   it back (a warm first frame is ~40 ms whatever the code does).
 - **Vulkan keeps its compiled shaders between runs itself** (`ShaderDiskCache`, in
-  `~/Library/Caches/visutwin-canvas` or `$XDG_CACHE_HOME/visutwin-canvas`;
+  `~/Library/Caches/visutwin-engine` or `$XDG_CACHE_HOME/visutwin-engine`;
   `GraphicsDeviceOptions::persistentShaderCache` / `shaderCacheDirectory`;
   `VISUTWIN_SHADER_CACHE_DIR=<dir>` and `VISUTWIN_SHADER_CACHE=0` override both). Two
   things go there: the SPIR-V `vulkanCompileGlsl` compiles at run time (every quad pass
