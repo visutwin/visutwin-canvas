@@ -502,6 +502,31 @@ namespace
             check(gizmo->renderer().lineBatch().lineCount() >= 12, "but the twelve edges draw");
         }
         {
+            // filled volumes take the fill depth bias, those drawn already and those drawn later
+            const auto fillBiases = [](const BoxGizmo& gizmo) {
+                std::vector<float> biases;
+                for (const ShapePool* fill : gizmo.renderer().fillPools()) {
+                    for (const auto& item : fill->items()) {
+                        biases.push_back(item->shape->depthBias());
+                    }
+                }
+                return biases;
+            };
+            GizmoScene scene = makeScene(800);
+            auto gizmo = std::make_unique<BoxGizmo>(scene.camera, scene.layer);
+            check(gizmo->fillDepthBias() == 2.0f, "the fill depth bias defaults to 2");
+            gizmo->prerender();
+            check(fillBiases(*gizmo) == std::vector<float>{2.0f}, "the box fill is drawn at 2");
+            gizmo->setFillDepthBias(-8.0f);
+            check(gizmo->fillDepthBias() == -8.0f, "the fill depth bias reads back");
+            check(fillBiases(*gizmo) == std::vector<float>{-8.0f}, "and reaches the fill already drawn");
+
+            auto later = std::make_unique<BoxGizmo>(scene.camera, scene.layer);
+            later->setFillDepthBias(-8.0f);
+            later->prerender();
+            check(fillBiases(*later) == std::vector<float>{-8.0f}, "and a fill drawn after it is set");
+        }
+        {
             // overlapping gizmos: the first created takes a press, the others leave it
             GizmoScene scene = makeScene(800);
             auto first = std::make_unique<SphereGizmo>(scene.camera, scene.layer);

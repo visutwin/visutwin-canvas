@@ -120,6 +120,11 @@ namespace visutwin::canvas
         /// The handle size in points (7).
         float handleSize() const;
         void setHandleSize(float value);
+        /// The depth bias of filled volumes (2), so they don't fight a surface they match.
+        /// Positive values push them away from the camera, behind the surface; negative
+        /// values pull them in front of it.
+        float fillDepthBias() const;
+        void setFillDepthBias(float value);
         /// The icon size in points (24).
         float iconSize() const;
         void setIconSize(float value);

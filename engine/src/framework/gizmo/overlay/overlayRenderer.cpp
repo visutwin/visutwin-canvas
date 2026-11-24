@@ -43,7 +43,6 @@ namespace visutwin::canvas
 
         constexpr float SECTOR_TOLERANCE = 0.5f;
         constexpr float PEAK_TOLERANCE = 1e-3f;
-        constexpr float FILL_DEPTH_BIAS = 2.0f;
 
         // placements count up from the start of their band, so a frame draws in placement
         // order with the fills first, whatever order the layer added the shapes in
@@ -105,8 +104,8 @@ namespace visutwin::canvas
             return a;
         };
         // filled shapes sit just behind their surface, so lines and matching meshes don't z-fight
-        const auto filled = [](std::unique_ptr<Shape> shape) {
-            shape->setDepthBias(FILL_DEPTH_BIAS);
+        const auto filled = [this](std::unique_ptr<Shape> shape) {
+            shape->setDepthBias(_fillDepthBias);
             return shape;
         };
 
@@ -161,6 +160,8 @@ namespace visutwin::canvas
                     ConeShapeArgs{kind.peakRadius, kind.segments, kind.twist}));
             }, FILL_DRAW_ORDER);
         }
+        _fills = {_boxes, _spheres, _capsules};
+        _fills.insert(_fills.end(), _cones.begin(), _cones.end());
         for (size_t i = 0; i < kOverlayIconCount; ++i) {
             Texture* texture = _iconTextures ? _iconTextures->textures[i].get() : nullptr;
             _glyphs[i] = &pool([engine, args, texture](const Color* base, const Color* occluded) {
@@ -168,6 +169,16 @@ namespace visutwin::canvas
                 glyph->setDepthWrite(false);
                 return std::unique_ptr<Shape>(std::move(glyph));
             }, SHAPE_DRAW_ORDER);
+        }
+    }
+
+    void OverlayRenderer::setFillDepthBias(const float value)
+    {
+        _fillDepthBias = value;
+        for (ShapePool* fill : _fills) {
+            for (auto& item : fill->items()) {
+                item->shape->setDepthBias(value);
+            }
         }
     }
 

@@ -174,6 +174,18 @@ namespace visutwin::canvas
         }
     }
 
+    float HandleGizmo::fillDepthBias() const
+    {
+        return _renderer ? _renderer->fillDepthBias() : 2.0f;
+    }
+
+    void HandleGizmo::setFillDepthBias(const float value)
+    {
+        if (_renderer) {
+            _renderer->setFillDepthBias(value);
+        }
+    }
+
     float HandleGizmo::iconSize() const
     {
         return _renderer ? _renderer->iconSize : 24.0f;

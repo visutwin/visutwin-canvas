@@ -82,6 +82,13 @@ namespace visutwin::canvas
         /// An rgb replacing the theme's, or null to keep it.
         const Color* tint = nullptr;
 
+        /// The depth bias of filled shapes (2). Positive values push them away from the camera,
+        /// behind a surface they match; negative values pull them in front of it.
+        float fillDepthBias() const { return _fillDepthBias; }
+        void setFillDepthBias(float value);
+        /// The pools of filled shapes (boxes, spheres, capsules, cones).
+        const std::vector<ShapePool*>& fillPools() const { return _fills; }
+
         const OverlayRendererTheme& theme() const { return _theme; }
         OverlayIcons& icons() { return *_icons; }
         const OverlayIcons& icons() const { return *_icons; }
@@ -192,6 +199,9 @@ namespace visutwin::canvas
         ShapePool* _capsules = nullptr;
         std::array<ShapePool*, static_cast<size_t>(OverlayCone::Count)> _cones{};
         std::array<ShapePool*, kOverlayIconCount> _glyphs{};
+        // the pools of filled shapes, which take the fill depth bias
+        std::vector<ShapePool*> _fills;
+        float _fillDepthBias = 2.0f;
 
         std::vector<GizmoReadout> _labels;
 
