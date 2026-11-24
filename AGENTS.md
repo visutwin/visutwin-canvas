@@ -216,7 +216,10 @@ ctest --preset default
 - **tinygltf comes from the baseline (3.0.0), through its v2 header `tiny_gltf.h`.** 3.0.0
   ships the v2 C++ API unchanged beside a new v3 header (`tiny_gltf_v3.h`), which the
   parser does not use. The overlay that pinned 2.9.7 over a regenerated archive's hash is
-  gone; `vcpkg-overlays/ports/` now holds only the `visutwin-engine` port for consumers.
+  gone; `vcpkg-overlays/ports/` holds the `visutwin-engine` port for consumers, and `kubazip`
+  (assimp's dependency): vcpkg's 0.3.15#1 verbatim, whose only change is the archive hash GitHub
+  regenerated for the v0.3.15 tag (same contents, new bytes; vcpkg #55202, after our baseline).
+  Delete that overlay when the baseline moves past vcpkg commit 504152f3f2.
 - **CI's macOS compiler is OLDER than the local one** (Xcode 16.4's Apple clang 17 on the
   `macos-15` runners; Apple clang 21 here), and the local one accepts code it rejects. The
   one that broke CI for three days: a member of a REFERENCE parameter in a constant

@@ -4,5 +4,5 @@ contact_links:
     url: https://github.com/visutwin/visutwin-engine/security/advisories/new
     about: Please report security issues privately, not as a public issue.
   - name: Documentation and project home
-    url: https://canvas.visutwin.com/
+    url: https://engine.visutwin.com/
     about: Feature list, examples and build instructions.

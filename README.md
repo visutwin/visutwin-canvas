@@ -10,7 +10,7 @@
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
 [![Backends](https://img.shields.io/badge/backends-Metal%20%7C%20Vulkan-orange.svg)](FEATURES.md)
 [![Examples](https://img.shields.io/badge/examples-197-purple.svg)](examples/README.md)
-[![Home](https://img.shields.io/badge/home-canvas.visutwin.com-green.svg)](https://canvas.visutwin.com/?utm_source=github&utm_medium=readme)
+[![Home](https://img.shields.io/badge/home-engine.visutwin.com-green.svg)](https://engine.visutwin.com/?utm_source=github&utm_medium=readme)
 
 **A native C++23 port of the [PlayCanvas](https://github.com/playcanvas/engine)
 engine, extended for digital twins, geospatial scenes and scientific
@@ -367,7 +367,7 @@ that automatically.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — layout, tests, and shader workflow
 - [ARCHITECTURE.md](ARCHITECTURE.md) — how each subsystem works and where it deviates from upstream
 - [AGENTS.md](AGENTS.md) — the rules, contracts and known traps for anyone changing the code
-- [canvas.visutwin.com](https://canvas.visutwin.com/?utm_source=github&utm_medium=readme) — project home page
+- [engine.visutwin.com](https://engine.visutwin.com/?utm_source=github&utm_medium=readme) — project home page
 - [Releases](https://github.com/visutwin/visutwin-engine/releases) — tagged versions and release notes
 
 ## Getting help and contributing

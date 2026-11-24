@@ -3,7 +3,7 @@
   "name": "visutwin-engine",
   "version": "0.1.0",
   "description": "VisuTwin Engine, the rendering engine, built once and shared by consuming projects",
-  "homepage": "https://canvas.visutwin.com",
+  "homepage": "https://engine.visutwin.com",
   "license": "Apache-2.0",
   "supports": "!windows",
   "dependencies": [
