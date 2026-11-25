@@ -239,32 +239,45 @@ namespace visutwin::canvas
         // negative step is not part of the range), and a value that is not
         // normalized is the integer itself — for a quantised POSITION the node
         // transform carries the scale back.
+        // A component is loaded byte-wise: the spec requires 4-byte aligned attributes,
+        // but some exporters pack them tightly (a uint8 VEC3 colour at a stride of 3, a
+        // short after it at an odd offset), and a typed load through a misaligned pointer
+        // is undefined behaviour.
+        template <typename T>
+        T loadUnaligned(const uint8_t* bytes)
+        {
+            T value;
+            std::memcpy(&value, bytes, sizeof(T));
+            return value;
+        }
+
         float decodeComponent(const uint8_t* element, const int componentType,
             const bool normalized, const int component)
         {
+            const auto index = static_cast<size_t>(component);
             switch (componentType) {
             case TINYGLTF_COMPONENT_TYPE_FLOAT:
-                return reinterpret_cast<const float*>(element)[component];
+                return loadUnaligned<float>(element + index * sizeof(float));
             case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE: {
-                const auto value = static_cast<float>(element[component]);
+                const auto value = static_cast<float>(element[index]);
                 return normalized ? value / 255.0f : value;
             }
             case TINYGLTF_COMPONENT_TYPE_BYTE: {
-                const auto value = static_cast<float>(reinterpret_cast<const int8_t*>(element)[component]);
+                const auto value = static_cast<float>(static_cast<int8_t>(element[index]));
                 return normalized ? std::max(value / 127.0f, -1.0f) : value;
             }
             case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT: {
-                const auto value = static_cast<float>(reinterpret_cast<const uint16_t*>(element)[component]);
+                const auto value = static_cast<float>(loadUnaligned<uint16_t>(element + index * sizeof(uint16_t)));
                 return normalized ? value / 65535.0f : value;
             }
             case TINYGLTF_COMPONENT_TYPE_SHORT: {
-                const auto value = static_cast<float>(reinterpret_cast<const int16_t*>(element)[component]);
+                const auto value = static_cast<float>(loadUnaligned<int16_t>(element + index * sizeof(int16_t)));
                 return normalized ? std::max(value / 32767.0f, -1.0f) : value;
             }
             case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT:
-                return static_cast<float>(reinterpret_cast<const uint32_t*>(element)[component]);
+                return static_cast<float>(loadUnaligned<uint32_t>(element + index * sizeof(uint32_t)));
             case TINYGLTF_COMPONENT_TYPE_INT:
-                return static_cast<float>(reinterpret_cast<const int32_t*>(element)[component]);
+                return static_cast<float>(loadUnaligned<int32_t>(element + index * sizeof(int32_t)));
             default:
                 return 0.0f;
             }
@@ -314,13 +327,13 @@ namespace visutwin::canvas
                 uint32_t value = 0;
                 switch (accessor.componentType) {
                 case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
-                    value = *reinterpret_cast<const uint8_t*>(src);
+                    value = *src;
                     break;
                 case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
-                    value = *reinterpret_cast<const uint16_t*>(src);
+                    value = loadUnaligned<uint16_t>(src);
                     break;
                 case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT:
-                    value = *reinterpret_cast<const uint32_t*>(src);
+                    value = loadUnaligned<uint32_t>(src);
                     break;
                 default:
                     return false;

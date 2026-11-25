@@ -609,6 +609,7 @@ namespace visutwin::canvas
             bumpCullVersionIf(_updateAabb || !aabb.sameAs(_aabb));
             _aabb = aabb;
             _updateAabb = false;
+            _aabbVer = -1;
         }
 
     private:
@@ -655,8 +656,14 @@ namespace visutwin::canvas
         // points at while instancing sets the bounds (aabb() carries it to world).
         BoundingBox _instancingLocalAabb;
         SortDistanceCallback _calculateSortDistance;
+        uint64_t skinBoundsVersion() const;
+        // The versions the cached world bounds (_aabb) were evaluated for: the node's, the
+        // mesh bounds', and for a skinned instance without custom bounds its bones'
+        // (skinBoundsVersion); -1 / 0 when they do not depend on it. _aabbVer = -1 forces
+        // the next aabb() to evaluate.
         int _aabbVer = -1;
         int _aabbMeshVer = -1;
+        uint64_t _aabbSkinVer = 0;
 
         std::shared_ptr<SkinInstance> _skinInstance;
         std::shared_ptr<MorphInstance> _morphInstance;

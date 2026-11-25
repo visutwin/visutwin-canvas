@@ -189,6 +189,7 @@ visutwin_add_unit_test(visutwin-glb-point-node-matrix-tests glb-point-node-matri
 visutwin_add_unit_test(visutwin-stb-image-flip-tests stb-image-flip stbImageFlipTests.cpp)
 visutwin_add_unit_test(visutwin-texture-gpu-size-tests texture-gpu-size textureGpuSizeTests.cpp)
 visutwin_add_unit_test(visutwin-morph-bounds-tests morph-bounds morphBoundsTests.cpp TINYGLTF)
+visutwin_add_unit_test(visutwin-mesh-instance-aabb-tests mesh-instance-aabb meshInstanceAabbTests.cpp)
 visutwin_add_unit_test(visutwin-joint-lifetime-tests joint-lifetime jointLifetimeTests.cpp)
 visutwin_add_unit_test(visutwin-batch-lifetime-tests batch-lifetime batchLifetimeTests.cpp)
 visutwin_add_unit_test(visutwin-batch-mirror-tests batch-mirror batchMirrorTests.cpp)

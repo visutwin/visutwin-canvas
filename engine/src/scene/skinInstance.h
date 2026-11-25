@@ -39,6 +39,8 @@ namespace visutwin::canvas
         /** Resolved bone graph nodes, one per skin.inverseBindPose entry. */
         void setBones(std::vector<GraphNode*> bones);
         const std::vector<GraphNode*>& bones() const { return _bones; }
+        /** Moves on every setBones(), so bounds cached from the old bones are not reused. */
+        uint32_t bonesVersion() const { return _bonesVersion; }
 
         void setRootBone(GraphNode* rootBone) { _rootBone = rootBone; }
         GraphNode* rootBone() const { return _rootBone; }
@@ -70,6 +72,7 @@ namespace visutwin::canvas
     private:
         std::shared_ptr<Skin> _skin;
         std::vector<GraphNode*> _bones;
+        uint32_t _bonesVersion = 0;
         GraphNode* _rootBone = nullptr;
 
         // One float4x4 per bone, column-major — uploaded directly as `constant float4x4 *palette`.

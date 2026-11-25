@@ -21,7 +21,12 @@
 //   - COLOR_0 on a static triangle primitive takes the 72-byte vertex-coloured layout
 //     and a vertex-colour copy of the material; a white colour stream, and a colour on
 //     a morphed primitive, keep the 56-byte layout.
+//   - An attribute that is not 4-byte aligned (a uint8 RGB colour at a stride of 3
+//     bytes, a uint16 RGB colour at an odd offset), which some exporters write against
+//     the spec, reads every vertex; the sanitizer build would abort on a misaligned
+//     typed load.
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -565,6 +570,83 @@ namespace
                 label(path, "a morphed primitive ignores its COLOR_0"));
         });
     }
+
+    // ── Unaligned attributes ─────────────────────────────────────────
+
+    // Two triangles: one with a normalized uint8 RGB COLOR_0 packed at a stride of 3
+    // bytes, one with a normalized uint16 RGB COLOR_0 at an ODD byte offset (stride 6).
+    tinygltf::Model unalignedColorTriangles()
+    {
+        tinygltf::Model model;
+        tinygltf::Buffer buffer;
+        const int positions = addAccessor(model, buffer.data,
+            {0.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,  0.0f, 1.0f, 0.0f}, 3, TINYGLTF_TYPE_VEC3);
+        const int normals = addAccessor(model, buffer.data,
+            {0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f}, 3, TINYGLTF_TYPE_VEC3);
+
+        const auto addColor = [&](const std::vector<unsigned char>& bytes, const size_t lead, const int stride,
+                                  const int componentType) {
+            const size_t at = (buffer.data.size() + 3) & ~size_t{3};
+            buffer.data.resize(at + lead + bytes.size() + 4, 0);
+            std::memcpy(buffer.data.data() + at + lead, bytes.data(), bytes.size());
+            tinygltf::BufferView view;
+            view.buffer = 0;
+            view.byteOffset = at + lead;
+            view.byteLength = bytes.size();
+            view.byteStride = static_cast<size_t>(stride);
+            model.bufferViews.push_back(view);
+            tinygltf::Accessor accessor;
+            accessor.bufferView = static_cast<int>(model.bufferViews.size()) - 1;
+            accessor.componentType = componentType;
+            accessor.normalized = true;
+            accessor.count = 3;
+            accessor.type = TINYGLTF_TYPE_VEC3;
+            model.accessors.push_back(accessor);
+            return static_cast<int>(model.accessors.size()) - 1;
+        };
+        const int bytes = addColor({255, 0, 0,  0, 255, 0,  51, 102, 255}, 0, 3,
+            TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE);
+        std::vector<unsigned char> shorts(18);
+        const uint16_t shortValues[9] = {65535, 0, 0,  0, 65535, 0,  0, 0, 65535};
+        std::memcpy(shorts.data(), shortValues, sizeof(shortValues));
+        const int halves = addColor(shorts, 1, 6, TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT);
+
+        const auto triangle = [&](const int color) {
+            tinygltf::Primitive primitive;
+            primitive.mode = TINYGLTF_MODE_TRIANGLES;
+            primitive.attributes["POSITION"] = positions;
+            primitive.attributes["NORMAL"] = normals;
+            primitive.attributes["COLOR_0"] = color;
+            return primitive;
+        };
+        return finishModel(std::move(model), std::move(buffer), {triangle(bytes), triangle(halves)});
+    }
+
+    void unalignedTests(const std::shared_ptr<GraphicsDevice>& device)
+    {
+        std::cout << "\nUnaligned attributes\n";
+        forEachContainer(unalignedColorTriangles, device, 2, [](const GlbContainerResource& container,
+                                                                const LoadPath path) {
+            const auto colorOf = [](const std::vector<float>& v, const int vertex) {
+                const size_t at = static_cast<size_t>(vertex) * 18 + 14;
+                return std::array<float, 4>{v[at], v[at + 1], v[at + 2], v[at + 3]};
+            };
+            const auto matches = [](const std::array<float, 4>& c, const float r, const float g, const float b) {
+                return nearStrict(c[0], r, kTolerance) && nearStrict(c[1], g, kTolerance) &&
+                       nearStrict(c[2], b, kTolerance) && c[3] == 1.0f;
+            };
+            const auto bytes = vertexFloats(container, 0);
+            check(vertexStride(container, 0) == 72 && bytes.size() == 3 * 18 &&
+                  matches(colorOf(bytes, 0), 1.0f, 0.0f, 0.0f) && matches(colorOf(bytes, 1), 0.0f, 1.0f, 0.0f) &&
+                  matches(colorOf(bytes, 2), 0.2f, 0.4f, 1.0f),
+                label(path, "a uint8 RGB colour at a stride of 3 bytes reads every vertex, alpha 1"));
+            const auto halves = vertexFloats(container, 1);
+            check(vertexStride(container, 1) == 72 && halves.size() == 3 * 18 &&
+                  matches(colorOf(halves, 0), 1.0f, 0.0f, 0.0f) && matches(colorOf(halves, 1), 0.0f, 1.0f, 0.0f) &&
+                  matches(colorOf(halves, 2), 0.0f, 0.0f, 1.0f),
+                label(path, "a uint16 RGB colour at an odd offset reads every vertex, alpha 1"));
+        });
+    }
 }
 
 int main()
@@ -575,5 +657,6 @@ int main()
     sparseTests(device);
     materialTests(device);
     colorTests(device);
+    unalignedTests(device);
     return finish("GLB vertex attributes");
 }

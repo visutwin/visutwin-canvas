@@ -24,6 +24,7 @@ namespace visutwin::canvas
     void SkinInstance::setBones(std::vector<GraphNode*> bones)
     {
         _bones = std::move(bones);
+        ++_bonesVersion;
     }
 
     void SkinInstance::updateMatrixPalette(GraphNode* rootNode)

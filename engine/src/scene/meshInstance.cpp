@@ -400,6 +400,7 @@ namespace visutwin::canvas
     void MeshInstance::setSkinInstance(const std::shared_ptr<SkinInstance>& skinInstance)
     {
         _skinInstance = skinInstance;
+        _aabbVer = -1;
         CullVersion::bump();
         // Skinned instances can be frustum-culled only when per-bone AABBs exist
         // (GLB parser computes them); otherwise the bind-pose AABB is invalid under
@@ -422,16 +423,28 @@ namespace visutwin::canvas
             return _updateAabbFunc(_aabb);
         }
 
-        // Use local space override aabb if specified
+        // The world bounds change only when the node moves, the mesh bounds change, or, for a
+        // skinned instance without custom bounds, a bone moves. Every camera, shadow camera
+        // and cascade reads them, so they are evaluated once and kept until one of those does.
+        const int meshVer = _mesh ? _mesh->aabbVer() : -1;
+        const bool boneBounds = _skinInstance && !_customAabb;
+        const uint64_t skinVer = boneBounds ? skinBoundsVersion() : 0;
+        if (_node && _aabbVer == _node->aabbVer() && _aabbMeshVer == meshVer && _aabbSkinVer == skinVer) {
+            return _aabb;
+        }
+        const auto remember = [&] {
+            if (_node) {
+                _aabbVer = _node->aabbVer();
+                _aabbMeshVer = meshVer;
+                _aabbSkinVer = skinVer;
+            }
+        };
+
+        // Use local space override aabb if specified, otherwise evaluate local aabb
         BoundingBox localAabbStorage;
-        BoundingBox* localAabb = _customAabb;
-        bool toWorldSpace = (localAabb != nullptr);
-
-        // Otherwise evaluate local aabb
+        const BoundingBox* localAabb = _customAabb;
         if (!localAabb) {
-            localAabb = &localAabbStorage;
-
-            if (_skinInstance) {
+            if (boneBounds) {
                 // Bone-driven world AABB: union of each used bone's bind-space AABB
                 // transformed by bone.worldTransform * inverseBindPose (the same
                 // transform GPU skinning applies). Valid in any animated pose.
@@ -462,58 +475,57 @@ namespace visutwin::canvas
                     }
                     if (!first) {
                         _aabb = worldAabb;
+                        remember();
                         return _aabb;
                     }
                 }
-
-                // Fallback (no bone AABBs, e.g. non-GLB skins): bind-pose mesh AABB —
+                // Fallback (no bone AABBs, e.g. non-GLB skins): the bind-pose mesh AABB below,
                 // invalid under animation, which is why such instances keep cull=false.
-                if (_mesh) {
-                    localAabb->setCenter(_mesh->aabb().center());
-                    localAabb->setHalfExtents(_mesh->aabb().halfExtents());
-                } else {
-                    localAabb->setCenter(0, 0, 0);
-                    localAabb->setHalfExtents(0, 0, 0);
-                }
-                toWorldSpace = true;
-            } else if (_node && (_aabbVer != _node->aabbVer() || (_mesh && _aabbMeshVer != _mesh->aabbVer()))) {
-                // Local space bounding box from mesh
-                if (_mesh) {
-                    localAabb->setCenter(_mesh->aabb().center());
-                    localAabb->setHalfExtents(_mesh->aabb().halfExtents());
-                } else {
-                    localAabb->setCenter(0, 0, 0);
-                    localAabb->setHalfExtents(0, 0, 0);
-                }
-
-                // A morph moves vertices past the rest pose, so the local bounds grow by
-                // its delta bounds. Culling, light
-                // culling and the shadow fit all read these; left at the rest pose, a
-                // mesh whose targets push it outward was culled while still on screen.
-                if (_morphInstance && _morphInstance->morph()) {
-                    // Adding the delta box's min to the min and its max to the max moves
-                    // the centre by the delta box's centre and widens by its extents.
-                    const BoundingBox& morphAabb = _morphInstance->morph()->aabb();
-                    localAabb->setCenter(localAabb->center() + morphAabb.center());
-                    localAabb->setHalfExtents(localAabb->halfExtents() + morphAabb.halfExtents());
-                }
-
-                toWorldSpace = true;
-                if (_node) {
-                    _aabbVer = _node->aabbVer();
-                }
-                if (_mesh) {
-                    _aabbMeshVer = _mesh->aabbVer();
-                }
             }
+
+            // Local space bounding box from mesh
+            if (_mesh) {
+                localAabbStorage.setCenter(_mesh->aabb().center());
+                localAabbStorage.setHalfExtents(_mesh->aabb().halfExtents());
+            } else {
+                localAabbStorage.setCenter(0, 0, 0);
+                localAabbStorage.setHalfExtents(0, 0, 0);
+            }
+
+            // A morph moves vertices past the rest pose, so the local bounds grow by
+            // its delta bounds. Culling, light
+            // culling and the shadow fit all read these; left at the rest pose, a
+            // mesh whose targets push it outward was culled while still on screen.
+            // The bind-pose fallback of a skinned mesh does not grow.
+            if (!_skinInstance && _morphInstance && _morphInstance->morph()) {
+                // Adding the delta box's min to the min and its max to the max moves
+                // the centre by the delta box's centre and widens by its extents.
+                const BoundingBox& morphAabb = _morphInstance->morph()->aabb();
+                localAabbStorage.setCenter(localAabbStorage.center() + morphAabb.center());
+                localAabbStorage.setHalfExtents(localAabbStorage.halfExtents() + morphAabb.halfExtents());
+            }
+            localAabb = &localAabbStorage;
         }
 
         // Store world space bounding box
-        if (toWorldSpace && _node) {
+        if (_node) {
             _aabb.setFromTransformedAabb(*localAabb, _node->worldTransform());
         }
-
+        remember();
         return _aabb;
+    }
+
+    uint64_t MeshInstance::skinBoundsVersion() const
+    {
+        // Each node's aabbVer only grows, so the sum grows whenever any bone moves; the
+        // bones version and the count separate a sum another set of bones happens to reach.
+        uint64_t version = (uint64_t{_skinInstance->bonesVersion()} << 32) + 1;
+        for (const auto* bone : _skinInstance->bones()) {
+            if (bone) {
+                version += static_cast<uint32_t>(bone->aabbVer()) + 1u;
+            }
+        }
+        return version;
     }
 
     void MeshInstance::setRenderStyle(const int style)
